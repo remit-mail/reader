@@ -33,6 +33,7 @@ export { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";
 export { CalendarObjectRepo } from "./repos/calendar-object.js";
 export { DrizzleCalendarStore } from "./repos/calendar-store.js";
 export { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
+export { CalendarTaskRepo } from "./repos/calendar-task.js";
 export {
 	type CascadeDeleteLogger,
 	type CascadeDeleter,
@@ -78,6 +79,7 @@ export {
 	type MessageObjectStore,
 	messageObjectsInMemory,
 } from "./repos/message-objects.js";
+export { OutboxSchedulingPartRepo } from "./repos/outbox-scheduling-part.js";
 export { QuarantineRepo } from "./repos/quarantine.js";
 export { SyncWarningRepo } from "./repos/sync-warning.js";
 export { DrizzleThreadMessageRepository } from "./repos/thread-message.js";

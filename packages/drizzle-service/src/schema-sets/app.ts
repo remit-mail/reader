@@ -11,6 +11,7 @@ export {
 	calendarEventIndexes,
 	calendarFeedTokens,
 	calendarObjects,
+	calendarTasks,
 	configImports,
 	filters,
 	labels,

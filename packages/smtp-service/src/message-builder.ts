@@ -1,4 +1,7 @@
-import type { OutboxMessageItem } from "@remit/data-ports";
+import type {
+	OutboxMessageItem,
+	OutboxSchedulingPartItem,
+} from "@remit/data-ports";
 import { wireMessageId } from "@remit/data-ports/id";
 import nodemailer, { type SendMailOptions } from "nodemailer";
 
@@ -16,6 +19,8 @@ export interface MailMessage {
 	references?: string | undefined;
 	date?: Date | undefined;
 	attachments?: MailAttachment[] | undefined;
+	/** A calendar scheduling message's `text/calendar; method=…` part (RFC 6047). */
+	icalEvent?: { method: string; content: string } | undefined;
 }
 
 export interface MailAttachment {
@@ -47,6 +52,7 @@ const placeAttachment = (
 export const buildMailMessage = (
 	outbox: OutboxMessageItem,
 	attachments?: MailAttachment[],
+	schedulingPart?: Pick<OutboxSchedulingPartItem, "method" | "icalData"> | null,
 ): MailMessage => ({
 	from: formatFrom(outbox.fromAddress, outbox.fromName),
 	to: outbox.toAddresses,
@@ -66,6 +72,12 @@ export const buildMailMessage = (
 	attachments: attachments?.map((attachment) =>
 		placeAttachment(attachment, outbox.htmlBody),
 	),
+	icalEvent: schedulingPart
+		? {
+				method: schedulingPart.method.toUpperCase(),
+				content: schedulingPart.icalData,
+			}
+		: undefined,
 });
 
 export const toNodemailerOptions = (message: MailMessage): SendMailOptions => ({
@@ -88,6 +100,7 @@ export const toNodemailerOptions = (message: MailMessage): SendMailOptions => ({
 		cid: a.cid,
 		contentDisposition: a.contentDisposition,
 	})),
+	icalEvent: message.icalEvent,
 });
 
 /** The same message as RFC822 bytes, for an IMAP APPEND. */

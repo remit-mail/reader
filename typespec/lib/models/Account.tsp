@@ -436,6 +436,9 @@ model ConfigDescriptionResponse {
 
   @doc("Absent unless a configuration import is still waiting on folders IMAP has not produced yet (#1021). Nothing polls a separate route for it.")
   pendingImport?: PendingConfigImport;
+
+  @doc("The account calendar invitations are sent from unless the event editor picks another: the `CalendarDefaultOrganizerAccountId` setting. `\"\"` when none is set, and the editor starts on the first account.")
+  calendarDefaultOrganizerAccountId: string;
 }
 
 @doc("A configuration export: one versioned document carrying every user decision this instance holds, and no credential.")
@@ -517,6 +520,9 @@ model CreateAccountInput {
 model UpdateAccountInput {
   @doc("Display name")
   displayName?: string;
+
+  @doc("`true` makes this account the one calendar invitations are sent from by default. `false` clears the default when it is this account.")
+  calendarDefaultOrganizer?: boolean;
 
   @doc("Account password (only if changing)")
   @secret

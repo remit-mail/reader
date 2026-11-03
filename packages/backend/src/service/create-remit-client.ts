@@ -10,6 +10,7 @@ import type {
 	ICalendarObjectRepository,
 	ICalendarStore,
 	ICalendarSuggestionRepository,
+	ICalendarTaskRepository,
 	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterRepository,
@@ -25,6 +26,7 @@ import type {
 	IOrganizeJobRequestRepository,
 	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
+	IOutboxSchedulingPartRepository,
 	IQuarantineRepository,
 	ISenderSignerStandingRepository,
 	ISyncWarningRepository,
@@ -82,6 +84,7 @@ export interface RemitClientCore {
 	message: IMessageRepository;
 	messageFlag: IMessageFlagRepository;
 	outboxMessage: IOutboxMessageRepository;
+	outboxSchedulingPart: IOutboxSchedulingPartRepository;
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
@@ -131,6 +134,7 @@ export interface RemitClientCore {
 	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarSuggestion: ICalendarSuggestionRepository;
 	calendarStore: ICalendarStore;
+	calendarTask: ICalendarTaskRepository;
 
 	// Storage service
 	storage: StorageService;
@@ -206,6 +210,7 @@ export interface RemitClientRepositories {
 	message: IMessageRepository;
 	messageFlag: IMessageFlagRepository;
 	outboxMessage: IOutboxMessageRepository;
+	outboxSchedulingPart: IOutboxSchedulingPartRepository;
 	outboxAttachment: IOutboxAttachmentRepository;
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
@@ -226,6 +231,7 @@ export interface RemitClientRepositories {
 	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarSuggestion: ICalendarSuggestionRepository;
 	calendarStore: ICalendarStore;
+	calendarTask: ICalendarTaskRepository;
 }
 
 export interface RemitClientSharedDeps {
@@ -321,6 +327,7 @@ export const createRemitCore = (
 		message: repositories.message,
 		messageFlag: repositories.messageFlag,
 		outboxMessage: repositories.outboxMessage,
+		outboxSchedulingPart: repositories.outboxSchedulingPart,
 		threadMessage: repositories.threadMessage,
 		envelope: repositories.envelope,
 		accountExportRequest: repositories.accountExportRequest,
@@ -338,6 +345,7 @@ export const createRemitCore = (
 		calendarFeedToken: repositories.calendarFeedToken,
 		calendarSuggestion: repositories.calendarSuggestion,
 		calendarStore: repositories.calendarStore,
+		calendarTask: repositories.calendarTask,
 		storage,
 		secrets,
 		placementMove: repositories.placementMove,
@@ -446,6 +454,7 @@ export const composeReadPathServices = (
 			calendarSuggestionService: core.calendarSuggestion,
 			calendarStore: core.calendarStore,
 			filterService: core.filter,
+			accountService: core.account,
 		},
 	),
 });

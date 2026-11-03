@@ -8,7 +8,7 @@ enum CalendarSuggestionState {
   @doc("The user added it to a calendar. `acceptedCalendarObjectId` names the resource that was written.")
   Accepted: "Accepted",
 
-  @doc("The user said no. No calendar object was written, and no reply was sent to the organizer.")
+  @doc("The user said no. Declined from the card, nothing was written and no reply was sent. Declined from the stored event the card wrote, the event stays in the calendar as declined and `acceptedCalendarObjectId` still names it.")
   Declined: "Declined",
 
   @doc("The user has not committed. Kept distinct from `Pending` so a card that was answered tentatively is not offered again as unanswered.")

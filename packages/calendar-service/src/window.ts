@@ -5,7 +5,11 @@ import type {
 	ICalendarEventIndexRepository,
 	ICalendarObjectRepository,
 } from "@remit/data-ports";
-import { CalendarEventStatus, CalendarTransparency } from "@remit/domain-enums";
+import {
+	CalendarEventStatus,
+	CalendarParticipation,
+	CalendarTransparency,
+} from "@remit/domain-enums";
 import { expandCalendarWindow } from "./expand.js";
 import { parseCalendar } from "./parse.js";
 import { toOffsetIso, toUtcIso } from "./time.js";
@@ -44,6 +48,7 @@ export interface CalendarInstance {
 	zoneCertainty: CalendarObjectItem["zoneCertainty"];
 	etag: string;
 	hasRecurrence: boolean;
+	participation: CalendarOccurrenceInput["participation"];
 }
 
 export interface CalendarWindowRepositories {
@@ -81,6 +86,7 @@ const instanceOf = (
 	zoneCertainty: object.zoneCertainty,
 	etag: object.etag,
 	hasRecurrence: object.hasRecurrence,
+	participation: occurrence.participation,
 });
 
 /**
@@ -95,6 +101,7 @@ export const listCalendarInstances = async (
 	repositories: CalendarWindowRepositories,
 	collections: CalendarCollectionItem[],
 	window: CalendarWindow,
+	self: ReadonlySet<string>,
 ): Promise<CalendarInstance[]> => {
 	const fromMs = Date.parse(window.from);
 	const toMs = Date.parse(window.to);
@@ -145,6 +152,7 @@ export const listCalendarInstances = async (
 			const occurrences = expandCalendarWindow(
 				parsed.value,
 				collection.timezone,
+				self,
 				{ fromMs: fromMs - LOOKBACK_MS, toMs },
 			);
 			for (const occurrence of occurrences) {
@@ -170,6 +178,7 @@ export const listObjectInstances = async (
 	collection: CalendarCollectionItem,
 	object: CalendarObjectItem,
 	window: CalendarWindow,
+	self: ReadonlySet<string>,
 ): Promise<CalendarInstance[]> => {
 	const fromMs = Date.parse(window.from);
 	const toMs = Date.parse(window.to);
@@ -181,7 +190,7 @@ export const listObjectInstances = async (
 				collection.calendarId,
 				object.calendarObjectId,
 			)
-		: await expandObject(object, collection.timezone, fromMs, toMs);
+		: await expandObject(object, collection.timezone, self, fromMs, toMs);
 
 	return occurrences
 		.map((occurrence) => instanceOf(collection, object, occurrence))
@@ -192,6 +201,7 @@ export const listObjectInstances = async (
 const expandObject = async (
 	object: CalendarObjectItem,
 	timezone: string,
+	self: ReadonlySet<string>,
 	fromMs: number,
 	toMs: number,
 ): Promise<CalendarOccurrenceInput[]> => {
@@ -201,7 +211,7 @@ const expandObject = async (
 			`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
 		);
 	}
-	return expandCalendarWindow(parsed.value, timezone, {
+	return expandCalendarWindow(parsed.value, timezone, self, {
 		fromMs: fromMs - LOOKBACK_MS,
 		toMs,
 	});
@@ -231,7 +241,8 @@ export interface BusySpan {
  */
 export const isBusy = (instance: CalendarInstance): boolean =>
 	instance.transparency === CalendarTransparency.Opaque &&
-	instance.status !== CalendarEventStatus.Cancelled;
+	instance.status !== CalendarEventStatus.Cancelled &&
+	instance.participation !== CalendarParticipation.Declined;
 
 /**
  * Collapses overlapping and touching spans into the stretches they cover.
@@ -264,6 +275,7 @@ export const listBusySpans = async (
 	repositories: CalendarWindowRepositories,
 	collections: CalendarCollectionItem[],
 	window: CalendarWindow,
+	self: ReadonlySet<string>,
 ): Promise<BusySpan[]> => {
 	const fromMs = Date.parse(window.from);
 	const toMs = Date.parse(window.to);
@@ -271,6 +283,7 @@ export const listBusySpans = async (
 		repositories,
 		collections,
 		window,
+		self,
 	);
 	return mergeBusySpans(
 		instances.filter(isBusy).map((instance) => ({

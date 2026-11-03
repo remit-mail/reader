@@ -327,6 +327,7 @@ export const writeCalendarFeed = async (
 			calendarId: target.calendarId,
 			resourceName: resource.resourceName,
 			icalData: resource.icalData,
+			selfAddresses: [],
 		});
 		if (!put.ok) {
 			write.skipped += 1;

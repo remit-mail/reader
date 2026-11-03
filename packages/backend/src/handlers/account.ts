@@ -15,6 +15,7 @@ import { ensureAccountConfig } from "@remit/data-ports/account-config";
 import {
 	AccountAuthType,
 	AccountService,
+	AccountSettingName,
 	ConnectionState,
 } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
@@ -413,7 +414,8 @@ type AccountSettingField =
 	| "composeLanguages"
 	| "muted"
 	| "signaturePlainText"
-	| "signatureHtml";
+	| "signatureHtml"
+	| "calendarDefaultOrganizer";
 
 type AccountEntityField = Exclude<
 	keyof UpdateAccountInput,
@@ -473,6 +475,30 @@ export const AccountDetailOperations = {
 				accountId,
 				input.displayName,
 			);
+		}
+		if (input.calendarDefaultOrganizer === true) {
+			await accountSetting.upsert({
+				accountConfigId,
+				name: AccountSettingName.CalendarDefaultOrganizerAccountId,
+				value: { kind: "String", value: accountId },
+			});
+		}
+		if (input.calendarDefaultOrganizer === false) {
+			const current = await accountSetting.get(
+				accountConfigId,
+				AccountSettingName.CalendarDefaultOrganizerAccountId,
+			);
+			const value = current?.value;
+			if (
+				value !== undefined &&
+				value.kind === "String" &&
+				value.value === accountId
+			) {
+				await accountSetting.delete(
+					accountConfigId,
+					AccountSettingName.CalendarDefaultOrganizerAccountId,
+				);
+			}
 		}
 		if (input.composeLanguages !== undefined) {
 			await writeAccountComposeLanguages(

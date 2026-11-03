@@ -226,6 +226,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 					calendarSuggestionService: store.calendarSuggestion,
 					calendarStore: store.calendarStore,
 					filterService: store.filter,
+					accountService: store.account,
 				}
 			: undefined,
 	);

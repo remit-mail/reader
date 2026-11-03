@@ -83,6 +83,9 @@ import "./CalendarComponentSet.tsp";
 import "./CalendarSource.tsp";
 import "./CalendarEventStatus.tsp";
 import "./CalendarTransparency.tsp";
+import "./CalendarParticipation.tsp";
+import "./CalendarAttendeeRole.tsp";
+import "./CalendarAttendeeStatus.tsp";
 import "./RecurrenceScope.tsp";
 import "./ZoneCertainty.tsp";
 

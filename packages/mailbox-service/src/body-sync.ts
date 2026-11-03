@@ -1,11 +1,13 @@
 import { inspect } from "node:util";
 import {
 	provisionDefaultCalendar,
+	recordCalendarReply,
 	recordCalendarSuggestion,
 } from "@remit/calendar-service";
 import {
 	type BodyPartItem,
 	type FilterItem,
+	type IAccountRepository,
 	type IAddressRepository,
 	type ICalendarStore,
 	type ICalendarSuggestionRepository,
@@ -324,6 +326,8 @@ export interface CalendarSuggestionConfig {
 	calendarSuggestionService: ICalendarSuggestionRepository;
 	calendarStore: ICalendarStore;
 	filterService: Pick<IFilterRepository, "listByAccountAndState">;
+	/** The account config's addresses: a guest's REPLY lands only on an event the reader organizes. */
+	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
 }
 
 interface BatchLookups {
@@ -1413,7 +1417,8 @@ export class BodySyncService {
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;
 
-		const { calendarStore, calendarSuggestionService } = this.calendarConfig;
+		const { calendarStore, calendarSuggestionService, accountService } =
+			this.calendarConfig;
 
 		await Promise.resolve()
 			.then(async () => {
@@ -1442,7 +1447,25 @@ export class BodySyncService {
 					calendarStore,
 					accountConfigId,
 				);
+				const selfAddresses = (
+					await accountService.listAllByAccountConfig(accountConfigId)
+				).map((account) => account.email);
 				for (const part of parts) {
+					// A guest answering the reader's own invitation moves their answer on
+					// the organizer's copy. Local only: nothing goes back to the guest.
+					const replied = await recordCalendarReply(calendarStore, {
+						accountConfigId,
+						icalData: part.icalData,
+						selfAddresses,
+					});
+					// A reply proposes nothing to add, so it is never offered as a card.
+					if (replied !== "NotAReply") {
+						this.log.debug?.(
+							{ messageId, partPath: part.partPath, replied },
+							"Read a guest reply; no suggestion offered",
+						);
+						continue;
+					}
 					const recorded = await recordCalendarSuggestion(
 						calendarSuggestionService,
 						{

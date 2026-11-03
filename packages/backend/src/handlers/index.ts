@@ -26,6 +26,10 @@ import {
 	CalendarSuggestionOperations,
 	MessageCalendarSuggestionOperations,
 } from "./calendar-suggestion.js";
+import {
+	CalendarTaskDetailOperations,
+	CalendarTaskOperations,
+} from "./calendar-task.js";
 import { ConfigOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
@@ -70,6 +74,8 @@ export const handlers = {
 	...CalendarEventOperations,
 	...CalendarEventDetailOperations,
 	...CalendarFreeBusyOperations,
+	...CalendarTaskOperations,
+	...CalendarTaskDetailOperations,
 	...TrashOperations,
 	...SyncOperations,
 	...ThreadDetailOperations,

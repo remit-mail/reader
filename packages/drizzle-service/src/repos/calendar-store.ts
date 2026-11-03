@@ -15,6 +15,7 @@ import {
 	calendarFeedTokenTable,
 	calendarObjectTable,
 	calendarTable,
+	calendarTaskTable,
 } from "../schema.js";
 import { CalendarCollectionRepo } from "./calendar-collection.js";
 import { CalendarEventIndexRepo } from "./calendar-event-index.js";
@@ -216,6 +217,10 @@ export class DrizzleCalendarStore implements ICalendarStore {
 									summary: value(occurrence.summary, "summary"),
 									status: value(occurrence.status, "status"),
 									transparency: value(occurrence.transparency, "transparency"),
+									participation: value(
+										occurrence.participation,
+										"participation",
+									),
 									createdAt: value(now, "created_at"),
 									updatedAt: value(now, "updated_at"),
 								})
@@ -250,6 +255,9 @@ export class DrizzleCalendarStore implements ICalendarStore {
 				];
 			case "DeleteCollection":
 				return [
+					this.db
+						.delete(calendarTaskTable)
+						.where(eq(calendarTaskTable.calendarId, write.calendarId)),
 					this.db
 						.delete(calendarEventIndexTable)
 						.where(eq(calendarEventIndexTable.calendarId, write.calendarId)),

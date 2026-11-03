@@ -22,6 +22,7 @@ const eventsOf = (component: ICAL.Component): ICAL.Component[] =>
 const partstatOf: Record<CalendarInviteAnswerValue, string> = {
 	[CalendarInviteAnswer.Accepted]: "ACCEPTED",
 	[CalendarInviteAnswer.Tentative]: "TENTATIVE",
+	[CalendarInviteAnswer.Declined]: "DECLINED",
 };
 
 const stateOf: Record<
@@ -30,6 +31,7 @@ const stateOf: Record<
 > = {
 	[CalendarInviteAnswer.Accepted]: CalendarSuggestionState.Accepted,
 	[CalendarInviteAnswer.Tentative]: CalendarSuggestionState.Tentative,
+	[CalendarInviteAnswer.Declined]: CalendarSuggestionState.Declined,
 };
 
 /**
@@ -110,6 +112,8 @@ export interface AcceptCalendarSuggestionInput {
 	suggestion: CalendarSuggestionItem;
 	/** Mail address of the person accepting — the account the message arrived on. */
 	attendee: string;
+	/** The addresses of the account config's accounts, the attendee among them. */
+	selfAddresses: readonly string[];
 	answer: CalendarInviteAnswerValue;
 }
 
@@ -216,6 +220,7 @@ export const acceptCalendarSuggestion = async (
 		resourceName:
 			existing?.resourceName ?? `${input.suggestion.suggestionId}.ics`,
 		icalData: icalData.value,
+		selfAddresses: input.selfAddresses,
 	});
 	if (!write.ok) return write;
 

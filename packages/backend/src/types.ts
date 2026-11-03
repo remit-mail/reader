@@ -75,6 +75,11 @@ export type OperationIds =
 	| "CalendarEventDetailOperations_updateCalendarEvent"
 	| "CalendarEventDetailOperations_deleteCalendarEvent"
 	| "CalendarFreeBusyOperations_listCalendarFreeBusy"
+	| "CalendarTaskOperations_listCalendarTasks"
+	| "CalendarTaskOperations_createCalendarTask"
+	| "CalendarTaskDetailOperations_getCalendarTask"
+	| "CalendarTaskDetailOperations_updateCalendarTask"
+	| "CalendarTaskDetailOperations_deleteCalendarTask"
 	| "TrashOperations_emptyTrash"
 	| "OutboxOperations_createOutboxMessage"
 	| "OutboxOperations_listOutboxMessages"
@@ -243,6 +248,16 @@ export type AddressDetailOperationIds = MatchPrefix<
 
 export type MicrosoftOAuthOperationIds = MatchPrefix<
 	"MicrosoftOAuthOperations_",
+	OperationIds
+>;
+
+export type CalendarTaskOperationIds = MatchPrefix<
+	"CalendarTaskOperations_",
+	OperationIds
+>;
+
+export type CalendarTaskDetailOperationIds = MatchPrefix<
+	"CalendarTaskDetailOperations_",
 	OperationIds
 >;
 

@@ -9,6 +9,7 @@ import type {
 	RemitImapCalendarFeedResponse,
 	RemitImapCalendarResponse,
 	RemitImapCalendarSuggestionResponse,
+	RemitImapCalendarTaskResponse,
 	RemitImapCreateCalendarEventInput,
 	RemitImapCreateCalendarInput,
 	RemitImapRecurrenceScope,
@@ -245,9 +246,17 @@ export interface Label {
 export type Calendar = RemitImapCalendarResponse;
 export type CalendarEventInstance = RemitImapCalendarEventInstance;
 export type CreateCalendarEventInput = RemitImapCreateCalendarEventInput;
+
+/** An event with nobody invited needs no guests and no sending account. */
+export type NewCalendarEventInput = Omit<
+	CreateCalendarEventInput,
+	"attendees" | "organizerAccountId"
+> &
+	Partial<Pick<CreateCalendarEventInput, "attendees" | "organizerAccountId">>;
 export type UpdateCalendarEventInput = RemitImapUpdateCalendarEventInput;
 export type CreateCalendarInput = RemitImapCreateCalendarInput;
 export type CalendarSuggestion = RemitImapCalendarSuggestionResponse;
+export type CalendarTask = RemitImapCalendarTaskResponse;
 export type CalendarFeed = RemitImapCalendarFeedResponse;
 /** The stored resource a write comes back as, which is what a delete names. */
 export type CalendarEventResource = RemitImapCalendarEventResponse;
@@ -1057,10 +1066,18 @@ export class ApiClient {
 		return this.json("PUT", `/calendars/${calendarId}/feed`);
 	}
 
-	createCalendarEvent(
-		input: CreateCalendarEventInput,
+	async createCalendarEvent(
+		input: NewCalendarEventInput,
 	): Promise<CalendarEventResource> {
-		return this.json("POST", "/calendar-events", input);
+		const organizerAccountId =
+			input.organizerAccountId ??
+			(await this.getConfig()).accounts?.[0]?.accountId ??
+			"";
+		return this.json("POST", "/calendar-events", {
+			attendees: [],
+			...input,
+			organizerAccountId,
+		});
 	}
 
 	getCalendarEvent(
@@ -1100,6 +1117,60 @@ export class ApiClient {
 			`/messages/${messageId}/calendar-suggestions`,
 		);
 		return result.items ?? [];
+	}
+
+	/** The account's suggestions still waiting on an answer. */
+	async listPendingCalendarSuggestions(): Promise<CalendarSuggestion[]> {
+		const result = await this.json<ResultList<CalendarSuggestion>>(
+			"GET",
+			"/calendar-suggestions?state=Pending",
+		);
+		return result.items ?? [];
+	}
+
+	acceptCalendarSuggestion(
+		suggestionId: string,
+		calendarId: string,
+		answer: "Accepted" | "Tentative" = "Accepted",
+	): Promise<CalendarSuggestion> {
+		return this.json("POST", `/calendar-suggestions/${suggestionId}/accept`, {
+			calendarId,
+			answer,
+		});
+	}
+
+	listCalendarTasks(
+		from: string,
+		to: string,
+	): Promise<{ items: CalendarTask[] }> {
+		return this.json(
+			"GET",
+			`/calendar-tasks?${new URLSearchParams({ from, to })}`,
+		);
+	}
+
+	createCalendarTask(input: Record<string, unknown>): Promise<CalendarTask> {
+		return this.json("POST", "/calendar-tasks", input);
+	}
+
+	updateCalendarTask(
+		task: Pick<CalendarTask, "calendarTaskId" | "calendarId">,
+		patch: Record<string, unknown>,
+	): Promise<CalendarTask> {
+		return this.json(
+			"PATCH",
+			`/calendar-tasks/${task.calendarTaskId}?calendarId=${task.calendarId}`,
+			patch,
+		);
+	}
+
+	deleteCalendarTask(
+		task: Pick<CalendarTask, "calendarTaskId" | "calendarId">,
+	): Promise<Response> {
+		return this.request(
+			"DELETE",
+			`/calendar-tasks/${task.calendarTaskId}?calendarId=${task.calendarId}`,
+		);
 	}
 
 	dismissCalendarSuggestion(

@@ -109,6 +109,8 @@ test.describe("Subscribing to a calendar feed", () => {
 			summary: "Smuggled in",
 			start: "2026-11-18T12:00:00+00:00",
 			end: "2026-11-18T13:00:00+00:00",
+			attendees: [],
+			organizerAccountId: (await api.getConfig()).accounts?.[0]?.accountId,
 		});
 		expect(added.status).toBe(400);
 		expect((await added.json()).code).toBe("read_only_calendar");

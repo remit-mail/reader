@@ -99,6 +99,8 @@ class Subscriber {
 				start: "2026-09-07T09:00:00+00:00",
 				end: "2026-09-07T10:00:00+00:00",
 				recurrenceRule,
+				attendees: [],
+				organizerAccountId: "0".repeat(25),
 			},
 		});
 		assert.equal(created.statusCode, 200, created.body);
@@ -112,7 +114,7 @@ class Subscriber {
 			sub: this.sub,
 			query: { calendarId },
 		});
-		assert.equal(removed.statusCode, 204, removed.body);
+		assert.equal(removed.statusCode, 200, removed.body);
 	}
 
 	async mintFeed(calendarId: string): Promise<string> {

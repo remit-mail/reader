@@ -9,6 +9,7 @@ import {
 	isResolvableZone,
 	prepareCalendarObject,
 	provisionDefaultCalendar,
+	provisionTaskCalendar,
 	readCalendarFeed,
 	readSubscriptionUrl,
 	writeCalendarFeed,
@@ -16,15 +17,17 @@ import {
 import type {
 	CalendarCollectionItem,
 	CalendarWrite,
+	IAccountRepository,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
 	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
 	ICalendarStore,
+	ICalendarTaskRepository,
 	UpdateCalendarCollectionInput,
 } from "@remit/data-ports";
 import { normalizeCalendarUrlSegment } from "@remit/data-ports/id";
-import { CalendarSource } from "@remit/domain-enums";
+import { CalendarComponentSet, CalendarSource } from "@remit/domain-enums";
 import { defaultErrorCode } from "../error.js";
 import type { RemitClient } from "../service/data-client.js";
 import type {
@@ -42,6 +45,8 @@ export interface CalendarDeps {
 	calendarEventIndex: ICalendarEventIndexRepository;
 	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarStore: ICalendarStore;
+	calendarTask: ICalendarTaskRepository;
+	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 }
 
 /** Why a calendar request was refused, in a form a client can branch on. */
@@ -103,7 +108,21 @@ export const calendarDepsOf = (client: RemitClient<never>): CalendarDeps => ({
 	calendarEventIndex: client.calendarEventIndex,
 	calendarFeedToken: client.calendarFeedToken,
 	calendarStore: client.calendarStore,
+	calendarTask: client.calendarTask,
+	accounts: client.account,
 });
+
+/**
+ * The addresses that are the reader: every account of the account config.
+ * An occurrence's `participation` is projected against them.
+ */
+export const selfAddressesFor = async (
+	deps: Pick<CalendarDeps, "accounts">,
+	accountConfigId: string,
+): Promise<string[]> =>
+	(await deps.accounts.listAllByAccountConfig(accountConfigId)).map(
+		(account) => account.email,
+	);
 
 const toCalendarResponse = (
 	item: CalendarCollectionItem,
@@ -141,9 +160,19 @@ export const listCalendarsFor = async (
 ): Promise<CalendarCollectionItem[]> => {
 	const existing =
 		await deps.calendarCollection.listByAccountConfig(accountConfigId);
-	if (existing.length > 0) return existing;
+	const hasEvents = existing.some(
+		(collection) => collection.componentSet === CalendarComponentSet.VeventOnly,
+	);
+	const hasTasks = existing.some(
+		(collection) => collection.componentSet === CalendarComponentSet.VtodoOnly,
+	);
+	if (hasEvents && hasTasks) return existing;
 
-	await provisionDefaultCalendar(deps.calendarStore, accountConfigId);
+	if (!hasEvents) {
+		await provisionDefaultCalendar(deps.calendarStore, accountConfigId);
+	}
+	if (!hasTasks)
+		await provisionTaskCalendar(deps.calendarStore, accountConfigId);
 	return deps.calendarCollection.listByAccountConfig(accountConfigId);
 };
 
@@ -180,6 +209,12 @@ export const findWritableCalendarFor = async (
 ): Promise<CalendarOutcome<CalendarCollectionItem>> => {
 	const found = await findCalendarFor(deps, accountConfigId, calendarId);
 	if (!found.ok) return found;
+	if (found.value.componentSet === CalendarComponentSet.VtodoOnly) {
+		return refuseCalendar(
+			"NotAnEventCalendar",
+			`"${found.value.displayName}" holds tasks, so an event cannot be written into it`,
+		);
+	}
 	if (found.value.source === CalendarSource.Subscribed) {
 		return refuseCalendar(
 			"ReadOnlyCalendar",
@@ -403,6 +438,7 @@ export const updateCalendarFor = async (
 	const rewrites: CalendarWrite[] = [];
 	if (rezone) {
 		const zone = { timezone: patch.timezone ?? current.value.timezone };
+		const selfAddresses = await selfAddressesFor(deps, accountConfigId);
 		for (const object of await repos.calendarObject.listByCalendar(
 			calendarId,
 		)) {
@@ -411,6 +447,7 @@ export const updateCalendarFor = async (
 				calendarId,
 				resourceName: object.resourceName,
 				icalData: object.icalData,
+				selfAddresses,
 			});
 			if (!rewritten.ok) {
 				throw new Error(

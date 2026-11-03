@@ -53,6 +53,7 @@ class FailingLastWriteStore implements ICalendarStore {
 		const orphan = await prepareCalendarObject(
 			{ timezone: "" },
 			{
+				selfAddresses: [],
 				accountConfigId: ACCOUNT_CONFIG_ID,
 				calendarId: "no-such-calendar",
 				resourceName: "orphan.ics",
@@ -93,6 +94,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 
 		test("writes the object, its occurrences and the sequence bump together", async () => {
 			const result = await putCalendarObject(store, {
+				selfAddresses: [],
 				accountConfigId: ACCOUNT_CONFIG_ID,
 				calendarId,
 				resourceName: "review.ics",
@@ -121,6 +123,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 
 			await assert.rejects(
 				putCalendarObject(new FailingLastWriteStore(store), {
+					selfAddresses: [],
 					accountConfigId: ACCOUNT_CONFIG_ID,
 					calendarId,
 					resourceName: "doomed.ics",
@@ -142,6 +145,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 
 			await assert.rejects(
 				putCalendarObject(new FailingLastWriteStore(store), {
+					selfAddresses: [],
 					accountConfigId: ACCOUNT_CONFIG_ID,
 					calendarId,
 					resourceName: "doomed-again.ics",
@@ -159,6 +163,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 			const [collectionBefore] = await db.select().from(calendarTable);
 
 			const result = await putCalendarObject(store, {
+				selfAddresses: [],
 				accountConfigId: ACCOUNT_CONFIG_ID,
 				calendarId,
 				resourceName: "backwards.ics",
@@ -187,6 +192,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 
 		test("rewriting a resource replaces its occurrences rather than adding to them", async () => {
 			const first = await putCalendarObject(store, {
+				selfAddresses: [],
 				accountConfigId: ACCOUNT_CONFIG_ID,
 				calendarId,
 				resourceName: "shrinking.ics",
@@ -195,6 +201,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 			assert.ok(first.ok);
 
 			const second = await putCalendarObject(store, {
+				selfAddresses: [],
 				accountConfigId: ACCOUNT_CONFIG_ID,
 				calendarId,
 				resourceName: "shrinking.ics",

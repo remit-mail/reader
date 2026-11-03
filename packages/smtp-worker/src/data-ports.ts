@@ -30,6 +30,7 @@ const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 		account: repositories.account,
 		outboxMessage: repositories.outboxMessage,
 		outboxAttachment: repositories.outboxAttachment,
+		outboxSchedulingPart: repositories.outboxSchedulingPart,
 		address: repositories.address,
 		message: repositories.message,
 		envelope: repositories.envelope,

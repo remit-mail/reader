@@ -43,6 +43,13 @@
       "when": 1793264569833,
       "tag": "0005_thread_message_deleted_means_expunge",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793708341744,
+      "tag": "0006_outbox_scheduling_part",
+      "breakpoints": true
     }
   ]
 }

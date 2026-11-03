@@ -16,6 +16,7 @@ import type {
 } from "@remit/data-ports";
 import { ConfigNotEmptyError, NotFoundError } from "@remit/data-ports/errors";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
+import { AccountSettingName } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import {
 	hasStoredCredential,
@@ -145,7 +146,23 @@ const emptyConfigResponse = (
 		},
 		accounts: [],
 		buildCommit: commit,
+		calendarDefaultOrganizerAccountId: "",
 	};
+};
+
+/** The account calendar invitations go out from by default, `""` when none is set. */
+const calendarDefaultOrganizerOf = (
+	settings: readonly { name: string; value: unknown }[],
+): string => {
+	const value = settings.find(
+		(setting) =>
+			setting.name === AccountSettingName.CalendarDefaultOrganizerAccountId,
+	)?.value;
+	if (typeof value !== "object" || value === null) return "";
+	const inner = Reflect.get(value, "value");
+	return Reflect.get(value, "kind") === "String" && typeof inner === "string"
+		? inner
+		: "";
 };
 
 export const ConfigOperations = {
@@ -225,6 +242,8 @@ export const ConfigOperations = {
 			accountConfig: toAccountConfigResponse(accountConfig),
 			...(pendingImport ? { pendingImport } : {}),
 			buildCommit: ctx.config.commit,
+			calendarDefaultOrganizerAccountId:
+				calendarDefaultOrganizerOf(allSettings),
 			accounts: activeAccounts.map((acc) =>
 				toAccountResponse(
 					acc,

@@ -193,6 +193,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -218,6 +219,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Tentative,
 		});
 
@@ -244,6 +246,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -264,6 +267,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 		const second = await acceptCalendarSuggestion(store, {
@@ -271,6 +275,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -295,6 +300,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: first,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -308,6 +314,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: revision,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -334,6 +341,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: cancel,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -362,6 +370,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: request,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -378,6 +387,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: cancel,
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 
@@ -394,6 +404,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: suggestionOf("BEGIN:VCALENDAR"),
 			attendee: ATTENDEE,
+			selfAddresses: [ATTENDEE],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 

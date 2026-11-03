@@ -5,6 +5,7 @@ import type {
 	IMessageRepository,
 	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
+	IOutboxSchedulingPartRepository,
 } from "@remit/data-ports";
 
 /**
@@ -15,6 +16,7 @@ export interface SmtpDataPorts {
 	account: IAccountRepository;
 	outboxMessage: IOutboxMessageRepository;
 	outboxAttachment: IOutboxAttachmentRepository;
+	outboxSchedulingPart: IOutboxSchedulingPartRepository;
 	address: IAddressRepository;
 	message: IMessageRepository;
 	envelope: IEnvelopeRepository;

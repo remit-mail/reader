@@ -69,7 +69,7 @@ const contextOf = (request: {
 
 type LambdaEvent = APIGatewayProxyEvent;
 
-const callerOf = (sub: string): HandlerContext => ({
+const callerOf = (sub: string): HandlerContext<"smtp"> => ({
 	client,
 	config: testApiConfig(),
 	identity: {
@@ -81,13 +81,15 @@ const callerOf = (sub: string): HandlerContext => ({
 });
 
 /** A caller nobody else in this file shares a calendar with. */
-const anAccount = (): { sub: string; caller: HandlerContext } => {
+const anAccount = (): { sub: string; caller: HandlerContext<"smtp"> } => {
 	minted += 1;
 	const sub = `calendar-event-sub-${minted}`;
 	return { sub, caller: callerOf(sub) };
 };
 
-const defaultCalendarId = async (caller: HandlerContext): Promise<string> => {
+const defaultCalendarId = async (
+	caller: HandlerContext<"smtp">,
+): Promise<string> => {
 	const listed = (await listEvents(
 		contextOf({ query: WINDOW }),
 		caller,
@@ -101,7 +103,7 @@ const defaultCalendarId = async (caller: HandlerContext): Promise<string> => {
 };
 
 const seedEvent = async (
-	caller: HandlerContext,
+	caller: HandlerContext<"smtp">,
 	input: Record<string, unknown>,
 ): Promise<{ calendarObjectId: string; etag: string; icalData: string }> => {
 	const created = await createEvent(contextOf({ requestBody: input }), caller);
@@ -143,6 +145,8 @@ describe("an unauthenticated calendar request", () => {
 				summary: "Standup",
 				start: "2026-09-01T09:00:00Z",
 				end: "2026-09-01T09:15:00Z",
+				attendees: [],
+				organizerAccountId: "0".repeat(25),
 			},
 		},
 		{
@@ -590,7 +594,8 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 			caller,
 		);
 
-		assert.equal(removed.statusCode, 204);
+		assert.equal(removed.statusCode, 200);
+		assert.deepEqual(removed.body, { sends: [] });
 		assert.equal(
 			await client.calendarObject.find(calendarId, created.calendarObjectId),
 			null,
@@ -714,7 +719,7 @@ describe("GET /calendars", () => {
 
 		assert.deepEqual(
 			listed.items.map((item) => item.urlSegment),
-			["default"],
+			["default", "tasks"],
 		);
 		assert.equal(listed.items[0]?.source, "Default");
 	});

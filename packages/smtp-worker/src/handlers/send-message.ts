@@ -373,7 +373,11 @@ export const handleSendMessage = async (
 		"sending",
 	);
 
-	const message = buildMailMessage(outbox, attachments);
+	const message = buildMailMessage(
+		outbox,
+		attachments,
+		await ports.outboxSchedulingPart.find(outboxMessageId),
+	);
 
 	log.info(
 		{ outboxMessageId, to: outbox.toAddresses, subject: outbox.subject },

@@ -65,7 +65,7 @@ const store = async (
 	assert.ok(parsed.ok, `expected a parse, got ${JSON.stringify(parsed)}`);
 	const projection = projectCalendar(parsed.value, calendar.timezone);
 	assert.ok(projection.ok);
-	const expansion = expandCalendar(parsed.value, calendar.timezone);
+	const expansion = expandCalendar(parsed.value, calendar.timezone, new Set());
 	const calendarObjectId = deriveCalendarObjectId(
 		calendar.calendarId,
 		resourceName,
@@ -154,6 +154,7 @@ describe("listCalendarInstances", () => {
 			repositories([weekly]),
 			[calendar],
 			{ from: "2026-09-14T00:00:00Z", to: "2026-09-28T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -181,6 +182,7 @@ describe("listCalendarInstances", () => {
 			repositories([overnight]),
 			[calendar],
 			{ from: "2026-09-14T00:00:00Z", to: "2026-09-15T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -201,6 +203,7 @@ describe("listCalendarInstances", () => {
 			repositories([earlier]),
 			[calendar],
 			{ from: "2026-09-14T00:00:00Z", to: "2026-09-15T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(instances, []);
@@ -242,6 +245,7 @@ describe("listCalendarInstances", () => {
 			repositories([openEnded]),
 			[calendar],
 			{ from: "2026-09-14T00:00:00Z", to: "2026-09-28T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -288,6 +292,7 @@ describe("listCalendarInstances", () => {
 			repositories([distant]),
 			[calendar],
 			{ from: "2029-03-01T00:00:00Z", to: "2029-04-01T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -320,6 +325,7 @@ describe("listCalendarInstances", () => {
 			repositories([openEnded]),
 			[calendar],
 			{ from: "2020-09-14T00:00:00Z", to: "2020-09-28T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -352,6 +358,7 @@ describe("listCalendarInstances", () => {
 			repositories([amsterdam]),
 			[calendar],
 			{ from: "2026-10-01T00:00:00Z", to: "2026-11-30T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -406,6 +413,7 @@ describe("listObjectInstances", () => {
 			calendar,
 			weekly.object,
 			{ from: "2026-09-10T00:00:00Z", to: "2026-09-25T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -438,6 +446,7 @@ describe("listObjectInstances", () => {
 			calendar,
 			openEnded.object,
 			{ from: "2026-09-14T00:00:00Z", to: "2026-09-28T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -493,6 +502,7 @@ describe("listBusySpans", () => {
 			repositories([standup, review]),
 			[work, home],
 			{ from: "2026-09-14T00:00:00Z", to: "2026-09-15T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(spans, [
@@ -533,6 +543,7 @@ describe("listBusySpans", () => {
 			repositories([transparent, cancelled, busy]),
 			[calendar],
 			{ from: "2026-09-14T00:00:00Z", to: "2026-09-15T00:00:00Z" },
+			new Set(),
 		);
 
 		assert.deepEqual(spans, [
@@ -551,10 +562,15 @@ describe("listBusySpans", () => {
 			singleEvent("DTSTART:20260913T230000Z", "DTEND:20260914T010000Z"),
 		);
 
-		const spans = await listBusySpans(repositories([overnight]), [calendar], {
-			from: "2026-09-14T00:00:00Z",
-			to: "2026-09-15T00:00:00Z",
-		});
+		const spans = await listBusySpans(
+			repositories([overnight]),
+			[calendar],
+			{
+				from: "2026-09-14T00:00:00Z",
+				to: "2026-09-15T00:00:00Z",
+			},
+			new Set(),
+		);
 
 		assert.deepEqual(spans, [
 			{
@@ -601,6 +617,7 @@ describe("an occurrence a client edited on its own", () => {
 			repositories([stored]),
 			[calendar],
 			window,
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -621,6 +638,7 @@ describe("an occurrence a client edited on its own", () => {
 			repositories([stored]),
 			[calendar],
 			window,
+			new Set(),
 		);
 
 		assert.deepEqual(
@@ -641,6 +659,7 @@ describe("an occurrence a client edited on its own", () => {
 			repositories([stored]),
 			[calendar],
 			window,
+			new Set(),
 		);
 
 		assert.equal(spans.length, 2);

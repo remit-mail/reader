@@ -1,15 +1,19 @@
 import type {
 	CreateOutboxMessageInput,
+	CreateOutboxSchedulingPartInput,
 	IOutboxMessageRepository,
 	OutboxMessageItem,
 	ResultList,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
+import { base36uuid } from "@remit/data-ports/id";
 import { and, desc, eq, lt, or } from "drizzle-orm";
+import type { WriteBatch } from "../batch.js";
 import type { RepositoryDb } from "../db.js";
 import { ForbiddenError, NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
+import { outboxSchedulingPartTable } from "../schema.js";
 import { inList } from "./in-list.js";
 
 type DB = RepositoryDb<Record<string, unknown>>;
@@ -45,13 +49,21 @@ function rowToOutboxMessage(
 }
 
 export class OutboxMessageRepo implements IOutboxMessageRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private batch?: WriteBatch,
+	) {}
 
-	async create(input: CreateOutboxMessageInput): Promise<OutboxMessageItem> {
+	async create(
+		input: CreateOutboxMessageInput,
+		schedulingPart?: CreateOutboxSchedulingPartInput,
+	): Promise<OutboxMessageItem> {
 		const now = Date.now();
-		const [row] = await this.db
+		const outboxMessageId = base36uuid();
+		const insert = this.db
 			.insert(outboxMessageTable)
 			.values({
+				outboxMessageId,
 				accountId: input.accountId,
 				accountConfigId: input.accountConfigId,
 				fromAddress: input.fromAddress,
@@ -75,6 +87,26 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 				updatedAt: now,
 			})
 			.returning();
+		if (!schedulingPart) {
+			const [row] = await insert;
+			return rowToOutboxMessage(row);
+		}
+		if (!this.batch) {
+			throw new Error(
+				"OutboxMessageRepo was built without a write batch, so it cannot write a scheduling part with its message",
+			);
+		}
+		const [rows] = await this.batch([
+			insert,
+			this.db.insert(outboxSchedulingPartTable).values({
+				...schedulingPart,
+				outboxMessageId,
+				accountConfigId: input.accountConfigId,
+				createdAt: now,
+				updatedAt: now,
+			}),
+		]);
+		const [row] = rows as (typeof outboxMessageTable.$inferSelect)[];
 		return rowToOutboxMessage(row);
 	}
 
@@ -253,6 +285,14 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 					eq(outboxMessageTable.outboxMessageId, outboxMessageId),
 				),
 			);
+		await this.db
+			.delete(outboxSchedulingPartTable)
+			.where(
+				and(
+					eq(outboxSchedulingPartTable.accountConfigId, accountConfigId),
+					eq(outboxSchedulingPartTable.outboxMessageId, outboxMessageId),
+				),
+			);
 	}
 
 	async deleteMany(
@@ -266,6 +306,14 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 				and(
 					eq(outboxMessageTable.accountConfigId, accountConfigId),
 					inList(outboxMessageTable.outboxMessageId, outboxMessageIds),
+				),
+			);
+		await this.db
+			.delete(outboxSchedulingPartTable)
+			.where(
+				and(
+					eq(outboxSchedulingPartTable.accountConfigId, accountConfigId),
+					inList(outboxSchedulingPartTable.outboxMessageId, outboxMessageIds),
 				),
 			);
 	}

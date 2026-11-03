@@ -43,4 +43,7 @@ enum AccountSettingName {
 
   @doc("Deprecated tombstone: superseded by `FolderRoleAppointment` (RFC 032 exclusive-folder-appointment, issue #976). Retained only so `baseSettingName` recognises leftover `MailboxRole#<mailboxId>` rows written by the #963/#964 backfill instead of throwing; readers ignore this base. Do not write new rows under this name. Remove once the row-deletion migration ships.")
   MailboxRole,
+
+  @doc("The account a new calendar event is sent from when it has guests: the sending-account list in the event editor starts on it. String-valued (an accountId). Absent, the editor starts on the first account.")
+  CalendarDefaultOrganizerAccountId,
 }

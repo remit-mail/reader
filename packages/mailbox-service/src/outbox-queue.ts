@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+	CreateOutboxSchedulingPartInput,
 	IAccountRepository,
 	IOutboxMessageRepository,
 	OutboxMessageItem,
@@ -396,6 +397,60 @@ export class OutboxQueueService {
 		);
 
 		return outbox;
+	};
+
+	/**
+	 * Queues one calendar scheduling message — an invitation, a cancellation or
+	 * a reply — with its `text/calendar` part.
+	 *
+	 * The row is the pending record and lands first. An enqueue that fails
+	 * settles it `failed` and answers with that row rather than throwing: the
+	 * calendar write it follows is already committed, and the person needs the
+	 * failed send in front of them, with `send` as the retry, not an error that
+	 * hides which guests were reached.
+	 */
+	createAndSendScheduled = async (
+		input: CreateDraftInput,
+		schedulingPart: CreateOutboxSchedulingPartInput,
+	): Promise<OutboxMessageItem> => {
+		const domain = extractDomain(input.fromAddress);
+		const outbox = await this.outboxMessageService.create(
+			{
+				accountId: input.accountId,
+				accountConfigId: input.accountConfigId,
+				fromAddress: input.fromAddress,
+				fromName: input.fromName,
+				toAddresses: input.toAddresses,
+				subject: input.subject,
+				textBody: input.textBody,
+				messageIdValue: generateMessageId(domain),
+				status: OutboxMessageStatus.queued,
+			},
+			schedulingPart,
+		);
+		const queued = await this.enqueueSend(
+			input.accountId,
+			outbox.outboxMessageId,
+		).then(
+			() => true,
+			async (error: unknown) => {
+				this.log.error(
+					{ outboxMessageId: outbox.outboxMessageId, error: String(error) },
+					"A calendar scheduling message could not be queued; settling it failed",
+				);
+				await this.settleUnqueued(
+					input.accountConfigId,
+					outbox.outboxMessageId,
+					OutboxMessageStatus.failed,
+				);
+				return false;
+			},
+		);
+		if (queued) return outbox;
+		return this.outboxMessageService.get(
+			input.accountConfigId,
+			outbox.outboxMessageId,
+		);
 	};
 
 	deleteDraft = async (

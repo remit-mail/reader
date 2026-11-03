@@ -24,6 +24,7 @@ function rowToOccurrence(
 		summary: row.summary,
 		status: row.status,
 		transparency: row.transparency,
+		participation: row.participation,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
@@ -56,6 +57,7 @@ export class CalendarEventIndexRepo implements ICalendarEventIndexRepository {
 			summary: occurrence.summary,
 			status: occurrence.status,
 			transparency: occurrence.transparency,
+			participation: occurrence.participation,
 			createdAt: now,
 			updatedAt: now,
 		}));

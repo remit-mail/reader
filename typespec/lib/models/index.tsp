@@ -35,6 +35,7 @@ import "./ThreadMessage.tsp";
 // Outbox Layer (SMTP)
 import "./OutboxMessage.tsp";
 import "./OutboxAttachment.tsp";
+import "./OutboxSchedulingPart.tsp";
 
 // Export
 import "./AccountExportRequest.tsp";
@@ -52,6 +53,7 @@ import "./SystemUpdate.tsp";
 import "./CalendarCollection.tsp";
 import "./CalendarObject.tsp";
 import "./CalendarEventIndex.tsp";
+import "./CalendarTask.tsp";
 import "./CalendarFeedToken.tsp";
 import "./CalendarApi.tsp";
 

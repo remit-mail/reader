@@ -6,12 +6,16 @@ import type {
 	PutCalendarObjectWrite,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
-import { CalendarSource } from "@remit/domain-enums";
+import { CalendarComponentSet, CalendarSource } from "@remit/domain-enums";
 import type { CalendarResult } from "./errors.js";
 import { computeEtag } from "./etag.js";
 import { expandCalendar } from "./expand.js";
 import { parseCalendar } from "./parse.js";
+import { selfAddressSet } from "./participation.js";
 import { projectCalendar } from "./project.js";
+
+/** URL segment of the task collection every account config is provisioned with. */
+export const TASK_CALENDAR_URL_SEGMENT = "tasks";
 
 /** URL segment of the collection every account config is provisioned with. */
 export const DEFAULT_CALENDAR_URL_SEGMENT = "default";
@@ -23,6 +27,11 @@ export interface PutCalendarObjectInput {
 	resourceName: string;
 	/** The VCALENDAR text as it arrived, stored byte-for-byte. */
 	icalData: string;
+	/**
+	 * The addresses of the account config's accounts. Each occurrence's
+	 * `participation` is projected against them.
+	 */
+	selfAddresses: readonly string[];
 }
 
 /**
@@ -48,7 +57,11 @@ export const prepareCalendarObject = async (
 	const projection = projectCalendar(parsed.value, collection.timezone);
 	if (!projection.ok) return projection;
 
-	const expansion = expandCalendar(parsed.value, collection.timezone);
+	const expansion = expandCalendar(
+		parsed.value,
+		collection.timezone,
+		selfAddressSet(input.selfAddresses),
+	);
 	return {
 		ok: true,
 		value: {
@@ -129,5 +142,22 @@ export const provisionDefaultCalendar = (
 		accountConfigId,
 		urlSegment: DEFAULT_CALENDAR_URL_SEGMENT,
 		displayName,
+		source: CalendarSource.Default,
+	});
+
+/**
+ * The collection an account config keeps its tasks in. Provisioned beside the
+ * default event collection, idempotently, for the same reason.
+ */
+export const provisionTaskCalendar = (
+	store: ICalendarStore,
+	accountConfigId: string,
+	displayName = "Tasks",
+): Promise<CalendarCollectionItem> =>
+	store.repos.calendarCollection.create({
+		accountConfigId,
+		urlSegment: TASK_CALENDAR_URL_SEGMENT,
+		displayName,
+		componentSet: CalendarComponentSet.VtodoOnly,
 		source: CalendarSource.Default,
 	});

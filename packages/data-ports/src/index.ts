@@ -32,6 +32,7 @@ export type {
 	ICalendarSuggestionRepository,
 	SettleCalendarSuggestionInput,
 } from "./interfaces/calendar-suggestion.js";
+export type { ICalendarTaskRepository } from "./interfaces/calendar-task.js";
 export type { IConfigImportRepository } from "./interfaces/config-import.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
@@ -58,6 +59,7 @@ export {
 	APPENDED_UID_UNREPORTED,
 	isSentCopyFiled,
 } from "./interfaces/outbox-message.js";
+export type { IOutboxSchedulingPartRepository } from "./interfaces/outbox-scheduling-part.js";
 export type { IQuarantineRepository } from "./interfaces/quarantine.js";
 export {
 	type FifoQueueMessage,
@@ -109,6 +111,7 @@ export type {
 	CalendarObjectItem,
 	CalendarOccurrenceInput,
 	CalendarSuggestionItem,
+	CalendarTaskItem,
 	ConfigImportItem,
 	ConfigImportUnresolvedRefItem,
 	CreateAccountConfigInput,
@@ -128,6 +131,7 @@ export type {
 	CreateMessageLabelInput,
 	CreateOrganizeJobRequestInput,
 	CreateOutboxMessageInput,
+	CreateOutboxSchedulingPartInput,
 	CreateThreadMessageInput,
 	EnvelopeAddressItem,
 	EnvelopeItem,
@@ -157,11 +161,13 @@ export type {
 	OrganizeJobRequestItem,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
+	OutboxSchedulingPartItem,
 	PlacementPredicate,
 	PlacementTransitionInput,
 	PutCalendarFeedTokenInput,
 	PutCalendarObjectInput,
 	PutCalendarSuggestionInput,
+	PutCalendarTaskInput,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,
 	QuarantineItem,

@@ -40,6 +40,7 @@ export const handleAppendSentMessage = async (
 		account: accountService,
 		outboxMessage: outboxMessageService,
 		outboxAttachment: outboxAttachmentService,
+		outboxSchedulingPart: schedulingPartService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
 	} = ctx.client;
@@ -169,7 +170,11 @@ export const handleAppendSentMessage = async (
 				.getConnection()
 				.then(async (connection) => {
 					const rawMessage = await renderRawMessage(
-						buildMailMessage(outbox, attachments),
+						buildMailMessage(
+							outbox,
+							attachments,
+							await schedulingPartService.find(outboxMessageId),
+						),
 					);
 
 					const result = await connection.append(

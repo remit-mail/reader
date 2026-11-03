@@ -66,7 +66,7 @@ const endsAtUtcOf = (
 	timezone: string,
 	dtEnd: string,
 ): string => {
-	const expansion = expandCalendar(calendar, timezone);
+	const expansion = expandCalendar(calendar, timezone, new Set());
 	if (expansion.expandedThrough !== "") return OPEN_ENDED_SERIES;
 	const ends = expansion.occurrences.map((occurrence) => occurrence.endAt);
 	if (ends.length === 0) return toUtcIso(Date.parse(dtEnd));

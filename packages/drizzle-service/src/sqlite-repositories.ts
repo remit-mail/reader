@@ -10,6 +10,7 @@ import { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";
 import { CalendarObjectRepo } from "./repos/calendar-object.js";
 import { DrizzleCalendarStore } from "./repos/calendar-store.js";
 import { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
+import { CalendarTaskRepo } from "./repos/calendar-task.js";
 import { DrizzleEnvelopeRepository } from "./repos/envelope.js";
 import { FilterRepo } from "./repos/filter.js";
 import { AccountRepo } from "./repos/i4-account.js";
@@ -35,6 +36,7 @@ import {
 	type MessageObjectStore,
 	MessageObjects,
 } from "./repos/message-objects.js";
+import { OutboxSchedulingPartRepo } from "./repos/outbox-scheduling-part.js";
 import { QuarantineRepo } from "./repos/quarantine.js";
 import { SyncWarningRepo } from "./repos/sync-warning.js";
 import { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
@@ -70,7 +72,8 @@ export const composeSqliteRepositories = (
 		mailboxLock: new MailboxLockRepo(mail.db),
 		message,
 		messageFlag: new DrizzleMessageFlagRepository(mail.db),
-		outboxMessage: new OutboxMessageRepo(mail.db),
+		outboxMessage: new OutboxMessageRepo(mail.db, mail.batch),
+		outboxSchedulingPart: new OutboxSchedulingPartRepo(mail.db),
 		outboxAttachment: new OutboxAttachmentRepo(mail),
 		threadMessage: new DrizzleThreadMessageRepository(mail, searchIndex),
 		envelope: new DrizzleEnvelopeRepository(mail),
@@ -89,6 +92,7 @@ export const composeSqliteRepositories = (
 		calendarObject: new CalendarObjectRepo(app.db),
 		calendarEventIndex: new CalendarEventIndexRepo(app),
 		calendarFeedToken: new CalendarFeedTokenRepo(app.db),
+		calendarTask: new CalendarTaskRepo(app.db),
 		calendarSuggestion,
 		calendarStore: new DrizzleCalendarStore(app, calendarSuggestion),
 	};
