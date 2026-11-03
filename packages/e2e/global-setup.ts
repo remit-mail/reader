@@ -5,6 +5,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./src/api.js";
+import { seedCalendars } from "./src/calendar.js";
 import { buildClassificationFixtures } from "./src/classification-fixtures.js";
 import { baseUrl, imap, imapFromStack, mintImapUser } from "./src/env.js";
 import type { Message } from "./src/imap.js";
@@ -204,6 +205,10 @@ const globalSetup = async (): Promise<void> => {
 	);
 	const inbox = mailboxes.find((mailbox) => mailbox.fullPath === "INBOX");
 	if (!inbox) throw new Error("unreachable: INBOX was matched but not found");
+
+	console.log("e2e setup: writing the calendars and this month of events");
+	const seededEvents = await seedCalendars(api);
+	console.log(`e2e setup: ${seededEvents} events in 3 calendars`);
 
 	writeFileSync(storageStatePath, cookiesToStorageState(cookie));
 	writeRunState({

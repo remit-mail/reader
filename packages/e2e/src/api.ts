@@ -280,6 +280,8 @@ export interface CreateCalendarEventInput {
 	timeZone?: string;
 	/** An RRULE value without the property name, e.g. `"FREQ=WEEKLY;COUNT=5"`. */
 	recurrenceRule?: string;
+	status?: "Confirmed" | "Tentative" | "Cancelled";
+	transparency?: "Opaque" | "Transparent";
 }
 
 /** The fields an edit may carry. Absence means untouched, as on the API. */
@@ -306,6 +308,7 @@ export interface CreateCalendarInput {
 	urlSegment: string;
 	displayName: string;
 	timezone?: string;
+	color?: "Cal1" | "Cal2" | "Cal3" | "Cal4" | "Cal5" | "Cal6";
 }
 
 /**

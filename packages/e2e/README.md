@@ -126,7 +126,10 @@ the live deployment:
 4. `POST /accounts` pointed at Dovecot — the compose service name on the image
    stack, the published loopback port on the source stack, since there the app
    is a host process,
-5. `POST /accounts/{id}/sync` and wait for the mailbox list to appear.
+5. `POST /accounts/{id}/sync` and wait for the mailbox list to appear,
+6. `POST /calendars` and `POST /calendar-events` for three calendars (Work,
+   Personal, Team) and four weeks of events around the current one
+   (`src/calendar.ts`), so a calendar spec opens on a week that holds things.
 
 It writes the account id, the IMAP username, the user's credentials, and the
 browser's signed-in storage state to `.state/`, which the specs read. A spec

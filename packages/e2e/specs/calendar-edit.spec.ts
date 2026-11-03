@@ -119,17 +119,13 @@ test.describe("Editing a repeating event", () => {
 		await expect(edit).toBeVisible({ timeout: 30_000 });
 		await edit.click();
 
-		// The scope is settled before the form opens, because which occurrences an
-		// edit reaches changes what the edit is.
-		await expect(
-			page.getByText("What should the change apply to?"),
-		).toBeVisible();
-		await page.getByRole("button", { name: "This event" }).click();
-
 		const title = page.getByRole("textbox", { name: "Title" });
 		await expect(title).toHaveValue(SERIES);
 		await title.fill(RENAMED);
 		await page.getByRole("button", { name: "Save", exact: true }).click();
+
+		// Saving an edit to a repeating event asks which occurrences it reaches.
+		await page.getByRole("button", { name: /This event/ }).click();
 
 		// The form is a state the pane is in, so a save that resolved leaves it —
 		// a save the server refused stays put, with its reason where the reader is
