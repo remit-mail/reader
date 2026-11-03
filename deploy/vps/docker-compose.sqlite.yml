@@ -222,12 +222,11 @@ services:
       - "${CADDY_HTTPS_BIND:-0.0.0.0:443}:443"
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
-      # The MCP connector's host (caddy/mcp.caddy). Unset, it is a name nothing
+      # The MCP connector's host (caddy/routes.caddy). Unset, it is a name nothing
       # resolves, so with the `mcp` profile off no request is routed there.
       MCP_PUBLIC_ORIGIN: ${MCP_PUBLIC_ORIGIN:-http://mcp.invalid}
     volumes:
       - ./caddy/routes.caddy:/etc/caddy/routes.caddy:ro
-      - ./caddy/mcp.caddy:/etc/caddy/mcp.caddy:ro
       - ./caddy/${TLS_MODE:-off}.caddy:/etc/caddy/Caddyfile:ro
       - ${TAILSCALED_SOCKET:-/dev/null}:/var/run/tailscale/tailscaled.sock
       - caddy_data:/data

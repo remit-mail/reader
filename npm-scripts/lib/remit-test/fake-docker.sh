@@ -968,9 +968,22 @@ run_cmd() {
 			exit 1
 			;;
 		esac
+		# A fresh /etc/caddy per run, holding only what the script copies in. Every
+		# `import /etc/caddy/<file>` in a mode file has to find its file there,
+		# as in the real container.
+		rm -rf "$S/etc-caddy"
 		mkdir -p "$S/etc-caddy"
 		{
-			printf 'caddy() { [ "%s" = ok ] || { printf "Error: adapting config using caddyfile\\n" >&2; exit 1; }; }\n' "$(val caddy_adapt ok)"
+			printf 'ETC_CADDY=%s\n' "$S/etc-caddy"
+			# shellcheck disable=SC2016 # the helper's own text, expanded by the sh it is piped to
+			printf '%s\n' \
+				'caddy() {' \
+				'	_cfg=$5' \
+				'	for _imp in $(sed -n "s#^import /etc/caddy/##p" "$_cfg"); do' \
+				'		[ -f "$ETC_CADDY/$_imp" ] || { printf "{\"level\":\"error\",\"msg\":\"File to import not found: /etc/caddy/%s, at %s\"}\n" "$_imp" "$_cfg" >&2; exit 1; }' \
+				'	done' \
+				"	[ \"$(val caddy_adapt ok)\" = ok ] || { printf 'Error: adapting config using caddyfile\\n' >&2; exit 1; }" \
+				'}'
 			printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" -e "s#/etc/caddy#$S/etc-caddy#g"
 		} | sh
 		exit $?

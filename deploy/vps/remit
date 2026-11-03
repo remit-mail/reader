@@ -84,7 +84,7 @@ SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh
 # as a basename and a second deployment may have set to its own. The Caddy files
 # are one set: every mode file imports routes.caddy, so half a set is a Caddy
 # that will not load.
-CADDY_ASSETS="caddy/routes.caddy caddy/mcp.caddy caddy/off.caddy caddy/internal.caddy caddy/tailscale.caddy caddy/acme.caddy caddy/tunnel.caddy"
+CADDY_ASSETS="caddy/routes.caddy caddy/off.caddy caddy/internal.caddy caddy/tailscale.caddy caddy/acme.caddy caddy/tunnel.caddy"
 HOST_ASSETS="remit docker-compose.sqlite.yml $CADDY_ASSETS"
 
 # Caddy's MCP_PUBLIC_ORIGIN while the connector is off; nothing resolves it.
@@ -2230,7 +2230,7 @@ validate_caddy_files() {
 	_vcf_modes=""
 	for _a in $CADDY_ASSETS; do
 		case "$_a" in
-		caddy/routes.caddy | caddy/mcp.caddy) ;;
+		caddy/routes.caddy) ;;
 		*) _vcf_modes="$_vcf_modes ${_a#caddy/}" ;;
 		esac
 	done
@@ -2243,7 +2243,6 @@ validate_caddy_files() {
 		--entrypoint sh "$_vcf_image" -c "set -eu
 src=/state/host-files/$1/incoming/caddy
 cp \"\$src/routes.caddy\" /etc/caddy/routes.caddy
-cp \"\$src/mcp.caddy\" /etc/caddy/mcp.caddy
 for mode in$_vcf_modes; do
   caddy adapt --adapter caddyfile --config \"\$src/\$mode\" >/dev/null
 done"

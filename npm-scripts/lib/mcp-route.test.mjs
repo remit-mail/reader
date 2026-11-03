@@ -1,4 +1,4 @@
-// The MCP connector's route (caddy/mcp.caddy, remit-mail/remit#1342): the
+// The MCP connector's route (caddy/routes.caddy, remit-mail/remit#1342): the
 // committed site files in the deployment's own Caddy, in front of stand-in
 // upstreams that echo what they were handed. The connector's host reaches
 // `mcp` and nothing else does, on a different domain from the instance; the
@@ -108,8 +108,6 @@ if (CR) {
 			`MCP_PUBLIC_ORIGIN=${mcpOrigin}`,
 			"-v",
 			`${join(CADDY_DIR, "routes.caddy")}:/etc/caddy/routes.caddy:ro`,
-			"-v",
-			`${join(CADDY_DIR, "mcp.caddy")}:/etc/caddy/mcp.caddy:ro`,
 			"-v",
 			`${join(CADDY_DIR, `${mode}.caddy`)}:/etc/caddy/Caddyfile:ro`,
 			IMAGE,
