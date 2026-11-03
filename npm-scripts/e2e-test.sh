@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run the black-box suite against an already-running e2e stack.
 #
-# Installs only what the suite needs (Playwright and an IMAP client); the
-# monorepo is neither built nor installed for this.
+# Installs only what the suite needs (Playwright, an IMAP client and the
+# generated API client in build/, which `make` writes); the monorepo is not
+# installed for this.
 set -euo pipefail
 
 # shellcheck source=./e2e-compose.sh

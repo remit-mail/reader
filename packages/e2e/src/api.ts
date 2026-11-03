@@ -13,7 +13,7 @@ import type {
 	RemitImapCreateCalendarInput,
 	RemitImapRecurrenceScope,
 	RemitImapUpdateCalendarEventInput,
-} from "@remit/published-api-client";
+} from "@remit/api-http-client";
 import { baseUrl } from "./env.js";
 
 export interface Credentials {

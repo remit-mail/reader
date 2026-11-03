@@ -2,9 +2,11 @@
 
 This directory imports nothing from `packages/`. It talks to the deployment over
 its public surface only — the HTTP API, the browser, and IMAP — so it cannot pass
-because of a shape the tests and the app happen to share. It also does not need
-the monorepo built, or installed: its own `npm ci` pulls Playwright and an IMAP
-client and nothing else.
+because of a shape the tests and the app happen to share. It does not need the
+monorepo installed: its own `npm ci` pulls Playwright, an IMAP client and the
+generated API client from `build/remit-client`, so `make` has to have run. The
+generated client only writes the calendar seed; the specs assert the contract
+through the suite's own client in `src/api.ts`.
 
 ## Two stacks, one suite
 
@@ -90,8 +92,7 @@ npm run e2e:test         # run the suite against whichever stack is up
 between runs, and it reads its configuration from the generated env whichever
 lane wrote it, so it needs no argument to know which one it is talking to.
 
-The source stack needs the monorepo installed and generated (`npm ci && make`),
-which the suite itself does not. Ten ports move it if something else is in the
+The source stack needs the monorepo installed and generated (`npm ci && make`). Ten ports move it if something else is in the
 way: `E2E_HTTP_PORT`, `E2E_IMAP_PORT`, `E2E_IMAP_NAMED_TRASH_PORT`,
 `E2E_SMTP_PORT`, `E2E_SMTP_HTTP_PORT`, `E2E_SMTP_REJECT_PORT`,
 `E2E_SMTP_REJECT_HTTP_PORT`, `SERVER_PORT`, `QUEUE_SIDECAR_PORT`,

@@ -3,7 +3,13 @@
  * on. Every date is relative to the week the run happens in, so the grid a spec
  * opens on `/calendar/week/<this Monday>` always holds the seeded week.
  */
+import {
+	calendarEventOperationsCreateCalendarEvent,
+	calendarOperationsCreateCalendar,
+	calendarOperationsListCalendars,
+} from "@remit/api-http-client";
 import { ApiClient, type CreateCalendarEventInput } from "./api.js";
+import { baseUrl } from "./env.js";
 import { readRunState } from "./state.js";
 
 export const CALENDAR_ZONE = "Europe/Amsterdam";
@@ -118,28 +124,37 @@ const seededEvents = (
 };
 
 /**
- * Three calendars and a month of ordinary weeks around this one, written
- * through the API the way any client would. The run's account is new, so
+ * Three calendars and a month of ordinary weeks around this one, written with
+ * the generated client the way any client would. The run's account is new, so
  * nothing here can already exist.
  */
-export const seedCalendars = async (api: ApiClient): Promise<number> => {
+export const seedCalendars = async (token: string): Promise<number> => {
+	const options = {
+		baseUrl: `${baseUrl}/api`,
+		headers: { authorization: `Bearer ${token}`, origin: baseUrl },
+		throwOnError: true,
+	} as const;
 	// The server provisions the default calendar on the first read of an
 	// account that holds none, so the read comes before any create.
-	await api.listCalendars();
+	await calendarOperationsListCalendars(options);
 	const create = async (urlSegment: SeededSegment): Promise<string> => {
-		const created = await api.createCalendar({
-			urlSegment,
-			...SEEDED_CALENDARS[urlSegment],
-			timezone: CALENDAR_ZONE,
+		const { data } = await calendarOperationsCreateCalendar({
+			...options,
+			body: {
+				urlSegment,
+				...SEEDED_CALENDARS[urlSegment],
+				timezone: CALENDAR_ZONE,
+			},
 		});
-		return created.calendarId;
+		return data.calendarId;
 	};
 	const events = seededEvents({
 		work: await create("work"),
 		personal: await create("personal"),
 		team: await create("team"),
 	});
-	for (const event of events) await api.createCalendarEvent(event);
+	for (const body of events)
+		await calendarEventOperationsCreateCalendarEvent({ ...options, body });
 	return events.length;
 };
 
