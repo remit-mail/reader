@@ -2222,10 +2222,18 @@ validate_host_files() {
 
 # Adapt rather than validate: validate provisions TLS automation, which reaches
 # for ACME and the tailscale socket from a container that has neither.
+# The image is read from the rendered caddy service, not `config --images
+# caddy`: Compose v5 ignores the service there and lists every image, in no
+# fixed order, so its first line can be an image with no /etc/caddy.
 validate_caddy_files() {
-	_vcf_image=$(docker compose --project-directory "$REMIT_DIR" \
+	_vcf_config=$(docker compose --project-directory "$REMIT_DIR" \
 		-f "$2/$(host_asset_local docker-compose.sqlite.yml)" \
-		--env-file "$REMIT_DIR/.env" config --images caddy | sed -n 1p) || return 1
+		--env-file "$REMIT_DIR/.env" config) || return 1
+	_vcf_image=$(printf '%s\n' "$_vcf_config" | awk '
+		/^[^ ]/ { under = ($0 == "services:"); svc = 0; next }
+		under && /^  [^ ]/ { svc = ($0 == "  caddy:"); next }
+		svc && /^    image: / { print $2; exit }
+	')
 	[ -n "$_vcf_image" ] || return 1
 	_vcf_modes=""
 	for _a in $CADDY_ASSETS; do

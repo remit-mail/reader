@@ -551,17 +551,11 @@ compose_cmd() {
 			volume_names
 			;;
 		*" --images "*)
-			_svc=""
-			for _a in "$@"; do
-				case "$_a" in
-				-*) ;;
-				*) _svc=$_a ;;
-				esac
-			done
-			awk -v svc="  $_svc:" '
-				$0 == svc { in_svc = 1; next }
-				in_svc && /^  [^ ]/ { exit }
-				in_svc && $1 == "image:" { print $2; exit }
+			# Real Compose 5.3.1 ignores a service named here and lists every
+			# service's image, so `config --images caddy` does not lead with Caddy's.
+			awk '
+				/^[^ \t#]/ { under = ($0 ~ /^services:[ \t]*$/); next }
+				under && /^    image:/ { print $2 }
 			' "$_compose_file"
 			;;
 		*)
@@ -580,6 +574,7 @@ compose_cmd() {
 				printf 'error: required variable %s is missing a value\n' "$_v" >&2
 				exit 1
 			done
+			cat "$_compose_file"
 			;;
 		esac
 		exit 0
@@ -945,6 +940,14 @@ run_cmd() {
 	case "$_script" in
 	*"caddy adapt"*)
 		log "run caddy-validate image=$_image src=$_statesrc"
+		# Only a Caddy image has /etc/caddy; any other image refuses the first copy.
+		case "$_image" in
+		caddy:*) ;;
+		*)
+			printf "cp: can't create '/etc/caddy/routes.caddy': No such file or directory\n" >&2
+			exit 1
+			;;
+		esac
 		mkdir -p "$S/etc-caddy"
 		{
 			printf 'caddy() { [ "%s" = ok ] || { printf "Error: adapting config using caddyfile\\n" >&2; exit 1; }; }\n' "$(val caddy_adapt ok)"
