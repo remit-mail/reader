@@ -242,6 +242,37 @@ const seedPendingFlagPush = (path: string): void => {
 	sqlite.close();
 };
 
+describe("the migrate one-shot on a single-file install with a change not yet pushed", () => {
+	const dir = mkdtempSync(join(tmpdir(), "remit-pending-split-"));
+	const paths = {
+		app: join(dir, "app.db"),
+		mail: join(dir, "mail.db"),
+		search: join(dir, "search.db"),
+	};
+	const source = legacyDatabasePath(paths);
+
+	after(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("refuses to split and writes nothing", async () => {
+		seedSource(source);
+		seedPendingFlagPush(source);
+		await assert.rejects(
+			splitLegacyDatabase(
+				source,
+				paths,
+				{ Database, drizzle },
+				fileURLToPath(new URL("../../../deploy/vps", import.meta.url)),
+				() => {},
+			),
+			/1 flag changes, 0 moves and 0 messages moving or deleting.*safe to rerun/,
+		);
+		assert.deepEqual(readdirSync(dir), ["remit.db"]);
+		assert.equal(count(source, "message_flag_push"), 1);
+	});
+});
+
 describe("the migrate one-shot on a single-file install", () => {
 	const dir = mkdtempSync(join(tmpdir(), "remit-auto-split-"));
 	const paths = {
@@ -267,7 +298,6 @@ describe("the migrate one-shot on a single-file install", () => {
 
 	before(async () => {
 		seedSource(source);
-		seedPendingFlagPush(source);
 		first = await migrate();
 		second = await migrate();
 	});
@@ -276,14 +306,10 @@ describe("the migrate one-shot on a single-file install", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	test("splits into the three databases, dropping the unpushed changes", () => {
+	test("splits into the three databases", () => {
 		assert.equal(first.kind, "split");
-		assert.deepEqual(first.kind === "split" && first.dropped, {
-			message_flag_push: 1,
-		});
 		assert.equal(count(paths.app, "account_config"), 1);
 		assert.equal(count(paths.mail, "outbox_message"), 1);
-		assert.equal(count(paths.mail, "message_flag_push"), 0);
 		assert.equal(hasTable(paths.search, "__drizzle_migrations_search"), true);
 	});
 

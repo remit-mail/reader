@@ -201,12 +201,6 @@ const reportLegacySplit = (
 		{ copied: outcome.copied, kept: `${source}${PRE_SPLIT_SUFFIX}` },
 		"split the single database file",
 	);
-	if (Object.keys(outcome.dropped).length > 0) {
-		logger.warn(
-			{ dropped: outcome.dropped },
-			"dropped flag changes and moves not yet pushed to the mail server; the resync takes the server state",
-		);
-	}
 };
 
 const runSqlite = async (mode: Mode): Promise<void> => {

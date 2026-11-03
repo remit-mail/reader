@@ -12,6 +12,7 @@ import type { drizzle as drizzleBetterSqlite3 } from "drizzle-orm/better-sqlite3
 import type { SqliteDatabasePaths } from "../../drizzle-service/src/databases.js";
 import { applyMigrationSets } from "./migration-sets.js";
 import {
+	assertNothingPending,
 	holdsAppRows,
 	type SplitSqliteReport,
 	splitSqlite,
@@ -38,13 +39,11 @@ export interface SqliteDriver {
 export type LegacySplitOutcome =
 	| { kind: "absent" }
 	| { kind: "superseded" }
-	| { kind: "split"; copied: SplitSqliteReport; dropped: SplitSqliteReport };
+	| { kind: "split"; copied: SplitSqliteReport };
 
 const DATABASES = ["app", "mail", "search"] as const;
 
 type Staged = Record<(typeof DATABASES)[number], string>;
-
-type SplitReport = { copied: SplitSqliteReport; dropped: SplitSqliteReport };
 
 export const PRE_SPLIT_SUFFIX = ".pre-split";
 
@@ -75,7 +74,7 @@ const copyIntoStaged = async (
 	driver: SqliteDriver,
 	migrationsRoot: string,
 	log: (database: string) => void,
-): Promise<SplitReport> => {
+): Promise<SplitSqliteReport> => {
 	const handles = {
 		app: new driver.Database(staged.app),
 		mail: new driver.Database(staged.mail),
@@ -133,11 +132,12 @@ export const splitLegacyDatabase = async (
 	// old backend still writing to the file fails the split instead of writing
 	// to a file about to be renamed aside.
 	const from = new driver.Database(source, { fileMustExist: true });
-	let report: SplitReport;
+	let copied: SplitSqliteReport;
 	try {
 		from.pragma("busy_timeout = 0");
 		from.exec("BEGIN EXCLUSIVE");
-		report = await copyIntoStaged(from, staged, driver, migrationsRoot, log);
+		await assertNothingPending(driver.drizzle(from));
+		copied = await copyIntoStaged(from, staged, driver, migrationsRoot, log);
 		from.exec("COMMIT");
 	} finally {
 		from.close();
@@ -147,5 +147,5 @@ export const splitLegacyDatabase = async (
 	moveIntoPlace(staged.search, paths.search);
 	moveIntoPlace(staged.app, paths.app);
 	moveIntoPlace(source, `${source}${PRE_SPLIT_SUFFIX}`);
-	return { kind: "split", ...report };
+	return { kind: "split", copied };
 };

@@ -4,6 +4,7 @@ import {
 	eq,
 	getTableColumns,
 	getTableName,
+	inArray,
 	is,
 	sql,
 } from "drizzle-orm";
@@ -114,16 +115,12 @@ const MAILBOX_TABLES: ReadonlyArray<[SQLiteTable, (row: Row) => Row]> = [
 // D1 refuses a statement with more than 100 bound parameters.
 const PARAMETER_BUDGET = 90;
 
-interface ColumnInfo {
-	name: string;
-	notnull: number;
-	dflt_value: string | null;
-}
-
-const columnsOf = (db: AnyDb, table: SQLiteTable): ColumnInfo[] =>
-	db.all<ColumnInfo>(
-		sql`SELECT name, "notnull", dflt_value FROM pragma_table_info(${getTableName(table)})`,
-	);
+const columnNamesOf = (db: AnyDb, table: SQLiteTable): string[] =>
+	db
+		.all<{ name: string }>(
+			sql`SELECT name FROM pragma_table_info(${getTableName(table)})`,
+		)
+		.map((column) => column.name);
 
 const copyTable = async (
 	source: AnyDb,
@@ -131,26 +128,13 @@ const copyTable = async (
 	table: SQLiteTable,
 	transform: (row: Row) => Row,
 ): Promise<number> => {
-	const sourceColumns = new Set(
-		columnsOf(source, table).map((column) => column.name),
-	);
+	const sourceColumns = new Set(columnNamesOf(source, table));
 	const shared = Object.fromEntries(
 		Object.entries(getTableColumns(table)).filter(([, column]) =>
 			sourceColumns.has(column.name),
 		),
 	);
 	const rows = (await source.select(shared).from(table)).map(transform);
-	const unfilled = columnsOf(target, table).filter(
-		(column) =>
-			!sourceColumns.has(column.name) &&
-			column.notnull === 1 &&
-			column.dflt_value === null,
-	);
-	if (rows.length > 0 && unfilled.length > 0) {
-		throw new Error(
-			`cannot copy ${getTableName(table)}: the source has no ${unfilled.map((column) => column.name).join(", ")}, and the migrations give no default for it`,
-		);
-	}
 	const columns = Object.keys(getTableColumns(table)).length;
 	const perStatement = Math.max(1, Math.floor(PARAMETER_BUDGET / columns));
 	const statements = [];
@@ -165,14 +149,28 @@ const copyTable = async (
 
 export type SplitSqliteReport = Record<string, number>;
 
-// Flag changes and moves the old stack queued but has not yet pushed to the
-// server. They are not copied: their ids point at mail the split leaves to
-// resync, and that resync takes the server state as it finds it. The counts
-// are reported so the loss is stated rather than silent.
-const PENDING_PUSH_TABLES: readonly SQLiteTable[] = [
-	mailTables.messageFlagPushes,
-	mailTables.messagePlacementMoves,
-];
+/**
+ * Fail while the old stack still holds flag changes, moves or deletes it has
+ * not pushed to the mail server. The split leaves the mail they refer to to
+ * resync, and that resync takes the server state, so splitting now would lose
+ * them.
+ */
+export const assertNothingPending = async (source: AnyDb): Promise<void> => {
+	const [{ n: flagChanges }] = await source
+		.select({ n: count() })
+		.from(mailTables.messageFlagPushes);
+	const [{ n: moves }] = await source
+		.select({ n: count() })
+		.from(mailTables.messagePlacementMoves);
+	const [{ n: inFlight }] = await source
+		.select({ n: count() })
+		.from(mailTables.messageRecords)
+		.where(inArray(mailTables.messageRecords.status, ["moving", "deleting"]));
+	if (flagChanges + moves + inFlight === 0) return;
+	throw new Error(
+		`remit.db holds changes not yet pushed to the mail server: ${flagChanges} flag changes, ${moves} moves and ${inFlight} messages moving or deleting. Nothing was split or changed; the update is safe to rerun once the running stack has pushed them.`,
+	);
+};
 
 /** Whether an app database already holds a row in any app table. */
 export const holdsAppRows = async (db: AnyDb): Promise<boolean> => {
@@ -187,7 +185,7 @@ export const holdsAppRows = async (db: AnyDb): Promise<boolean> => {
 export const splitSqlite = async (
 	source: AnyDb,
 	targets: { app: AnyDb; mail: AnyDb },
-): Promise<{ copied: SplitSqliteReport; dropped: SplitSqliteReport }> => {
+): Promise<SplitSqliteReport> => {
 	const copied: SplitSqliteReport = {};
 	const copies: ReadonlyArray<
 		readonly [SQLiteTable, AnyDb, (row: Row) => Row]
@@ -223,10 +221,5 @@ export const splitSqlite = async (
 		}
 		target.run(sql`PRAGMA foreign_keys = ON`);
 	}
-	const dropped: SplitSqliteReport = {};
-	for (const table of PENDING_PUSH_TABLES) {
-		const [{ n }] = await source.select({ n: count() }).from(table);
-		if (n > 0) dropped[getTableName(table)] = n;
-	}
-	return { copied, dropped };
+	return copied;
 };
