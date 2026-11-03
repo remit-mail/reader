@@ -232,14 +232,11 @@ services:
       - ${TAILSCALED_SOCKET:-/dev/null}:/var/run/tailscale/tailscaled.sock
       - caddy_data:/data
       - caddy_config:/config
-    # Not gated on apisix/web being healthy: RFC 037 D5 requires caddy to stay
-    # up and serve 502s through an outage (it is the only thing the operator's
-    # browser talks to while a self-update is applying). Gating it here would
-    # mean a broken apisix/web on boot takes caddy down with it — no route to
-    # the UI, no way to reach the self-update surface to roll back.
-    depends_on:
-      - apisix
-      - web
+    # No depends_on: RFC 037 D5 requires caddy to stay up and serve 502s
+    # through an outage (it is the only thing the operator's browser talks to
+    # while a self-update is applying). Any dependency also enters
+    # `config --images caddy`, which wrappers v0.9.22 to v0.9.23 take the first
+    # line of as the image to check this release's Caddy files in.
     restart: unless-stopped
 
   # ---------------------------------------------------------------------

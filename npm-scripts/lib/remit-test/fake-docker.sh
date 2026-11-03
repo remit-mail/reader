@@ -551,11 +551,32 @@ compose_cmd() {
 			volume_names
 			;;
 		*" --images "*)
-			# Real Compose 5.3.1 ignores a service named here and lists every
-			# service's image, so `config --images caddy` does not lead with Caddy's.
-			awk '
-				/^[^ \t#]/ { under = ($0 ~ /^services:[ \t]*$/); next }
-				under && /^    image:/ { print $2 }
+			# Real Compose 5.3.1 lists the named service's image together with the
+			# images of everything it depends on, in no fixed order. The stand-in
+			# puts the dependencies first, so `config --images caddy | sed -n 1p`
+			# is Caddy's image only while Caddy depends on nothing.
+			_svc=""
+			for _a in "$@"; do
+				case "$_a" in
+				-*) ;;
+				*) _svc=$_a ;;
+				esac
+			done
+			awk -v want="$_svc" '
+				function emit(s,   i, n, d) {
+					if (done[s]++) return
+					n = split(deps[s], d, " ")
+					for (i = 1; i <= n; i++) emit(d[i])
+					if (s in image) print image[s]
+				}
+				/^[^ \t#]/ { under = ($0 ~ /^services:[ \t]*$/); svc = ""; next }
+				!under { next }
+				/^  [^ \t#]/ { svc = $1; sub(/:$/, "", svc); indeps = 0; next }
+				/^    [^ \t#]/ { indeps = ($1 == "depends_on:") }
+				$1 == "image:" && /^    image:/ { image[svc] = $2; next }
+				indeps && /^      - / { deps[svc] = deps[svc] " " $2; next }
+				indeps && /^      [^ \t#-]/ { d = $1; sub(/:$/, "", d); deps[svc] = deps[svc] " " d }
+				END { emit(want) }
 			' "$_compose_file"
 			;;
 		*)
