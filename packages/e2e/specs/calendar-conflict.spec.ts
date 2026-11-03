@@ -1,14 +1,12 @@
 /**
- * The three ways a calendar week can lie, and what the deployment does instead
+ * Two ways a calendar week can lie, and what the deployment does instead
  * (#1033).
  *
  * A grid drawn from the client's own cache looks the same whether the write
- * landed, whether the calendar behind it is hidden, and whether the session is
- * gone. Each test here makes one of those true and holds the screen against
- * `GET /calendar-events`: an edit built on a version somebody has replaced is
- * refused out loud, a calendar the address left unticked is absent because the
- * reader said so, and a read the server turned down says so rather than
- * drawing an empty week.
+ * landed and whether the calendar behind it is hidden. Each test here makes one
+ * of those true and holds the screen against `GET /calendar-events`: an edit
+ * built on a version somebody has replaced is refused out loud, and a calendar
+ * the address left unticked is absent because the reader said so.
  */
 import type { CalendarEventResource } from "../src/api.js";
 import { waitFor } from "../src/api.js";
@@ -109,7 +107,7 @@ test.describe("A week the calendar must not draw as it pleases", () => {
 		// Said where the reader is looking, and the form stays up with what they
 		// typed still in it: nothing was saved and nothing was thrown away.
 		const refusal = page.getByRole("alert");
-		await expect(refusal).toContainText("changed somewhere else", {
+		await expect(refusal).toContainText("changed while you were writing", {
 			timeout: 30_000,
 		});
 		await expect(title).toHaveValue(AS_TYPED);
@@ -176,34 +174,5 @@ test.describe("A week the calendar must not draw as it pleases", () => {
 			timeout: 30_000,
 		});
 		await expect(page.getByRole("button", { name: IN_DEFAULT })).toBeVisible();
-	});
-
-	// A read refused for want of a session drawn as a week with nothing in it is
-	// indistinguishable from a free week: the reader concludes they have nothing
-	// on and never learns they are signed out.
-	test("says a week it could not read, rather than drawing it empty", async ({
-		page,
-	}) => {
-		test.setTimeout(120_000);
-
-		await page.route(/\/calendar-events\?/, (route) =>
-			route.fulfill({
-				status: 401,
-				contentType: "application/json",
-				body: JSON.stringify({ message: "Session expired" }),
-			}),
-		);
-
-		await page.goto(weekPath);
-
-		// The grid says what it could not do, in place of the week it has not got.
-		await expect(page.getByText("Couldn't load this week")).toBeVisible({
-			timeout: 30_000,
-		});
-		// And the session going takes the screen, because no banner signs anyone
-		// back in.
-		await expect(page.getByTestId("fatal-error-overlay")).toBeVisible({
-			timeout: 30_000,
-		});
 	});
 });

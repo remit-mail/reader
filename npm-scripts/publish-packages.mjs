@@ -31,6 +31,7 @@ const typespecPackages = GENERATED_PACKAGES.map(({ dir, name }) => ({
 const typespecInputs = [
 	"typespec",
 	"openapi-ts.config.js",
+	"npm-scripts/build-api-client.mjs",
 	"npm-scripts/generate-request-validators.mjs",
 ];
 

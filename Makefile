@@ -7,9 +7,9 @@ build/remit-openapi3/openapi.json: $(shell find typespec/ -type f)
 build/remit-openapi3/request-validators.mjs: build/remit-openapi3/openapi.json npm-scripts/generate-request-validators.mjs
 	node npm-scripts/generate-request-validators.mjs build/remit-openapi3
 
-build/remit-client: build/remit-openapi3/openapi.json openapi-ts.config.js
+build/remit-client: build/remit-openapi3/openapi.json openapi-ts.config.js npm-scripts/build-api-client.mjs
 	npx @hey-api/openapi-ts
-	echo '{"name":"@remit/api-http-client","version":"1.0.0","type":"module","exports":{".":"./index.ts","./*":"./*"}}' > $@/package.json
+	node npm-scripts/build-api-client.mjs
 	touch $@
 
 build/drizzle-entities/dist: build/remit-openapi3/openapi.json
