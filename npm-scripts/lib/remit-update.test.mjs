@@ -992,8 +992,7 @@ describe("remit update — driven by a v0.9.22 wrapper", () => {
 	const previousSource = WRAPPER_SOURCE.replace(
 		/^handoff_to_release_wrapper\(\) \{$/m,
 		"handoff_to_release_wrapper() {\n\treturn 0",
-	)
-		.replace(/^CADDY_ASSETS=.*$/m, v0922Assets);
+	).replace(/^CADDY_ASSETS=.*$/m, v0922Assets);
 	assert.match(previousSource, /handoff_to_release_wrapper\(\) \{\n\treturn 0/);
 	assert.ok(previousSource.includes(v0922Assets));
 	writeExecutable(previous, previousSource);
