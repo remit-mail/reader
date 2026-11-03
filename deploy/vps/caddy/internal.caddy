@@ -24,7 +24,7 @@ import /etc/caddy/routes.caddy
 }
 
 # The MCP connector's own host (routes.caddy).
-{$MCP_PUBLIC_ORIGIN} {
+{$MCP_PUBLIC_ORIGIN:http://mcp.invalid} {
 	tls internal
 	import mcp_proxy
 }
