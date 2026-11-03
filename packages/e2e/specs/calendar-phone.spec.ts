@@ -32,7 +32,6 @@ const sheet = (page: Page) => page.getByRole("dialog", { name: "New event" });
 const block = (page: Page) => page.locator("[data-draft-block]");
 
 const cleanUp = () => deleteEventsByPrefix(PREFIX);
-test.beforeAll(cleanUp);
 test.afterAll(cleanUp);
 
 test("a hold drops a block, a drag stretches it, and release opens the sheet below it", async ({

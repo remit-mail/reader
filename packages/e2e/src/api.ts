@@ -3,6 +3,17 @@
  * documented contract rather than the repo's generated client — the suite has
  * to fail when the contract changes, which a shared client would hide.
  */
+import type {
+	RemitImapCalendarEventInstance,
+	RemitImapCalendarEventResponse,
+	RemitImapCalendarFeedResponse,
+	RemitImapCalendarResponse,
+	RemitImapCalendarSuggestionResponse,
+	RemitImapCreateCalendarEventInput,
+	RemitImapCreateCalendarInput,
+	RemitImapRecurrenceScope,
+	RemitImapUpdateCalendarEventInput,
+} from "@remit/published-api-client";
 import { baseUrl } from "./env.js";
 
 export interface Credentials {
@@ -231,126 +242,24 @@ export interface Label {
 	color: string;
 }
 
-export interface Calendar {
-	calendarId: string;
-	urlSegment: string;
-	displayName: string;
-	/** IANA zone the collection reads floating times in; `""` reads as UTC. */
-	timezone: string;
-	/** `Default` is the collection the account was provisioned with. */
-	source: "Default" | "UserCreated" | "MailDerived" | "Subscribed";
-	subscriptionEnabled: boolean;
-	subscriptionFetchedAt: number;
-	subscriptionError: string;
-}
-
-/** One occurrence as the server expanded it. No client ever reads an RRULE. */
-export interface CalendarEventInstance {
-	calendarId: string;
-	calendarObjectId: string;
-	recurrenceId: string;
-	summary: string;
-	start: string;
-	end: string;
-	allDay: boolean;
-	etag: string;
-	hasRecurrence: boolean;
-}
-
-/** A stretch the caller is busy in, merged across every calendar they hold. */
-export interface CalendarFreeBusySpan {
-	start: string;
-	end: string;
-}
-
-/**
- * An event written straight at the API. A spec whose subject is what the
- * calendar draws rather than what the composer posts says what it wants here
- * and reads the drawing back off the screen.
- */
-export interface CreateCalendarEventInput {
-	calendarId: string;
-	summary: string;
-	/** ISO 8601 with an offset, or a bare `YYYY-MM-DD` when `allDay` is set. */
-	start: string;
-	end: string;
-	allDay?: boolean;
-	location?: string;
-	description?: string;
-	timeZone?: string;
-	/** An RRULE value without the property name, e.g. `"FREQ=WEEKLY;COUNT=5"`. */
-	recurrenceRule?: string;
-	status?: "Confirmed" | "Tentative" | "Cancelled";
-	transparency?: "Opaque" | "Transparent";
-}
-
-/** The fields an edit may carry. Absence means untouched, as on the API. */
-export interface UpdateCalendarEventInput {
-	summary?: string;
-	start?: string;
-	end?: string;
-	allDay?: boolean;
-	recurrenceRule?: string;
-}
+export type Calendar = RemitImapCalendarResponse;
+export type CalendarEventInstance = RemitImapCalendarEventInstance;
+export type CreateCalendarEventInput = RemitImapCreateCalendarEventInput;
+export type UpdateCalendarEventInput = RemitImapUpdateCalendarEventInput;
+export type CreateCalendarInput = RemitImapCreateCalendarInput;
+export type CalendarSuggestion = RemitImapCalendarSuggestionResponse;
+export type CalendarFeed = RemitImapCalendarFeedResponse;
+/** The stored resource a write comes back as, which is what a delete names. */
+export type CalendarEventResource = RemitImapCalendarEventResponse;
 
 /**
  * Which occurrences a scoped write reaches, and the occurrence it is anchored
  * at. `All` needs no anchor and is the default.
  */
 export interface RecurrenceScopeInput {
-	scope: "This" | "Following" | "All";
+	scope: RemitImapRecurrenceScope;
 	/** The `recurrenceId` a listing returned for the occurrence. */
 	recurrenceId?: string;
-}
-
-/** A collection written straight at the API, for a spec about the tick list. */
-export interface CreateCalendarInput {
-	urlSegment: string;
-	displayName: string;
-	timezone?: string;
-	color?: "Cal1" | "Cal2" | "Cal3" | "Cal4" | "Cal5" | "Cal6";
-}
-
-/**
- * An event a message offers, waiting on a person (#1033). The fields a spec
- * reads back to prove what the server made of an invitation and of an answer.
- */
-export interface CalendarSuggestion {
-	suggestionId: string;
-	messageId: string;
-	icalUid: string;
-	state:
-		| "Pending"
-		| "Accepted"
-		| "Declined"
-		| "Tentative"
-		| "Dismissed"
-		| "Superseded";
-	summary: string;
-	dtStart: string;
-	dtEnd: string;
-	organizer: string;
-	acceptedCalendarObjectId: string;
-	supersededByMessageId: string;
-	supersededByThreadId: string;
-}
-
-/** A calendar's secret feed address, as the one write that mints it answers. */
-export interface CalendarFeed {
-	calendarId: string;
-	feedToken: string;
-}
-
-/** The stored resource a write comes back as, which is what a delete names. */
-export interface CalendarEventResource {
-	calendarObjectId: string;
-	calendarId: string;
-	icalUid: string;
-}
-
-export interface StoredCalendarEvent extends CalendarEventResource {
-	icalData: string;
-	etag: string;
 }
 
 export interface ConfigAccount {
@@ -1157,7 +1066,7 @@ export class ApiClient {
 	getCalendarEvent(
 		calendarObjectId: string,
 		calendarId: string,
-	): Promise<StoredCalendarEvent> {
+	): Promise<CalendarEventResource> {
 		return this.json(
 			"GET",
 			`/calendar-events/${calendarObjectId}?calendarId=${calendarId}`,
@@ -1180,23 +1089,6 @@ export class ApiClient {
 			`/calendar-events/${calendarObjectId}?${calendarEventScopeQuery(calendarId, scope)}`,
 			patch,
 		);
-	}
-
-	/**
-	 * The busy time the server merged over a window. The strip measures its free
-	 * stretches off this rather than off the rows it drew, so a spec about a free
-	 * band asserts against the same answer the strip was given.
-	 */
-	async listCalendarFreeBusy(
-		from: string,
-		to: string,
-	): Promise<CalendarFreeBusySpan[]> {
-		const query = new URLSearchParams({ from, to });
-		const result = await this.json<ResultList<CalendarFreeBusySpan>>(
-			"GET",
-			`/calendar-free-busy?${query}`,
-		);
-		return result.items ?? [];
 	}
 
 	/** Every suggestion one message produced, whatever became of each. */

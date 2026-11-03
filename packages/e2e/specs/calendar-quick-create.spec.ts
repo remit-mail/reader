@@ -26,7 +26,6 @@ const block = (page: Page) => page.locator("[data-draft-block]");
 const title = (page: Page) => quick(page).getByLabel("Title");
 
 const cleanUp = () => deleteEventsByPrefix(PREFIX);
-test.beforeAll(cleanUp);
 test.afterAll(cleanUp);
 
 test("a drag opens quick-create on the range, and Enter saves the event there", async ({

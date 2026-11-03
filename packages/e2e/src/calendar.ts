@@ -10,15 +10,20 @@ export const CALENDAR_ZONE = "Europe/Amsterdam";
 
 const pad = (value: number): string => String(value).padStart(2, "0");
 
-export const isoDate = (date: Date): string =>
-	`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+/**
+ * Today in Amsterdam as `YYYY-MM-DD`: the browser runs on that clock, so the
+ * host's own date would name another day around midnight.
+ */
+export const today = (): string =>
+	new Intl.DateTimeFormat("en-CA", { timeZone: CALENDAR_ZONE }).format(
+		new Date(),
+	);
 
-/** Monday of the week holding today, plus a number of days, as `YYYY-MM-DD`. */
+/** Monday of the week holding today in Amsterdam, plus a number of days. */
 export const weekDay = (offset: number): string => {
-	const date = new Date();
-	date.setHours(12, 0, 0, 0);
-	date.setDate(date.getDate() - ((date.getDay() + 6) % 7) + offset);
-	return isoDate(date);
+	const date = new Date(`${today()}T12:00:00Z`);
+	date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7) + offset);
+	return date.toISOString().slice(0, 10);
 };
 
 /** A wall-clock time in Amsterdam as an ISO string with its offset that day. */
@@ -34,7 +39,7 @@ export const amsterdam = (day: string, time: string): string => {
 	return `${day}T${time}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 };
 
-export const SEEDED_CALENDARS = {
+const SEEDED_CALENDARS = {
 	work: { displayName: "Work", color: "Cal1" },
 	personal: { displayName: "Personal", color: "Cal3" },
 	team: { displayName: "Team", color: "Cal5" },

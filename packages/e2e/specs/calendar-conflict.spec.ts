@@ -107,7 +107,7 @@ test.describe("A week the calendar must not draw as it pleases", () => {
 		// Said where the reader is looking, and the form stays up with what they
 		// typed still in it: nothing was saved and nothing was thrown away.
 		const refusal = page.getByRole("alert");
-		await expect(refusal).toContainText("changed somewhere else", {
+		await expect(refusal).toContainText("changed while you were writing", {
 			timeout: 30_000,
 		});
 		await expect(title).toHaveValue(AS_TYPED);

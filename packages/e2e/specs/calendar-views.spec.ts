@@ -3,7 +3,7 @@
  * and the date live in the path, so every assertion is on the address.
  */
 import type { Page } from "@playwright/test";
-import { CALENDAR_ZONE, isoDate, weekDay } from "../src/calendar.js";
+import { CALENDAR_ZONE, today, weekDay } from "../src/calendar.js";
 import { expect, test } from "../src/fixtures.js";
 
 test.use({
@@ -16,9 +16,7 @@ const toolbar = (page: Page) => page.getByRole("toolbar", { name: "Calendar" });
 
 test("a bare /calendar lands on this week", async ({ page }) => {
 	await page.goto("/calendar");
-	await expect(page).toHaveURL(
-		new RegExp(`/calendar/week/${isoDate(new Date())}$`),
-	);
+	await expect(page).toHaveURL(new RegExp(`/calendar/week/${today()}$`));
 	await expect(toolbar(page).getByText(/^Week \d+$/)).toBeVisible();
 });
 
@@ -51,7 +49,5 @@ test("the arrows step one unit of the view, Back and reload keep it, and Today r
 	await expect(page).toHaveURL(new RegExp(`/calendar/day/${weekDay(8)}$`));
 
 	await toolbar(page).getByRole("button", { name: "Today" }).click();
-	await expect(page).toHaveURL(
-		new RegExp(`/calendar/day/${isoDate(new Date())}$`),
-	);
+	await expect(page).toHaveURL(new RegExp(`/calendar/day/${today()}$`));
 });

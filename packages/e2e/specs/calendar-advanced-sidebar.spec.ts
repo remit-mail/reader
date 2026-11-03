@@ -26,7 +26,6 @@ const sidebar = (page: Page) => page.getByRole("form", { name: "New event" });
 const block = (page: Page) => page.locator("[data-draft-block]");
 
 const cleanUp = () => deleteEventsByPrefix(PREFIX);
-test.beforeAll(cleanUp);
 test.afterAll(cleanUp);
 
 const expand = async (page: Page, day: number): Promise<void> => {
