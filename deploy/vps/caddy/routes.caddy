@@ -27,9 +27,7 @@
 # The MCP connector's host. Sites that hold a certificate import mcp_proxy
 # under {$MCP_PUBLIC_ORIGIN}; the catch-all :80 sites (off, tunnel) match it by
 # host with mcp_route. X-Remit-Client-IP is overwritten, as in routes below.
-# flush_interval -1 keeps server-sent events unbuffered. It lives here, not in
-# a file of its own, because the v0.9.22 and v0.9.23 wrappers check a release's
-# mode files with routes.caddy alone in /etc/caddy.
+# flush_interval -1 keeps server-sent events unbuffered.
 
 (mcp_proxy) {
 	request_header X-Remit-Client-IP {client_ip}
