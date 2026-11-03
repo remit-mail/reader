@@ -201,10 +201,14 @@ const reportLegacySplit = (
 		{ copied: outcome.copied, kept: `${source}${PRE_SPLIT_SUFFIX}` },
 		"split the single database file",
 	);
-	if (Object.keys(outcome.dropped).length > 0) {
-		logger.warn(
-			{ dropped: outcome.dropped },
-			"dropped flag changes and moves not yet pushed to the mail server; the resync takes the server state",
+	if (outcome.stranded.length > 0) {
+		logger.error(
+			{
+				alert: "split_stranded_placements",
+				count: outcome.stranded.length,
+				messageIds: outcome.stranded,
+			},
+			"These moves and deletes never reached the mail server; the resync shows the server's state",
 		);
 	}
 };

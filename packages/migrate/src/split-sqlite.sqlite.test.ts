@@ -3,6 +3,7 @@ import {
 	existsSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	rmSync,
 } from "node:fs";
@@ -241,6 +242,73 @@ const seedPendingFlagPush = (path: string): void => {
 	sqlite.close();
 };
 
+const markMoving = (path: string, updatedAt: number): void => {
+	const sqlite = new Database(path);
+	sqlite
+		.prepare(
+			"UPDATE message SET status = 'moving', original_mailbox_id = 'mbx-1', original_uid = 41, updated_at = ? WHERE message_id = 'msg-1'",
+		)
+		.run(updatedAt);
+	sqlite.close();
+};
+
+describe("the migrate one-shot on a single-file install with a change not yet pushed", () => {
+	const installs: string[] = [];
+	const install = () => {
+		const dir = mkdtempSync(join(tmpdir(), "remit-pending-split-"));
+		installs.push(dir);
+		const paths = {
+			app: join(dir, "app.db"),
+			mail: join(dir, "mail.db"),
+			search: join(dir, "search.db"),
+		};
+		const source = legacyDatabasePath(paths);
+		seedSource(source);
+		const migrate = () =>
+			splitLegacyDatabase(
+				source,
+				paths,
+				{ Database, drizzle },
+				fileURLToPath(new URL("../../../deploy/vps", import.meta.url)),
+				() => {},
+			);
+		return { dir, source, migrate };
+	};
+
+	after(() => {
+		for (const dir of installs) rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("refuses to split over a flag change and writes nothing", async () => {
+		const { dir, source, migrate } = install();
+		seedPendingFlagPush(source);
+		await assert.rejects(
+			migrate(),
+			/1 flag changes, 0 moves and 0 messages moving or deleting.*safe to rerun/,
+		);
+		assert.deepEqual(readdirSync(dir), ["remit.db"]);
+		assert.equal(count(source, "message_flag_push"), 1);
+	});
+
+	test("refuses to split over a move an event can still settle", async () => {
+		const { dir, source, migrate } = install();
+		markMoving(source, Date.now());
+		await assert.rejects(
+			migrate(),
+			/0 flag changes, 0 moves and 1 messages moving or deleting/,
+		);
+		assert.deepEqual(readdirSync(dir), ["remit.db"]);
+	});
+
+	test("splits past a move nothing is left to settle, and names it", async () => {
+		const { migrate, source } = install();
+		markMoving(source, NOW);
+		const outcome = await migrate();
+		assert.equal(outcome.kind, "split");
+		assert.deepEqual(outcome.kind === "split" && outcome.stranded, ["msg-1"]);
+	});
+});
+
 describe("the migrate one-shot on a single-file install", () => {
 	const dir = mkdtempSync(join(tmpdir(), "remit-auto-split-"));
 	const paths = {
@@ -266,7 +334,6 @@ describe("the migrate one-shot on a single-file install", () => {
 
 	before(async () => {
 		seedSource(source);
-		seedPendingFlagPush(source);
 		first = await migrate();
 		second = await migrate();
 	});
@@ -275,14 +342,10 @@ describe("the migrate one-shot on a single-file install", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	test("splits into the three databases, dropping the unpushed changes", () => {
+	test("splits into the three databases", () => {
 		assert.equal(first.kind, "split");
-		assert.deepEqual(first.kind === "split" && first.dropped, {
-			message_flag_push: 1,
-		});
 		assert.equal(count(paths.app, "account_config"), 1);
 		assert.equal(count(paths.mail, "outbox_message"), 1);
-		assert.equal(count(paths.mail, "message_flag_push"), 0);
 		assert.equal(hasTable(paths.search, "__drizzle_migrations_search"), true);
 	});
 
@@ -332,5 +395,89 @@ describe("the migrate one-shot on a single-file install", () => {
 		}
 		assert.equal(existsSync(source), true);
 		assert.equal(existsSync(paths.app), false);
+	});
+});
+
+// A remit.db as a v0.9.22 install left it: that release's schema, which lacks
+// the tables and columns added since (calendar_task, auth_jwks.alg and .crv).
+const seedV0922Source = (path: string): void => {
+	const sqlite = new Database(path);
+	sqlite.exec(
+		readFileSync(
+			new URL("fixtures/remit-v0.9.22.sql", import.meta.url),
+			"utf8",
+		),
+	);
+	sqlite.exec(`
+		INSERT INTO account_config (account_config_id, user_id, created_at, updated_at)
+			VALUES ('cfg-1', 'user-1', ${NOW}, ${NOW});
+		INSERT INTO account (account_id, account_config_id, username, email, imap_host, imap_port, imap_tls, imap_start_tls, is_active, connection_state, created_at, updated_at)
+			VALUES ('acc-1', 'cfg-1', 'me', 'me@example.test', 'imap.example.test', 993, 1, 0, 1, 'connected', ${NOW}, ${NOW});
+		INSERT INTO calendar (calendar_id, account_config_id, url_segment, display_name, created_at, updated_at)
+			VALUES ('cal-1', 'cfg-1', 'home', 'Home', ${NOW}, ${NOW});
+		INSERT INTO auth_user (id, name, email, created_at, updated_at)
+			VALUES ('user-1', 'Me', 'me@example.test', ${NOW}, ${NOW});
+		INSERT INTO auth_account (id, account_id, provider_id, user_id, created_at, updated_at)
+			VALUES ('aa-1', 'user-1', 'credential', 'user-1', ${NOW}, ${NOW});
+		INSERT INTO auth_session (id, expires_at, token, user_id, created_at, updated_at)
+			VALUES ('ses-1', ${NOW}, 'token-1', 'user-1', ${NOW}, ${NOW});
+		INSERT INTO auth_jwks (id, public_key, private_key, created_at)
+			VALUES ('jwk-1', 'public', 'private', ${NOW});
+		INSERT INTO label (label_id, account_config_id, name, normalized_name, created_at, updated_at)
+			VALUES ('lbl-1', 'cfg-1', 'Receipts', 'receipts', ${NOW}, ${NOW});
+		INSERT INTO mailbox (mailbox_id, account_id, namespace_prefix, hierarchy_delimiter, full_path, uid_validity, uid_next, highest_modseq, message_count, unseen_count, deleted_count, total_size, last_sync_uid, high_water_mark_uid, last_message_sync_at, created_at, updated_at)
+			VALUES ('mbx-1', 'acc-1', '', '/', 'INBOX', 7, 42, '9000', 41, 3, 0, 123456, 41, 41, ${NOW}, ${NOW}, ${NOW});
+		INSERT INTO message (message_id, mailbox_id, uid, sequence_number, rfc822_size, internal_date, envelope_id, root_body_part_id, created_at, updated_at)
+			VALUES ('msg-1', 'mbx-1', 41, 41, 100, ${NOW}, 'env-1', 'bp-1', ${NOW}, ${NOW});
+		INSERT INTO message_label (message_label_id, message_id, label_id, account_config_id, created_at, updated_at)
+			VALUES ('ml-1', 'msg-1', 'lbl-1', 'cfg-1', ${NOW}, ${NOW});
+	`);
+	sqlite.close();
+};
+
+describe("the migrate one-shot on a v0.9.22 single-file install", () => {
+	const dir = mkdtempSync(join(tmpdir(), "remit-v0922-split-"));
+	const paths = {
+		app: join(dir, "app.db"),
+		mail: join(dir, "mail.db"),
+		search: join(dir, "search.db"),
+	};
+	const source = legacyDatabasePath(paths);
+	let outcome: Awaited<ReturnType<typeof splitLegacyDatabase>>;
+
+	before(async () => {
+		seedV0922Source(source);
+		outcome = await splitLegacyDatabase(
+			source,
+			paths,
+			{ Database, drizzle },
+			fileURLToPath(new URL("../../../deploy/vps", import.meta.url)),
+			() => {},
+		);
+	});
+
+	after(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("keeps the accounts, sign-ins, calendars and keys in the app database", () => {
+		assert.equal(outcome.kind, "split");
+		assert.equal(count(paths.app, "account_config"), 1);
+		assert.equal(count(paths.app, "account"), 1);
+		assert.equal(count(paths.app, "calendar"), 1);
+		assert.equal(count(paths.app, "auth_user"), 1);
+		assert.equal(count(paths.app, "auth_account"), 1);
+		assert.equal(count(paths.app, "auth_session"), 1);
+		assert.equal(count(paths.app, "calendar_task"), 0);
+		const sqlite = new Database(paths.app, { readonly: true });
+		const key = sqlite.prepare("SELECT id, alg, crv FROM auth_jwks").get();
+		sqlite.close();
+		assert.deepEqual(key, { id: "jwk-1", alg: null, crv: null });
+	});
+
+	test("keeps the mailboxes and labels on messages in the mail database", () => {
+		assert.equal(count(paths.mail, "mailbox"), 1);
+		assert.equal(count(paths.mail, "message_label"), 1);
+		assert.equal(count(`${source}.pre-split`, "message"), 1);
 	});
 });

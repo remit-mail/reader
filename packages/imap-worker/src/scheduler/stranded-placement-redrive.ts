@@ -6,6 +6,7 @@ import {
 	deriveMessageId,
 	isValidMessageId,
 } from "@remit/data-ports/id";
+import { STRANDED_PLACEMENT_AFTER_MILLIS } from "@remit/data-ports/message-settlement";
 import { PATHLESS_MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
@@ -17,8 +18,7 @@ import type {
 	PlacementMovePushEvent,
 } from "../events.js";
 
-/** Well past three attempts on a 60 s visibility timeout. */
-export const STRANDED_PLACEMENT_AFTER_MILLIS = 60 * 60 * 1000;
+export { STRANDED_PLACEMENT_AFTER_MILLIS };
 
 type Unstamped<T> = Omit<T, "eventId" | "timestamp">;
 
