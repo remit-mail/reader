@@ -1,4 +1,12 @@
-import { and, count, eq, getTableColumns, getTableName, is } from "drizzle-orm";
+import {
+	and,
+	count,
+	eq,
+	getTableColumns,
+	getTableName,
+	is,
+	sql,
+} from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { SQLiteTable, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import * as authTables from "../../auth-service/src/schema/auth-schema-sqlite.js";
@@ -11,9 +19,14 @@ import * as mcpTables from "../../mcp-server/src/auth/schema.js";
  * The one-time move from the single self-host database file to the app, tenant
  * mail and tenant search databases (#1420), run by the migrate one-shot.
  *
- * Every app table is copied whole. Of the mail tables only the rows the IMAP
- * server cannot give back are copied: what the user wrote or decided locally,
- * and the mailbox rows those refer to by id. Everything else resyncs from the
+ * Every app table is copied whole. The source has the schema of the release
+ * that wrote it, so a table or column added since is not in it: such a table
+ * has nothing to copy, and such a column takes the default the migrations give
+ * it.
+ *
+ * Of the mail tables only the rows the IMAP server cannot give back are
+ * copied: what the user wrote or decided locally, and the mailbox rows those
+ * refer to by id. Everything else resyncs from the
  * server, and the search index fills as it does.
  *
  * The inserts are plain: a target that already holds a row fails the split
@@ -30,17 +43,15 @@ const tablesOf = (module: Record<string, unknown>): SQLiteTable[] =>
 		is(value, SQLiteTable),
 	);
 
+// The MCP authorization server's tables (registered clients, consents and
+// tokens) join the app database too.
 const APP_TABLES: readonly SQLiteTable[] = [
 	...tablesOf(appTables),
 	...tablesOf(authTables),
+	...tablesOf(mcpTables),
 ];
 
 const keep = (row: Row): Row => row;
-
-// The MCP authorization server's tables: registered clients, consents and
-// tokens. They join the app database, but a source written before the MCP
-// connector shipped has none of them, so each is copied only where it exists.
-const MCP_TABLES: readonly SQLiteTable[] = tablesOf(mcpTables);
 
 const sqliteMaster = sqliteTable("sqlite_master", {
 	type: text("type").notNull(),
@@ -103,13 +114,43 @@ const MAILBOX_TABLES: ReadonlyArray<[SQLiteTable, (row: Row) => Row]> = [
 // D1 refuses a statement with more than 100 bound parameters.
 const PARAMETER_BUDGET = 90;
 
+interface ColumnInfo {
+	name: string;
+	notnull: number;
+	dflt_value: string | null;
+}
+
+const columnsOf = (db: AnyDb, table: SQLiteTable): ColumnInfo[] =>
+	db.all<ColumnInfo>(
+		sql`SELECT name, "notnull", dflt_value FROM pragma_table_info(${getTableName(table)})`,
+	);
+
 const copyTable = async (
 	source: AnyDb,
 	target: AnyDb,
 	table: SQLiteTable,
 	transform: (row: Row) => Row,
 ): Promise<number> => {
-	const rows = (await source.select().from(table)).map(transform);
+	const sourceColumns = new Set(
+		columnsOf(source, table).map((column) => column.name),
+	);
+	const shared = Object.fromEntries(
+		Object.entries(getTableColumns(table)).filter(([, column]) =>
+			sourceColumns.has(column.name),
+		),
+	);
+	const rows = (await source.select(shared).from(table)).map(transform);
+	const unfilled = columnsOf(target, table).filter(
+		(column) =>
+			!sourceColumns.has(column.name) &&
+			column.notnull === 1 &&
+			column.dflt_value === null,
+	);
+	if (rows.length > 0 && unfilled.length > 0) {
+		throw new Error(
+			`cannot copy ${getTableName(table)}: the source has no ${unfilled.map((column) => column.name).join(", ")}, and the migrations give no default for it`,
+		);
+	}
 	const columns = Object.keys(getTableColumns(table)).length;
 	const perStatement = Math.max(1, Math.floor(PARAMETER_BUDGET / columns));
 	const statements = [];
@@ -135,7 +176,7 @@ const PENDING_PUSH_TABLES: readonly SQLiteTable[] = [
 
 /** Whether an app database already holds a row in any app table. */
 export const holdsAppRows = async (db: AnyDb): Promise<boolean> => {
-	for (const table of [...APP_TABLES, ...MCP_TABLES]) {
+	for (const table of APP_TABLES) {
 		if (!(await hasTable(db, table))) continue;
 		if ((await db.select().from(table).limit(1)).length > 0) return true;
 	}
@@ -148,30 +189,39 @@ export const splitSqlite = async (
 	targets: { app: AnyDb; mail: AnyDb },
 ): Promise<{ copied: SplitSqliteReport; dropped: SplitSqliteReport }> => {
 	const copied: SplitSqliteReport = {};
-	for (const table of APP_TABLES) {
-		copied[getTableName(table)] = await copyTable(
-			source,
-			targets.app,
-			table,
-			keep,
-		);
+	const copies: ReadonlyArray<
+		readonly [SQLiteTable, AnyDb, (row: Row) => Row]
+	> = [
+		...APP_TABLES.map((table) => [table, targets.app, keep] as const),
+		...[...MAILBOX_TABLES, ...LOCAL_MAIL_TABLES].map(
+			([table, transform]) => [table, targets.mail, transform] as const,
+		),
+	];
+	// A module lists its tables by name, not by reference, so a row can be
+	// copied before the row it refers to (auth_account before auth_user). The
+	// references are checked once every table is whole instead.
+	for (const target of [targets.app, targets.mail]) {
+		target.run(sql`PRAGMA foreign_keys = OFF`);
 	}
-	for (const table of MCP_TABLES) {
+	for (const [table, target, transform] of copies) {
 		if (!(await hasTable(source, table))) continue;
 		copied[getTableName(table)] = await copyTable(
 			source,
-			targets.app,
-			table,
-			keep,
-		);
-	}
-	for (const [table, transform] of [...MAILBOX_TABLES, ...LOCAL_MAIL_TABLES]) {
-		copied[getTableName(table)] = await copyTable(
-			source,
-			targets.mail,
+			target,
 			table,
 			transform,
 		);
+	}
+	for (const [name, target] of Object.entries(targets)) {
+		const orphans = target.all<{ table: string }>(
+			sql`PRAGMA foreign_key_check`,
+		);
+		if (orphans.length > 0) {
+			throw new Error(
+				`the ${name} database refers to rows it does not hold, in ${[...new Set(orphans.map((orphan) => orphan.table))].join(", ")}`,
+			);
+		}
+		target.run(sql`PRAGMA foreign_keys = ON`);
 	}
 	const dropped: SplitSqliteReport = {};
 	for (const table of PENDING_PUSH_TABLES) {
