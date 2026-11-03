@@ -18,6 +18,7 @@ export type { ICalendarEventIndexRepository } from "./interfaces/calendar-event-
 export type { ICalendarFeedTokenRepository } from "./interfaces/calendar-feed-token.js";
 export type { ICalendarObjectRepository } from "./interfaces/calendar-object.js";
 export type {
+	CalendarCommitReport,
 	CalendarRepositories,
 	CalendarWrite,
 	DeleteCalendarCollectionWrite,

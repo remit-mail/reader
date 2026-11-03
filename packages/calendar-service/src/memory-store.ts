@@ -1,5 +1,6 @@
 import type {
 	CalendarCollectionItem,
+	CalendarCommitReport,
 	CalendarEventIndexItem,
 	CalendarFeedTokenItem,
 	CalendarObjectItem,
@@ -394,11 +395,25 @@ export class MemoryCalendarStore implements ICalendarStore {
 		};
 	}
 
-	async commit(writes: readonly CalendarWrite[]): Promise<void> {
-		for (const write of writes) await this.apply(write);
+	async commit(
+		writes: readonly CalendarWrite[],
+	): Promise<CalendarCommitReport> {
+		const staleReprojections: string[] = [];
+		for (const write of writes) {
+			const applied = await this.apply(write);
+			if (!applied && write.kind === "ReprojectObject") {
+				staleReprojections.push(
+					deriveCalendarObjectId(
+						write.object.calendarId,
+						write.object.resourceName,
+					),
+				);
+			}
+		}
+		return { staleReprojections };
 	}
 
-	private async apply(write: CalendarWrite): Promise<void> {
+	private async apply(write: CalendarWrite): Promise<boolean> {
 		switch (write.kind) {
 			case "PutObject": {
 				const { calendarId } = write.object;
@@ -415,7 +430,7 @@ export class MemoryCalendarStore implements ICalendarStore {
 					object.calendarObjectId,
 					write.occurrences,
 				);
-				return;
+				return true;
 			}
 			case "ReprojectObject": {
 				const { calendarId, resourceName } = write.object;
@@ -423,14 +438,14 @@ export class MemoryCalendarStore implements ICalendarStore {
 					calendarId,
 					resourceName,
 				);
-				if (stored === null || stored.etag !== write.readEtag) return;
+				if (stored === null || stored.etag !== write.readEtag) return false;
 				await this.apply({
 					kind: "PutObject",
 					accountConfigId: write.accountConfigId,
 					object: write.object,
 					occurrences: write.occurrences,
 				});
-				return;
+				return true;
 			}
 			case "DeleteObject":
 				await this.eventIndexRepo.deleteForObject(
@@ -442,21 +457,21 @@ export class MemoryCalendarStore implements ICalendarStore {
 					write.accountConfigId,
 					write.calendarId,
 				);
-				return;
+				return true;
 			case "SettleSuggestion":
 				await this.suggestionRepo.settle(
 					write.accountConfigId,
 					write.suggestionId,
 					write.settle,
 				);
-				return;
+				return true;
 			case "UpdateCollection":
 				await this.collectionRepo.update(
 					write.accountConfigId,
 					write.calendarId,
 					write.patch,
 				);
-				return;
+				return true;
 			case "DeleteCollection": {
 				for (const object of await this.objectRepo.listByCalendar(
 					write.calendarId,
@@ -478,7 +493,7 @@ export class MemoryCalendarStore implements ICalendarStore {
 					write.accountConfigId,
 					write.calendarId,
 				);
-				return;
+				return true;
 			}
 		}
 	}

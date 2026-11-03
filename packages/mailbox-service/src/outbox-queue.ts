@@ -433,7 +433,11 @@ export class OutboxQueueService {
 			outbox.outboxMessageId,
 		).then(
 			() => true,
-			async () => {
+			async (error: unknown) => {
+				this.log.error(
+					{ outboxMessageId: outbox.outboxMessageId, error: String(error) },
+					"The queue refused a calendar scheduling message; settling it failed",
+				);
 				await this.settleUnqueued(
 					input.accountConfigId,
 					outbox.outboxMessageId,

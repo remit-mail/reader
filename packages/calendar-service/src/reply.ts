@@ -107,11 +107,22 @@ const targetsOf = async (
 		{ scope: RecurrenceScope.This, recurrenceId: slot, followingUid: "" },
 		{},
 	);
-	if (!written.ok || written.value.kind !== "Replace") {
-		return { calendar: stored, targets: [] };
+	if (!written.ok) {
+		throw new Error(
+			`a reply to ${slot} could not be given an override of its own: ${written.error.message}`,
+		);
+	}
+	if (written.value.kind !== "Replace") {
+		throw new Error(
+			`a reply to ${slot} resolved to a ${written.value.kind} rather than an override`,
+		);
 	}
 	const reparsed = await parseCalendar(written.value.icalData);
-	if (!reparsed.ok) return { calendar: stored, targets: [] };
+	if (!reparsed.ok) {
+		throw new Error(
+			`an override this server wrote no longer parses: ${reparsed.error.message}`,
+		);
+	}
 	const override = overridesBySlot(reparsed.value, collectionTimezone).get(
 		slot,
 	);
@@ -202,11 +213,18 @@ export const recordCalendarReply = async (
 				`a reply applied to ${object.calendarObjectId} was refused by the write path: ${write.error.message}`,
 			);
 		}
-		// Conditional on the version the reply was applied to: an edit landing
-		// meanwhile wins, and the reply reapplies on the message's next sync.
-		await store.commit([
+		// Conditional on the version the reply was applied to. An edit that
+		// landed meanwhile is a conflict: the write is refused loudly, the
+		// body-sync job fails, and the queue's redelivery applies the reply to
+		// the event as it now stands.
+		const report = await store.commit([
 			{ ...write.value, kind: "ReprojectObject", readEtag: object.etag },
 		]);
+		if (report.staleReprojections.length > 0) {
+			throw new Error(
+				`${object.calendarObjectId} changed while a guest's reply was applied to it`,
+			);
+		}
 		return "Recorded";
 	}
 	return "NotOrganized";

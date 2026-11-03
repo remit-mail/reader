@@ -489,7 +489,11 @@ export const planUpdateSends = async <A extends Account>(
 		return null;
 	}
 	const from = accountByAddress(accounts, planned.answeringAs);
-	if (!from) return null;
+	if (!from) {
+		throw new Error(
+			`${planned.answeringAs} answered as the reader but is none of their accounts`,
+		);
+	}
 	return {
 		from,
 		plans: [
