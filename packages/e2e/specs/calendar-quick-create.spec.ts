@@ -68,12 +68,12 @@ test("an outside click after typing clears popup and range, and the next click s
 	await page.goto(week);
 	await dragRange(page, 2, 9 * 60, 10 * 60);
 	await title(page).fill("Throw me away");
-	await clickSlot(page, 5, 18 * 60);
+	await clickSlot(page, 0, 18 * 60);
 	await expect(quick(page)).toHaveCount(0);
 	await expect(block(page)).toHaveCount(0);
 	await expect(page.getByText(/undo/i)).toHaveCount(0);
 
-	await clickSlot(page, 5, 18 * 60);
+	await clickSlot(page, 0, 18 * 60);
 	await expect(quick(page)).toBeVisible();
 	await expect(title(page)).toHaveValue("");
 });
