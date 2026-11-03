@@ -82,7 +82,7 @@ export const accountSettingRegistry = {
 	 * write new rows under this name. Remove once the row-deletion migration ships.
 	 */
 	[AccountSettingName.MailboxRole]: StringSettingSchema,
-	[AccountSettingName.CalendarDefaultOrganizerAccountId]: StringSettingSchema,
+	[AccountSettingName.DefaultInvitationSenderAccountId]: StringSettingSchema,
 } as const satisfies Record<AccountSettingNameValue, z.ZodTypeAny>;
 
 export type AccountSettingRegistry = typeof accountSettingRegistry;

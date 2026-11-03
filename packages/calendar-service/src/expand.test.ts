@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CalendarEventStatus, CalendarParticipation,
-	CalendarTransparency } from "@remit/domain-enums";
+import {
+	CalendarEventStatus,
+	CalendarParticipation,
+	CalendarTransparency,
+} from "@remit/domain-enums";
 import {
 	CALENDAR_EXPANSION_HORIZON_DAYS,
 	CALENDAR_EXPANSION_MAX_OCCURRENCES,

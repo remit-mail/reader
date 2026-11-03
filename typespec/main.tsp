@@ -658,6 +658,22 @@ namespace RemitApi {
     ): CalendarFreeBusyResponse | ValidationError | UnauthorizedError;
   }
 
+  @route("/settings")
+  namespace UserSettingsOperations {
+    @doc("Read the caller's settings.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getUserSettings(): UserSettingsResponse | UnauthorizedError;
+
+    @doc("Change the caller's settings. Answers with every setting as it now stands.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateUserSettings(@body input: UpdateUserSettingsInput):
+      | UserSettingsResponse
+      | ValidationError
+      | UnauthorizedError;
+  }
+
   @route("/calendar-tasks")
   namespace CalendarTaskOperations {
     @doc("Tasks due in a window, across every task collection the caller holds, in due order. Refused with 400 on the same window rules as the event listing.")

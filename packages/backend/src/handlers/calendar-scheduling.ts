@@ -120,7 +120,7 @@ export const calendarSchedulingOf = (
 			(
 				await sources.accountSetting.get(
 					sources.accountConfigId,
-					AccountSettingName.CalendarDefaultOrganizerAccountId,
+					AccountSettingName.DefaultInvitationSenderAccountId,
 				)
 			)?.value,
 		),

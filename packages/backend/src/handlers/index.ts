@@ -51,6 +51,7 @@ import { SyncOperations } from "./sync.js";
 import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
 import { UnifiedThreadOperations } from "./unified-threads.js";
+import { UserSettingsOperations } from "./user-settings.js";
 
 export const handlers = {
 	...MeOperations,
@@ -74,6 +75,7 @@ export const handlers = {
 	...CalendarEventOperations,
 	...CalendarEventDetailOperations,
 	...CalendarFreeBusyOperations,
+	...UserSettingsOperations,
 	...CalendarTaskOperations,
 	...CalendarTaskDetailOperations,
 	...TrashOperations,

@@ -56,6 +56,27 @@ test.describe
 			guest = await provisionIsolatedRun("Guests guest");
 		});
 
+		test("the default invitation sender is a setting of its own", async () => {
+			const api = apiOf(organizer);
+			const unset = await api.request("GET", "/settings");
+			expect(await unset.json()).toEqual({
+				defaultInvitationSenderAccountId: "",
+			});
+
+			const set = await api.request("PATCH", "/settings", {
+				defaultInvitationSenderAccountId: organizer.accountId,
+			});
+			expect(set.status).toBe(200);
+			expect(await set.json()).toEqual({
+				defaultInvitationSenderAccountId: organizer.accountId,
+			});
+
+			const foreign = await api.request("PATCH", "/settings", {
+				defaultInvitationSenderAccountId: guest.accountId,
+			});
+			expect(foreign.status).toBe(400);
+		});
+
 		test("a save with a guest sends them an invitation (FF1.2, FF1.10)", async () => {
 			const api = apiOf(organizer);
 			const [calendar] = (await api.listCalendars()).filter(
