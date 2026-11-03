@@ -6,12 +6,15 @@ import type {
 	PutCalendarObjectWrite,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
-import { CalendarSource } from "@remit/domain-enums";
+import { CalendarComponentSet, CalendarSource } from "@remit/domain-enums";
 import type { CalendarResult } from "./errors.js";
 import { computeEtag } from "./etag.js";
 import { expandCalendar } from "./expand.js";
 import { parseCalendar } from "./parse.js";
 import { projectCalendar } from "./project.js";
+
+/** URL segment of the task collection every account config is provisioned with. */
+export const TASK_CALENDAR_URL_SEGMENT = "tasks";
 
 /** URL segment of the collection every account config is provisioned with. */
 export const DEFAULT_CALENDAR_URL_SEGMENT = "default";
@@ -129,5 +132,22 @@ export const provisionDefaultCalendar = (
 		accountConfigId,
 		urlSegment: DEFAULT_CALENDAR_URL_SEGMENT,
 		displayName,
+		source: CalendarSource.Default,
+	});
+
+/**
+ * The collection an account config keeps its tasks in. Provisioned beside the
+ * default event collection, idempotently, for the same reason.
+ */
+export const provisionTaskCalendar = (
+	store: ICalendarStore,
+	accountConfigId: string,
+	displayName = "Tasks",
+): Promise<CalendarCollectionItem> =>
+	store.repos.calendarCollection.create({
+		accountConfigId,
+		urlSegment: TASK_CALENDAR_URL_SEGMENT,
+		displayName,
+		componentSet: CalendarComponentSet.VtodoOnly,
 		source: CalendarSource.Default,
 	});

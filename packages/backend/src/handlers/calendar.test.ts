@@ -91,6 +91,8 @@ class CalendarAccount {
 				return `${this.accountConfigId}-minted-${minted}`;
 			},
 			now: () => new Date("2026-08-29T00:00:00Z"),
+			queueScheduled: (input, part) =>
+				client.outboxQueue.createAndSendScheduled(input, part),
 		};
 	}
 
@@ -153,7 +155,7 @@ const seedWeekly = async (
 		recurrenceRule,
 	});
 	assert.ok(created.ok, JSON.stringify(created));
-	return created.value;
+	return created.value.object;
 };
 
 before(async () => {
@@ -173,9 +175,25 @@ describe("listCalendarsFor", () => {
 			account.accountConfigId,
 		);
 
-		assert.equal(calendars.length, 1);
-		assert.equal(calendars[0]?.urlSegment, "default");
-		assert.equal(calendars[0]?.source, CalendarSource.Default);
+		assert.deepEqual(
+			calendars.map(({ urlSegment, componentSet, source }) => ({
+				urlSegment,
+				componentSet,
+				source,
+			})),
+			[
+				{
+					urlSegment: "default",
+					componentSet: "VeventOnly",
+					source: CalendarSource.Default,
+				},
+				{
+					urlSegment: "tasks",
+					componentSet: "VtodoOnly",
+					source: CalendarSource.Default,
+				},
+			],
+		);
 	});
 
 	it("provisions it exactly once when several reads arrive together", async () => {
@@ -187,9 +205,9 @@ describe("listCalendarsFor", () => {
 			),
 		);
 
-		assert.equal((await account.collections()).length, 1);
+		assert.equal((await account.collections()).length, 2);
 		const ids = new Set(reads.flat().map((calendar) => calendar.calendarId));
-		assert.equal(ids.size, 1);
+		assert.equal(ids.size, 2);
 	});
 });
 
@@ -250,7 +268,7 @@ describe("deleteCalendarFor", () => {
 
 		assert.ok(!removed.ok);
 		assert.equal(removed.error.code, "DefaultCalendarUndeletable");
-		assert.equal((await account.collections()).length, 1);
+		assert.equal((await account.collections()).length, 2);
 	});
 
 	it("takes the events and their occurrences with a calendar it does remove", async () => {
@@ -460,11 +478,14 @@ describe("updateCalendarEventFor", () => {
 		assert.equal(tail?.summary, "Stand-up (new format)");
 		assert.notEqual(head?.icalUid, tail?.icalUid);
 		assert.equal(
-			split.value?.calendarObjectId,
+			split.value?.object?.calendarObjectId,
 			tail?.calendarObjectId,
 			"the caller is handed the remainder, which is where their edit landed",
 		);
-		assert.notEqual(split.value?.calendarObjectId, event.calendarObjectId);
+		assert.notEqual(
+			split.value?.object?.calendarObjectId,
+			event.calendarObjectId,
+		);
 	});
 
 	it("answers not-found for an event the calendar does not hold", async () => {
@@ -694,11 +715,14 @@ describe("updateCalendarFor", () => {
 		const created = await createCalendarEventFor(
 			deps,
 			account.accountConfigId,
-			{ calendarId: calendar.calendarId, ...allDay },
+			{
+				calendarId: calendar.calendarId,
+				...allDay,
+			},
 		);
 		assert.ok(created.ok, JSON.stringify(created));
 		assert.equal(
-			(await account.occurrences(created.value))[0]?.startAt,
+			(await account.occurrences(created.value.object))[0]?.startAt,
 			"2026-06-01T00:00:00Z",
 			"an all-day event in a calendar with no zone starts at midnight UTC",
 		);
@@ -712,7 +736,7 @@ describe("updateCalendarFor", () => {
 
 		assert.ok(updated.ok, JSON.stringify(updated));
 		assert.equal(
-			(await account.occurrences(created.value))[0]?.startAt,
+			(await account.occurrences(created.value.object))[0]?.startAt,
 			"2026-06-01T04:00:00Z",
 			"and midnight in the calendar's new zone once it has one",
 		);
@@ -730,7 +754,10 @@ describe("updateCalendarFor", () => {
 		const created = await createCalendarEventFor(
 			deps,
 			account.accountConfigId,
-			{ calendarId: calendar.calendarId, ...allDay },
+			{
+				calendarId: calendar.calendarId,
+				...allDay,
+			},
 		);
 		assert.ok(created.ok);
 		const before = (await account.collection(calendar.calendarId))

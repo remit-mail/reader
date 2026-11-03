@@ -367,3 +367,49 @@ describe("renderRawMessage", () => {
 		assert.equal(headerOf(raw, "Bcc"), "hidden@example.com");
 	});
 });
+
+describe("a calendar scheduling message", () => {
+	const ICAL = [
+		"BEGIN:VCALENDAR",
+		"VERSION:2.0",
+		"METHOD:REQUEST",
+		"BEGIN:VEVENT",
+		"UID:meeting@test",
+		"DTSTAMP:20260901T000000Z",
+		"DTSTART:20260907T090000Z",
+		"END:VEVENT",
+		"END:VCALENDAR",
+	].join("\r\n");
+
+	it("carries its iCalendar as a text/calendar part with the iTIP method", async () => {
+		const raw = (
+			await renderRawMessage(
+				buildMailMessage(
+					baseOutbox({
+						subject: "Invitation: Planning",
+						textBody: "Invitation",
+					}),
+					[],
+					{ method: "Request", icalData: ICAL },
+				),
+			)
+		).toString("utf8");
+
+		assert.match(raw, /Content-Type: multipart\/alternative/);
+		assert.match(
+			raw,
+			/Content-Type: text\/calendar; charset=utf-8; method=REQUEST/,
+		);
+		assert.match(raw, /Content-Type: text\/plain/);
+	});
+
+	it("is a plain message when the outbox row carries no part", async () => {
+		const raw = (
+			await renderRawMessage(
+				buildMailMessage(baseOutbox({ textBody: "Hi" }), [], null),
+			)
+		).toString("utf8");
+
+		assert.doesNotMatch(raw, /text\/calendar/);
+	});
+});

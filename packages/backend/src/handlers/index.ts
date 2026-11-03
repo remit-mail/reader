@@ -26,6 +26,10 @@ import {
 	CalendarSuggestionOperations,
 	MessageCalendarSuggestionOperations,
 } from "./calendar-suggestion.js";
+import {
+	CalendarTaskDetailOperations,
+	CalendarTaskOperations,
+} from "./calendar-task.js";
 import { ConfigOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
@@ -47,6 +51,7 @@ import { SyncOperations } from "./sync.js";
 import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
 import { UnifiedThreadOperations } from "./unified-threads.js";
+import { UserSettingsOperations } from "./user-settings.js";
 
 export const handlers = {
 	...MeOperations,
@@ -70,6 +75,9 @@ export const handlers = {
 	...CalendarEventOperations,
 	...CalendarEventDetailOperations,
 	...CalendarFreeBusyOperations,
+	...UserSettingsOperations,
+	...CalendarTaskOperations,
+	...CalendarTaskDetailOperations,
 	...TrashOperations,
 	...SyncOperations,
 	...ThreadDetailOperations,

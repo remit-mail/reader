@@ -213,7 +213,12 @@ export const syncMessageBody = async (
 				{ flagQueueService },
 				// An invitation becomes a card the first time the message is seen,
 				// alongside the filters that run on the same pass (issue #1033).
-				{ calendarSuggestionService, calendarStore, filterService },
+				{
+					calendarSuggestionService,
+					calendarStore,
+					filterService,
+					accountService,
+				},
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The

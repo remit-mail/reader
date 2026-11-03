@@ -36,9 +36,23 @@ const ICAL = [
 	"END:VCALENDAR",
 ].join("\r\n");
 
+const unread = (): Promise<never> =>
+	Promise.reject(new Error("a feed reads no tasks, settings or outbox"));
+
 const depsOf = (store: MemoryCalendarStore): CalendarDeps => ({
 	...store.repos,
 	calendarStore: store,
+	calendarTask: {
+		put: unread,
+		find: unread,
+		delete: unread,
+		listByDueRange: unread,
+		deleteByCalendar: unread,
+	},
+	accounts: { listAllByAccountConfig: async () => [] },
+	accountSetting: { get: unread },
+	outboxMessage: { get: unread },
+	outboxSchedulingPart: { listByCalendarObject: unread },
 });
 
 const tokenFor = async (

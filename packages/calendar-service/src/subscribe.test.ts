@@ -58,7 +58,12 @@ const drawn = async (
 		ACCOUNT_CONFIG_ID,
 		collection.calendarId,
 	);
-	const instances = await listCalendarInstances(store.repos, [current], WINDOW);
+	const instances = await listCalendarInstances(
+		store.repos,
+		[current],
+		WINDOW,
+		new Set(),
+	);
 	return instances.map((instance) => ({
 		summary: instance.summary,
 		startAt: instance.startAt,

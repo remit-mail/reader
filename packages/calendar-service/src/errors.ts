@@ -40,7 +40,19 @@ export type CalendarValidationCode =
 	/** A subscription address that is not an http, https or webcal URL. */
 	| "InvalidSubscriptionUrl"
 	| "NotReopenable"
-	| "AnswerOvertaken";
+	| "AnswerOvertaken"
+	/** An answer to the rest of a series, which is not a thing an answer can be to. */
+	| "InvalidScope"
+	/** A guest list change on an event somebody else organizes. */
+	| "NotOrganizer"
+	/** An answer from somebody who is not on the guest list. */
+	| "NotAGuest"
+	/** A guest that is not a mail address. */
+	| "InvalidGuest"
+	/** A sending account that is not the caller's. */
+	| "UnknownOrganizer"
+	/** A sending account with Mail turned off, or no account to send from. */
+	| "OrganizerCannotSend";
 
 export interface CalendarValidationError {
 	code: CalendarValidationCode;

@@ -13,23 +13,21 @@ import {
 import ICAL from "ical.js";
 import type { CalendarResult } from "./errors.js";
 import { parseCalendar, serializeCalendar } from "./parse.js";
+import { PARTSTAT_OF_ANSWER } from "./participation.js";
 import { prepareCalendarObject, readWrittenObject } from "./put.js";
 import { mailAddressOf } from "./suggest.js";
 
 const eventsOf = (component: ICAL.Component): ICAL.Component[] =>
 	component.getAllSubcomponents("vevent");
 
-const partstatOf: Record<CalendarInviteAnswerValue, string> = {
-	[CalendarInviteAnswer.Accepted]: "ACCEPTED",
-	[CalendarInviteAnswer.Tentative]: "TENTATIVE",
-};
-
-const stateOf: Record<
+/** The state a suggestion settles in for each answer. */
+export const SUGGESTION_STATE_OF_ANSWER: Record<
 	CalendarInviteAnswerValue,
 	CalendarSuggestionItem["state"]
 > = {
 	[CalendarInviteAnswer.Accepted]: CalendarSuggestionState.Accepted,
 	[CalendarInviteAnswer.Tentative]: CalendarSuggestionState.Tentative,
+	[CalendarInviteAnswer.Declined]: CalendarSuggestionState.Declined,
 };
 
 /**
@@ -56,7 +54,7 @@ const markAnswered = (
 			);
 		const property =
 			existing ?? new ICAL.Property("attendee", event as ICAL.Component);
-		property.setParameter("partstat", partstatOf[answer]);
+		property.setParameter("partstat", PARTSTAT_OF_ANSWER[answer]);
 		if (!existing) {
 			property.setValue(`mailto:${attendee}`);
 			event.addProperty(property);
@@ -230,7 +228,7 @@ export const acceptCalendarSuggestion = async (
 			accountConfigId: input.accountConfigId,
 			suggestionId: input.suggestion.suggestionId,
 			settle: {
-				state: stateOf[input.answer],
+				state: SUGGESTION_STATE_OF_ANSWER[input.answer],
 				acceptedCalendarObjectId: calendarObjectId,
 			},
 		},

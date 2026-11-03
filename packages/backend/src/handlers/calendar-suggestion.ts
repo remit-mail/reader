@@ -288,6 +288,11 @@ export const CalendarSuggestionActionOperations: Record<
 			accountConfigId,
 			suggestionId,
 		);
+		if (answer === CalendarInviteAnswer.Declined) {
+			throw new BadRequestError(
+				"Accepting cannot decline an invitation. Decline it with decline instead.",
+			);
+		}
 		if (
 			answer === CalendarInviteAnswer.Tentative &&
 			suggestion.method === CalendarInviteMethod.Cancel

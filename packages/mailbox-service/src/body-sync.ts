@@ -1,11 +1,13 @@
 import { inspect } from "node:util";
 import {
 	provisionDefaultCalendar,
+	recordCalendarReply,
 	recordCalendarSuggestion,
 } from "@remit/calendar-service";
 import {
 	type BodyPartItem,
 	type FilterItem,
+	type IAccountRepository,
 	type IAddressRepository,
 	type ICalendarStore,
 	type ICalendarSuggestionRepository,
@@ -324,6 +326,8 @@ export interface CalendarSuggestionConfig {
 	calendarSuggestionService: ICalendarSuggestionRepository;
 	calendarStore: ICalendarStore;
 	filterService: Pick<IFilterRepository, "listByAccountAndState">;
+	/** The account config's addresses: a guest's REPLY lands only on an event the reader organizes. */
+	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
 }
 
 interface BatchLookups {
@@ -1395,10 +1399,10 @@ export class BodySyncService {
 	 * `syncBodies(..., force: true)`) reach this with `bodyStorageKey` already
 	 * set, and re-offering there would resurrect a card the user dismissed.
 	 *
-	 * Isolated the same way placement and filters are: a card is auxiliary to
-	 * storing the mail, which is already durable by the time this runs. A
-	 * repository failure here is logged loudly with the messageId rather than
-	 * failing a body store that otherwise succeeded.
+	 * Nothing here is caught. A failure is a fault in this code or its store,
+	 * so it fails the body-sync job loudly and the job takes the queue's own
+	 * dead-letter path. A part the sender's client wrote badly is not a failure:
+	 * it is read as `Unreadable` and offered nothing.
 	 */
 	private async deriveCalendarSuggestions(
 		lookups: BatchLookups,
@@ -1413,66 +1417,76 @@ export class BodySyncService {
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;
 
-		const { calendarStore, calendarSuggestionService } = this.calendarConfig;
+		const { calendarStore, calendarSuggestionService, accountService } =
+			this.calendarConfig;
 
-		await Promise.resolve()
-			.then(async () => {
-				// `dismiss{muteSender:true}` wrote a standing rule naming this
-				// sender. Honouring it here is what makes that button do anything:
-				// the index-time filter pipeline skips a rule with no label and no
-				// move, so this is the only reader such a rule has.
-				const sender = extractPrimaryFromEmail(parsed);
-				if (sender) {
-					const active = await lookups.activeFilters();
-					if (isSenderMuted(active, sender)) {
-						this.log.debug?.(
-							{ messageId, sender },
-							"Sender is muted; offering no calendar suggestion",
-						);
-						return;
-					}
-				}
-
-				// Provisioned rather than looked up, through the one function every
-				// caller provisions with. A missing collection has no timezone, and
-				// a floating DTSTART read in UTC puts the meeting hours from where
-				// the organizer meant it. Idempotent: the id is derived, so a second
-				// first use returns the collection the first one made.
-				const collection = await provisionDefaultCalendar(
-					calendarStore,
-					accountConfigId,
-				);
-				for (const part of parts) {
-					const recorded = await recordCalendarSuggestion(
-						calendarSuggestionService,
-						{
-							accountConfigId,
-							messageId,
-							bodyPartId: deriveBodyPartId(messageId, part.partPath),
-							source: part.source,
-							icalData: part.icalData,
-							timezone: collection.timezone,
-						},
-					);
-					if (!recorded.ok) {
-						this.log.info(
-							{
-								messageId,
-								partPath: part.partPath,
-								code: recorded.error.code,
-								reason: recorded.error.message,
-							},
-							"Message carries iCalendar this cannot read; no suggestion offered",
-						);
-					}
-				}
-			})
-			.catch((error: unknown) => {
-				this.log.error?.(
-					{ messageId, accountConfigId, error: inspect(error) },
-					"Calendar suggestion derivation failed; body is stored without a card",
-				);
+		// A guest answering the reader's own invitation moves their answer on the
+		// organizer's copy, whoever the reader muted. Local only: nothing goes
+		// back to the guest. A reply proposes nothing to add, so it is never
+		// offered as a card.
+		const selfAddresses = (
+			await accountService.listAllByAccountConfig(accountConfigId)
+		).map((account) => account.email);
+		const offered: typeof parts = [];
+		for (const part of parts) {
+			const replied = await recordCalendarReply(calendarStore, {
+				accountConfigId,
+				icalData: part.icalData,
+				selfAddresses,
 			});
+			if (replied === "NotAReply") offered.push(part);
+		}
+		if (offered.length === 0) return;
+
+		// `dismiss{muteSender:true}` wrote a standing rule naming this
+		// sender. Honouring it here is what makes that button do anything:
+		// the index-time filter pipeline skips a rule with no label and no
+		// move, so this is the only reader such a rule has.
+		const sender = extractPrimaryFromEmail(parsed);
+		if (sender) {
+			const active = await lookups.activeFilters();
+			if (isSenderMuted(active, sender)) {
+				this.log.debug?.(
+					{ messageId, sender },
+					"Sender is muted; offering no calendar suggestion",
+				);
+				return;
+			}
+		}
+
+		// Provisioned rather than looked up, through the one function every
+		// caller provisions with. A missing collection has no timezone, and
+		// a floating DTSTART read in UTC puts the meeting hours from where
+		// the organizer meant it. Idempotent: the id is derived, so a second
+		// first use returns the collection the first one made.
+		const collection = await provisionDefaultCalendar(
+			calendarStore,
+			accountConfigId,
+		);
+		for (const part of offered) {
+			const recorded = await recordCalendarSuggestion(
+				calendarSuggestionService,
+				{
+					accountConfigId,
+					messageId,
+					bodyPartId: deriveBodyPartId(messageId, part.partPath),
+					source: part.source,
+					icalData: part.icalData,
+					timezone: collection.timezone,
+				},
+			);
+			if (!recorded.ok) {
+				this.log.info(
+					{
+						messageId,
+						partPath: part.partPath,
+						code: recorded.error.code,
+						reason: recorded.error.message,
+					},
+					"Message carries iCalendar this cannot read; no suggestion offered",
+				);
+			}
+		}
 	}
 
 	private async deriveSenderUnsubscribed(

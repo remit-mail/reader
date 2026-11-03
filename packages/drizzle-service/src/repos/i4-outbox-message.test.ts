@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { syncBatch } from "../batch.js";
 import { ForbiddenError, NotFoundError } from "../error.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { OutboxMessageRepo } from "./i4-outbox-message.js";
@@ -22,7 +23,7 @@ describe("OutboxMessageRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new OutboxMessageRepo(db as never);
+		repo = new OutboxMessageRepo(db as never, syncBatch(db));
 	});
 
 	after(async () => {

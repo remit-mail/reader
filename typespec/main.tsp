@@ -611,6 +611,9 @@ namespace RemitApi {
       Same refusals and the same `If-Match` precondition as the update.
       An event in a `Subscribed` collection is refused with 400
       `read_only_calendar`, here and on the update.
+      
+      Answers 200 with the cancellations it queued: one per guest when the
+      reader organizes the event, none otherwise.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
@@ -632,7 +635,7 @@ namespace RemitApi {
       @header("If-Match")
       ifMatch?: string,
     ):
-      | CalendarNoContent
+      | CalendarEventDeleteResponse
       | ValidationError
       | NotFoundError
       | PreconditionFailedError
@@ -653,6 +656,113 @@ namespace RemitApi {
       @query(#{ explode: true })
       to: string,
     ): CalendarFreeBusyResponse | ValidationError | UnauthorizedError;
+  }
+
+  @route("/settings")
+  namespace UserSettingsOperations {
+    @doc("Read the caller's settings.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getUserSettings(): UserSettingsResponse | UnauthorizedError;
+
+    @doc("Change the caller's settings. Answers with every setting as it now stands.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateUserSettings(@body input: UpdateUserSettingsInput):
+      | UserSettingsResponse
+      | ValidationError
+      | UnauthorizedError;
+
+    @doc("Clear the chosen default invitation sender. Invitations then go out from the account an event is on. Answers with every setting as it now stands.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    @route("/default-invitation-sender")
+    op clearDefaultInvitationSender(): UserSettingsResponse | UnauthorizedError;
+  }
+
+  @route("/calendar-tasks")
+  namespace CalendarTaskOperations {
+    @doc("Tasks due in a window, across every task collection the caller holds, in due order. Refused with 400 on the same window rules as the event listing.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarTasks(
+      @doc("Start of the window, an ISO 8601 date-time with zone offset. Inclusive.")
+      @query(#{ explode: true })
+      from: string,
+
+      @doc("End of the window, an ISO 8601 date-time with zone offset. Exclusive.")
+      @query(#{ explode: true })
+      to: string,
+
+      @doc("Restrict to these task collections, repeated once per calendar. Omitted means every one the caller holds.")
+      @query(#{ explode: true })
+      calendarId?: UUID[],
+    ):
+      | CalendarTaskListResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+
+    @doc("Create a task. Refused with 400 `not_a_task_calendar` when `calendarId` names an event collection.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createCalendarTask(@body input: CreateCalendarTaskInput):
+      | CalendarTaskResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+  }
+
+  @route("/calendar-tasks/{calendarTaskId}")
+  namespace CalendarTaskDetailOperations {
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getCalendarTask(
+      @path calendarTaskId: UUID,
+
+      @doc("Collection the task lives in. Omitted, it is looked for in every task collection the caller holds.")
+      @query(#{ explode: true })
+      calendarId?: UUID,
+    ): CalendarTaskResponse | NotFoundError | UnauthorizedError;
+
+    @doc("Update a task. `If-Match` makes the write conditional on the etag the caller read; a mismatch is 412.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateCalendarTask(
+      @path calendarTaskId: UUID,
+
+      @doc("Collection the task lives in")
+      @query(#{ explode: true })
+      calendarId: UUID,
+
+      @header("If-Match")
+      ifMatch?: string,
+
+      @body input: UpdateCalendarTaskInput,
+    ):
+      | CalendarTaskResponse
+      | ValidationError
+      | NotFoundError
+      | PreconditionFailedError
+      | UnauthorizedError;
+
+    @doc("Delete a task. Same `If-Match` precondition as the update.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteCalendarTask(
+      @path calendarTaskId: UUID,
+
+      @doc("Collection the task lives in")
+      @query(#{ explode: true })
+      calendarId: UUID,
+
+      @header("If-Match")
+      ifMatch?: string,
+    ):
+      | CalendarNoContent
+      | NotFoundError
+      | PreconditionFailedError
+      | UnauthorizedError;
   }
 
   // ============================================

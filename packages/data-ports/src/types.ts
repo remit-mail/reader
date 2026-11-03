@@ -9,6 +9,7 @@ import type {
 	CalendarFeedTokenSchema,
 	CalendarObjectSchema,
 	CalendarSuggestionSchema,
+	CalendarTaskSchema,
 	ConfigImportSchema,
 	ConfigImportUnresolvedRefSchema,
 	EnvelopeAddressSchema,
@@ -27,6 +28,7 @@ import type {
 	OrganizeJobRequestSchema,
 	OutboxAttachmentSchema,
 	OutboxMessageSchema,
+	OutboxSchedulingPartSchema,
 	QuarantineSchema,
 	RawMessageStorageSchema,
 	SenderSignerStandingSchema,
@@ -63,6 +65,18 @@ export type MailboxItem = z.infer<typeof MailboxSchema>;
 export type ThreadMessageItem = z.infer<typeof ThreadMessageSchema>;
 export type OutboxMessageItem = z.infer<typeof OutboxMessageSchema>;
 export type OutboxAttachmentItem = z.infer<typeof OutboxAttachmentSchema>;
+export type OutboxSchedulingPartItem = z.infer<
+	typeof OutboxSchedulingPartSchema
+>;
+
+/**
+ * The scheduling part an outbox message is created with. Its `outboxMessageId`
+ * and `accountConfigId` are the message's own.
+ */
+export type CreateOutboxSchedulingPartInput = Pick<
+	OutboxSchedulingPartItem,
+	"calendarObjectId" | "recipient" | "method" | "sequence" | "icalData"
+>;
 export type MessageItem = z.infer<typeof MessageRecordSchema>;
 export type MessageFlagItem = z.infer<typeof MessageFlagSchema>;
 export type BodyPartItem = z.infer<typeof BodyPartSchema>;
@@ -704,6 +718,17 @@ export type UpdateFilterInput = Partial<
 export type CalendarCollectionItem = z.infer<typeof CalendarCollectionSchema>;
 export type CalendarObjectItem = z.infer<typeof CalendarObjectSchema>;
 export type CalendarEventIndexItem = z.infer<typeof CalendarEventIndexSchema>;
+export type CalendarTaskItem = z.infer<typeof CalendarTaskSchema>;
+
+/**
+ * A whole task resource, every projected column supplied with the `icalData`
+ * it was projected from. `calendarTaskId` derives from calendarId +
+ * resourceName, so this is an upsert.
+ */
+export type PutCalendarTaskInput = Omit<
+	CalendarTaskItem,
+	"calendarTaskId" | "createdAt" | "updatedAt"
+>;
 
 // `calendarId` is derived from accountConfigId + urlSegment, and syncSequence
 // starts at zero and only ever moves through the collection's own bump — so

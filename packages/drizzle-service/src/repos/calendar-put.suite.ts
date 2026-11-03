@@ -6,6 +6,7 @@ import {
 	putCalendarObject,
 } from "@remit/calendar-service";
 import type {
+	CalendarCommitReport,
 	CalendarRepositories,
 	CalendarWrite,
 	ICalendarStore,
@@ -49,7 +50,9 @@ class FailingLastWriteStore implements ICalendarStore {
 		return this.inner.repos;
 	}
 
-	async commit(writes: readonly CalendarWrite[]): Promise<void> {
+	async commit(
+		writes: readonly CalendarWrite[],
+	): Promise<CalendarCommitReport> {
 		const orphan = await prepareCalendarObject(
 			{ timezone: "" },
 			{
@@ -60,7 +63,7 @@ class FailingLastWriteStore implements ICalendarStore {
 			},
 		);
 		assert.ok(orphan.ok);
-		await this.inner.commit([...writes, orphan.value]);
+		return this.inner.commit([...writes, orphan.value]);
 	}
 }
 

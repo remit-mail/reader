@@ -76,6 +76,13 @@ export const deriveCalendarObjectId = (
 ): string =>
 	base36uuidv5(`calendarobject:${calendarId}:${resourceName}`, REMIT_NAMESPACE);
 
+/** Identity of a task, derived from its collection and resource name. */
+export const deriveCalendarTaskId = (
+	calendarId: string,
+	resourceName: string,
+): string =>
+	base36uuidv5(`calendartask:${calendarId}:${resourceName}`, REMIT_NAMESPACE);
+
 /**
  * Identity of a suggestion read out of a message (issue #1033). Derived from
  * the message, the MIME part the bytes came from and the event's iCalendar

@@ -1,5 +1,6 @@
 import type {
 	CreateOutboxMessageInput,
+	CreateOutboxSchedulingPartInput,
 	OutboxMessageItem,
 	ResultList,
 	UpdateOutboxMessageInput,
@@ -32,7 +33,14 @@ export const isSentCopyFiled = (
 	message.appendedUid > 0 || message.appendedUid === APPENDED_UID_UNREPORTED;
 
 export interface IOutboxMessageRepository {
-	create(input: CreateOutboxMessageInput): Promise<OutboxMessageItem>;
+	/**
+	 * With a scheduling part, the message and its part are one write: a queued
+	 * invitation without its calendar part would go out as a bare mail.
+	 */
+	create(
+		input: CreateOutboxMessageInput,
+		schedulingPart?: CreateOutboxSchedulingPartInput,
+	): Promise<OutboxMessageItem>;
 	/**
 	 * `mode: "read"` (default) throws NotFoundError on a foreign message so a
 	 * GET doesn't leak existence. `mode: "act"` throws ForbiddenError instead,

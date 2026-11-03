@@ -2,37 +2,63 @@ import type {
 	CalendarEventInstance,
 	CalendarEventResponse,
 	CalendarFreeBusySpan,
+	CalendarInviteAnswer,
+	CalendarSchedulingSend,
 	CreateCalendarEventInput,
 	UpdateCalendarEventInput,
 } from "@remit/api-openapi-types";
 import {
+	applyGuestList,
 	applyScopedDelete,
 	applyScopedUpdate,
+	attendeesOf,
 	buildEventCalendar,
+	buildSchedulingMessage,
 	type CalendarEventFields,
 	type CalendarInstance,
 	type CalendarWindow,
+	countAttendees,
 	deleteCalendarObject,
+	type EventSchedulingUpdate,
 	followingUidOf,
 	listBusySpans,
 	listCalendarInstances,
 	listObjectInstances,
 	OFFSET_BEARING,
+	organizerOf,
+	type ParsedCalendar,
 	parseCalendar,
+	participationOf,
+	planCreateSends,
+	planDeleteSends,
+	planEventCreate,
+	planEventUpdate,
+	planUpdateSends,
 	prepareCalendarObject,
 	putCalendarObject,
 	type RecurrenceScopeValue,
 	readWrittenObject,
+	type SchedulingSends,
 	type ScopedWrite,
+	SUGGESTION_STATE_OF_ANSWER,
+	schedulingBody,
+	schedulingSubject,
+	selfAddressSet,
+	shapeScheduledUpdate,
 	toOffsetIso,
 	toUtcIso,
 } from "@remit/calendar-service";
 import type {
+	AccountItem,
 	CalendarCollectionItem,
 	CalendarObjectItem,
+	CreateOutboxSchedulingPartInput,
+	OutboxMessageItem,
+	PutCalendarObjectWrite,
 } from "@remit/data-ports";
 import { base36uuid } from "@remit/data-ports/id";
-import { RecurrenceScope } from "@remit/domain-enums";
+import { CalendarComponentSet, RecurrenceScope } from "@remit/domain-enums";
+import type { CreateDraftInput } from "@remit/mailbox-service";
 import type {
 	CalendarEventDetailOperationIds,
 	CalendarEventOperationIds,
@@ -52,6 +78,7 @@ import {
 	preconditionFailed,
 	refuseCalendar,
 } from "./calendar.js";
+import { chosenInvitationSender } from "./user-settings.js";
 
 /**
  * The widest window a single read may ask for. A year covers every view the
@@ -62,16 +89,27 @@ export const CALENDAR_MAX_WINDOW_DAYS = 366;
 
 const MAX_WINDOW_MS = CALENDAR_MAX_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-/** Mints the id a new resource is named and identified by. */
+/** Queues one scheduling message with its part; a failed enqueue answers with the failed row. */
+export type QueueScheduled = (
+	input: CreateDraftInput,
+	part: CreateOutboxSchedulingPartInput,
+) => Promise<OutboxMessageItem>;
+
+/** What an event write needs beyond the reads: ids, a clock, and the outbox. */
 export interface CalendarEventDeps extends CalendarDeps {
 	newId: () => string;
 	now: () => Date;
+	queueScheduled: QueueScheduled;
 }
 
-export const calendarEventDepsOf = (deps: CalendarDeps): CalendarEventDeps => ({
+export const calendarEventDepsOf = (
+	deps: CalendarDeps,
+	queueScheduled: QueueScheduled,
+): CalendarEventDeps => ({
 	...deps,
 	newId: base36uuid,
 	now: () => new Date(),
+	queueScheduled,
 });
 
 /**
@@ -116,14 +154,25 @@ export const readWindow = (
 	return { ok: true, value: { from: toUtcIso(fromMs), to: toUtcIso(toMs) } };
 };
 
-/** The collections a listing covers, defaulting to every one the caller holds. */
+/**
+ * The collections a listing covers, defaulting to every one the caller holds
+ * of the component set asked for.
+ */
 export const collectionsForListing = async (
 	deps: CalendarDeps,
 	accountConfigId: string,
 	calendarIds: string[],
+	componentSet: CalendarCollectionItem["componentSet"] = CalendarComponentSet.VeventOnly,
 ): Promise<CalendarOutcome<CalendarCollectionItem[]>> => {
 	const held = await listCalendarsFor(deps, accountConfigId);
-	if (calendarIds.length === 0) return { ok: true, value: held };
+	if (calendarIds.length === 0) {
+		return {
+			ok: true,
+			value: held.filter(
+				(collection) => collection.componentSet === componentSet,
+			),
+		};
+	}
 
 	const selected = held.filter((collection) =>
 		calendarIds.includes(collection.calendarId),
@@ -137,6 +186,16 @@ export const collectionsForListing = async (
 	}
 	return { ok: true, value: selected };
 };
+
+/** The account config's accounts: who the reader is, and who can send. */
+const accountsOf = (
+	deps: CalendarDeps,
+	accountConfigId: string,
+): Promise<AccountItem[]> =>
+	deps.accounts.listAllByAccountConfig(accountConfigId);
+
+const selfOf = (accounts: readonly AccountItem[]): ReadonlySet<string> =>
+	selfAddressSet(accounts.map((account) => account.email));
 
 const toInstanceResponse = (
 	instance: CalendarInstance,
@@ -154,31 +213,90 @@ const toInstanceResponse = (
 	zoneCertainty: instance.zoneCertainty,
 	etag: instance.etag,
 	hasRecurrence: instance.hasRecurrence,
+	participation: instance.participation,
 });
 
-const toEventResponse = (
+const parsedOrThrow = async (
+	object: Pick<CalendarObjectItem, "calendarObjectId" | "icalData">,
+): Promise<ParsedCalendar> => {
+	const parsed = await parseCalendar(object.icalData);
+	if (!parsed.ok) {
+		throw new Error(
+			`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
+		);
+	}
+	return parsed.value;
+};
+
+/** The scheduling messages about an event still in the outbox. */
+const pendingSends = async (
+	deps: CalendarDeps,
+	accountConfigId: string,
+	calendarObjectId: string,
+): Promise<CalendarSchedulingSend[]> => {
+	const parts = await deps.outboxSchedulingPart.listByCalendarObject(
+		accountConfigId,
+		calendarObjectId,
+	);
+	if (parts.length === 0) return [];
+	const rows = await deps.outboxMessage.get(
+		accountConfigId,
+		parts.map((part) => part.outboxMessageId),
+	);
+	const byId = new Map(rows.map((row) => [row.outboxMessageId, row]));
+	return parts.flatMap((part) => {
+		const row = byId.get(part.outboxMessageId);
+		return row
+			? [
+					{
+						email: part.recipient,
+						outboxMessageId: row.outboxMessageId,
+						method: part.method as CalendarSchedulingSend["method"],
+						status: row.status,
+					},
+				]
+			: [];
+	});
+};
+
+/**
+ * An event as the API returns it: the stored row, plus the guest list read
+ * from its bytes and the reader's own place on it.
+ */
+export const toEventResponse = async (
 	object: CalendarObjectItem,
-): CalendarEventResponse => ({
-	calendarObjectId: object.calendarObjectId,
-	calendarId: object.calendarId,
-	resourceName: object.resourceName,
-	icalUid: object.icalUid,
-	icalData: object.icalData,
-	etag: object.etag,
-	sequence: object.sequence,
-	syncSequence: object.syncSequence,
-	summary: object.summary,
-	dtStart: object.dtStart,
-	dtEnd: object.dtEnd,
-	allDay: object.allDay,
-	zoneCertainty: object.zoneCertainty,
-	status: object.status,
-	transparency: object.transparency,
-	hasRecurrence: object.hasRecurrence,
-	expandedThrough: object.expandedThrough,
-	createdAt: object.createdAt,
-	updatedAt: object.updatedAt,
-});
+	self: ReadonlySet<string>,
+	sends: CalendarSchedulingSend[],
+): Promise<CalendarEventResponse> => {
+	const { master } = await parsedOrThrow(object);
+	const attendees = attendeesOf(master);
+	return {
+		calendarObjectId: object.calendarObjectId,
+		calendarId: object.calendarId,
+		resourceName: object.resourceName,
+		icalUid: object.icalUid,
+		icalData: object.icalData,
+		etag: object.etag,
+		sequence: object.sequence,
+		syncSequence: object.syncSequence,
+		summary: object.summary,
+		dtStart: object.dtStart,
+		dtEnd: object.dtEnd,
+		allDay: object.allDay,
+		zoneCertainty: object.zoneCertainty,
+		status: object.status,
+		transparency: object.transparency,
+		hasRecurrence: object.hasRecurrence,
+		expandedThrough: object.expandedThrough,
+		createdAt: object.createdAt,
+		updatedAt: object.updatedAt,
+		participation: participationOf(master, self),
+		organizer: organizerOf(master),
+		attendees,
+		attendeeCounts: countAttendees(attendees),
+		sends,
+	};
+};
 
 const eventFieldsOf = (
 	input: CreateCalendarEventInput,
@@ -222,6 +340,16 @@ export const pickEventUpdate = (
 	}
 	return patch;
 };
+
+export const pickSchedulingUpdate = (
+	body: Partial<UpdateCalendarEventInput>,
+): EventSchedulingUpdate => ({
+	...(body.attendees !== undefined && { attendees: body.attendees }),
+	...(body.organizerAccountId !== undefined && {
+		organizerAccountId: body.organizerAccountId,
+	}),
+	...(body.answer !== undefined && { answer: body.answer }),
+});
 
 /**
  * Whether an `If-Match` header lets the write through.
@@ -267,6 +395,78 @@ export const readScope = (
 	);
 };
 
+/** The resources a scoped write stores, prepared and not yet committed. */
+interface PreparedWrite {
+	kind: ScopedWrite["kind"];
+	puts: PutCalendarObjectWrite[];
+}
+
+/**
+ * Turns what a scoped edit resolved to into the store writes it is.
+ *
+ * Both halves of a split are prepared before either is written, so a refusal
+ * of either one commits nothing: half a split is never stored.
+ */
+const prepareScopedWrite = async (
+	deps: CalendarEventDeps,
+	accountConfigId: string,
+	object: CalendarObjectItem,
+	collectionTimezone: string,
+	write: ScopedWrite,
+): Promise<CalendarOutcome<PreparedWrite>> => {
+	if (write.kind === "Delete")
+		return { ok: true, value: { kind: "Delete", puts: [] } };
+	const zone = { timezone: collectionTimezone };
+	const head = await prepareCalendarObject(zone, {
+		accountConfigId,
+		calendarId: object.calendarId,
+		resourceName: object.resourceName,
+		icalData: write.icalData,
+	});
+	if (!head.ok) return head;
+	if (write.kind === "Replace") {
+		return { ok: true, value: { kind: "Replace", puts: [head.value] } };
+	}
+	const following = await prepareCalendarObject(zone, {
+		accountConfigId,
+		calendarId: object.calendarId,
+		resourceName: `${deps.newId()}.ics`,
+		icalData: write.following,
+	});
+	if (!following.ok) return following;
+	return {
+		ok: true,
+		value: { kind: "Split", puts: [head.value, following.value] },
+	};
+};
+
+/**
+ * Commits a prepared write and reads back what it stored, in write order. The
+ * last one is what the patch applied to: for a split, the remainder, under an
+ * id the caller has never seen.
+ */
+const commitPrepared = async (
+	deps: CalendarEventDeps,
+	accountConfigId: string,
+	object: CalendarObjectItem,
+	prepared: PreparedWrite,
+): Promise<CalendarObjectItem[]> => {
+	if (prepared.kind === "Delete") {
+		await deleteCalendarObject(deps.calendarStore, {
+			accountConfigId,
+			calendarId: object.calendarId,
+			calendarObjectId: object.calendarObjectId,
+		});
+		return [];
+	}
+	await deps.calendarStore.commit(prepared.puts);
+	const written: CalendarObjectItem[] = [];
+	for (const put of prepared.puts) {
+		written.push(await readWrittenObject(deps.calendarStore, put));
+	}
+	return written;
+};
+
 /**
  * Writes what a scoped edit resolved to.
  *
@@ -281,61 +481,99 @@ export const commitScopedWrite = async (
 	collectionTimezone: string,
 	write: ScopedWrite,
 ): Promise<CalendarOutcome<CalendarObjectItem | null>> => {
-	if (write.kind === "Delete") {
-		await deleteCalendarObject(deps.calendarStore, {
-			accountConfigId,
-			calendarId: object.calendarId,
-			calendarObjectId: object.calendarObjectId,
+	const prepared = await prepareScopedWrite(
+		deps,
+		accountConfigId,
+		object,
+		collectionTimezone,
+		write,
+	);
+	if (!prepared.ok) return prepared;
+	const written = await commitPrepared(
+		deps,
+		accountConfigId,
+		object,
+		prepared.value,
+	);
+	return { ok: true, value: written.at(-1) ?? null };
+};
+
+/** An event write, and the scheduling messages it queued. */
+export interface ScheduledWrite<T> {
+	object: T;
+	sends: CalendarSchedulingSend[];
+}
+
+/**
+ * Queues every planned message, one outbox row each, from the account the plan
+ * names. The rows are the pending records; the send worker settles each one.
+ */
+const queueSends = async (
+	deps: CalendarEventDeps,
+	accountConfigId: string,
+	sends: SchedulingSends<AccountItem> | null,
+): Promise<CalendarSchedulingSend[]> => {
+	if (!sends) return [];
+	const queued: CalendarSchedulingSend[] = [];
+	for (const plan of sends.plans) {
+		const message = await buildSchedulingMessage(plan.icalData, {
+			method: plan.method,
+			now: deps.now(),
+			attendee: plan.attendee,
+			recurrenceId: plan.recurrenceId,
+			collectionTimezone: plan.collectionTimezone,
 		});
-		return { ok: true, value: null };
+		const subject = schedulingSubject(
+			plan.method,
+			message.summary,
+			plan.answer,
+		);
+		const row = await deps.queueScheduled(
+			{
+				accountId: sends.from.accountId,
+				accountConfigId,
+				fromAddress: sends.from.email,
+				toAddresses: [plan.recipient.email],
+				subject,
+				textBody: schedulingBody(subject, message.icalData),
+			},
+			{
+				calendarObjectId: plan.calendarObjectId,
+				recipient: plan.recipient.email,
+				method: plan.method,
+				sequence: message.sequence,
+				icalData: message.icalData,
+			},
+		);
+		queued.push({
+			email: plan.recipient.email,
+			outboxMessageId: row.outboxMessageId,
+			method: plan.method,
+			status: row.status,
+		});
 	}
-
-	// Both resources are prepared before either is written, so a refusal of
-	// either one commits nothing: half a split is never stored.
-	const zone = { timezone: collectionTimezone };
-	const head = await prepareCalendarObject(zone, {
-		accountConfigId,
-		calendarId: object.calendarId,
-		resourceName: object.resourceName,
-		icalData: write.icalData,
-	});
-	if (!head.ok) return head;
-	if (write.kind === "Replace") {
-		await deps.calendarStore.commit([head.value]);
-		return {
-			ok: true,
-			value: await readWrittenObject(deps.calendarStore, head.value),
-		};
-	}
-
-	const following = await prepareCalendarObject(zone, {
-		accountConfigId,
-		calendarId: object.calendarId,
-		resourceName: `${deps.newId()}.ics`,
-		icalData: write.following,
-	});
-	if (!following.ok) return following;
-	await deps.calendarStore.commit([head.value, following.value]);
-	// The remainder is what the patch applied to, and it lives under an id the
-	// caller has never seen — returning the truncated head instead would leave
-	// them holding the resource their edit is not in.
-	return {
-		ok: true,
-		value: await readWrittenObject(deps.calendarStore, following.value),
-	};
+	return queued;
 };
 
 export const createCalendarEventFor = async (
 	deps: CalendarEventDeps,
 	accountConfigId: string,
 	input: CreateCalendarEventInput,
-): Promise<CalendarOutcome<CalendarObjectItem>> => {
+): Promise<CalendarOutcome<ScheduledWrite<CalendarObjectItem>>> => {
 	const collection = await findWritableCalendarFor(
 		deps,
 		accountConfigId,
 		input.calendarId,
 	);
 	if (!collection.ok) return collection;
+
+	const planned = planEventCreate(
+		await accountsOf(deps, accountConfigId),
+		await chosenInvitationSender(deps.accountSetting, accountConfigId),
+		input.attendees ?? [],
+		input.organizerAccountId,
+	);
+	if (!planned.ok) return planned;
 
 	const id = deps.newId();
 	const built = await buildEventCalendar(
@@ -344,13 +582,29 @@ export const createCalendarEventFor = async (
 		deps.now(),
 	);
 	if (!built.ok) return built;
+	const icalData = planned.value
+		? await applyGuestList(
+				built.value,
+				{ email: planned.value.organizer.email, displayName: "" },
+				planned.value.guests,
+			)
+		: built.value;
 
-	return putCalendarObject(deps.calendarStore, {
+	const stored = await putCalendarObject(deps.calendarStore, {
 		accountConfigId,
 		calendarId: collection.value.calendarId,
 		resourceName: `${id}.ics`,
-		icalData: built.value,
+		icalData,
 	});
+	if (!stored.ok) return stored;
+	const sends = planned.value
+		? await queueSends(
+				deps,
+				accountConfigId,
+				planCreateSends(planned.value, stored.value, collection.value.timezone),
+			)
+		: [];
+	return { ok: true, value: { object: stored.value, sends } };
 };
 
 export interface ScopedRequest {
@@ -367,7 +621,7 @@ interface ResolvedResource {
 }
 
 const resolveResource = async (
-	deps: CalendarEventDeps,
+	deps: CalendarDeps,
 	accountConfigId: string,
 	request: Pick<ScopedRequest, "calendarId" | "calendarObjectId">,
 	intent: "read" | "write",
@@ -391,12 +645,60 @@ const resolveResource = async (
 	return { ok: true, value: { collection: collection.value, object } };
 };
 
+/**
+ * A card whose answer wrote this event follows a later answer given on the
+ * event, so the mail and the calendar never disagree about what was said.
+ */
+const settleAnsweredSuggestions = async (
+	deps: CalendarEventDeps,
+	accountConfigId: string,
+	calendarObjectId: string,
+	answer: CalendarInviteAnswer,
+): Promise<void> => {
+	const cards =
+		await deps.calendarStore.repos.calendarSuggestion.listByAcceptedCalendarObjects(
+			accountConfigId,
+			[calendarObjectId],
+		);
+	if (cards.length === 0) return;
+	await deps.calendarStore.commit(
+		cards.map((card) => ({
+			kind: "SettleSuggestion" as const,
+			accountConfigId,
+			suggestionId: card.suggestionId,
+			settle: {
+				state: SUGGESTION_STATE_OF_ANSWER[answer],
+				acceptedCalendarObjectId: calendarObjectId,
+			},
+		})),
+	);
+};
+
+const refuseStale = <T>(): CalendarOutcome<T> =>
+	refuseCalendar(
+		"EtagMismatch",
+		"this event has been written since you read it — read it again and reapply the change",
+	);
+
+/**
+ * Edits an event, and queues what the edit owes its guests.
+ *
+ * The calendar row is local truth and is written first. The outbox rows are
+ * the pending records of the messages that follow it: an invitation to every
+ * guest of an event the reader organizes, a cancellation to a guest the edit
+ * removed, a reply to the organizer when the reader answers as a guest. The
+ * outbox lives in another database and is not written in the calendar's
+ * commit; a later edit made while an earlier message is still queued does not
+ * wait for it, and each message carries the SEQUENCE of the bytes it was built
+ * from, so a recipient keeps the newest.
+ */
 export const updateCalendarEventFor = async (
 	deps: CalendarEventDeps,
 	accountConfigId: string,
 	request: ScopedRequest,
 	patch: Partial<CalendarEventFields>,
-): Promise<CalendarOutcome<CalendarObjectItem | null>> => {
+	scheduling: EventSchedulingUpdate = {},
+): Promise<CalendarOutcome<ScheduledWrite<CalendarObjectItem | null>>> => {
 	const resolved = await resolveResource(
 		deps,
 		accountConfigId,
@@ -405,23 +707,21 @@ export const updateCalendarEventFor = async (
 	);
 	if (!resolved.ok) return resolved;
 	const { collection, object } = resolved.value;
+	if (!etagMatches(request.ifMatch, object.etag)) return refuseStale();
 
-	if (!etagMatches(request.ifMatch, object.etag)) {
-		return refuseCalendar(
-			"EtagMismatch",
-			"this event has been written since you read it — read it again and reapply the change",
-		);
-	}
-
-	const parsed = await parseCalendar(object.icalData);
-	if (!parsed.ok) {
-		throw new Error(
-			`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
-		);
-	}
+	const parsed = await parsedOrThrow(object);
+	const accounts = await accountsOf(deps, accountConfigId);
+	const planned = planEventUpdate(
+		parsed,
+		accounts,
+		await chosenInvitationSender(deps.accountSetting, accountConfigId),
+		request.scope,
+		scheduling,
+	);
+	if (!planned.ok) return planned;
 
 	const write = await applyScopedUpdate(
-		parsed.value,
+		parsed,
 		collection.timezone,
 		{
 			scope: request.scope,
@@ -434,20 +734,75 @@ export const updateCalendarEventFor = async (
 		patch,
 	);
 	if (!write.ok) return write;
-	return commitScopedWrite(
+	if (write.value.kind === "Delete") {
+		throw new Error("a scoped update resolved to a delete");
+	}
+	const shaped = await shapeScheduledUpdate(
+		write.value,
+		planned.value,
+		scheduling,
+		patch,
+		collection.timezone,
+		request.scope,
+		request.recurrenceId,
+	);
+	if (!shaped.ok) return shaped;
+
+	const prepared = await prepareScopedWrite(
 		deps,
 		accountConfigId,
 		object,
 		collection.timezone,
-		write.value,
+		shaped.value,
 	);
+	if (!prepared.ok) return prepared;
+	const written = await commitPrepared(
+		deps,
+		accountConfigId,
+		object,
+		prepared.value,
+	);
+	const result = written.at(-1) ?? null;
+	if (
+		scheduling.answer !== undefined &&
+		request.scope === RecurrenceScope.All &&
+		result
+	) {
+		await settleAnsweredSuggestions(
+			deps,
+			accountConfigId,
+			result.calendarObjectId,
+			scheduling.answer,
+		);
+	}
+
+	const sends = await queueSends(
+		deps,
+		accountConfigId,
+		await planUpdateSends(
+			planned.value,
+			accounts,
+			scheduling,
+			object,
+			written,
+			collection.timezone,
+			request.scope,
+			request.recurrenceId,
+		),
+	);
+	return { ok: true, value: { object: result, sends } };
 };
 
+/**
+ * Deletes an event, or one occurrence of it, and queues what that owes its
+ * guests: a cancellation each when the whole event goes, the shortened event
+ * when part of a series does. Only an event the reader organizes owes anything.
+ */
 export const deleteCalendarEventFor = async (
 	deps: CalendarEventDeps,
 	accountConfigId: string,
 	request: ScopedRequest,
-): Promise<CalendarOutcome<CalendarObjectItem | null>> => {
+): Promise<CalendarOutcome<ScheduledWrite<CalendarObjectItem | null>>> => {
 	const resolved = await resolveResource(
 		deps,
 		accountConfigId,
@@ -456,34 +811,42 @@ export const deleteCalendarEventFor = async (
 	);
 	if (!resolved.ok) return resolved;
 	const { collection, object } = resolved.value;
+	if (!etagMatches(request.ifMatch, object.etag)) return refuseStale();
 
-	if (!etagMatches(request.ifMatch, object.etag)) {
-		return refuseCalendar(
-			"EtagMismatch",
-			"this event has been written since you read it — read it again and reapply the change",
-		);
-	}
-
-	const parsed = await parseCalendar(object.icalData);
-	if (!parsed.ok) {
-		throw new Error(
-			`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
-		);
-	}
-
-	const write = await applyScopedDelete(parsed.value, collection.timezone, {
+	const parsed = await parsedOrThrow(object);
+	const write = await applyScopedDelete(parsed, collection.timezone, {
 		scope: request.scope,
 		recurrenceId: request.recurrenceId,
 		followingUid: "",
 	});
 	if (!write.ok) return write;
-	return commitScopedWrite(
+	const prepared = await prepareScopedWrite(
 		deps,
 		accountConfigId,
 		object,
 		collection.timezone,
 		write.value,
 	);
+	if (!prepared.ok) return prepared;
+	const written = await commitPrepared(
+		deps,
+		accountConfigId,
+		object,
+		prepared.value,
+	);
+	const result = written.at(-1) ?? null;
+	const sends = await queueSends(
+		deps,
+		accountConfigId,
+		planDeleteSends(
+			parsed,
+			await accountsOf(deps, accountConfigId),
+			object,
+			result,
+			collection.timezone,
+		),
+	);
+	return { ok: true, value: { object: result, sends } };
 };
 
 /** The collection holding a resource, found among the ones given. */
@@ -508,12 +871,21 @@ const readCalendarIds = (value: unknown): string[] => {
 	return [];
 };
 
-const answerRefusal = (error: { code: string; message: string }) =>
+export const answerRefusal = (error: { code: string; message: string }) =>
 	error.code === "NotFound"
 		? notFound(error.message)
 		: error.code === "EtagMismatch"
 			? preconditionFailed(error.message)
 			: badRequest(error);
+
+export const readIfMatch = (
+	context: Parameters<OperationHandler>[0],
+): string | undefined => {
+	const headers = (context.request.headers ?? {}) as Record<string, string>;
+	return Object.entries(headers).find(
+		([name]) => name.toLowerCase() === "if-match",
+	)?.[1];
+};
 
 const scopedRequestOf = (
 	context: Parameters<OperationHandler>[0],
@@ -527,10 +899,6 @@ const scopedRequestOf = (
 	const scope = readScope(query.scope);
 	if (!scope.ok) return scope;
 
-	const headers = (context.request.headers ?? {}) as Record<string, string>;
-	const ifMatch = Object.entries(headers).find(
-		([name]) => name.toLowerCase() === "if-match",
-	)?.[1];
 	return {
 		ok: true,
 		value: {
@@ -538,14 +906,19 @@ const scopedRequestOf = (
 			calendarObjectId: params.calendarObjectId,
 			scope: scope.value,
 			recurrenceId: query.recurrenceId ?? "",
-			ifMatch,
+			ifMatch: readIfMatch(context),
 		},
 	};
 };
 
+const writeDepsOf = (ctx: HandlerContext<"smtp">): CalendarEventDeps =>
+	calendarEventDepsOf(calendarDepsOf(ctx.client), (input, part) =>
+		ctx.client.outboxQueue.createAndSendScheduled(input, part),
+	);
+
 export const CalendarEventOperations: Record<
 	CalendarEventOperationIds,
-	OperationHandler<CalendarEventOperationIds>
+	OperationHandler<CalendarEventOperationIds, "smtp">
 > = {
 	CalendarEventOperations_listCalendarEvents: async (
 		context,
@@ -568,6 +941,7 @@ export const CalendarEventOperations: Record<
 			readCalendarIds(query.calendarId),
 		);
 		if (!collections.ok) return answerRefusal(collections.error);
+		const self = selfOf(await accountsOf(deps, accountConfigId));
 
 		if (query.calendarObjectId) {
 			const located = await locateResource(
@@ -581,6 +955,7 @@ export const CalendarEventOperations: Record<
 				located.collection,
 				located.object,
 				window.value,
+				self,
 			);
 			return { items: own.map(toInstanceResponse) };
 		}
@@ -589,27 +964,32 @@ export const CalendarEventOperations: Record<
 			deps,
 			collections.value,
 			window.value,
+			self,
 		);
 		return { items: instances.map(toInstanceResponse) };
 	},
 
 	CalendarEventOperations_createCalendarEvent: async (
 		context,
-		ctx: HandlerContext,
+		ctx: HandlerContext<"smtp">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as CreateCalendarEventInput;
-		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
+		const deps = writeDepsOf(ctx);
 
 		const created = await createCalendarEventFor(deps, accountConfigId, input);
 		if (!created.ok) return answerRefusal(created.error);
-		return toEventResponse(created.value);
+		return toEventResponse(
+			created.value.object,
+			selfOf(await accountsOf(deps, accountConfigId)),
+			created.value.sends,
+		);
 	},
 };
 
 export const CalendarEventDetailOperations: Record<
 	CalendarEventDetailOperationIds,
-	OperationHandler<CalendarEventDetailOperationIds>
+	OperationHandler<CalendarEventDetailOperationIds, "smtp">
 > = {
 	CalendarEventDetailOperations_getCalendarEvent: async (
 		context,
@@ -618,72 +998,81 @@ export const CalendarEventDetailOperations: Record<
 		const accountConfigId = ctx.identity.accountConfigId;
 		const request = scopedRequestOf(context);
 		if (!request.ok) return badRequest(request.error);
-		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
+		const deps = calendarDepsOf(ctx.client);
+		const self = selfOf(await accountsOf(deps, accountConfigId));
 
-		if (request.value.calendarId === "") {
-			const located = await locateResource(
-				deps,
-				await listCalendarsFor(deps, accountConfigId),
-				request.value.calendarObjectId,
+		const found =
+			request.value.calendarId === ""
+				? await locateResource(
+						deps,
+						await listCalendarsFor(deps, accountConfigId),
+						request.value.calendarObjectId,
+					)
+				: undefined;
+		if (request.value.calendarId === "" && !found) {
+			return notFound(
+				`no event ${request.value.calendarObjectId} on this account`,
 			);
-			if (!located) {
-				return notFound(
-					`no event ${request.value.calendarObjectId} on this account`,
-				);
-			}
-			return toEventResponse(located.object);
 		}
-
-		const resolved = await resolveResource(
-			deps,
-			accountConfigId,
-			request.value,
-			"read",
-		);
+		const resolved = found
+			? ({ ok: true, value: found } as const)
+			: await resolveResource(deps, accountConfigId, request.value, "read");
 		if (!resolved.ok) return answerRefusal(resolved.error);
-		return toEventResponse(resolved.value.object);
+		return toEventResponse(
+			resolved.value.object,
+			self,
+			await pendingSends(
+				deps,
+				accountConfigId,
+				resolved.value.object.calendarObjectId,
+			),
+		);
 	},
 
 	CalendarEventDetailOperations_updateCalendarEvent: async (
 		context,
-		ctx: HandlerContext,
+		ctx: HandlerContext<"smtp">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const body = context.request
 			.requestBody as Partial<UpdateCalendarEventInput>;
 		const request = scopedRequestOf(context);
 		if (!request.ok) return badRequest(request.error);
-		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
+		const deps = writeDepsOf(ctx);
 
 		const updated = await updateCalendarEventFor(
 			deps,
 			accountConfigId,
 			request.value,
 			pickEventUpdate(body),
+			pickSchedulingUpdate(body),
 		);
 		if (!updated.ok) return answerRefusal(updated.error);
-		if (!updated.value) {
+		if (!updated.value.object) {
 			throw new Error("a scoped update resolved to a delete");
 		}
-		return toEventResponse(updated.value);
+		return toEventResponse(
+			updated.value.object,
+			selfOf(await accountsOf(deps, accountConfigId)),
+			updated.value.sends,
+		);
 	},
 
 	CalendarEventDetailOperations_deleteCalendarEvent: async (
 		context,
-		ctx: HandlerContext,
+		ctx: HandlerContext<"smtp">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const request = scopedRequestOf(context);
 		if (!request.ok) return badRequest(request.error);
-		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
 
 		const removed = await deleteCalendarEventFor(
-			deps,
+			writeDepsOf(ctx),
 			accountConfigId,
 			request.value,
 		);
 		if (!removed.ok) return answerRefusal(removed.error);
-		return { statusCode: 204 };
+		return { statusCode: 200, body: { sends: removed.value.sends } };
 	},
 };
 
@@ -701,8 +1090,16 @@ export const CalendarFreeBusyOperations: Record<
 		if (!window.ok) return badRequest(window.error);
 
 		const deps = calendarDepsOf(ctx.client);
-		const collections = await listCalendarsFor(deps, accountConfigId);
-		const spans = await listBusySpans(deps, collections, window.value);
+		const collections = (await listCalendarsFor(deps, accountConfigId)).filter(
+			(collection) =>
+				collection.componentSet === CalendarComponentSet.VeventOnly,
+		);
+		const spans = await listBusySpans(
+			deps,
+			collections,
+			window.value,
+			selfOf(await accountsOf(deps, accountConfigId)),
+		);
 		const items: CalendarFreeBusySpan[] = spans.map((span) => ({
 			start: toOffsetIso(span.startMs, "UTC"),
 			end: toOffsetIso(span.endMs, "UTC"),

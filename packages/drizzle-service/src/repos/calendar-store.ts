@@ -1,4 +1,5 @@
 import type {
+	CalendarCommitReport,
 	CalendarRepositories,
 	CalendarWrite,
 	ICalendarStore,
@@ -15,6 +16,7 @@ import {
 	calendarFeedTokenTable,
 	calendarObjectTable,
 	calendarTable,
+	calendarTaskTable,
 } from "../schema.js";
 import { CalendarCollectionRepo } from "./calendar-collection.js";
 import { CalendarEventIndexRepo } from "./calendar-event-index.js";
@@ -55,10 +57,30 @@ export class DrizzleCalendarStore implements ICalendarStore {
 		};
 	}
 
-	async commit(writes: readonly CalendarWrite[]): Promise<void> {
-		await this.batch(
-			writes.filter(isBatchWrite).flatMap((write) => this.statements(write)),
-		);
+	async commit(
+		writes: readonly CalendarWrite[],
+	): Promise<CalendarCommitReport> {
+		const items: SqliteBatchItem[] = [];
+		const reprojections: { at: number; calendarObjectId: string }[] = [];
+		for (const write of writes.filter(isBatchWrite)) {
+			items.push(...this.statements(write));
+			if (write.kind === "ReprojectObject") {
+				reprojections.push({
+					at: items.length - 1,
+					calendarObjectId: deriveCalendarObjectId(
+						write.object.calendarId,
+						write.object.resourceName,
+					),
+				});
+			}
+		}
+		const results: readonly unknown[] = await this.batch(items);
+		const staleReprojections = reprojections
+			.filter(({ at }) => {
+				const written = results[at];
+				return Array.isArray(written) && written.length === 0;
+			})
+			.map(({ calendarObjectId }) => calendarObjectId);
 		for (const write of writes.filter(isSettlement)) {
 			await this.repos.calendarSuggestion.settle(
 				write.accountConfigId,
@@ -66,6 +88,7 @@ export class DrizzleCalendarStore implements ICalendarStore {
 				write.settle,
 			);
 		}
+		return { staleReprojections };
 	}
 
 	private collection(accountConfigId: string, calendarId: string) {
@@ -167,6 +190,9 @@ export class DrizzleCalendarStore implements ICalendarStore {
 				);
 				// Every statement reads the object it rewrites at the version the
 				// caller read, so a resource edited or deleted since writes nothing.
+				// The object's own update runs last, so the occurrence statements still
+				// see that version, and it returns the row it wrote, so the commit can
+				// tell a stale read from a written one.
 				const asRead = and(
 					eq(calendarObjectTable.calendarObjectId, calendarObjectId),
 					eq(calendarObjectTable.etag, write.readEtag),
@@ -180,17 +206,6 @@ export class DrizzleCalendarStore implements ICalendarStore {
 				const value = <T>(field: T, name: string) => sql<T>`${field}`.as(name);
 				return [
 					this.bump(write.accountConfigId, calendarId),
-					this.db
-						.update(calendarObjectTable)
-						.set({
-							...write.object,
-							syncSequence: this.bumpedSequence(
-								write.accountConfigId,
-								calendarId,
-							),
-							updatedAt: now,
-						})
-						.where(asRead),
 					this.db
 						.delete(calendarEventIndexTable)
 						.where(
@@ -223,6 +238,18 @@ export class DrizzleCalendarStore implements ICalendarStore {
 								.where(asRead),
 						),
 					),
+					this.db
+						.update(calendarObjectTable)
+						.set({
+							...write.object,
+							syncSequence: this.bumpedSequence(
+								write.accountConfigId,
+								calendarId,
+							),
+							updatedAt: now,
+						})
+						.where(asRead)
+						.returning({ id: calendarObjectTable.calendarObjectId }),
 				];
 			}
 			case "DeleteObject":
@@ -250,6 +277,9 @@ export class DrizzleCalendarStore implements ICalendarStore {
 				];
 			case "DeleteCollection":
 				return [
+					this.db
+						.delete(calendarTaskTable)
+						.where(eq(calendarTaskTable.calendarId, write.calendarId)),
 					this.db
 						.delete(calendarEventIndexTable)
 						.where(eq(calendarEventIndexTable.calendarId, write.calendarId)),

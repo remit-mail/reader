@@ -24,6 +24,7 @@ export {
 	organizeJobRequests,
 	outboxAttachments,
 	outboxMessages,
+	outboxSchedulingParts,
 	quarantines,
 	rawMessageStorages,
 	senderSignerStandings,

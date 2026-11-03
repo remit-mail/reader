@@ -4,6 +4,13 @@ import "../enums/CalendarColor.tsp";
 import "../enums/CalendarEventStatus.tsp";
 import "../enums/CalendarTransparency.tsp";
 import "../enums/ZoneCertainty.tsp";
+import "../enums/CalendarParticipation.tsp";
+import "../enums/CalendarAttendeeRole.tsp";
+import "../enums/CalendarAttendeeStatus.tsp";
+import "../enums/CalendarInviteAnswer.tsp";
+import "../enums/CalendarInviteMethod.tsp";
+import "../enums/OutboxMessageStatus.tsp";
+import "./CalendarTask.tsp";
 import "../scalars/string.tsp";
 import "./CalendarCollection.tsp";
 import "./CalendarObject.tsp";
@@ -105,6 +112,9 @@ model CalendarEventInstance {
 
   @doc("Whether the resource this occurrence came from expands to more than one instance. A client showing the recurrence-scope prompt gates on this.")
   hasRecurrence: boolean;
+
+  @doc("Where the reader stands on this occurrence. Only the reader's own answer: the guest list is on `getCalendarEvent`.")
+  participation: CalendarParticipation;
 }
 
 @doc("""
@@ -118,9 +128,76 @@ model CalendarEventListResponse {
   items: CalendarEventInstance[];
 }
 
-@doc("A stored calendar resource — the bytes behind one event, plus the columns projected from them. `icalData` is canonical; every other field is derived from it on write.")
+@doc("A guest as the event editor sends one.")
+model CalendarAttendeeInput {
+  @doc("The guest's mail address")
+  email: String512;
+
+  @doc("The guest's name. The address itself when the contact has none.")
+  displayName: String512;
+}
+
+@doc("One person on an event's guest list, read from its ORGANIZER and ATTENDEE lines.")
+model CalendarAttendee {
+  @doc("Mail address, lower-cased")
+  email: String512;
+
+  @doc("The CN parameter. `\"\"` when the line carries none.")
+  displayName: String512;
+
+  role: CalendarAttendeeRole;
+
+  @doc("The answer. The organizer reads as `Accepted`.")
+  status: CalendarAttendeeStatus;
+}
+
+@doc("How many people on the guest list gave each answer, the organizer counted as a yes.")
+model CalendarAttendeeCounts {
+  accepted: int32;
+  declined: int32;
+  tentative: int32;
+  needsAction: int32;
+}
+
+@doc("One scheduling message an event write put in the outbox: an invitation, a cancellation or a reply. A client follows `outboxMessageId` to learn whether it went, and resends a failed one with `sendOutboxMessage`.")
+model CalendarSchedulingSend {
+  @doc("The one address the message is to")
+  email: String512;
+
+  outboxMessageId: UUID;
+  method: CalendarInviteMethod;
+
+  @doc("Where the message stood when this response was built")
+  status: OutboxMessageStatus;
+}
+
+@doc("""
+  A stored calendar resource — the bytes behind one event, plus the columns
+  projected from them. `icalData` is canonical; every other field is derived
+  from it on write or on this read.
+  """)
 model CalendarEventResponse {
   ...CalendarObject;
+
+  @doc("Where the reader stands on the event's master")
+  participation: CalendarParticipation;
+
+  @doc("Mail address of the ORGANIZER, lower-cased. `\"\"` when the event names none.")
+  organizer: String512;
+
+  @doc("Everyone on the guest list, organizer first. Empty when the event has no guests.")
+  attendees: CalendarAttendee[];
+
+  attendeeCounts: CalendarAttendeeCounts;
+
+  @doc("The scheduling messages about this event still in the outbox. A write answers with the ones it queued; a read with every one not yet sent and filed.")
+  sends: CalendarSchedulingSend[];
+}
+
+@doc("What deleting an event sent: one cancellation per guest when the reader organizes it, nothing otherwise.")
+model CalendarEventDeleteResponse {
+  @statusCode statusCode: 200;
+  sends: CalendarSchedulingSend[];
 }
 
 @doc("""
@@ -168,6 +245,12 @@ model CreateCalendarEventInput {
 
   @doc("RRULE value for a recurring event, e.g. \"FREQ=WEEKLY;BYDAY=MO\" (RFC 5545 3.8.5.3), without the property name. `\"\"` creates a single event. Refused with 400 when it is not a rule this server can read.")
   recurrenceRule?: String512;
+
+  @doc("The guests. Each gets an invitation from the organizer's account, queued in the same write. Absent or empty creates an event nobody is invited to.")
+  attendees?: CalendarAttendeeInput[];
+
+  @doc("The account the event is organized and its invitations sent from. Refused with 400 `unknown_organizer` when it is not an account of the caller's account config, or `organizer_cannot_send` when that account has Mail turned off. Absent, an event with guests is sent from the default invitation sender in effect (`getUserSettings`).")
+  organizerAccountId?: UUID;
 }
 
 @doc("""
@@ -193,6 +276,15 @@ model UpdateCalendarEventInput {
 
   @doc("RRULE value, or `\"\"` to drop the rule. Only meaningful with `scope=All` or `scope=Following`: an override is one occurrence and carries no rule of its own.")
   recurrenceRule?: String512;
+
+  @doc("The whole guest list after the edit. A new guest gets an invitation and a removed one a cancellation. Refused with 400 `not_organizer` on an event the reader does not organize.")
+  attendees?: CalendarAttendeeInput[];
+
+  @doc("The account that organizes the event, for an event that names no organizer yet. Refused with 400 `not_organizer` when the event already names a different one: the organizer never changes.")
+  organizerAccountId?: UUID;
+
+  @doc("The reader's answer as a guest. Writes their PARTSTAT and queues a REPLY to the organizer. `scope` `This` answers one occurrence and `All` the series; `Following` is refused with 400. Refused with 400 `not_a_guest` when the reader organizes the event or is not on its guest list.")
+  answer?: CalendarInviteAnswer;
 }
 
 @doc("Nothing to return. The resource, or the occurrence, is gone.")
@@ -304,4 +396,51 @@ model CalendarFeedNotFound {
   @statusCode statusCode: 404;
   @header contentType: "text/plain; charset=utf-8";
   @body message: string;
+}
+
+// ============================================
+// Tasks
+// ============================================
+
+@doc("A stored task, as the API returns it.")
+model CalendarTaskResponse {
+  ...CalendarTask;
+}
+
+@doc("Tasks due in the requested window, in due order. Unpaginated: the window is the bound.")
+model CalendarTaskListResponse {
+  items: CalendarTaskResponse[];
+}
+
+@doc("Input for creating a task. The server builds the VTODO.")
+model CreateCalendarTaskInput {
+  @doc("Collection to write the task into. Absent writes it into the account config's task collection. Refused with 400 when it names a collection that is not `VtodoOnly`.")
+  calendarId?: UUID;
+
+  @doc("SUMMARY of the task")
+  summary: String512;
+
+  @doc("DESCRIPTION of the task. Absent writes none.")
+  description?: String2048;
+
+  @doc("When the task is due: an ISO 8601 date-time with zone offset, or a `YYYY-MM-DD` date when `allDay` is set.")
+  due: String64;
+
+  @doc("Whether the task is due on a day rather than at a time")
+  allDay?: boolean;
+
+  @doc("IANA time zone the due time is anchored in. Absent anchors it in UTC.")
+  timeZone?: String64;
+}
+
+@doc("Input for updating a task. Every field is optional and absence means untouched.")
+model UpdateCalendarTaskInput {
+  summary?: String512;
+  description?: String2048;
+  due?: String64;
+  allDay?: boolean;
+  timeZone?: String64;
+
+  @doc("Marks the task done (`STATUS:COMPLETED`) or not done again (`STATUS:NEEDS-ACTION`)")
+  completed?: boolean;
 }

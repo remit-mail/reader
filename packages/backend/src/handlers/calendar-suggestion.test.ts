@@ -1047,7 +1047,9 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			await putInvite(accountConfigId, "msg-split", 0),
 		);
 		const split = await updateCalendarEventFor(
-			calendarEventDepsOf(calendarDepsOf(client)),
+			calendarEventDepsOf(calendarDepsOf(client), (input, part) =>
+				client.outboxQueue.createAndSendScheduled(input, part),
+			),
 			accountConfigId,
 			{
 				calendarId: calendar.calendarId,

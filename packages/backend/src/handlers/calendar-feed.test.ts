@@ -112,7 +112,7 @@ class Subscriber {
 			sub: this.sub,
 			query: { calendarId },
 		});
-		assert.equal(removed.statusCode, 204, removed.body);
+		assert.equal(removed.statusCode, 200, removed.body);
 	}
 
 	async mintFeed(calendarId: string): Promise<string> {

@@ -3,6 +3,7 @@ export {
 	type AcceptedCalendarSuggestion,
 	acceptCalendarSuggestion,
 	buildAcceptedCalendar,
+	SUGGESTION_STATE_OF_ANSWER,
 } from "./accept.js";
 export {
 	applyEventFields,
@@ -45,10 +46,39 @@ export {
 	redactCalendarFeedPath,
 } from "./feed.js";
 export {
+	type EventSchedulingUpdate,
+	guestListOf,
+	invitationSenderInEffect,
+	type PlannedEventUpdate,
+	planCreateSends,
+	planDeleteFanOut,
+	planDeleteSends,
+	planEventCreate,
+	planEventUpdate,
+	planGuestFanOut,
+	planUpdateSends,
+	type SchedulingSendPlan,
+	type SchedulingSends,
+	schedulingBody,
+	sendingAccountFor,
+	sendsMail,
+	shapeScheduledUpdate,
+} from "./invitations.js";
+export {
 	type ParsedCalendar,
 	parseCalendar,
 	serializeCalendar,
 } from "./parse.js";
+export {
+	attendeesOf,
+	calendarAddressOf,
+	countAttendees,
+	organizerOf,
+	PARTSTAT_OF_ANSWER,
+	participationAtSlot,
+	participationOf,
+	selfAddressSet,
+} from "./participation.js";
 export {
 	type CalendarObjectProjection,
 	projectCalendar,
@@ -60,14 +90,37 @@ export {
 	type PutCalendarObjectInput,
 	prepareCalendarObject,
 	provisionDefaultCalendar,
+	provisionTaskCalendar,
 	putCalendarObject,
 	readWrittenObject,
+	TASK_CALENDAR_URL_SEGMENT,
 } from "./put.js";
 export {
 	answersOvertakenBy,
 	type ReopenCalendarSuggestionInput,
 	reopenCalendarSuggestion,
 } from "./reopen.js";
+export {
+	type RecordCalendarReplyInput,
+	type RecordCalendarReplyOutcome,
+	type ReplyRevision,
+	recordCalendarReply,
+	replyOvertakes,
+} from "./reply.js";
+export {
+	applyAnswer,
+	applyGuestList,
+	buildSchedulingMessage,
+	bumpSequence,
+	type CalendarPerson,
+	distinctGuests,
+	guestAddressesOf,
+	invalidGuestOf,
+	type SchedulingMessage,
+	type SchedulingMessageInput,
+	type SchedulingMethod,
+	schedulingSubject,
+} from "./scheduling.js";
 export {
 	applyScopedDelete,
 	applyScopedUpdate,
@@ -106,6 +159,14 @@ export {
 	type RecordedCalendarSuggestion,
 	recordCalendarSuggestion,
 } from "./suggest.js";
+export {
+	buildTaskCalendar,
+	type CalendarTaskFields,
+	listTasksInWindow,
+	parseTaskCalendar,
+	prepareCalendarTask,
+	updateTaskCalendar,
+} from "./task.js";
 export {
 	civilInZone,
 	isResolvableZone,

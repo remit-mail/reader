@@ -110,7 +110,16 @@ export type CalendarWrite =
  * returned before it, and a write that a stale read would get wrong is keyed so
  * that repeating or racing it converges (derived ids, upserts).
  */
+/** What a commit could not do because a read it was decided on went stale. */
+export interface CalendarCommitReport {
+	/**
+	 * The resources whose `ReprojectObject` wrote nothing, because they were
+	 * edited or deleted after they were read.
+	 */
+	staleReprojections: string[];
+}
+
 export interface ICalendarStore {
 	readonly repos: CalendarRepositories;
-	commit(writes: readonly CalendarWrite[]): Promise<void>;
+	commit(writes: readonly CalendarWrite[]): Promise<CalendarCommitReport>;
 }
