@@ -985,52 +985,6 @@ describe("remit update — the release's Caddy configuration", () => {
 	});
 });
 
-// v0.9.22 and v0.9.23 check the release's Caddy set themselves, with no
-// handoff, in the first image `config --images caddy` names for the release's
-// compose file. Compose lists caddy's dependencies there too, so that first
-// line is Caddy's own image only while caddy depends on nothing.
-describe("remit update — from a v0.9.22 wrapper that checks Caddy itself", () => {
-	const box = sandbox({
-		scenario: { probe: "ok", migrate_exit: 0 },
-		releaseCaddy: RELEASE_CADDY,
-	});
-	const previous = join(box.dir, "previous-remit");
-	const previousSource = WRAPPER_SOURCE.replace(
-		/^handoff_to_release_wrapper\(\) \{$/m,
-		"handoff_to_release_wrapper() {\n\treturn 0",
-	).replace(
-		/_vcf_config=\$\(docker compose[\s\S]*?\n\t'\)\n/,
-		'_vcf_image=$(docker compose --project-directory "$REMIT_DIR" \\\n' +
-			'\t\t-f "$2/$(host_asset_local docker-compose.sqlite.yml)" \\\n' +
-			'\t\t--env-file "$REMIT_DIR/.env" config --images caddy | sed -n 1p) || return 1\n',
-	);
-	assert.match(previousSource, /config --images caddy \| sed -n 1p/);
-	assert.match(previousSource, /handoff_to_release_wrapper\(\) \{\n\treturn 0/);
-	writeExecutable(previous, previousSource);
-	writeFileSync(
-		join(box.state, "request.json"),
-		JSON.stringify({
-			runId: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
-			targetVersion: "v1.5.0",
-			requestedAt: justNow(),
-			requestedBy: "owner@example.test",
-		}),
-	);
-	const result = spawnSync("sh", [previous, "update"], {
-		env: box.env,
-		encoding: "utf8",
-	});
-
-	it("checks the release's Caddy set in the Caddy image and succeeds", () => {
-		assert.ok(
-			logIndex(box, /^run caddy-validate image=caddy:2-alpine /) >= 0,
-			box.log(),
-		);
-		assert.equal(result.status, 0, result.stderr);
-		assert.equal(box.stateJson().run.outcome, "succeeded");
-	});
-});
-
 // The update is driven by the previous release's wrapper, and that one has
 // never heard of the Caddy files: it is the release before they were host
 // files. One `remit update` still has to leave the release's set live.

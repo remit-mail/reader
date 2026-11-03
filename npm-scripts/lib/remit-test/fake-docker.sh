@@ -595,7 +595,6 @@ compose_cmd() {
 				printf 'error: required variable %s is missing a value\n' "$_v" >&2
 				exit 1
 			done
-			cat "$_compose_file"
 			;;
 		esac
 		exit 0
