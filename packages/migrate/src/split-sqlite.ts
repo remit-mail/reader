@@ -6,12 +6,15 @@ import {
 	getTableName,
 	inArray,
 	is,
+	not,
 	sql,
 } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { SQLiteTable, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import * as authTables from "../../auth-service/src/schema/auth-schema-sqlite.js";
+import { STRANDED_PLACEMENT_AFTER_MILLIS } from "../../data-ports/src/message-settlement.js";
 import { syncBatch } from "../../drizzle-service/src/batch.js";
+import { strandedPlacementCondition } from "../../drizzle-service/src/repos/message.js";
 import * as appTables from "../../drizzle-service/src/schema-sets/app.js";
 import * as mailTables from "../../drizzle-service/src/schema-sets/mail.js";
 import * as mcpTables from "../../mcp-server/src/auth/schema.js";
@@ -154,8 +157,24 @@ export type SplitSqliteReport = Record<string, number>;
  * not pushed to the mail server. The split leaves the mail they refer to to
  * resync, and that resync takes the server state, so splitting now would lose
  * them.
+ *
+ * A move or delete stranded the way the scheduler's re-drive defines it has no
+ * event left to settle it, and a release without that re-drive never will, so
+ * it does not hold the split back. Its message ids are returned to be reported.
  */
-export const assertNothingPending = async (source: AnyDb): Promise<void> => {
+export const assertNothingPending = async (
+	source: AnyDb,
+	now: number,
+): Promise<string[]> => {
+	const mailboxIds = (
+		await source
+			.select({ mailboxId: mailTables.mailboxes.mailboxId })
+			.from(mailTables.mailboxes)
+	).map((row) => row.mailboxId);
+	const stranded = strandedPlacementCondition(
+		mailboxIds,
+		now - STRANDED_PLACEMENT_AFTER_MILLIS,
+	);
 	const [{ n: flagChanges }] = await source
 		.select({ n: count() })
 		.from(mailTables.messageFlagPushes);
@@ -165,8 +184,20 @@ export const assertNothingPending = async (source: AnyDb): Promise<void> => {
 	const [{ n: inFlight }] = await source
 		.select({ n: count() })
 		.from(mailTables.messageRecords)
-		.where(inArray(mailTables.messageRecords.status, ["moving", "deleting"]));
-	if (flagChanges + moves + inFlight === 0) return;
+		.where(
+			and(
+				inArray(mailTables.messageRecords.status, ["moving", "deleting"]),
+				not(stranded),
+			),
+		);
+	if (flagChanges + moves + inFlight === 0) {
+		return (
+			await source
+				.select({ messageId: mailTables.messageRecords.messageId })
+				.from(mailTables.messageRecords)
+				.where(stranded)
+		).map((row) => row.messageId);
+	}
 	throw new Error(
 		`remit.db holds changes not yet pushed to the mail server: ${flagChanges} flag changes, ${moves} moves and ${inFlight} messages moving or deleting. Nothing was split or changed; the update is safe to rerun once the running stack has pushed them.`,
 	);

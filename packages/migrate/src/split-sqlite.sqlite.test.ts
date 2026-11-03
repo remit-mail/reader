@@ -242,34 +242,70 @@ const seedPendingFlagPush = (path: string): void => {
 	sqlite.close();
 };
 
+const markMoving = (path: string, updatedAt: number): void => {
+	const sqlite = new Database(path);
+	sqlite
+		.prepare(
+			"UPDATE message SET status = 'moving', original_mailbox_id = 'mbx-1', original_uid = 41, updated_at = ? WHERE message_id = 'msg-1'",
+		)
+		.run(updatedAt);
+	sqlite.close();
+};
+
 describe("the migrate one-shot on a single-file install with a change not yet pushed", () => {
-	const dir = mkdtempSync(join(tmpdir(), "remit-pending-split-"));
-	const paths = {
-		app: join(dir, "app.db"),
-		mail: join(dir, "mail.db"),
-		search: join(dir, "search.db"),
-	};
-	const source = legacyDatabasePath(paths);
-
-	after(() => {
-		rmSync(dir, { recursive: true, force: true });
-	});
-
-	test("refuses to split and writes nothing", async () => {
+	const installs: string[] = [];
+	const install = () => {
+		const dir = mkdtempSync(join(tmpdir(), "remit-pending-split-"));
+		installs.push(dir);
+		const paths = {
+			app: join(dir, "app.db"),
+			mail: join(dir, "mail.db"),
+			search: join(dir, "search.db"),
+		};
+		const source = legacyDatabasePath(paths);
 		seedSource(source);
-		seedPendingFlagPush(source);
-		await assert.rejects(
+		const migrate = () =>
 			splitLegacyDatabase(
 				source,
 				paths,
 				{ Database, drizzle },
 				fileURLToPath(new URL("../../../deploy/vps", import.meta.url)),
 				() => {},
-			),
+			);
+		return { dir, source, migrate };
+	};
+
+	after(() => {
+		for (const dir of installs) rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("refuses to split over a flag change and writes nothing", async () => {
+		const { dir, source, migrate } = install();
+		seedPendingFlagPush(source);
+		await assert.rejects(
+			migrate(),
 			/1 flag changes, 0 moves and 0 messages moving or deleting.*safe to rerun/,
 		);
 		assert.deepEqual(readdirSync(dir), ["remit.db"]);
 		assert.equal(count(source, "message_flag_push"), 1);
+	});
+
+	test("refuses to split over a move an event can still settle", async () => {
+		const { dir, source, migrate } = install();
+		markMoving(source, Date.now());
+		await assert.rejects(
+			migrate(),
+			/0 flag changes, 0 moves and 1 messages moving or deleting/,
+		);
+		assert.deepEqual(readdirSync(dir), ["remit.db"]);
+	});
+
+	test("splits past a move nothing is left to settle, and names it", async () => {
+		const { migrate, source } = install();
+		markMoving(source, NOW);
+		const outcome = await migrate();
+		assert.equal(outcome.kind, "split");
+		assert.deepEqual(outcome.kind === "split" && outcome.stranded, ["msg-1"]);
 	});
 });
 

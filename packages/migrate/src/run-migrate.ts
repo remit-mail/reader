@@ -201,6 +201,16 @@ const reportLegacySplit = (
 		{ copied: outcome.copied, kept: `${source}${PRE_SPLIT_SUFFIX}` },
 		"split the single database file",
 	);
+	if (outcome.stranded.length > 0) {
+		logger.error(
+			{
+				alert: "split_stranded_placements",
+				count: outcome.stranded.length,
+				messageIds: outcome.stranded,
+			},
+			"These moves and deletes never reached the mail server; the resync shows the server's state",
+		);
+	}
 };
 
 const runSqlite = async (mode: Mode): Promise<void> => {

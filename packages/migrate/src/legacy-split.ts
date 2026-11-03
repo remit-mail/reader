@@ -39,7 +39,7 @@ export interface SqliteDriver {
 export type LegacySplitOutcome =
 	| { kind: "absent" }
 	| { kind: "superseded" }
-	| { kind: "split"; copied: SplitSqliteReport };
+	| { kind: "split"; copied: SplitSqliteReport; stranded: string[] };
 
 const DATABASES = ["app", "mail", "search"] as const;
 
@@ -133,10 +133,11 @@ export const splitLegacyDatabase = async (
 	// to a file about to be renamed aside.
 	const from = new driver.Database(source, { fileMustExist: true });
 	let copied: SplitSqliteReport;
+	let stranded: string[];
 	try {
 		from.pragma("busy_timeout = 0");
 		from.exec("BEGIN EXCLUSIVE");
-		await assertNothingPending(driver.drizzle(from));
+		stranded = await assertNothingPending(driver.drizzle(from), Date.now());
 		copied = await copyIntoStaged(from, staged, driver, migrationsRoot, log);
 		from.exec("COMMIT");
 	} finally {
@@ -147,5 +148,5 @@ export const splitLegacyDatabase = async (
 	moveIntoPlace(staged.search, paths.search);
 	moveIntoPlace(staged.app, paths.app);
 	moveIntoPlace(source, `${source}${PRE_SPLIT_SUFFIX}`);
-	return { kind: "split", copied };
+	return { kind: "split", copied, stranded };
 };

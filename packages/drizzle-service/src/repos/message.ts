@@ -18,6 +18,7 @@ import {
 	lt,
 	or,
 	type SQL,
+	sql,
 } from "drizzle-orm";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
 import { chunk, chunkRows } from "../bound-parameters.js";
@@ -279,6 +280,32 @@ const placementTerms = (expected: PlacementPredicate): SQL[] => {
 	}
 	return terms;
 };
+
+/** The rows `listStrandedPlacements` returns: `moving` or `deleting`, unwritten since `untouchedSince`. */
+export const strandedPlacementCondition = (
+	mailboxIds: readonly string[],
+	untouchedSince: number,
+): SQL =>
+	and(
+		lt(messageTable.updatedAt, untouchedSince),
+		or(
+			and(
+				eq(messageTable.status, "moving"),
+				inList(messageTable.originalMailboxId, mailboxIds),
+				isNotNull(messageTable.originalUid),
+			),
+			and(
+				eq(messageTable.status, "deleting"),
+				inList(messageTable.mailboxId, mailboxIds),
+			),
+			and(
+				eq(messageTable.status, "moving"),
+				eq(messageTable.uid, 0),
+				isNull(messageTable.originalUid),
+				inList(messageTable.mailboxId, mailboxIds),
+			),
+		),
+	) ?? sql`0`;
 
 export class DrizzleMessageRepository implements IMessageRepository {
 	private readonly db: DB;
@@ -888,32 +915,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		untouchedSince: number,
 	): ReturnType<IMessageRepository["listStrandedPlacements"]> {
 		if (mailboxIds.length === 0) return [];
-		const ids = [...mailboxIds];
 		const rows = await this.db
 			.select()
 			.from(messageTable)
-			.where(
-				and(
-					lt(messageTable.updatedAt, untouchedSince),
-					or(
-						and(
-							eq(messageTable.status, "moving"),
-							inList(messageTable.originalMailboxId, ids),
-							isNotNull(messageTable.originalUid),
-						),
-						and(
-							eq(messageTable.status, "deleting"),
-							inList(messageTable.mailboxId, ids),
-						),
-						and(
-							eq(messageTable.status, "moving"),
-							eq(messageTable.uid, 0),
-							isNull(messageTable.originalUid),
-							inList(messageTable.mailboxId, ids),
-						),
-					),
-				),
-			)
+			.where(strandedPlacementCondition(mailboxIds, untouchedSince))
 			.orderBy(asc(messageTable.updatedAt), asc(messageTable.messageId));
 		return rows.map(toMessageItem);
 	}

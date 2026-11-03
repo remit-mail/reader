@@ -1,6 +1,12 @@
 import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import type { MessageItem } from "./types.js";
 
+/**
+ * How long a `moving` or `deleting` row goes unwritten before nothing is left
+ * to settle it: well past three attempts on a 60 s visibility timeout.
+ */
+export const STRANDED_PLACEMENT_AFTER_MILLIS = 60 * 60 * 1000;
+
 export type MessageSettlementFields = Pick<
 	MessageItem,
 	"status" | "syncStatus" | "abandonedMutation"
