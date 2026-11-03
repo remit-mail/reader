@@ -267,13 +267,24 @@ export class SearchIndex {
 				.limit(DOCUMENTS_PER_REBUILD_PAGE);
 			const last = rows.at(-1);
 			if (!last) return indexed;
+			// A live writer may index one of these messages after the delete
+			// above, so each page replaces its documents the way sync does.
 			await this.batch(
-				chunkRows(threadMessageSearchTable, rows, this.maxBoundParameters).map(
-					(slice) =>
-						this.search
-							.insert(threadMessageSearchTable)
-							.values(slice.map(toDocument)),
-				),
+				chunkRows(
+					threadMessageSearchTable,
+					rows,
+					this.maxBoundParameters,
+				).flatMap((slice) => [
+					this.search.delete(threadMessageSearchTable).where(
+						inArray(
+							threadMessageSearchTable.rowid,
+							slice.map((row) => searchRowid(row.threadMessageId)),
+						),
+					),
+					this.search
+						.insert(threadMessageSearchTable)
+						.values(slice.map(toDocument)),
+				]),
 			);
 			indexed += rows.length;
 			after = last.threadMessageId;

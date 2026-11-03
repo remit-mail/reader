@@ -161,6 +161,29 @@ describe("the thread-message search index in its own database", () => {
 		assert.deepEqual(await found("receipt"), [created.threadMessageId]);
 	});
 
+	test("rebuilds while a live writer indexes a message the rebuild has yet to reach", async () => {
+		const created = await repo.create(input({ subject: "Raced reminder" }));
+		const store = syncStore(search.db, BETTER_SQLITE3_LIMITS);
+		let raced = false;
+		const migrator = new SearchIndex(mail.db, {
+			...store,
+			batch: async (items) => {
+				if (!raced) {
+					raced = true;
+					await index.sync([created.threadMessageId]);
+				}
+				return store.batch(items);
+			},
+		});
+
+		await migrator.rebuild();
+		await migrator.rebuild();
+
+		assert.equal(raced, true);
+		assert.equal(await index.needsRebuild(), false);
+		assert.deepEqual(await found("reminder"), [created.threadMessageId]);
+	});
+
 	test("matches the body text past the snippet, through a rewrite and a rebuild", async () => {
 		const created = await repo.create(
 			input({ subject: "Long letter", snippet: "Dear reader, a preview" }),
