@@ -19,11 +19,9 @@ const ROOT = join(HERE, "..", "..");
 const CADDY_DIR = join(ROOT, "deploy", "vps", "caddy");
 // Discovered, not hardcoded — a mode file added later must pass this guard
 // too, not be silently exempt from it.
-// routes.caddy and mcp.caddy are the shared includes every mode imports, not
-// modes of their own.
+// routes.caddy is the shared include every mode imports, not a mode of its own.
 const MODE_FILES = readdirSync(CADDY_DIR).filter(
-	(name) =>
-		name.endsWith(".caddy") && name !== "routes.caddy" && name !== "mcp.caddy",
+	(name) => name.endsWith(".caddy") && name !== "routes.caddy",
 );
 
 const ROUTES = readFileSync(join(CADDY_DIR, "routes.caddy"), "utf8");

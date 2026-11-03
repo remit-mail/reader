@@ -33,7 +33,6 @@ const SNAPSHOT_LIB = join(ROOT, "deploy", "vps", "backup", "snapshot-db.sh");
 const CADDY_DIR = join(ROOT, "deploy", "vps", "caddy");
 const CADDY_FILES = [
 	"routes.caddy",
-	"mcp.caddy",
 	"off.caddy",
 	"internal.caddy",
 	"tailscale.caddy",
@@ -922,16 +921,13 @@ describe("remit update — a release whose wrapper will not parse", () => {
 
 const RELEASE_ROUTES = `(upstream) {\n\treverse_proxy apisix:9080\n}\n${shippedCaddy("routes.caddy")}`;
 const RELEASE_MODES = Object.fromEntries(
-	CADDY_FILES.filter(
-		(name) => name !== "routes.caddy" && name !== "mcp.caddy",
-	).map((name) => [
+	CADDY_FILES.filter((name) => name !== "routes.caddy").map((name) => [
 		name,
 		`import /etc/caddy/routes.caddy\n${shippedCaddy(name)}`,
 	]),
 );
 const RELEASE_CADDY = {
 	"routes.caddy": RELEASE_ROUTES,
-	"mcp.caddy": shippedCaddy("mcp.caddy"),
 	...RELEASE_MODES,
 };
 
@@ -982,6 +978,43 @@ describe("remit update — the release's Caddy configuration", () => {
 		assert.ok(
 			restarted < logIndex(box, /^compose up -d queue migrate backend$/),
 		);
+	});
+});
+
+// v0.9.22 and v0.9.23 never hand the update to the release's wrapper. They
+// check the release's mode files themselves with only routes.caddy copied into
+// /etc/caddy, so a mode file that imports anything else strands them.
+describe("remit update — driven by a v0.9.22 wrapper", () => {
+	const box = sandbox({ scenario: { probe: "ok", migrate_exit: 0 } });
+	const previous = join(box.dir, "previous-remit");
+	const v0922Assets =
+		'CADDY_ASSETS="caddy/routes.caddy caddy/off.caddy caddy/internal.caddy caddy/tailscale.caddy caddy/acme.caddy caddy/tunnel.caddy"';
+	const previousSource = WRAPPER_SOURCE.replace(
+		/^handoff_to_release_wrapper\(\) \{$/m,
+		"handoff_to_release_wrapper() {\n\treturn 0",
+	)
+		.replace(/^CADDY_ASSETS=.*$/m, v0922Assets)
+		.replace(/^cp .*mcp\.caddy.*\n/m, "");
+	assert.match(previousSource, /handoff_to_release_wrapper\(\) \{\n\treturn 0/);
+	assert.ok(previousSource.includes(v0922Assets));
+	writeExecutable(previous, previousSource);
+	writeFileSync(
+		join(box.state, "request.json"),
+		JSON.stringify({
+			runId: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+			targetVersion: "v1.5.0",
+			requestedAt: justNow(),
+			requestedBy: "owner@example.test",
+		}),
+	);
+	const result = spawnSync("sh", [previous, "update"], {
+		env: box.env,
+		encoding: "utf8",
+	});
+
+	it("passes the release's Caddy set and succeeds", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
 	});
 });
 

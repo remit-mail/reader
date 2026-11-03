@@ -424,8 +424,6 @@ if (CR) {
 				"-v",
 				`${join(CADDY_DIR, "routes.caddy")}:/etc/caddy/routes.caddy:ro`,
 				"-v",
-				`${join(CADDY_DIR, "mcp.caddy")}:/etc/caddy/mcp.caddy:ro`,
-				"-v",
 				`${join(CADDY_DIR, "tunnel.caddy")}:/etc/caddy/Caddyfile:ro`,
 				IMAGE,
 			);
