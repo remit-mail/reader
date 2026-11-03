@@ -188,11 +188,7 @@ describe("applyScopedUpdate", () => {
 		);
 		assert.ok(override?.includes("DTSTART:20260923T090000Z"));
 
-		const expanded = expandCalendar(
-			await read(write.value.icalData),
-			"",
-			new Set(),
-		);
+		const expanded = expandCalendar(await read(write.value.icalData), "");
 		assert.deepEqual(
 			expanded.occurrences.map((occurrence) => occurrence.startAt),
 			[
@@ -231,11 +227,7 @@ describe("applyScopedUpdate", () => {
 
 		assert.ok(write.ok);
 		assert.ok(write.value.kind === "Replace");
-		const expanded = expandCalendar(
-			await read(write.value.icalData),
-			"",
-			new Set(),
-		);
+		const expanded = expandCalendar(await read(write.value.icalData), "");
 		assert.deepEqual(
 			expanded.occurrences.map((occurrence) => occurrence.startAt),
 			[
@@ -634,7 +626,7 @@ describe("splitting a series whose DTSTART is not a UTC instant", () => {
 	const BEHIND_UTC = "America/New_York";
 
 	const splitAtSecondSlot = async (icalData: string) => {
-		const before = expandCalendar(await read(icalData), BEHIND_UTC, new Set());
+		const before = expandCalendar(await read(icalData), BEHIND_UTC);
 		const at = before.occurrences[1]?.startAt as string;
 		const write = await applyScopedUpdate(
 			await read(icalData),
@@ -646,16 +638,8 @@ describe("splitting a series whose DTSTART is not a UTC instant", () => {
 		assert.ok(write.value.kind === "Split");
 		return {
 			at,
-			head: expandCalendar(
-				await read(write.value.icalData),
-				BEHIND_UTC,
-				new Set(),
-			),
-			tail: expandCalendar(
-				await read(write.value.following),
-				BEHIND_UTC,
-				new Set(),
-			),
+			head: expandCalendar(await read(write.value.icalData), BEHIND_UTC),
+			tail: expandCalendar(await read(write.value.following), BEHIND_UTC),
 			rule: write.value.icalData
 				.split("\r\n")
 				.find((line) => line.startsWith("RRULE")),
@@ -733,11 +717,9 @@ const withOverride = (masterLines: string[], overrideLines: string[]) =>
 	);
 
 const starts = async (icalData: string, collectionTimezone = "") =>
-	expandCalendar(
-		await read(icalData),
-		collectionTimezone,
-		new Set(),
-	).occurrences.map((occurrence) => occurrence.startAt);
+	expandCalendar(await read(icalData), collectionTimezone).occurrences.map(
+		(occurrence) => occurrence.startAt,
+	);
 
 const replaced = (
 	write: Awaited<ReturnType<typeof applyScopedUpdate>>,
@@ -1120,11 +1102,7 @@ describe("a whole-series time change with per-occurrence changes", () => {
 			}),
 		);
 
-		const expanded = expandCalendar(
-			await read(icalData),
-			"",
-			new Set(),
-		).occurrences;
+		const expanded = expandCalendar(await read(icalData), "").occurrences;
 		assert.deepEqual(
 			expanded.map((occurrence) => [occurrence.startAt, occurrence.endAt]),
 			[

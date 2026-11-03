@@ -246,11 +246,11 @@ model CreateCalendarEventInput {
   @doc("RRULE value for a recurring event, e.g. \"FREQ=WEEKLY;BYDAY=MO\" (RFC 5545 3.8.5.3), without the property name. `\"\"` creates a single event. Refused with 400 when it is not a rule this server can read.")
   recurrenceRule?: String512;
 
-  @doc("The guests. Each gets an invitation from the organizer's account, queued in the same write. Empty creates an event nobody is invited to.")
-  attendees: CalendarAttendeeInput[];
+  @doc("The guests. Each gets an invitation from the organizer's account, queued in the same write. Absent or empty creates an event nobody is invited to.")
+  attendees?: CalendarAttendeeInput[];
 
-  @doc("The account the event is organized and its invitations sent from. Read when `attendees` is not empty, and then refused with 400 `unknown_organizer` when it is not an account of the caller's account config, or `organizer_cannot_send` when that account has Mail turned off.")
-  organizerAccountId: UUID;
+  @doc("The account the event is organized and its invitations sent from. Refused with 400 `unknown_organizer` when it is not an account of the caller's account config, or `organizer_cannot_send` when that account has Mail turned off. Absent, an event with guests is sent from the default invitation sender in effect (`getUserSettings`).")
+  organizerAccountId?: UUID;
 }
 
 @doc("""

@@ -99,8 +99,6 @@ class Subscriber {
 				start: "2026-09-07T09:00:00+00:00",
 				end: "2026-09-07T10:00:00+00:00",
 				recurrenceRule,
-				attendees: [],
-				organizerAccountId: "0".repeat(25),
 			},
 		});
 		assert.equal(created.statusCode, 200, created.body);

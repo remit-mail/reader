@@ -77,6 +77,7 @@ export type OperationIds =
 	| "CalendarFreeBusyOperations_listCalendarFreeBusy"
 	| "UserSettingsOperations_getUserSettings"
 	| "UserSettingsOperations_updateUserSettings"
+	| "UserSettingsOperations_clearDefaultInvitationSender"
 	| "CalendarTaskOperations_listCalendarTasks"
 	| "CalendarTaskOperations_createCalendarTask"
 	| "CalendarTaskDetailOperations_getCalendarTask"

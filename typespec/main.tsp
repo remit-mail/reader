@@ -672,6 +672,12 @@ namespace RemitApi {
       | UserSettingsResponse
       | ValidationError
       | UnauthorizedError;
+
+    @doc("Clear the chosen default invitation sender. Invitations then go out from the account an event is on. Answers with every setting as it now stands.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    @route("/default-invitation-sender")
+    op clearDefaultInvitationSender(): UserSettingsResponse | UnauthorizedError;
   }
 
   @route("/calendar-tasks")

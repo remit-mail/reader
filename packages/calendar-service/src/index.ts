@@ -3,6 +3,7 @@ export {
 	type AcceptedCalendarSuggestion,
 	acceptCalendarSuggestion,
 	buildAcceptedCalendar,
+	SUGGESTION_STATE_OF_ANSWER,
 } from "./accept.js";
 export {
 	applyEventFields,
@@ -45,6 +46,25 @@ export {
 	redactCalendarFeedPath,
 } from "./feed.js";
 export {
+	type EventSchedulingUpdate,
+	guestListOf,
+	invitationSenderInEffect,
+	type PlannedEventUpdate,
+	planCreateSends,
+	planDeleteFanOut,
+	planDeleteSends,
+	planEventCreate,
+	planEventUpdate,
+	planGuestFanOut,
+	planUpdateSends,
+	type SchedulingSendPlan,
+	type SchedulingSends,
+	schedulingBody,
+	sendingAccountFor,
+	sendsMail,
+	shapeScheduledUpdate,
+} from "./invitations.js";
+export {
 	type ParsedCalendar,
 	parseCalendar,
 	serializeCalendar,
@@ -54,8 +74,9 @@ export {
 	calendarAddressOf,
 	countAttendees,
 	organizerOf,
+	PARTSTAT_OF_ANSWER,
+	participationAtSlot,
 	participationOf,
-	REPLY_STAMP_PARAMETER,
 	selfAddressSet,
 } from "./participation.js";
 export {
@@ -94,7 +115,6 @@ export {
 	type CalendarPerson,
 	distinctGuests,
 	guestAddressesOf,
-	guestAddressesOfData,
 	invalidGuestOf,
 	type SchedulingMessage,
 	type SchedulingMessageInput,

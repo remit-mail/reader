@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import {
-	CalendarEventStatus,
-	CalendarParticipation,
-	CalendarTransparency,
-} from "@remit/domain-enums";
+import { CalendarEventStatus, CalendarTransparency } from "@remit/domain-enums";
 import type { ICalendarEventIndexRepository } from "../interfaces/calendar-event-index.js";
 import type { CalendarOccurrenceInput } from "../types.js";
 import type { RepositoryConformanceHarness } from "./harness.js";
@@ -22,7 +18,6 @@ const occurrence = (
 	summary: "Stand-up",
 	status: CalendarEventStatus.Confirmed,
 	transparency: CalendarTransparency.Opaque,
-	participation: CalendarParticipation.Unscheduled,
 	...overrides,
 });
 
@@ -50,36 +45,6 @@ export function calendarEventIndexRepositoryConformance(
 			assert.equal(rows.length, 1);
 			assert.equal(rows[0]?.recurrenceId, "");
 			assert.equal(rows[0]?.startAt, "2026-08-26T07:00:00Z");
-		});
-
-		test("each occurrence keeps its own participation", async () => {
-			const calendarId = harness.makeId();
-			const calendarObjectId = harness.makeId();
-
-			await repo.replaceForObject(calendarId, calendarObjectId, [
-				occurrence(
-					"2026-08-26T07:00:00Z",
-					"2026-08-26T07:00:00Z",
-					"2026-08-26T08:00:00Z",
-					{ participation: CalendarParticipation.Accepted },
-				),
-				occurrence(
-					"2026-09-02T07:00:00Z",
-					"2026-09-02T07:00:00Z",
-					"2026-09-02T08:00:00Z",
-					{ participation: CalendarParticipation.Declined },
-				),
-			]);
-
-			const rows = await repo.listByStartRange(
-				calendarId,
-				"2026-08-01T00:00:00Z",
-				"2026-10-01T00:00:00Z",
-			);
-			assert.deepEqual(
-				rows.map((row) => row.participation),
-				[CalendarParticipation.Accepted, CalendarParticipation.Declined],
-			);
 		});
 
 		test("replaceForObject drops the occurrences a shortened series no longer has", async () => {

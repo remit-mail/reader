@@ -1,7 +1,6 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/CalendarEventStatus.tsp";
-import "../enums/CalendarParticipation.tsp";
 import "../enums/CalendarTransparency.tsp";
 import "../scalars/string.tsp";
 
@@ -81,10 +80,6 @@ model CalendarEventIndex {
   @doc("Projection of this occurrence's own TRANSP — whether it consumes free/busy time.")
   @visibility(Lifecycle.Read)
   transparency: CalendarTransparency = CalendarTransparency.Opaque;
-
-  @doc("Where the reader stands on this occurrence, projected from its own ORGANIZER and ATTENDEE lines against the addresses of the account config's accounts. Per occurrence, because an override carries its own PARTSTAT: a guest can decline one instance of a series.")
-  @visibility(Lifecycle.Read)
-  participation: CalendarParticipation = CalendarParticipation.Unscheduled;
 
   @visibility(Lifecycle.Read)
   @createdAt

@@ -15,7 +15,7 @@ import {
 	attendeeLineOf,
 	calendarAddressOf,
 	organizerOf,
-	REPLY_STAMP_PARAMETER,
+	PARTSTAT_OF_ANSWER,
 } from "./participation.js";
 import { readString } from "./project.js";
 
@@ -35,12 +35,6 @@ const ICAL_METHOD: Record<SchedulingMethod, string> = {
 	[CalendarInviteMethod.Request]: "REQUEST",
 	[CalendarInviteMethod.Cancel]: "CANCEL",
 	[CalendarInviteMethod.Reply]: "REPLY",
-};
-
-const PARTSTAT_OF: Record<CalendarInviteAnswerValue, string> = {
-	[CalendarInviteAnswer.Accepted]: "ACCEPTED",
-	[CalendarInviteAnswer.Tentative]: "TENTATIVE",
-	[CalendarInviteAnswer.Declined]: "DECLINED",
 };
 
 const eventsOf = (calendar: ParsedCalendar): ICAL.Component[] => [
@@ -80,10 +74,6 @@ export const guestAddressesOf = (calendar: ParsedCalendar): string[] => {
 		.filter((email) => email !== "" && email !== organizer);
 };
 
-export const guestAddressesOfData = async (
-	icalData: string,
-): Promise<string[]> => guestAddressesOf(await parsedOrThrow(icalData));
-
 /**
  * Two addresses for one guest is one guest. A guest list that names the
  * organizer drops them: the organizer is on the event as its ORGANIZER.
@@ -114,8 +104,8 @@ export const invalidGuestOf = (
 /**
  * Writes the organizer and the guest list onto every VEVENT of a resource.
  *
- * A guest already on the list keeps the answer they gave; a new one is owed
- * one. The organizer is never an ATTENDEE of their own event here: they are
+ * A guest already on the list keeps their ATTENDEE line as it stands, answer
+ * included; a new one is owed an answer. The organizer is never an ATTENDEE of their own event here: they are
  * the ORGANIZER, and every client reads that as a yes.
  */
 export const applyGuestList = async (
@@ -139,20 +129,17 @@ export const applyGuestList = async (
 		if (listed.length === 0) continue;
 		event.addProperty(personProperty("organizer", organizer));
 		for (const guest of listed) {
-			const property = personProperty("attendee", guest);
 			const kept = previous.get(guest.email);
-			const partstat = kept?.getParameter("partstat");
-			const stamp = kept?.getParameter(REPLY_STAMP_PARAMETER);
-			property.setParameter("role", "REQ-PARTICIPANT");
-			property.setParameter(
-				"partstat",
-				typeof partstat === "string" ? partstat : "NEEDS-ACTION",
-			);
-			if (typeof stamp === "string") {
-				property.setParameter(REPLY_STAMP_PARAMETER, stamp);
-			} else {
-				property.setParameter("rsvp", "TRUE");
+			if (kept) {
+				if (guest.displayName !== "")
+					kept.setParameter("cn", guest.displayName);
+				event.addProperty(kept);
+				continue;
 			}
+			const property = personProperty("attendee", guest);
+			property.setParameter("role", "REQ-PARTICIPANT");
+			property.setParameter("partstat", "NEEDS-ACTION");
+			property.setParameter("rsvp", "TRUE");
 			event.addProperty(property);
 		}
 	}
@@ -222,7 +209,7 @@ export const applyAnswer = async (
 		);
 	}
 	for (const line of lines) {
-		line.setParameter("partstat", PARTSTAT_OF[answer]);
+		line.setParameter("partstat", PARTSTAT_OF_ANSWER[answer]);
 		line.removeParameter("rsvp");
 	}
 	return { ok: true, value: serializeCalendar(calendar.component) };

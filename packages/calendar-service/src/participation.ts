@@ -1,6 +1,7 @@
 import type {
 	CalendarAttendee,
 	CalendarAttendeeCounts,
+	CalendarInviteAnswer as CalendarInviteAnswerValue,
 	CalendarParticipation as CalendarParticipationValue,
 } from "@remit/api-openapi-types";
 import {
@@ -9,13 +10,16 @@ import {
 	CalendarParticipation,
 } from "@remit/domain-enums";
 import type ICAL from "ical.js";
+import { overridesBySlot } from "./expand.js";
+import type { ParsedCalendar } from "./parse.js";
 import { mailAddressOf } from "./suggest.js";
 
-/**
- * The parameter an organizer's copy keeps a guest's last applied reply stamp
- * in, so a reply that arrives late cannot undo a newer one.
- */
-export const REPLY_STAMP_PARAMETER = "x-remit-reply-stamp";
+/** The PARTSTAT each answer a guest gives is written as. */
+export const PARTSTAT_OF_ANSWER: Record<CalendarInviteAnswerValue, string> = {
+	Accepted: "ACCEPTED",
+	Tentative: "TENTATIVE",
+	Declined: "DECLINED",
+};
 
 /** A CAL-ADDRESS as the lower-cased mail address it names. */
 export const calendarAddressOf = (value: unknown): string =>
@@ -88,6 +92,25 @@ export const participationOf = (
 	);
 	if (!own) return CalendarParticipation.Unscheduled;
 	return PARTICIPATION_BY_STATUS[attendeeStatusOf(own)];
+};
+
+/**
+ * Where the reader stands on one occurrence of a stored resource: on the
+ * override for its slot when the series has one, which carries its own
+ * PARTSTAT, and on the master otherwise. Read from the bytes on every read, so
+ * nothing stored can disagree with them.
+ */
+export const participationAtSlot = (
+	calendar: ParsedCalendar,
+	collectionTimezone: string,
+	recurrenceId: string,
+	self: ReadonlySet<string>,
+): CalendarParticipationValue => {
+	const override =
+		recurrenceId === ""
+			? undefined
+			: overridesBySlot(calendar, collectionTimezone).get(recurrenceId);
+	return participationOf(override ?? calendar.master, self);
 };
 
 const textParameter = (property: ICAL.Property, name: string): string => {

@@ -65,11 +65,7 @@ describe("buildEventCalendar", () => {
 
 		const parsed = await parseCalendar(built.value);
 		assert.ok(parsed.ok);
-		const expansion = expandCalendar(
-			parsed.value,
-			"Europe/Amsterdam",
-			new Set(),
-		);
+		const expansion = expandCalendar(parsed.value, "Europe/Amsterdam");
 
 		assert.deepEqual(
 			expansion.occurrences.map((occurrence) => occurrence.startAt),

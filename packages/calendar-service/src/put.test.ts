@@ -59,7 +59,6 @@ describe("putCalendarObject", () => {
 			calendarId,
 			resourceName: "review.ics",
 			icalData: RESOURCE,
-			selfAddresses: [],
 		});
 
 		assert.ok(result.ok);
@@ -94,7 +93,6 @@ describe("putCalendarObject", () => {
 			calendarId,
 			resourceName: "folded.ics",
 			icalData: source,
-			selfAddresses: [],
 		});
 
 		assert.ok(result.ok);
@@ -115,7 +113,6 @@ describe("putCalendarObject", () => {
 			calendarId,
 			resourceName: "lf.ics",
 			icalData: source,
-			selfAddresses: [],
 		});
 
 		assert.ok(result.ok);
@@ -130,7 +127,6 @@ describe("putCalendarObject", () => {
 		const { store, calendarId } = await provisioned();
 
 		const result = await putCalendarObject(store, {
-			selfAddresses: [],
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "series.ics",
@@ -157,7 +153,6 @@ describe("putCalendarObject", () => {
 		};
 
 		await putCalendarObject(store, {
-			selfAddresses: [],
 			...input,
 			icalData: singleEvent(
 				"DTSTART:20260826T090000Z",
@@ -166,7 +161,6 @@ describe("putCalendarObject", () => {
 			),
 		});
 		const result = await putCalendarObject(store, {
-			selfAddresses: [],
 			...input,
 			icalData: singleEvent(
 				"DTSTART:20260826T090000Z",
@@ -191,10 +185,8 @@ describe("putCalendarObject", () => {
 			calendarId,
 			resourceName: "one.ics",
 			icalData: RESOURCE,
-			selfAddresses: [],
 		});
 		const second = await putCalendarObject(store, {
-			selfAddresses: [],
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "two.ics",
@@ -219,7 +211,6 @@ describe("putCalendarObject", () => {
 			calendarId,
 			resourceName: "review.ics",
 			icalData: RESOURCE,
-			selfAddresses: [],
 		});
 
 		assert.ok(result.ok);
@@ -230,7 +221,6 @@ describe("putCalendarObject", () => {
 		const { store, calendarId } = await provisioned();
 
 		const result = await putCalendarObject(store, {
-			selfAddresses: [],
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "todo.ics",
@@ -255,7 +245,6 @@ describe("putCalendarObject", () => {
 		const { store, calendarId } = await provisioned();
 
 		const result = await putCalendarObject(store, {
-			selfAddresses: [],
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "backwards.ics",
@@ -279,7 +268,6 @@ describe("putCalendarObject", () => {
 				calendarId: "no-such-calendar",
 				resourceName: "review.ics",
 				icalData: RESOURCE,
-				selfAddresses: [],
 			}),
 			MissingRow,
 		);
@@ -299,7 +287,6 @@ describe("putCalendarObject", () => {
 			calendarId: collection.calendarId,
 			resourceName: "floating.ics",
 			icalData: singleEvent("DTSTART:20260826T090000", "DTEND:20260826T100000"),
-			selfAddresses: [],
 		});
 
 		assert.ok(result.ok);
@@ -315,7 +302,6 @@ describe("deleteCalendarObject", () => {
 			calendarId,
 			resourceName: "review.ics",
 			icalData: RESOURCE,
-			selfAddresses: [],
 		});
 		assert.ok(written.ok);
 

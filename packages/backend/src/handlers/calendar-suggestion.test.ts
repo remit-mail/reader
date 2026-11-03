@@ -34,7 +34,6 @@ import {
 	calendarEventDepsOf,
 	updateCalendarEventFor,
 } from "./calendar-event.js";
-import { calendarSchedulingOf } from "./calendar-scheduling.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import {
 	assertSettleable,
@@ -809,7 +808,6 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 			calendarId: calendar.calendarId,
 			suggestion: await putSuggestion(accountConfigId, messageId),
 			attendee: "user@example.test",
-			selfAddresses: ["user@example.test"],
 			answer,
 		});
 		assert.ok(accepted.ok);
@@ -986,7 +984,6 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			calendarId,
 			suggestion,
 			attendee: "user@example.test",
-			selfAddresses: ["user@example.test"],
 			answer: CalendarInviteAnswer.Accepted,
 		});
 		assert.ok(accepted.ok);
@@ -1050,17 +1047,8 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			await putInvite(accountConfigId, "msg-split", 0),
 		);
 		const split = await updateCalendarEventFor(
-			calendarEventDepsOf(
-				calendarDepsOf(client),
-				calendarSchedulingOf({
-					accountConfigId,
-					account: client.account,
-					accountSetting: client.accountSetting,
-					outboxMessage: client.outboxMessage,
-					outboxSchedulingPart: client.outboxSchedulingPart,
-					queue: (input, part) =>
-						client.outboxQueue.createAndSendScheduled(input, part),
-				}),
+			calendarEventDepsOf(calendarDepsOf(client), (input, part) =>
+				client.outboxQueue.createAndSendScheduled(input, part),
 			),
 			accountConfigId,
 			{

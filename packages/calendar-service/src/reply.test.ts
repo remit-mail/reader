@@ -51,7 +51,6 @@ const seeded = async (icalData: string) => {
 		calendarId: collection.calendarId,
 		resourceName: "meeting.ics",
 		icalData,
-		selfAddresses: [ME],
 	});
 	assert.ok(stored.ok);
 	return { store, object: stored.value };

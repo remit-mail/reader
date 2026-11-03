@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { planDeleteFanOut, planGuestFanOut } from "./calendar-scheduling.js";
+import { planDeleteFanOut, planGuestFanOut } from "./invitations.js";
 
 describe("planGuestFanOut", () => {
 	it("sends the revision to every guest still invited and a cancellation to each one removed", () => {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1496face-d1d2-42d6-ab47-760e34f4ccef",
+  "id": "2ef4bfe9-92fb-4ccc-8cdf-ab1a65344f0a",
   "prevId": "54fca5e0-f93e-4931-a4a1-13c7c2340cef",
   "tables": {
     "account_config": {
@@ -700,14 +700,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'Opaque'"
-        },
-        "participation": {
-          "name": "participation",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'Unscheduled'"
         },
         "created_at": {
           "name": "created_at",

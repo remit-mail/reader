@@ -1,3 +1,4 @@
+import type { CalendarParticipation as CalendarParticipationValue } from "@remit/api-openapi-types";
 import type {
 	CalendarCollectionItem,
 	CalendarObjectItem,
@@ -11,7 +12,8 @@ import {
 	CalendarTransparency,
 } from "@remit/domain-enums";
 import { expandCalendarWindow } from "./expand.js";
-import { parseCalendar } from "./parse.js";
+import { type ParsedCalendar, parseCalendar } from "./parse.js";
+import { participationAtSlot } from "./participation.js";
 import { toOffsetIso, toUtcIso } from "./time.js";
 
 /**
@@ -48,7 +50,8 @@ export interface CalendarInstance {
 	zoneCertainty: CalendarObjectItem["zoneCertainty"];
 	etag: string;
 	hasRecurrence: boolean;
-	participation: CalendarOccurrenceInput["participation"];
+	/** Where the reader stands on this occurrence, read from the bytes it came from. */
+	participation: CalendarParticipationValue;
 }
 
 export interface CalendarWindowRepositories {
@@ -66,9 +69,23 @@ export interface CalendarWindow {
 	to: string;
 }
 
+const parsedOrThrow = async (
+	object: CalendarObjectItem,
+): Promise<ParsedCalendar> => {
+	const parsed = await parseCalendar(object.icalData);
+	if (!parsed.ok) {
+		throw new Error(
+			`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
+		);
+	}
+	return parsed.value;
+};
+
 const instanceOf = (
 	collection: CalendarCollectionItem,
 	object: CalendarObjectItem,
+	parsed: ParsedCalendar,
+	self: ReadonlySet<string>,
 	occurrence: CalendarOccurrenceInput,
 ): CalendarInstance => ({
 	calendarId: collection.calendarId,
@@ -86,7 +103,12 @@ const instanceOf = (
 	zoneCertainty: object.zoneCertainty,
 	etag: object.etag,
 	hasRecurrence: object.hasRecurrence,
-	participation: occurrence.participation,
+	participation: participationAtSlot(
+		parsed,
+		collection.timezone,
+		occurrence.recurrenceId,
+		self,
+	),
 });
 
 /**
@@ -123,40 +145,42 @@ export const listCalendarInstances = async (
 			window.to,
 		);
 
-		// One read per resource that actually appears in the window, cached across
-		// its own occurrences.
-		const byId = new Map<string, CalendarObjectItem | null>();
+		// One read and one parse per resource that actually appears in the window,
+		// cached across its own occurrences. The parse is what the reader's own
+		// answer is read from.
+		const byId = new Map<
+			string,
+			{ object: CalendarObjectItem; parsed: ParsedCalendar } | null
+		>();
 		for (const row of rows) {
 			if (liveIds.has(row.calendarObjectId)) continue;
 			if (!byId.has(row.calendarObjectId)) {
+				const object = await repositories.calendarObject.find(
+					collection.calendarId,
+					row.calendarObjectId,
+				);
 				byId.set(
 					row.calendarObjectId,
-					await repositories.calendarObject.find(
-						collection.calendarId,
-						row.calendarObjectId,
-					),
+					object ? { object, parsed: await parsedOrThrow(object) } : null,
 				);
 			}
-			const object = byId.get(row.calendarObjectId);
-			if (!object) continue;
-			instances.push(instanceOf(collection, object, row));
+			const read = byId.get(row.calendarObjectId);
+			if (!read) continue;
+			instances.push(
+				instanceOf(collection, read.object, read.parsed, self, row),
+			);
 		}
 
 		for (const object of live) {
-			const parsed = await parseCalendar(object.icalData);
-			if (!parsed.ok) {
-				throw new Error(
-					`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
-				);
-			}
-			const occurrences = expandCalendarWindow(
-				parsed.value,
-				collection.timezone,
-				self,
-				{ fromMs: fromMs - LOOKBACK_MS, toMs },
-			);
+			const parsed = await parsedOrThrow(object);
+			const occurrences = expandCalendarWindow(parsed, collection.timezone, {
+				fromMs: fromMs - LOOKBACK_MS,
+				toMs,
+			});
 			for (const occurrence of occurrences) {
-				instances.push(instanceOf(collection, object, occurrence));
+				instances.push(
+					instanceOf(collection, object, parsed, self, occurrence),
+				);
 			}
 		}
 	}
@@ -182,6 +206,7 @@ export const listObjectInstances = async (
 ): Promise<CalendarInstance[]> => {
 	const fromMs = Date.parse(window.from);
 	const toMs = Date.parse(window.to);
+	const parsed = await parsedOrThrow(object);
 	const indexReaches =
 		object.expandedThrough === "" || object.expandedThrough >= window.to;
 
@@ -190,31 +215,17 @@ export const listObjectInstances = async (
 				collection.calendarId,
 				object.calendarObjectId,
 			)
-		: await expandObject(object, collection.timezone, self, fromMs, toMs);
+		: expandCalendarWindow(parsed, collection.timezone, {
+				fromMs: fromMs - LOOKBACK_MS,
+				toMs,
+			});
 
 	return occurrences
-		.map((occurrence) => instanceOf(collection, object, occurrence))
+		.map((occurrence) =>
+			instanceOf(collection, object, parsed, self, occurrence),
+		)
 		.filter((instance) => overlapsWindow(instance, fromMs, toMs))
 		.sort((left, right) => left.startAt.localeCompare(right.startAt));
-};
-
-const expandObject = async (
-	object: CalendarObjectItem,
-	timezone: string,
-	self: ReadonlySet<string>,
-	fromMs: number,
-	toMs: number,
-): Promise<CalendarOccurrenceInput[]> => {
-	const parsed = await parseCalendar(object.icalData);
-	if (!parsed.ok) {
-		throw new Error(
-			`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
-		);
-	}
-	return expandCalendarWindow(parsed.value, timezone, self, {
-		fromMs: fromMs - LOOKBACK_MS,
-		toMs,
-	});
 };
 
 const overlapsWindow = (
@@ -236,8 +247,8 @@ export interface BusySpan {
 
 /**
  * Whether an occurrence consumes free/busy time. A cancelled event is not
- * something to work around, and one marked TRANSP:TRANSPARENT was written
- * precisely to say so.
+ * something to work around, one the reader declined is not one they attend,
+ * and one marked TRANSP:TRANSPARENT was written precisely to say so.
  */
 export const isBusy = (instance: CalendarInstance): boolean =>
 	instance.transparency === CalendarTransparency.Opaque &&

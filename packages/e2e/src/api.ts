@@ -246,13 +246,6 @@ export interface Label {
 export type Calendar = RemitImapCalendarResponse;
 export type CalendarEventInstance = RemitImapCalendarEventInstance;
 export type CreateCalendarEventInput = RemitImapCreateCalendarEventInput;
-
-/** An event with nobody invited needs no guests and no sending account. */
-export type NewCalendarEventInput = Omit<
-	CreateCalendarEventInput,
-	"attendees" | "organizerAccountId"
-> &
-	Partial<Pick<CreateCalendarEventInput, "attendees" | "organizerAccountId">>;
 export type UpdateCalendarEventInput = RemitImapUpdateCalendarEventInput;
 export type CreateCalendarInput = RemitImapCreateCalendarInput;
 export type CalendarSuggestion = RemitImapCalendarSuggestionResponse;
@@ -1066,18 +1059,10 @@ export class ApiClient {
 		return this.json("PUT", `/calendars/${calendarId}/feed`);
 	}
 
-	async createCalendarEvent(
-		input: NewCalendarEventInput,
+	createCalendarEvent(
+		input: CreateCalendarEventInput,
 	): Promise<CalendarEventResource> {
-		const organizerAccountId =
-			input.organizerAccountId ??
-			(await this.getConfig()).accounts?.[0]?.accountId ??
-			"";
-		return this.json("POST", "/calendar-events", {
-			attendees: [],
-			...input,
-			organizerAccountId,
-		});
+		return this.json("POST", "/calendar-events", input);
 	}
 
 	getCalendarEvent(

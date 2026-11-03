@@ -5,6 +5,7 @@ import { parseCalendar } from "./parse.js";
 import {
 	attendeesOf,
 	countAttendees,
+	participationAtSlot,
 	participationOf,
 	selfAddressSet,
 } from "./participation.js";
@@ -89,7 +90,7 @@ describe("participationOf", () => {
 	});
 });
 
-describe("expandCalendar participation", () => {
+describe("participationAtSlot", () => {
 	it("gives an override the reader declined its own answer, and the series the series' answer", async () => {
 		const parsed = await read(
 			calendar(
@@ -110,12 +111,12 @@ describe("expandCalendar participation", () => {
 			),
 		);
 
-		const { occurrences } = expandCalendar(parsed, "UTC", SELF);
+		const { occurrences } = expandCalendar(parsed, "UTC");
 
 		assert.deepEqual(
-			occurrences.map(({ recurrenceId, participation }) => [
+			occurrences.map(({ recurrenceId }) => [
 				recurrenceId,
-				participation,
+				participationAtSlot(parsed, "UTC", recurrenceId, SELF),
 			]),
 			[
 				["2026-09-07T09:00:00Z", "Accepted"],

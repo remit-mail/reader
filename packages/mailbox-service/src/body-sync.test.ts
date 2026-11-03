@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { DEFAULT_CALENDAR_URL_SEGMENT } from "@remit/calendar-service";
+import {
+	DEFAULT_CALENDAR_URL_SEGMENT,
+	provisionDefaultCalendar,
+	putCalendarObject,
+} from "@remit/calendar-service";
 import type {
 	AccountItem,
 	AddressFlags,
@@ -831,6 +835,67 @@ describe("mail-derived calendar suggestions", () => {
 			world.account.accountConfigId,
 			messageId,
 		);
+
+	it("writes a guest's REPLY onto the event the reader organizes, and offers no card for it", async () => {
+		const collection = await provisionDefaultCalendar(
+			world.store.calendarStore,
+			world.account.accountConfigId,
+		);
+		const event = (extra: string[]) =>
+			[
+				"BEGIN:VCALENDAR",
+				"VERSION:2.0",
+				"PRODID:-//test//EN",
+				...extra,
+				"BEGIN:VEVENT",
+				"UID:organized-1@example.test",
+				"DTSTAMP:20260801T090000Z",
+				"SEQUENCE:0",
+				"DTSTART:20260901T080000Z",
+				"DTEND:20260901T090000Z",
+				"SUMMARY:Planning",
+				"ORGANIZER:mailto:me@example.com",
+				`ATTENDEE;PARTSTAT=${extra.length === 0 ? "NEEDS-ACTION" : "ACCEPTED"}:mailto:guest@example.test`,
+				"END:VEVENT",
+				"END:VCALENDAR",
+			].join("\r\n");
+		const stored = await putCalendarObject(world.store.calendarStore, {
+			accountConfigId: world.account.accountConfigId,
+			calendarId: collection.calendarId,
+			resourceName: "organized-1.ics",
+			icalData: event([]),
+		});
+		assert.ok(stored.ok);
+		const reply = event(["METHOD:REPLY"]).replace(
+			"DTSTAMP:20260801T090000Z",
+			"DTSTAMP:20260802T090000Z",
+		);
+		const messageId = await arrive(
+			Buffer.from(
+				[
+					"From: Guest <guest@example.test>",
+					"To: me@example.com",
+					"Subject: Accepted: Planning",
+					'Content-Type: text/calendar; method=REPLY; charset="UTF-8"',
+					"",
+					reply,
+					"",
+				].join("\r\n"),
+			),
+		);
+
+		await read(bodySync({ calendar: true }), messageId);
+
+		const object = await world.store.calendarObject.get(
+			collection.calendarId,
+			stored.value.calendarObjectId,
+		);
+		assert.match(
+			object.icalData.replace(/\r\n[ \t]/g, ""),
+			/PARTSTAT=ACCEPTED[^\r\n]*:mailto:guest@example\.test/,
+		);
+		assert.deepEqual(await suggestions(messageId), []);
+	});
 
 	it("offers an invitation as one Pending card carrying its bytes", async () => {
 		const messageId = await arrive(invitation());

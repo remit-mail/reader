@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { CalendarTaskItem } from "@remit/data-ports";
 import {
 	buildTaskCalendar,
-	listTasksInWindow,
 	prepareCalendarTask,
 	updateTaskCalendar,
 } from "./task.js";
@@ -92,57 +90,5 @@ describe("prepareCalendarTask", () => {
 			].join("\r\n"),
 		);
 		assert.equal(row.ok, false);
-	});
-});
-
-describe("listTasksInWindow", () => {
-	const task = (calendarId: string, dueAt: string): CalendarTaskItem => ({
-		calendarTaskId: `${calendarId}-${dueAt}`,
-		calendarId,
-		resourceName: "t.ics",
-		icalUid: "t@test",
-		icalData: "",
-		etag: "",
-		summary: "",
-		description: "",
-		due: dueAt,
-		dueAt,
-		allDay: false,
-		completed: false,
-		createdAt: 0,
-		updatedAt: 0,
-	});
-
-	it("asks each collection for [from, to) and merges them in due order (FF2.9)", async () => {
-		const asked: string[] = [];
-		const rows = [
-			task("a", "2026-09-07T12:00:00Z"),
-			task("b", "2026-09-07T08:00:00Z"),
-			task("a", "2026-09-14T00:00:00Z"),
-		];
-		const tasks = await listTasksInWindow(
-			{
-				listByDueRange: async (calendarId, fromAt, toAt) => {
-					asked.push(`${calendarId} ${fromAt} ${toAt}`);
-					return rows.filter(
-						(row) =>
-							row.calendarId === calendarId &&
-							row.dueAt >= fromAt &&
-							row.dueAt < toAt,
-					);
-				},
-			},
-			[{ calendarId: "a" } as never, { calendarId: "b" } as never],
-			{ from: "2026-09-07T00:00:00Z", to: "2026-09-14T00:00:00Z" },
-		);
-
-		assert.deepEqual(asked, [
-			"a 2026-09-07T00:00:00Z 2026-09-14T00:00:00Z",
-			"b 2026-09-07T00:00:00Z 2026-09-14T00:00:00Z",
-		]);
-		assert.deepEqual(
-			tasks.map((row) => row.dueAt),
-			["2026-09-07T08:00:00Z", "2026-09-07T12:00:00Z"],
-		);
 	});
 });

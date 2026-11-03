@@ -1,7 +1,6 @@
 import type { CalendarOccurrenceInput } from "@remit/data-ports";
 import ICAL from "ical.js";
 import type { ParsedCalendar } from "./parse.js";
-import { participationOf } from "./participation.js";
 import { hasRecurrence, projectEventDisplay } from "./project.js";
 import {
 	dtEndTzid,
@@ -53,7 +52,6 @@ export interface CalendarExpansion {
 }
 
 const occurrenceOf = (
-	self: ReadonlySet<string>,
 	collectionTimezone: string,
 	recurrenceId: string,
 	source: ICAL.Component,
@@ -70,7 +68,6 @@ const occurrenceOf = (
 		endAt: end.isoUtc,
 		allDay: start.isDate,
 		...projectEventDisplay(source),
-		participation: participationOf(source, self),
 	};
 };
 
@@ -127,7 +124,6 @@ interface Walk {
 const walkOccurrences = (
 	calendar: ParsedCalendar,
 	collectionTimezone: string,
-	self: ReadonlySet<string>,
 	bounds: WalkBounds,
 ): Walk => {
 	const event = new ICAL.Event(calendar.master);
@@ -167,7 +163,6 @@ const walkOccurrences = (
 			const details = event.getOccurrenceDetails(next);
 			occurrences.push(
 				occurrenceOf(
-					self,
 					collectionTimezone,
 					slot.isoUtc,
 					source ?? calendar.master,
@@ -189,7 +184,6 @@ const walkOccurrences = (
 		if (claimed.has(slot)) continue;
 		const overrideEvent = new ICAL.Event(override);
 		const occurrence = occurrenceOf(
-			self,
 			collectionTimezone,
 			slot,
 			override,
@@ -212,11 +206,9 @@ const walkOccurrences = (
 const singleOccurrence = (
 	calendar: ParsedCalendar,
 	collectionTimezone: string,
-	self: ReadonlySet<string>,
 ): CalendarOccurrenceInput => {
 	const event = new ICAL.Event(calendar.master);
 	return occurrenceOf(
-		self,
 		collectionTimezone,
 		"",
 		calendar.master,
@@ -244,11 +236,10 @@ const singleOccurrence = (
 export const expandCalendar = (
 	calendar: ParsedCalendar,
 	collectionTimezone: string,
-	self: ReadonlySet<string>,
 ): CalendarExpansion => {
 	if (!hasRecurrence(calendar)) {
 		return {
-			occurrences: [singleOccurrence(calendar, collectionTimezone, self)],
+			occurrences: [singleOccurrence(calendar, collectionTimezone)],
 			expandedThrough: "",
 		};
 	}
@@ -260,7 +251,7 @@ export const expandCalendar = (
 		collectionTimezone,
 	).instantMs;
 
-	const walk = walkOccurrences(calendar, collectionTimezone, self, {
+	const walk = walkOccurrences(calendar, collectionTimezone, {
 		fromMs: Number.NEGATIVE_INFINITY,
 		throughMs: seriesStart + HORIZON_MS,
 		maxOccurrences: CALENDAR_EXPANSION_MAX_OCCURRENCES,
@@ -297,14 +288,13 @@ export const expandCalendar = (
 export const expandCalendarWindow = (
 	calendar: ParsedCalendar,
 	collectionTimezone: string,
-	self: ReadonlySet<string>,
 	window: { fromMs: number; toMs: number },
 ): CalendarOccurrenceInput[] => {
 	if (!hasRecurrence(calendar)) {
-		return [singleOccurrence(calendar, collectionTimezone, self)];
+		return [singleOccurrence(calendar, collectionTimezone)];
 	}
 
-	return walkOccurrences(calendar, collectionTimezone, self, {
+	return walkOccurrences(calendar, collectionTimezone, {
 		fromMs: window.fromMs,
 		throughMs: window.toMs,
 		maxOccurrences: CALENDAR_EXPANSION_MAX_OCCURRENCES,

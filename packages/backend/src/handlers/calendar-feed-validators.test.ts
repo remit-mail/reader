@@ -36,20 +36,23 @@ const ICAL = [
 	"END:VCALENDAR",
 ].join("\r\n");
 
-const noTasks = (): Promise<never> =>
-	Promise.reject(new Error("a feed holds no tasks"));
+const unread = (): Promise<never> =>
+	Promise.reject(new Error("a feed reads no tasks, settings or outbox"));
 
 const depsOf = (store: MemoryCalendarStore): CalendarDeps => ({
 	...store.repos,
 	calendarStore: store,
 	calendarTask: {
-		put: noTasks,
-		find: noTasks,
-		delete: noTasks,
-		listByDueRange: noTasks,
-		deleteByCalendar: noTasks,
+		put: unread,
+		find: unread,
+		delete: unread,
+		listByDueRange: unread,
+		deleteByCalendar: unread,
 	},
 	accounts: { listAllByAccountConfig: async () => [] },
+	accountSetting: { get: unread },
+	outboxMessage: { get: unread },
+	outboxSchedulingPart: { listByCalendarObject: unread },
 });
 
 const tokenFor = async (
@@ -86,7 +89,6 @@ const fixture = async (): Promise<Fixture> => {
 		calendarId: collection.calendarId,
 		resourceName: "kept.ics",
 		icalData: ICAL,
-		selfAddresses: [],
 	});
 	assert.ok(written.ok, "the fixture's own event has to be storable");
 

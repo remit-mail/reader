@@ -66,8 +66,6 @@ const timed = (
 	start: amsterdam(weekDay(offset), start),
 	end: amsterdam(weekDay(offset), end),
 	timeZone: CALENDAR_ZONE,
-	attendees: [],
-	organizerAccountId: "",
 	...extra,
 });
 
@@ -82,8 +80,6 @@ const allDay = (
 	start: weekDay(offset),
 	end: weekDay(offset + days),
 	allDay: true,
-	attendees: [],
-	organizerAccountId: "",
 });
 
 const seededEvents = (
@@ -132,10 +128,7 @@ const seededEvents = (
  * the generated client the way any client would. The run's account is new, so
  * nothing here can already exist.
  */
-export const seedCalendars = async (
-	token: string,
-	organizerAccountId: string,
-): Promise<number> => {
+export const seedCalendars = async (token: string): Promise<number> => {
 	const options = {
 		baseUrl: `${baseUrl}/api`,
 		headers: { authorization: `Bearer ${token}`, origin: baseUrl },
@@ -161,10 +154,7 @@ export const seedCalendars = async (
 		team: await create("team"),
 	});
 	for (const body of events)
-		await calendarEventOperationsCreateCalendarEvent({
-			...options,
-			body: { ...body, organizerAccountId },
-		});
+		await calendarEventOperationsCreateCalendarEvent({ ...options, body });
 	return events.length;
 };
 

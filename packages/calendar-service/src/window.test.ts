@@ -65,7 +65,7 @@ const store = async (
 	assert.ok(parsed.ok, `expected a parse, got ${JSON.stringify(parsed)}`);
 	const projection = projectCalendar(parsed.value, calendar.timezone);
 	assert.ok(projection.ok);
-	const expansion = expandCalendar(parsed.value, calendar.timezone, new Set());
+	const expansion = expandCalendar(parsed.value, calendar.timezone);
 	const calendarObjectId = deriveCalendarObjectId(
 		calendar.calendarId,
 		resourceName,

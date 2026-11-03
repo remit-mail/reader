@@ -207,7 +207,7 @@ const globalSetup = async (): Promise<void> => {
 	if (!inbox) throw new Error("unreachable: INBOX was matched but not found");
 
 	console.log("e2e setup: writing the calendars and this month of events");
-	const seededEvents = await seedCalendars(token, accountId);
+	const seededEvents = await seedCalendars(token);
 	console.log(`e2e setup: ${seededEvents} events in 3 calendars`);
 
 	writeFileSync(storageStatePath, cookiesToStorageState(cookie));

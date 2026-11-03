@@ -60,7 +60,8 @@ test.describe
 			const api = apiOf(organizer);
 			const unset = await api.request("GET", "/settings");
 			expect(await unset.json()).toEqual({
-				defaultInvitationSenderAccountId: "",
+				defaultInvitationSenderAccountId: organizer.accountId,
+				defaultInvitationSenderChosen: false,
 			});
 
 			const set = await api.request("PATCH", "/settings", {
@@ -69,6 +70,16 @@ test.describe
 			expect(set.status).toBe(200);
 			expect(await set.json()).toEqual({
 				defaultInvitationSenderAccountId: organizer.accountId,
+				defaultInvitationSenderChosen: true,
+			});
+
+			const cleared = await api.request(
+				"DELETE",
+				"/settings/default-invitation-sender",
+			);
+			expect(await cleared.json()).toEqual({
+				defaultInvitationSenderAccountId: organizer.accountId,
+				defaultInvitationSenderChosen: false,
 			});
 
 			const foreign = await api.request("PATCH", "/settings", {

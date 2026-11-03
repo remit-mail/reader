@@ -11,9 +11,15 @@ import {
 	attendeeLineOf,
 	calendarAddressOf,
 	organizerOf,
-	REPLY_STAMP_PARAMETER,
 	selfAddressSet,
 } from "./participation.js";
+
+/**
+ * Where the organizer's copy keeps the DTSTAMP of the reply it last applied for
+ * a guest, so a reply that arrives late cannot undo a newer one.
+ */
+const APPLIED_REPLY_STAMP = "x-remit-reply-stamp";
+
 import { prepareCalendarObject } from "./put.js";
 import { applyScopedUpdate } from "./scope.js";
 import { inviteMethodOf } from "./suggest.js";
@@ -141,7 +147,11 @@ export const recordCalendarReply = async (
 		);
 		if (!object) continue;
 		const stored = await parseCalendar(object.icalData);
-		if (!stored.ok) return "Unreadable";
+		if (!stored.ok) {
+			throw new Error(
+				`stored calendar object ${object.calendarObjectId} no longer parses: ${stored.error.message}`,
+			);
+		}
 		if (!self.has(organizerOf(stored.value.master))) return "NotOrganized";
 
 		let calendar = stored.value;
@@ -164,7 +174,7 @@ export const recordCalendarReply = async (
 				for (const target of found.targets) {
 					const own = attendeeLineOf(target, guest);
 					if (!own) continue;
-					const heldStamp = own.getParameter(REPLY_STAMP_PARAMETER);
+					const heldStamp = own.getParameter(APPLIED_REPLY_STAMP);
 					const held = {
 						sequence: sequenceOf(target),
 						stamp: typeof heldStamp === "string" ? heldStamp : "",
@@ -173,7 +183,7 @@ export const recordCalendarReply = async (
 					own.setParameter("partstat", partstat.toUpperCase());
 					own.removeParameter("rsvp");
 					if (revision.stamp !== "") {
-						own.setParameter(REPLY_STAMP_PARAMETER, revision.stamp);
+						own.setParameter(APPLIED_REPLY_STAMP, revision.stamp);
 					}
 					changed = true;
 				}
@@ -186,10 +196,17 @@ export const recordCalendarReply = async (
 			calendarId: collection.calendarId,
 			resourceName: object.resourceName,
 			icalData: serializeCalendar(calendar.component),
-			selfAddresses: input.selfAddresses,
 		});
-		if (!write.ok) return "Unreadable";
-		await store.commit([write.value]);
+		if (!write.ok) {
+			throw new Error(
+				`a reply applied to ${object.calendarObjectId} was refused by the write path: ${write.error.message}`,
+			);
+		}
+		// Conditional on the version the reply was applied to: an edit landing
+		// meanwhile wins, and the reply reapplies on the message's next sync.
+		await store.commit([
+			{ ...write.value, kind: "ReprojectObject", readEtag: object.etag },
+		]);
 		return "Recorded";
 	}
 	return "NotOrganized";

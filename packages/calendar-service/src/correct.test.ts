@@ -80,7 +80,6 @@ const acceptCorrected = async (
 		calendarId,
 		suggestion: corrected.value,
 		attendee: ATTENDEE,
-		selfAddresses: [ATTENDEE],
 		answer: CalendarInviteAnswer.Accepted,
 	});
 };

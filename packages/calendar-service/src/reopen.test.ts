@@ -87,7 +87,6 @@ const answered = async (
 		calendarId,
 		suggestion,
 		attendee: ATTENDEE,
-		selfAddresses: [ATTENDEE],
 		answer,
 	});
 	assert.ok(result.ok);
@@ -202,11 +201,9 @@ describe("reopenCalendarSuggestion", () => {
 			calendarId,
 			resourceName: "split-1.ics",
 			icalData: head.icalData.replace(`UID:${uid}`, `UID:${tailUid}`),
-			selfAddresses: [],
 		});
 		assert.ok(tail.ok);
 		const tailOfTail = await putCalendarObject(store, {
-			selfAddresses: [],
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "split-2.ics",
@@ -292,7 +289,6 @@ describe("reopenCalendarSuggestion", () => {
 		const personalHead = store.objects.get(second.acceptedCalendarObjectId);
 		assert.ok(personalHead);
 		const personalTail = await putCalendarObject(store, {
-			selfAddresses: [],
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId: personal,
 			resourceName: "split-1.ics",
@@ -322,7 +318,6 @@ describe("reopenCalendarSuggestion", () => {
 		const head = store.objects.get(card.acceptedCalendarObjectId);
 		assert.ok(head);
 		const legacy = await putCalendarObject(store, {
-			selfAddresses: [],
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "legacy.ics",

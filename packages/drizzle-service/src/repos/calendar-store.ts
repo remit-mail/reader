@@ -217,10 +217,6 @@ export class DrizzleCalendarStore implements ICalendarStore {
 									summary: value(occurrence.summary, "summary"),
 									status: value(occurrence.status, "status"),
 									transparency: value(occurrence.transparency, "transparency"),
-									participation: value(
-										occurrence.participation,
-										"participation",
-									),
 									createdAt: value(now, "created_at"),
 									updatedAt: value(now, "updated_at"),
 								})

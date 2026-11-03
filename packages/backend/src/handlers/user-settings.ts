@@ -2,11 +2,16 @@ import type {
 	UpdateUserSettingsInput,
 	UserSettingsResponse,
 } from "@remit/api-openapi-types";
+import {
+	invitationSenderInEffect,
+	sendingAccountFor,
+} from "@remit/calendar-service";
 import type {
 	IAccountRepository,
 	IAccountSettingRepository,
 } from "@remit/data-ports";
-import { AccountService, AccountSettingName } from "@remit/domain-enums";
+import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
+import { AccountSettingName } from "@remit/domain-enums";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -16,30 +21,44 @@ import { badRequest } from "./calendar.js";
 
 export interface UserSettingsDeps {
 	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert" | "delete">;
-	account: Pick<IAccountRepository, "listAllByAccountConfig">;
+	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 }
 
-const stringValueOf = (value: unknown): string => {
-	if (typeof value !== "object" || value === null) return "";
-	const inner = Reflect.get(value, "value");
-	return Reflect.get(value, "kind") === "String" && typeof inner === "string"
-		? inner
-		: "";
+/** The account the reader chose to send invitations from, if they chose one. */
+export const chosenInvitationSender = async (
+	accountSetting: Pick<IAccountSettingRepository, "get">,
+	accountConfigId: string,
+): Promise<string | undefined> => {
+	const stored = await accountSetting.get(
+		accountConfigId,
+		AccountSettingName.DefaultInvitationSenderAccountId,
+	);
+	return stored
+		? parseAccountSettingValue(
+				AccountSettingName.DefaultInvitationSenderAccountId,
+				stored.value,
+			).value
+		: undefined;
 };
 
 export const readUserSettings = async (
 	deps: UserSettingsDeps,
 	accountConfigId: string,
-): Promise<UserSettingsResponse> => ({
-	defaultInvitationSenderAccountId: stringValueOf(
-		(
-			await deps.accountSetting.get(
-				accountConfigId,
-				AccountSettingName.DefaultInvitationSenderAccountId,
-			)
-		)?.value,
-	),
-});
+): Promise<UserSettingsResponse> => {
+	const chosen = await chosenInvitationSender(
+		deps.accountSetting,
+		accountConfigId,
+	);
+	const inEffect = invitationSenderInEffect(
+		await deps.accounts.listAllByAccountConfig(accountConfigId),
+		chosen,
+	);
+	return {
+		...(inEffect && { defaultInvitationSenderAccountId: inEffect.accountId }),
+		defaultInvitationSenderChosen:
+			inEffect !== undefined && inEffect.accountId === chosen,
+	};
+};
 
 export type UserSettingsOutcome =
 	| { ok: true; value: UserSettingsResponse }
@@ -51,23 +70,15 @@ export const updateUserSettingsFor = async (
 	input: UpdateUserSettingsInput,
 ): Promise<UserSettingsOutcome> => {
 	const sender = input.defaultInvitationSenderAccountId;
-	if (sender === "") {
-		await deps.accountSetting.delete(
-			accountConfigId,
-			AccountSettingName.DefaultInvitationSenderAccountId,
+	if (sender !== undefined) {
+		const account = sendingAccountFor(
+			await deps.accounts.listAllByAccountConfig(accountConfigId),
+			sender,
 		);
-	}
-	if (sender !== undefined && sender !== "") {
-		const account = (
-			await deps.account.listAllByAccountConfig(accountConfigId)
-		).find((candidate) => candidate.accountId === sender);
-		if (!account || !account.syncedServices.includes(AccountService.Mail)) {
+		if (!account.ok) {
 			return {
 				ok: false,
-				error: {
-					code: "UnknownSender",
-					message: `no account ${sender} here that sends mail, so invitations cannot go out from it`,
-				},
+				error: { code: "UnknownSender", message: account.error.message },
 			};
 		}
 		await deps.accountSetting.upsert({
@@ -81,7 +92,7 @@ export const updateUserSettingsFor = async (
 
 const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
 	accountSetting: ctx.client.accountSetting,
-	account: ctx.client.account,
+	accounts: ctx.client.account,
 });
 
 export const UserSettingsOperations: Record<
@@ -99,5 +110,17 @@ export const UserSettingsOperations: Record<
 		);
 		if (!updated.ok) return badRequest(updated.error);
 		return updated.value;
+	},
+
+	UserSettingsOperations_clearDefaultInvitationSender: async (
+		_context,
+		ctx,
+	) => {
+		const deps = depsOf(ctx);
+		await deps.accountSetting.delete(
+			ctx.identity.accountConfigId,
+			AccountSettingName.DefaultInvitationSenderAccountId,
+		);
+		return readUserSettings(deps, ctx.identity.accountConfigId);
 	},
 };

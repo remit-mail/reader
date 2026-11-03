@@ -13,19 +13,15 @@ import {
 import ICAL from "ical.js";
 import type { CalendarResult } from "./errors.js";
 import { parseCalendar, serializeCalendar } from "./parse.js";
+import { PARTSTAT_OF_ANSWER } from "./participation.js";
 import { prepareCalendarObject, readWrittenObject } from "./put.js";
 import { mailAddressOf } from "./suggest.js";
 
 const eventsOf = (component: ICAL.Component): ICAL.Component[] =>
 	component.getAllSubcomponents("vevent");
 
-const partstatOf: Record<CalendarInviteAnswerValue, string> = {
-	[CalendarInviteAnswer.Accepted]: "ACCEPTED",
-	[CalendarInviteAnswer.Tentative]: "TENTATIVE",
-	[CalendarInviteAnswer.Declined]: "DECLINED",
-};
-
-const stateOf: Record<
+/** The state a suggestion settles in for each answer. */
+export const SUGGESTION_STATE_OF_ANSWER: Record<
 	CalendarInviteAnswerValue,
 	CalendarSuggestionItem["state"]
 > = {
@@ -58,7 +54,7 @@ const markAnswered = (
 			);
 		const property =
 			existing ?? new ICAL.Property("attendee", event as ICAL.Component);
-		property.setParameter("partstat", partstatOf[answer]);
+		property.setParameter("partstat", PARTSTAT_OF_ANSWER[answer]);
 		if (!existing) {
 			property.setValue(`mailto:${attendee}`);
 			event.addProperty(property);
@@ -112,8 +108,6 @@ export interface AcceptCalendarSuggestionInput {
 	suggestion: CalendarSuggestionItem;
 	/** Mail address of the person accepting — the account the message arrived on. */
 	attendee: string;
-	/** The addresses of the account config's accounts, the attendee among them. */
-	selfAddresses: readonly string[];
 	answer: CalendarInviteAnswerValue;
 }
 
@@ -220,7 +214,6 @@ export const acceptCalendarSuggestion = async (
 		resourceName:
 			existing?.resourceName ?? `${input.suggestion.suggestionId}.ics`,
 		icalData: icalData.value,
-		selfAddresses: input.selfAddresses,
 	});
 	if (!write.ok) return write;
 
@@ -235,7 +228,7 @@ export const acceptCalendarSuggestion = async (
 			accountConfigId: input.accountConfigId,
 			suggestionId: input.suggestion.suggestionId,
 			settle: {
-				state: stateOf[input.answer],
+				state: SUGGESTION_STATE_OF_ANSWER[input.answer],
 				acceptedCalendarObjectId: calendarObjectId,
 			},
 		},

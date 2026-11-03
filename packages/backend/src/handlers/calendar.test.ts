@@ -33,7 +33,6 @@ import {
 	readWindow,
 	updateCalendarEventFor,
 } from "./calendar-event.js";
-import { calendarSchedulingOf } from "./calendar-scheduling.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
 /**
@@ -92,15 +91,8 @@ class CalendarAccount {
 				return `${this.accountConfigId}-minted-${minted}`;
 			},
 			now: () => new Date("2026-08-29T00:00:00Z"),
-			scheduling: calendarSchedulingOf({
-				accountConfigId: this.accountConfigId,
-				account: client.account,
-				accountSetting: client.accountSetting,
-				outboxMessage: client.outboxMessage,
-				outboxSchedulingPart: client.outboxSchedulingPart,
-				queue: (input, part) =>
-					client.outboxQueue.createAndSendScheduled(input, part),
-			}),
+			queueScheduled: (input, part) =>
+				client.outboxQueue.createAndSendScheduled(input, part),
 		};
 	}
 
@@ -156,8 +148,6 @@ const seedWeekly = async (
 	recurrenceRule = "FREQ=WEEKLY;COUNT=5",
 ) => {
 	const created = await createCalendarEventFor(deps, accountConfigId, {
-		attendees: [],
-		organizerAccountId: "",
 		calendarId,
 		summary: "Stand-up",
 		start: "2026-09-07T09:00:00Z",
@@ -624,8 +614,6 @@ describe("createCalendarEventFor", () => {
 			deps,
 			account.accountConfigId,
 			{
-				attendees: [],
-				organizerAccountId: "",
 				calendarId: "someone-elses-calendar",
 				summary: "Stand-up",
 				start: "2026-09-07T09:00:00Z",
@@ -647,8 +635,6 @@ describe("createCalendarEventFor", () => {
 			deps,
 			account.accountConfigId,
 			{
-				attendees: [],
-				organizerAccountId: "",
 				calendarId: calendar.calendarId,
 				summary: "Backwards",
 				start: "2026-09-07T10:00:00Z",
@@ -730,8 +716,6 @@ describe("updateCalendarFor", () => {
 			deps,
 			account.accountConfigId,
 			{
-				attendees: [],
-				organizerAccountId: "",
 				calendarId: calendar.calendarId,
 				...allDay,
 			},
@@ -771,8 +755,6 @@ describe("updateCalendarFor", () => {
 			deps,
 			account.accountConfigId,
 			{
-				attendees: [],
-				organizerAccountId: "",
 				calendarId: calendar.calendarId,
 				...allDay,
 			},
@@ -1032,8 +1014,6 @@ describe("a subscribed calendar", () => {
 		};
 
 		const added = await createCalendarEventFor(deps, account.accountConfigId, {
-			attendees: [],
-			organizerAccountId: "",
 			calendarId: created.value.calendarId,
 			summary: "Smuggled in",
 			start: "2026-09-09T09:00:00Z",

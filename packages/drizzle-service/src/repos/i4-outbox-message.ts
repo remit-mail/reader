@@ -51,7 +51,7 @@ function rowToOutboxMessage(
 export class OutboxMessageRepo implements IOutboxMessageRepository {
 	constructor(
 		private db: DB,
-		private batch?: WriteBatch,
+		private batch: WriteBatch,
 	) {}
 
 	async create(
@@ -90,11 +90,6 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		if (!schedulingPart) {
 			const [row] = await insert;
 			return rowToOutboxMessage(row);
-		}
-		if (!this.batch) {
-			throw new Error(
-				"OutboxMessageRepo was built without a write batch, so it cannot write a scheduling part with its message",
-			);
 		}
 		const [rows] = await this.batch([
 			insert,
@@ -273,26 +268,12 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		return rowToOutboxMessage(row);
 	}
 
+	/** The row and its scheduling part go together, or neither does. */
 	async delete(
 		accountConfigId: string,
 		outboxMessageId: string,
 	): Promise<void> {
-		await this.db
-			.delete(outboxMessageTable)
-			.where(
-				and(
-					eq(outboxMessageTable.accountConfigId, accountConfigId),
-					eq(outboxMessageTable.outboxMessageId, outboxMessageId),
-				),
-			);
-		await this.db
-			.delete(outboxSchedulingPartTable)
-			.where(
-				and(
-					eq(outboxSchedulingPartTable.accountConfigId, accountConfigId),
-					eq(outboxSchedulingPartTable.outboxMessageId, outboxMessageId),
-				),
-			);
+		await this.deleteMany(accountConfigId, [outboxMessageId]);
 	}
 
 	async deleteMany(
@@ -300,22 +281,24 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		outboxMessageIds: string[],
 	): Promise<void> {
 		if (outboxMessageIds.length === 0) return;
-		await this.db
-			.delete(outboxMessageTable)
-			.where(
-				and(
-					eq(outboxMessageTable.accountConfigId, accountConfigId),
-					inList(outboxMessageTable.outboxMessageId, outboxMessageIds),
+		await this.batch([
+			this.db
+				.delete(outboxMessageTable)
+				.where(
+					and(
+						eq(outboxMessageTable.accountConfigId, accountConfigId),
+						inList(outboxMessageTable.outboxMessageId, outboxMessageIds),
+					),
 				),
-			);
-		await this.db
-			.delete(outboxSchedulingPartTable)
-			.where(
-				and(
-					eq(outboxSchedulingPartTable.accountConfigId, accountConfigId),
-					inList(outboxSchedulingPartTable.outboxMessageId, outboxMessageIds),
+			this.db
+				.delete(outboxSchedulingPartTable)
+				.where(
+					and(
+						eq(outboxSchedulingPartTable.accountConfigId, accountConfigId),
+						inList(outboxSchedulingPartTable.outboxMessageId, outboxMessageIds),
+					),
 				),
-			);
+		]);
 	}
 
 	async listByAccount(

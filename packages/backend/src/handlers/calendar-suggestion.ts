@@ -341,9 +341,6 @@ export const CalendarSuggestionActionOperations: Record<
 			calendarId,
 			suggestion: corrected.value,
 			attendee: await accountEmailForMessage(client, suggestion.messageId),
-			selfAddresses: (
-				await client.account.listAllByAccountConfig(accountConfigId)
-			).map((account) => account.email),
 			answer,
 		});
 		if (!accepted.ok) {

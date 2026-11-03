@@ -16,5 +16,4 @@ CREATE TABLE `calendar_task` (
 );
 --> statement-breakpoint
 CREATE INDEX `calendar_task_by_due` ON `calendar_task` (`calendar_id`,`due_at`);--> statement-breakpoint
-CREATE INDEX `calendar_task_primary` ON `calendar_task` (`calendar_id`,`calendar_task_id`);--> statement-breakpoint
-ALTER TABLE `calendar_event_index` ADD `participation` text DEFAULT 'Unscheduled' NOT NULL;
+CREATE INDEX `calendar_task_primary` ON `calendar_task` (`calendar_id`,`calendar_task_id`);

@@ -11,7 +11,6 @@ import type { CalendarResult } from "./errors.js";
 import { computeEtag } from "./etag.js";
 import { expandCalendar } from "./expand.js";
 import { parseCalendar } from "./parse.js";
-import { selfAddressSet } from "./participation.js";
 import { projectCalendar } from "./project.js";
 
 /** URL segment of the task collection every account config is provisioned with. */
@@ -27,11 +26,6 @@ export interface PutCalendarObjectInput {
 	resourceName: string;
 	/** The VCALENDAR text as it arrived, stored byte-for-byte. */
 	icalData: string;
-	/**
-	 * The addresses of the account config's accounts. Each occurrence's
-	 * `participation` is projected against them.
-	 */
-	selfAddresses: readonly string[];
 }
 
 /**
@@ -57,11 +51,7 @@ export const prepareCalendarObject = async (
 	const projection = projectCalendar(parsed.value, collection.timezone);
 	if (!projection.ok) return projection;
 
-	const expansion = expandCalendar(
-		parsed.value,
-		collection.timezone,
-		selfAddressSet(input.selfAddresses),
-	);
+	const expansion = expandCalendar(parsed.value, collection.timezone);
 	return {
 		ok: true,
 		value: {

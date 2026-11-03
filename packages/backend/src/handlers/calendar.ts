@@ -18,12 +18,15 @@ import type {
 	CalendarCollectionItem,
 	CalendarWrite,
 	IAccountRepository,
+	IAccountSettingRepository,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
 	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
 	ICalendarStore,
 	ICalendarTaskRepository,
+	IOutboxMessageRepository,
+	IOutboxSchedulingPartRepository,
 	UpdateCalendarCollectionInput,
 } from "@remit/data-ports";
 import { normalizeCalendarUrlSegment } from "@remit/data-ports/id";
@@ -47,6 +50,12 @@ export interface CalendarDeps {
 	calendarStore: ICalendarStore;
 	calendarTask: ICalendarTaskRepository;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
+	accountSetting: Pick<IAccountSettingRepository, "get">;
+	outboxMessage: Pick<IOutboxMessageRepository, "get">;
+	outboxSchedulingPart: Pick<
+		IOutboxSchedulingPartRepository,
+		"listByCalendarObject"
+	>;
 }
 
 /** Why a calendar request was refused, in a form a client can branch on. */
@@ -110,20 +119,10 @@ export const calendarDepsOf = (client: RemitClient<never>): CalendarDeps => ({
 	calendarStore: client.calendarStore,
 	calendarTask: client.calendarTask,
 	accounts: client.account,
+	accountSetting: client.accountSetting,
+	outboxMessage: client.outboxMessage,
+	outboxSchedulingPart: client.outboxSchedulingPart,
 });
-
-/**
- * The addresses that are the reader: every account of the account config.
- * An occurrence's `participation` is projected against them.
- */
-export const selfAddressesFor = async (
-	deps: Pick<CalendarDeps, "accounts">,
-	accountConfigId: string,
-): Promise<string[]> =>
-	(await deps.accounts.listAllByAccountConfig(accountConfigId)).map(
-		(account) => account.email,
-	);
-
 const toCalendarResponse = (
 	item: CalendarCollectionItem,
 ): CalendarResponse => ({
@@ -438,7 +437,6 @@ export const updateCalendarFor = async (
 	const rewrites: CalendarWrite[] = [];
 	if (rezone) {
 		const zone = { timezone: patch.timezone ?? current.value.timezone };
-		const selfAddresses = await selfAddressesFor(deps, accountConfigId);
 		for (const object of await repos.calendarObject.listByCalendar(
 			calendarId,
 		)) {
@@ -447,7 +445,6 @@ export const updateCalendarFor = async (
 				calendarId,
 				resourceName: object.resourceName,
 				icalData: object.icalData,
-				selfAddresses,
 			});
 			if (!rewritten.ok) {
 				throw new Error(

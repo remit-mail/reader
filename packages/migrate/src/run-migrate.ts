@@ -12,12 +12,6 @@ import {
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
 import {
-	formatParticipationReport,
-	type ParticipationRepairClient,
-	type ParticipationRepairMode,
-	sweepCalendarParticipation,
-} from "../../drizzle-service/src/repair/calendar-participation.js";
-import {
 	formatJunkOnlyReport,
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
@@ -187,30 +181,6 @@ const junkOnlyAddressStep = async (
 	}
 };
 
-/**
- * The occurrence rows written before `participation` existed read every event
- * as `Unscheduled`. Steady state after one pass: only events the reader is on
- * no line of are candidates, and those are read and left alone.
- */
-const participationStep = async (
-	client: ParticipationRepairClient,
-	repositories: ReturnType<typeof createSqliteRepositories>,
-	mode: ParticipationRepairMode,
-): Promise<void> => {
-	const report = await sweepCalendarParticipation(
-		client,
-		repositories.calendarStore,
-		async (accountConfigId) =>
-			(await repositories.account.listAllByAccountConfig(accountConfigId)).map(
-				(account) => account.email,
-			),
-		mode,
-	);
-	for (const line of formatParticipationReport(report)) {
-		logStep({ step: "calendar-participation-repair" }, line);
-	}
-};
-
 type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
 	JunkOnlyRepairClient;
@@ -304,10 +274,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		db,
 		syncStore(searchDb, BETTER_SQLITE3_LIMITS),
 	);
-	const appRepairClient: ParticipationRepairClient = {
-		all: async (sql, params) => appSqlite.prepare(sql).all(...params),
-	};
-	const repositories = createSqliteRepositories(
+	const specialUse = createSqliteRepositories(
 		{
 			app,
 			mail: db,
@@ -322,14 +289,12 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 					),
 			},
 		},
-	);
-	const specialUse = repositories.mailboxSpecialUse;
+	).mailboxSpecialUse;
 	try {
 		if (mode.kind === "check") {
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
-			await participationStep(appRepairClient, repositories, "check");
 			return;
 		}
 
@@ -345,8 +310,6 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		await strandedSentStep(paramRepairClient, "repair");
 
 		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
-
-		await participationStep(appRepairClient, repositories, "repair");
 
 		// The search index is written after each mail write and never with it,
 		// so it only needs building here when it cannot have followed: a count

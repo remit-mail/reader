@@ -145,8 +145,6 @@ describe("an unauthenticated calendar request", () => {
 				summary: "Standup",
 				start: "2026-09-01T09:00:00Z",
 				end: "2026-09-01T09:15:00Z",
-				attendees: [],
-				organizerAccountId: "0".repeat(25),
 			},
 		},
 		{

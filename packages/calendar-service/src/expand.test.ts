@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	CalendarEventStatus,
-	CalendarParticipation,
-	CalendarTransparency,
-} from "@remit/domain-enums";
+import { CalendarEventStatus, CalendarTransparency } from "@remit/domain-enums";
 import {
 	CALENDAR_EXPANSION_HORIZON_DAYS,
 	CALENDAR_EXPANSION_MAX_OCCURRENCES,
@@ -16,7 +12,7 @@ import { parseCalendar } from "./parse.js";
 const expand = async (icalData: string, timezone = "") => {
 	const parsed = await parseCalendar(icalData);
 	assert.ok(parsed.ok, `expected a parse, got ${JSON.stringify(parsed)}`);
-	return expandCalendar(parsed.value, timezone, new Set());
+	return expandCalendar(parsed.value, timezone);
 };
 
 const amsterdamSeries = (...eventLines: string[]): string =>
@@ -48,7 +44,6 @@ describe("expandCalendar", () => {
 				summary: "",
 				status: CalendarEventStatus.Confirmed,
 				transparency: CalendarTransparency.Opaque,
-				participation: CalendarParticipation.Unscheduled,
 			},
 		]);
 		assert.equal(expansion.expandedThrough, "");
@@ -284,7 +279,6 @@ describe("expandCalendar", () => {
 				summary: "",
 				status: CalendarEventStatus.Confirmed,
 				transparency: CalendarTransparency.Opaque,
-				participation: CalendarParticipation.Unscheduled,
 			},
 			{
 				recurrenceId: "2026-08-26T22:00:00Z",
@@ -294,7 +288,6 @@ describe("expandCalendar", () => {
 				summary: "",
 				status: CalendarEventStatus.Confirmed,
 				transparency: CalendarTransparency.Opaque,
-				participation: CalendarParticipation.Unscheduled,
 			},
 		]);
 	});
