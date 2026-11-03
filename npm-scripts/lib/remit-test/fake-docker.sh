@@ -551,6 +551,10 @@ compose_cmd() {
 			volume_names
 			;;
 		*" --images "*)
+			# Real Compose 5.3.1 lists the named service's image together with the
+			# images of everything it depends on, in no fixed order. The stand-in
+			# puts the dependencies first, so `config --images caddy | sed -n 1p`
+			# is Caddy's image only while Caddy depends on nothing.
 			_svc=""
 			for _a in "$@"; do
 				case "$_a" in
@@ -558,10 +562,21 @@ compose_cmd() {
 				*) _svc=$_a ;;
 				esac
 			done
-			awk -v svc="  $_svc:" '
-				$0 == svc { in_svc = 1; next }
-				in_svc && /^  [^ ]/ { exit }
-				in_svc && $1 == "image:" { print $2; exit }
+			awk -v want="$_svc" '
+				function emit(s,   i, n, d) {
+					if (done[s]++) return
+					n = split(deps[s], d, " ")
+					for (i = 1; i <= n; i++) emit(d[i])
+					if (s in image) print image[s]
+				}
+				/^[^ \t#]/ { under = ($0 ~ /^services:[ \t]*$/); svc = ""; next }
+				!under { next }
+				/^  [^ \t#]/ { svc = $1; sub(/:$/, "", svc); indeps = 0; next }
+				/^    [^ \t#]/ { indeps = ($1 == "depends_on:") }
+				$1 == "image:" && /^    image:/ { image[svc] = $2; next }
+				indeps && /^      - / { deps[svc] = deps[svc] " " $2; next }
+				indeps && /^      [^ \t#-]/ { d = $1; sub(/:$/, "", d); deps[svc] = deps[svc] " " d }
+				END { emit(want) }
 			' "$_compose_file"
 			;;
 		*)
@@ -945,6 +960,14 @@ run_cmd() {
 	case "$_script" in
 	*"caddy adapt"*)
 		log "run caddy-validate image=$_image src=$_statesrc"
+		# Only a Caddy image has /etc/caddy; any other image refuses the first copy.
+		case "$_image" in
+		caddy:*) ;;
+		*)
+			printf "cp: can't create '/etc/caddy/routes.caddy': No such file or directory\n" >&2
+			exit 1
+			;;
+		esac
 		mkdir -p "$S/etc-caddy"
 		{
 			printf 'caddy() { [ "%s" = ok ] || { printf "Error: adapting config using caddyfile\\n" >&2; exit 1; }; }\n' "$(val caddy_adapt ok)"
