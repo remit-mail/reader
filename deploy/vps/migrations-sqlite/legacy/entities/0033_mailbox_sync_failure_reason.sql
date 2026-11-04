@@ -1,0 +1,1 @@
+ALTER TABLE `mailbox` ADD `sync_failure_reason` text DEFAULT '' NOT NULL;

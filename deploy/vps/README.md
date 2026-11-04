@@ -201,11 +201,11 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `dozzle` | `amir20/dozzle` | Off by default (`profiles: ["observability"]`). Live log tail and search. Binds `127.0.0.1` only. See [observability.md](observability.md). |
 | `victoriametrics` | `victoriametrics/victoria-metrics` | Off by default (`profiles: ["observability"]`). Scrapes the `/metrics` endpoints, stores the series, serves the query UI. Binds `127.0.0.1` only. |
 
-The relational store is three files on the `sqlite_data` named volume: the app
-database (`app.db`: accounts, settings, rules and the better-auth identity
-tables), the mail database (`mail.db`) and its search index (`search.db`).
-An install from before the three files splits its single `remit.db` into them
-on the first `remit update`, and keeps the original as `remit.db.pre-split`.
+The relational store is `remit.db` on the `sqlite_data` named volume. It
+holds three databases: the app database (accounts, settings, rules and the
+better-auth identity tables), the mail database and its search index. Each can
+be moved to a file of its own with `SQLITE_APP_DB_PATH`, `SQLITE_MAIL_DB_PATH`
+and `SQLITE_SEARCH_DB_PATH` in `.env` (a `/data/sqlite/<name>` path).
 The volume **must be local disk**: WAL's cross-process coordination uses a shared-memory
 file next to the database that does not work over NFS/CIFS. Message bodies live
 on the `message_storage` named volume and are not part of the nightly snapshot
@@ -559,12 +559,12 @@ default. Turn it on from the install directory:
 docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d
 ```
 
-It runs `VACUUM INTO` on `app.db` and `mail.db` nightly, encrypts them with
-`age`, and ships them to an S3-compatible bucket via `rclone`. Retention
-defaults to 30 days. Message bodies re-sync from IMAP after a restore and the
-search index rebuilds from `mail.db`, so neither is backed up here. Restore is
-putting `app.db` and `mail.db` back on the `sqlite_data` volume, deleting
-`search.db` there, and starting the stack.
+It runs `VACUUM INTO` on each distinct app and mail database file nightly
+(`remit.db` once, on a self-host), encrypts the snapshots with `age`, and
+ships them to an S3-compatible bucket via `rclone`. Retention defaults to 30
+days. Message bodies re-sync from IMAP after a restore and the search index
+rebuilds from the mail database, so neither is backed up on its own. Restore is
+putting the files back on the `sqlite_data` volume and starting the stack.
 
 See the Backups section in `remit.env.template` for the variables
 (`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, and the `RCLONE_CONFIG_*` vars

@@ -178,6 +178,7 @@ export class FakeImapServer {
 			flags?: string[];
 			uid?: number;
 			bodyStructure?: ImapBodyStructure | null;
+			internalDate?: Date;
 		} = {},
 	): number {
 		const folder = this.folder(path);
@@ -189,7 +190,8 @@ export class FakeImapServer {
 			raw,
 			flags: new Set(options.flags ?? []),
 			modseq: this.modseq++,
-			internalDate: new Date(1_700_000_000_000 + uid * 1000),
+			internalDate:
+				options.internalDate ?? new Date(1_700_000_000_000 + uid * 1000),
 			bodyStructure: options.bodyStructure,
 		});
 		return uid;

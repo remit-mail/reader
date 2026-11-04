@@ -1,6 +1,6 @@
 # Reference self-host deployment (RFC 036 D6). One .env file, no database
-# server: all relational state is three files on one local volume — the app,
-# mail and search databases.
+# server: all relational state is on one local volume — the app, mail and
+# search databases, all three in remit.db unless .env says otherwise.
 #
 #   cp remit.env.template .env   # fill in the secrets, then:
 #   docker compose -f docker-compose.sqlite.yml up -d
@@ -30,13 +30,15 @@ x-app-env: &app-env
     MSOAUTH_REDIRECT_URI: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}/api/accounts/oauth/microsoft/callback
     # The backend is pinned here, not read from .env: choosing this compose file
     # is what selects SQLite, so the file and the backend can never disagree.
-    # Three databases on the sqlite_data volume mounted at /data/sqlite
-    # (#1420): the app database (accounts, settings, rules and the better-auth
-    # identity tables), the tenant mail database and its search index.
+    # One database file per function on the sqlite_data volume mounted at
+    # /data/sqlite: the app database (accounts, settings, rules and the
+    # better-auth identity tables), the tenant mail database and its search
+    # index. A self-host runs all three on the one remit.db; .env can point
+    # each at a file of its own.
     DATA_BACKEND: sqlite
-    SQLITE_APP_DB_PATH: /data/sqlite/app.db
-    SQLITE_MAIL_DB_PATH: /data/sqlite/mail.db
-    SQLITE_SEARCH_DB_PATH: /data/sqlite/search.db
+    SQLITE_APP_DB_PATH: ${SQLITE_APP_DB_PATH:-/data/sqlite/remit.db}
+    SQLITE_MAIL_DB_PATH: ${SQLITE_MAIL_DB_PATH:-/data/sqlite/remit.db}
+    SQLITE_SEARCH_DB_PATH: ${SQLITE_SEARCH_DB_PATH:-/data/sqlite/remit.db}
     # V8 grows its old space against whatever the host has free, so on a 4 GB
     # box one heavy job can starve the whole stack instead of failing alone.
     # The ceiling makes that failure land inside one container: the process

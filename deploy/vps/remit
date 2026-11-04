@@ -1005,21 +1005,6 @@ report_reachability() {
 	printf 'Serving:   %s\n' "$(serve_probe "$_origin")"
 }
 
-# The migrate one-shot splits an old single remit.db into the three databases
-# only while app.db holds nothing (#1420). Both present means it declined: the
-# old file may hold data the running instance never received, and only an
-# operator can decide what it is. Same three answers as deployment_data_state.
-report_unsplit_database() {
-	_ud=0
-	volume_run "if [ -f /data/sqlite/remit.db ] && [ -s /data/sqlite/app.db ]; then exit 0; fi
-exit 3" >/dev/null 2>&1 || _ud=$?
-	case "$_ud" in
-	0) printf 'Database:  remit.db was not split, because app.db already held data. It may hold data this instance does not have; check it, then move it aside.\n' ;;
-	3) ;;
-	*) printf 'Database:  unknown — the database volume (%s) could not be read\n' "$(sqlite_volume)" ;;
-	esac
-}
-
 cmd_status() {
 	require_deployment
 	[ $# -eq 0 ] || die "status: unknown argument '$1' — status takes no arguments"
@@ -1036,7 +1021,6 @@ cmd_status() {
 		report_check "$UPDATE_CHECK_JSON"
 		report_last_run "$UPDATE_RUN_JSON"
 	fi
-	report_unsplit_database
 	printf '\n'
 	compose ps
 	printf '\n'
@@ -1960,6 +1944,35 @@ updater_recover() {
 	compose run --rm --no-deps -e REMIT_QUIET="${REMIT_QUIET:-0}" updater remit update --recover
 }
 
+# The database file one function (APP, MAIL or SEARCH) runs on, as the compose
+# file resolves it: SQLITE_<function>_DB_PATH from .env, else the one remit.db
+# all three share on a self-host. Set in DATABASE_PATH, since a failure inside
+# a command substitution would end only the subshell.
+database_path() {
+	DATABASE_PATH=$(get_var "SQLITE_$1_DB_PATH")
+	[ -n "$DATABASE_PATH" ] || DATABASE_PATH=/data/sqlite/remit.db
+	case "$DATABASE_PATH" in
+	/data/sqlite/*/* | *[!A-Za-z0-9._/-]*) ;;
+	/data/sqlite/?*) return 0 ;;
+	esac
+	printf '%s: SQLITE_%s_DB_PATH=%s is not a file on the database volume (/data/sqlite/<name>)\n' \
+		"$PROG" "$1" "$DATABASE_PATH" >&2
+	return 1
+}
+
+# The distinct database files, app first, space-separated in DATABASE_FILES.
+database_files() {
+	database_path APP || return 1
+	DATABASE_FILES=$DATABASE_PATH
+	for _dfn in MAIL SEARCH; do
+		database_path "$_dfn" || return 1
+		case " $DATABASE_FILES " in
+		*" $DATABASE_PATH "*) ;;
+		*) DATABASE_FILES="$DATABASE_FILES $DATABASE_PATH" ;;
+		esac
+	done
+}
+
 volume_run() {
 	_vr_script=$1
 	set -- \
@@ -1984,10 +1997,15 @@ volume_run() {
 # runs on every snapshot, so a directory an older release created wrong is
 # repaired by the next update rather than needing an operator.
 #
-# remit.db is the single file an install from before the three databases ran
-# on (#1420). The migrate one-shot splits it and renames it aside, so on the
-# update that does that the snapshot of it is what a rollback puts back.
+# Each distinct database file the stack is configured with, once: on a
+# self-host all three functions share remit.db.
 snapshot_databases() {
+	database_files || return 1
+	_sd_lines=
+	for _sd in $DATABASE_FILES; do
+		_sd_lines="$_sd_lines
+snapshot_db $_sd /state/snapshots/$1/${_sd##*/}"
+	done
 	volume_run "set -eu
 command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null
@@ -1995,11 +2013,7 @@ own=\$(stat -c %u:%g /state)
 mkdir -p /state/snapshots/$1
 chown \"\$own\" /state/snapshots 2>/dev/null || true
 chown 1000:1000 /state/snapshots/$1
-exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
-snapshot_db /data/sqlite/app.db /state/snapshots/$1/app.db
-snapshot_db /data/sqlite/mail.db /state/snapshots/$1/mail.db
-snapshot_db /data/sqlite/search.db /state/snapshots/$1/search.db
-snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db'"
+exec su-exec 1000:1000 sh -c '. /snapshot-db.sh$_sd_lines'"
 }
 
 # Installs nothing: a rollback must not depend on the network whose failure it
@@ -2010,22 +2024,20 @@ snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db'"
 # every app container is uid 1000, and a root-owned file on that volume fails
 # the gate re-run with EACCES.
 restore_snapshot() {
+	database_files || return 1
+	_rs_app=${DATABASE_FILES%% *}
+	_rs_lines=
+	for _rs in $DATABASE_FILES; do
+		_rs_lines="$_rs_lines
+rm -f $_rs $_rs-wal $_rs-shm
+if [ -f \"\$snap/${_rs##*/}\" ]; then cp \"\$snap/${_rs##*/}\" $_rs; fi"
+	done
 	volume_run "set -eu
 snap=/state/snapshots/$1
-if [ ! -f \"\$snap/app.db\" ] && [ ! -f \"\$snap/remit.db\" ]; then
+if [ ! -f \"\$snap/${_rs_app##*/}\" ]; then
   echo 'the snapshot for this run is missing' >&2
   exit 1
-fi
-rm -f /data/sqlite/app.db /data/sqlite/app.db-wal /data/sqlite/app.db-shm
-rm -f /data/sqlite/mail.db /data/sqlite/mail.db-wal /data/sqlite/mail.db-shm
-rm -f /data/sqlite/search.db /data/sqlite/search.db-wal /data/sqlite/search.db-shm
-if [ -f \"\$snap/remit.db\" ]; then
-  rm -f /data/sqlite/remit.db-wal /data/sqlite/remit.db-shm
-  cp \"\$snap/remit.db\" /data/sqlite/remit.db
-fi
-if [ -f \"\$snap/app.db\" ]; then cp \"\$snap/app.db\" /data/sqlite/app.db; fi
-if [ -f \"\$snap/mail.db\" ]; then cp \"\$snap/mail.db\" /data/sqlite/mail.db; fi
-if [ -f \"\$snap/search.db\" ]; then cp \"\$snap/search.db\" /data/sqlite/search.db; fi
+fi$_rs_lines
 chown -R 1000:1000 /data/sqlite"
 }
 
@@ -2406,13 +2418,16 @@ prune_host_files() {
 # counting a table that does not exist yields 0 through the sqlite3 fallback,
 # and that zero total is emitted rather than folded back into unknown.
 read_schema_version() {
+	database_path APP && _sv_app=$DATABASE_PATH || return 1
+	database_path MAIL && _sv_mail=$DATABASE_PATH || return 1
+	database_path SEARCH && _sv_search=$DATABASE_PATH || return 1
 	volume_run "set -eu
 command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null 2>&1 || exit 0
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null 2>&1 || exit 0
-[ -f /data/sqlite/app.db ] || exit 0
+[ -f $_sv_app ] || exit 0
 exec su-exec 1000:1000 sh -c 'total=0
-for p in app.db:__drizzle_migrations_app mail.db:__drizzle_migrations_mail search.db:__drizzle_migrations_search app.db:__drizzle_migrations_mcp; do
-  c=\$(sqlite3 /data/sqlite/\${p%%:*} \"SELECT count(*) FROM \${p#*:}\" 2>/dev/null || printf 0)
+for p in $_sv_app:__drizzle_migrations_app $_sv_mail:__drizzle_migrations_mail $_sv_search:__drizzle_migrations_search $_sv_app:__drizzle_migrations_mcp; do
+  c=\$(sqlite3 \${p%%:*} \"SELECT count(*) FROM \${p#*:}\" 2>/dev/null || printf 0)
   total=\$((total + c))
 done
 printf %s \"\$total\"'"
@@ -2606,7 +2621,7 @@ stack_is_running() {
 # stopped box can still hold every account and message on the volume. Read
 # through the same mount the snapshot binds, so both are answering for the same
 # data, and the statement read is the one the rollback depends on — a snapshot
-# without an app.db or a pre-#1420 remit.db in it is what restore_snapshot
+# without the configured app database in it is what restore_snapshot
 # refuses, so anything else here would route a run into a rollback it cannot
 # perform.
 #
@@ -2616,9 +2631,10 @@ stack_is_running() {
 # migrating an unprotected database and the other snapshotting a volume that has
 # nothing on it — so the caller refuses the update instead.
 deployment_data_state() {
+	database_path APP || return 2
 	_dds=0
 	volume_run "set -eu
-if [ -s /data/sqlite/app.db ] || [ -s /data/sqlite/remit.db ]; then exit 0; fi
+if [ -s $DATABASE_PATH ]; then exit 0; fi
 exit 3" >/dev/null 2>&1 || _dds=$?
 	case "$_dds" in
 	0) return 0 ;;

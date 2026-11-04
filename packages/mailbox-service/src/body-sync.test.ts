@@ -247,12 +247,15 @@ const placementOf = (mailbox: MailboxItem): BodySyncFolder => ({
 				: "other",
 });
 
+// Mail arrives now, after any filter the test set up: a filter acts only on
+// mail delivered after its rule was set.
 const arrive = async (
 	raw: Buffer,
 	mailbox: MailboxItem = world.inbox,
 	update: UpdateMessageInput = {},
+	internalDate: Date = new Date(),
 ): Promise<string> => {
-	const uid = world.imap.deliver(mailbox.fullPath, raw);
+	const uid = world.imap.deliver(mailbox.fullPath, raw, { internalDate });
 	await syncFolder(world.store, world.account, mailbox, world.imap);
 	const { messageId } = await messageAtUid(world.store, mailbox, uid);
 	await world.store.message.update(messageId, update);
@@ -655,6 +658,53 @@ describe("a standing filter runs on the first store", () => {
 				destinationMailboxId: world.travel.mailboxId,
 			},
 		);
+	});
+
+	it("moves nothing for a filter with no rules", async () => {
+		await addFilter([], world.travel.mailboxId);
+		const messageId = await arrive(TRAVEL_INVITATION);
+
+		await read(bodySync({ filters: true }), messageId);
+
+		const row = await messageRow(messageId);
+		assert.equal(row.mailboxId, world.inbox.mailboxId);
+		assert.equal(row.filterMove, undefined);
+		assert.deepEqual(world.queue.sent, []);
+	});
+
+	it("leaves mail delivered before the rule was set where it is", async () => {
+		await addFilter(
+			[{ field: FilterClauseField.Subject, value: "invitation" }],
+			world.travel.mailboxId,
+		);
+		const messageId = await arrive(
+			TRAVEL_INVITATION,
+			world.inbox,
+			{},
+			new Date("2023-07-15T08:00:00Z"),
+		);
+
+		await read(bodySync({ filters: true }), messageId);
+
+		const row = await messageRow(messageId);
+		assert.equal(row.mailboxId, world.inbox.mailboxId);
+		assert.equal(row.filterMove, undefined);
+	});
+
+	it("leaves mail filed outside Inbox and Junk where it is", async () => {
+		await addFilter(
+			[{ field: FilterClauseField.Subject, value: "invitation" }],
+			world.travel.mailboxId,
+		);
+		const messageId = await arrive(TRAVEL_INVITATION, world.archive);
+
+		await sync(bodySync({ filters: true }), [messageId], {
+			mailbox: world.archive,
+		});
+
+		const row = await messageRow(messageId);
+		assert.equal(row.mailboxId, world.archive.mailboxId);
+		assert.equal(row.filterMove, undefined);
 	});
 
 	it("records no move for a message already in the filter's destination", async () => {

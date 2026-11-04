@@ -65,6 +65,7 @@ import {
 	type FilterConfig,
 	type FilterDecision,
 	FilterPipeline,
+	filtersForArrival,
 	type PreparedFilters,
 } from "./filters/pipeline.js";
 import type { FlagQueueService } from "./flag-queue.js";
@@ -858,6 +859,7 @@ export class BodySyncService {
 			lookups,
 			messageId,
 			parsed,
+			placement,
 		);
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
@@ -1525,12 +1527,19 @@ export class BodySyncService {
 		lookups: BatchLookups,
 		messageId: string,
 		parsed: ParsedMail,
+		placement: FolderPlacement,
 	): Promise<FilterDecision> {
 		const { filterPipeline } = this;
-		if (!filterPipeline) return { labels: [] };
+		if (!filterPipeline || placement === "other") return { labels: [] };
+		const { internalDate } = await this.messageService.get(messageId);
 		return lookups
 			.usableFilters()
-			.then((usable) => filterPipeline.decide(usable, toFilterMessage(parsed)))
+			.then((usable) =>
+				filterPipeline.decide(
+					filtersForArrival(usable, { placement, internalDate }),
+					toFilterMessage(parsed),
+				),
+			)
 			.catch((error: unknown): FilterDecision => {
 				this.log.error?.(
 					{

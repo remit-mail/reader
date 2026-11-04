@@ -9,7 +9,8 @@
 # snapshot of a live WAL database into a new, defragmented file without
 # blocking writers for more than a moment. The app database
 # (SQLITE_APP_DB_PATH) and the tenant mail database (SQLITE_MAIL_DB_PATH) are
-# snapshotted; the search database is not, since it rebuilds from the mail one.
+# snapshotted, once each distinct file: a self-host keeps both in remit.db. The
+# search database is not, since it rebuilds from the mail one.
 #
 # Runs in a plain sleep loop, not a cron daemon — the interval is one number
 # (BACKUP_INTERVAL_SECONDS, default 24h) and the container already restarts
@@ -44,7 +45,11 @@ if [ "${1:-}" = "--run-once" ]; then
 	trap 'rm -rf "$work_dir"' EXIT
 
 	# Each database VACUUM INTO'd to a fresh snapshot, then encrypted.
-	for pair in "app:$SQLITE_APP_DB_PATH" "mail:$SQLITE_MAIL_DB_PATH"; do
+	pairs="app:$SQLITE_APP_DB_PATH"
+	if [ "$SQLITE_MAIL_DB_PATH" != "$SQLITE_APP_DB_PATH" ]; then
+		pairs="$pairs mail:$SQLITE_MAIL_DB_PATH"
+	fi
+	for pair in $pairs; do
 		label="${pair%%:*}"
 		src="${pair#*:}"
 		snapshot="$work_dir/remit-${label}-${timestamp}.db"

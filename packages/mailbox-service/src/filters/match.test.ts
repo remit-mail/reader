@@ -195,11 +195,10 @@ describe("clauseMatches", () => {
 });
 
 describe("literalClausesMatch", () => {
-	it("passes vacuously with no clauses", () => {
-		assert.equal(
-			literalClausesMatch([], FilterMatchOperator.And, message()),
-			true,
-		);
+	it("matches nothing with no clauses, under either operator", () => {
+		for (const operator of [FilterMatchOperator.And, FilterMatchOperator.Or]) {
+			assert.equal(literalClausesMatch([], operator, message()), false);
+		}
 	});
 
 	it("And requires every clause to match", () => {
@@ -379,14 +378,8 @@ describe("literalClauseTerms (reader #459)", () => {
 		);
 	});
 
-	it("narrows nothing for no clauses, matching the vacuous pass of literalClausesMatch", () => {
-		assert.deepEqual(literalClauseTerms([], FilterMatchOperator.And), {
-			terms: [],
-			operator: "and",
-		});
-		assert.equal(
-			literalClausesMatch([], FilterMatchOperator.And, message()),
-			true,
-		);
+	it("asks the store for nothing with no clauses, since they match nothing", () => {
+		assert.equal(literalClauseTerms([], FilterMatchOperator.And), null);
+		assert.equal(literalClauseTerms([], FilterMatchOperator.Or), null);
 	});
 });

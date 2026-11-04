@@ -1,0 +1,1 @@
+ALTER TABLE `message` DROP COLUMN `message_id_header`;

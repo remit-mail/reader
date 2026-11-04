@@ -26,14 +26,7 @@ import {
 import type { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
 import { SearchIndex } from "../../drizzle-service/src/search/thread-message-search.js";
 import { createSqliteRepositories } from "../../drizzle-service/src/sqlite-repositories.js";
-import {
-	type LegacySplitOutcome,
-	legacyDatabasePath,
-	PRE_SPLIT_SUFFIX,
-	type SqliteDriver,
-	splitLegacyDatabase,
-} from "./legacy-split.js";
-import { applyMigrationSets } from "./migration-sets.js";
+import { migrateSqliteFiles, type SqliteDriver } from "./in-place.js";
 
 // The drizzle-service modules above are reached by module path rather than
 // through the package entry point: this entrypoint is bundled by esbuild, and
@@ -51,8 +44,8 @@ installNodeLogger();
  *
  * SQLite is the only backend this stack deploys, so `DATA_BACKEND` is checked
  * rather than dispatched on: it applies each database's migration set — app,
- * tenant mail and tenant search (#1420) — against its local file and installs
- * the idempotent DDL objects around them.
+ * tenant mail and tenant search (#1420) — against the file each is configured
+ * on, and brings a v0.9 remit.db forward in place first (see in-place.ts).
  */
 
 /**
@@ -86,17 +79,14 @@ installNodeLogger();
  * the repair would do and applies nothing at all, migrations included, so it can
  * be pointed at a live instance. `--rebuild-search` runs the full migration and
  * then rebuilds the search index from the mail database, the recovery for an
- * index that has drifted. `--split-from <path>` names the old single database
- * file when it is not `remit.db` beside app.db; the split from it (#1420)
- * otherwise runs unasked, once. Anything else is refused rather than ignored —
- * a mistyped flag that silently ran the full migration is the failure mode this
+ * index that has drifted. Anything else is refused rather than ignored — a
+ * mistyped flag that silently ran the full migration is the failure mode this
  * guards.
  */
 type Mode =
 	| { kind: "migrate" }
 	| { kind: "check" }
-	| { kind: "rebuild-search" }
-	| { kind: "split"; source: string };
+	| { kind: "rebuild-search" };
 
 // A schema change applied to someone's database is an audit-grade signal, and
 // this one-shot's output is the only record that it ran and what it did — it
@@ -117,11 +107,8 @@ const parseMode = (argv: readonly string[]): Mode => {
 	if (argv.length === 1 && argv[0] === "--rebuild-search") {
 		return { kind: "rebuild-search" };
 	}
-	if (argv.length === 2 && argv[0] === "--split-from" && argv[1]) {
-		return { kind: "split", source: argv[1] };
-	}
 	throw new Error(
-		`unrecognised argument: ${argv.join(" ")} — the options are --check, --rebuild-search and --split-from <path>`,
+		`unrecognised argument: ${argv.join(" ")} — the options are --check and --rebuild-search`,
 	);
 };
 
@@ -185,34 +172,6 @@ type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
 	JunkOnlyRepairClient;
 
-const reportLegacySplit = (
-	source: string,
-	outcome: LegacySplitOutcome,
-): void => {
-	if (outcome.kind === "superseded") {
-		logger.warn(
-			{ source },
-			"the old single database file was left in place: app.db already holds data",
-		);
-		return;
-	}
-	if (outcome.kind !== "split") return;
-	logStep(
-		{ copied: outcome.copied, kept: `${source}${PRE_SPLIT_SUFFIX}` },
-		"split the single database file",
-	);
-	if (outcome.stranded.length > 0) {
-		logger.error(
-			{
-				alert: "split_stranded_placements",
-				count: outcome.stranded.length,
-				messageIds: outcome.stranded,
-			},
-			"These moves and deletes never reached the mail server; the resync shows the server's state",
-		);
-	}
-};
-
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const paths = sqliteDatabasePathsFromEnv();
 
@@ -222,28 +181,10 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const { drizzle: sqliteDrizzle } = await import("drizzle-orm/better-sqlite3");
 	const driver: SqliteDriver = { Database, drizzle: sqliteDrizzle };
 
-	// Before any of the three files is opened: opening app.db creates it, and
-	// an app.db with data in it is what says the split already happened.
+	// The schema first, with its own handles, so the repairs below run against
+	// a file that is fully migrated and, for a v0.9 remit.db, verified.
 	if (mode.kind !== "check") {
-		const source =
-			mode.kind === "split" ? mode.source : legacyDatabasePath(paths);
-		const outcome = await splitLegacyDatabase(
-			source,
-			paths,
-			driver,
-			".",
-			(database) =>
-				logStep({ database }, "applying schema migrations (sqlite)"),
-		);
-		if (mode.kind === "split" && outcome.kind === "absent") {
-			throw new Error(`--split-from: ${source} does not exist`);
-		}
-		if (mode.kind === "split" && outcome.kind === "superseded") {
-			throw new Error(
-				`--split-from: ${paths.app} already holds data, so ${source} was not split into it`,
-			);
-		}
-		reportLegacySplit(source, outcome);
+		await migrateSqliteFiles(paths, driver, ".", logStep);
 	}
 
 	// `--check` opens the files read-only, so "writes nothing" is enforced by
@@ -301,13 +242,6 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			return;
 		}
-
-		await applyMigrationSets(
-			{ app, mail: db, search: searchDb },
-			".",
-			(database) =>
-				logStep({ database }, "applying schema migrations (sqlite)"),
-		);
 
 		await displayNameStep(paramRepairClient, "repair", search);
 

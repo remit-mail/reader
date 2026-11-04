@@ -68,15 +68,18 @@ const journalEntries = (set: string): unknown[] => {
 };
 
 /**
- * The `<file>:<table>` pairs `read_schema_version` in the wrapper sums on the
- * live databases.
+ * The `<database>:<table>` pairs `read_schema_version` in the wrapper sums on
+ * the live databases, each database read from the file it is configured on.
  */
 const wrapperCountedTables = (): string[] => {
 	const match = read("deploy/vps/remit").match(
-		/for p in ((?:\w+\.db:__drizzle_migrations_\w+ ?)+); do/,
+		/for p in ((?:\$_sv_\w+:__drizzle_migrations_\w+ ?)+); do/,
 	);
 	assert.ok(match, "the wrapper no longer sums any __drizzle_migrations table");
-	return match[1].trim().split(/\s+/);
+	return match[1]
+		.trim()
+		.split(/\s+/)
+		.map((pair) => pair.replace(/^\$_sv_/, ""));
 };
 
 describe("schema version accounting", () => {
@@ -147,7 +150,7 @@ describe("schema version accounting", () => {
 	test("the wrapper counts exactly the tables the migrator writes", () => {
 		assert.deepEqual(
 			wrapperCountedTables().sort(),
-			sets.map(({ database, table }) => `${database}.db:${table}`).sort(),
+			sets.map(({ database, table }) => `${database}:${table}`).sort(),
 		);
 	});
 

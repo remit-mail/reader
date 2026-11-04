@@ -95,16 +95,16 @@ export const clauseMatches = (
 };
 
 /**
- * Whether the literal clauses match under their combine operator. Empty clauses
- * carry no literal constraint and pass vacuously; a caller that needs a
- * predicate checks for clauses itself.
+ * Whether the literal clauses match under their combine operator. A filter with
+ * no clauses states nothing about the message, so it matches nothing: read as
+ * a vacuous pass it would file every message in every folder.
  */
 export const literalClausesMatch = (
 	clauses: readonly FilterClause[],
 	operator: FilterItem["matchOperator"],
 	msg: FilterMessage,
 ): boolean => {
-	if (clauses.length === 0) return true;
+	if (clauses.length === 0) return false;
 	return operator === FilterMatchOperator.Or
 		? clauses.some((clause) => clauseMatches(clause, msg))
 		: clauses.every((clause) => clauseMatches(clause, msg));
@@ -171,7 +171,7 @@ export const literalClauseTerms = (
 	operator: FilterItem["matchOperator"],
 ): LiteralClauseNarrowing | null => {
 	const combine = operator === FilterMatchOperator.Or ? "or" : "and";
-	if (clauses.length === 0) return { terms: [], operator: combine };
+	if (clauses.length === 0) return null;
 	const narrowings = clauses.map(clauseNarrowing);
 	const terms = narrowings.flatMap((narrowing) =>
 		narrowing.kind === "Term" ? [narrowing.term] : [],

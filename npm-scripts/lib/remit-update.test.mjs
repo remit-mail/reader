@@ -240,6 +240,10 @@ function sandbox({
 	bareDb = false,
 	tag = "v1.0.0",
 	tlsMode = "internal",
+	// The three databases on three files, the layout the seeded databases and
+	// the fake migrate use. Off, .env names no database and every function runs
+	// on the self-host default, remit.db.
+	splitDatabases = true,
 	// The release's host-side files, served from the tag the run installs
 	// (reader#1072). Unset, the release ships what this checkout ships, which is
 	// a release that changed neither file. `hostAssets: false` is the release
@@ -330,6 +334,13 @@ function sandbox({
 			// the tunnel agent on — not a scenario key.
 			COMPOSE_PROFILES_LINE,
 			"REMIT_UPDATE_MANIFEST_URL=https://updates.example.test/stable.json",
+			...(splitDatabases
+				? [
+						"SQLITE_APP_DB_PATH=/data/sqlite/app.db",
+						"SQLITE_MAIL_DB_PATH=/data/sqlite/mail.db",
+						"SQLITE_SEARCH_DB_PATH=/data/sqlite/search.db",
+					]
+				: []),
 			...dotenv,
 			"",
 		].join("\n"),
@@ -1423,6 +1434,21 @@ describe("the snapshot", () => {
 		assert.ok(snap.includes(". /snapshot-db.sh"));
 		assert.ok(snap.includes("snapshot_db /data/sqlite/app.db"));
 		assert.ok(snap.includes("snapshot_db /data/sqlite/mail.db"));
+	});
+});
+
+describe("the snapshot of a self-host whose .env names no database", () => {
+	const box = sandbox({ splitDatabases: false, scenario: { probe: "ok" } });
+	box.run(["update"]);
+	const snap = box
+		.volumeScripts()
+		.split("--- volume script ---")
+		.find((s) => s.includes("snapshot_db"));
+
+	it("takes the one remit.db every function shares, once", () => {
+		assert.deepEqual(snap.match(/snapshot_db \S+/g), [
+			"snapshot_db /data/sqlite/remit.db",
+		]);
 	});
 });
 
@@ -2917,24 +2943,6 @@ describe("remit status", () => {
 		assert.match(status.stdout, /Tag:\s+v1\.5\.0/);
 		assert.match(status.stdout, /Updates:\s+up to date/);
 		assert.match(status.stdout, /Update:\s+succeeded/);
-	});
-
-	// reader#1420. The migrate one-shot splits an old single remit.db only while
-	// app.db is empty; one left beside an app.db with data may hold mail state
-	// the instance never received, and only the operator can decide what it is.
-	it("says so when an old remit.db was not split into an app.db with data", () => {
-		const box = sandbox({ realDb: true, scenario: { probe: "ok" } });
-		writeFileSync(join(box.sqlite, "remit.db"), "the single database file");
-		const status = box.run(["status"]);
-		assert.equal(status.status, 0, status.stderr);
-		assert.match(status.stdout, /Database:\s+remit\.db was not split/);
-	});
-
-	it("says nothing about remit.db once it is split", () => {
-		const box = sandbox({ realDb: true, scenario: { probe: "ok" } });
-		const status = box.run(["status"]);
-		assert.equal(status.status, 0, status.stderr);
-		assert.ok(!status.stdout.includes("Database:"), status.stdout);
 	});
 });
 

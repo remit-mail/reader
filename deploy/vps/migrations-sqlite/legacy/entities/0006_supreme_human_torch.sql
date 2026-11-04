@@ -1,0 +1,1 @@
+ALTER TABLE `thread_message` ADD `list_id` text;
