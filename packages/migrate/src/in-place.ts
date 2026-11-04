@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 import type { drizzle as drizzleBetterSqlite3 } from "drizzle-orm/better-sqlite3";
 import { readMigrationFiles } from "drizzle-orm/migrator";
@@ -437,6 +437,48 @@ const logRemovals = (db: Handle, log: MigrateLog): void => {
 	}
 };
 
+/** What v0.9.28 to v0.10.x left on the volume when they split remit.db. */
+const SPLIT_LEFTOVERS = ["app.db", "mail.db", "remit.db.pre-split"];
+
+const holdsBytes = (path: string): boolean =>
+	existsSync(path) && statSync(path).size > 0;
+
+/**
+ * A split install renamed remit.db aside, so the configured file is missing
+ * while its data sits beside it. Migrating would create an empty database and
+ * the instance would come up with no accounts.
+ */
+const refuseSplitInstall = (paths: SqliteDatabasePaths): void => {
+	for (const database of ["app", "mail"] as const) {
+		const path = paths[database];
+		if (holdsBytes(path)) continue;
+		const configured = new Set(Object.values(paths));
+		const leftovers = SPLIT_LEFTOVERS.map((name) =>
+			join(dirname(path), name),
+		).filter((leftover) => !configured.has(leftover) && holdsBytes(leftover));
+		if (leftovers.length === 0) continue;
+		throw new Error(
+			`${basename(path)} is missing or empty, but ${leftovers.map((leftover) => basename(leftover)).join(", ")} beside it hold the data of a release that split remit.db. This release runs on one remit.db: put the database it should run on at ${path}, or point SQLITE_APP_DB_PATH, SQLITE_MAIL_DB_PATH and SQLITE_SEARCH_DB_PATH at the split files. ${nothingChanged}`,
+		);
+	}
+};
+
+/**
+ * Written only once a v0.9 file has passed {@link verifyAfter}. A file that
+ * holds both the v0.9 and v0.10 journals without it was migrated by a run that
+ * failed, and a later run must not report it migrated.
+ */
+const VERIFIED_TABLE = "__remit_in_place_verified";
+
+const markVerified = (db: Handle): void => {
+	db.exec(
+		`CREATE TABLE IF NOT EXISTS "${VERIFIED_TABLE}" (verified_at integer NOT NULL)`,
+	);
+	db.prepare(`INSERT INTO "${VERIFIED_TABLE}" (verified_at) VALUES (?)`).run(
+		Date.now(),
+	);
+};
+
 export interface InPlaceMigration {
 	verify(): void;
 }
@@ -452,6 +494,7 @@ export const prepareInPlace = async (
 	root: string,
 	log: MigrateLog,
 ): Promise<InPlaceMigration | null> => {
+	refuseSplitInstall(paths);
 	const files = [...new Set([paths.app, paths.mail, paths.search])].filter(
 		(path) => existsSync(path),
 	);
@@ -466,7 +509,13 @@ export const prepareInPlace = async (
 			`${fileName} holds the app and mail tables together, so SQLITE_APP_DB_PATH and SQLITE_MAIL_DB_PATH must both name ${legacy}. ${nothingChanged}`,
 		);
 	}
-	if (tables.get(legacy)?.has(setOf("app").migrationsTable)) return null;
+	const held = tables.get(legacy);
+	if (held?.has(setOf("app").migrationsTable)) {
+		if (held.has(VERIFIED_TABLE)) return null;
+		throw new Error(
+			`${fileName} was migrated in place by a run that did not finish its verification, so it may not hold what it held before. Restore the pre-update snapshot, then update again.`,
+		);
+	}
 
 	let before: BeforeState;
 	const reader = new driver.Database(legacy, {
@@ -518,6 +567,13 @@ export const prepareInPlace = async (
 				);
 			} finally {
 				check.close();
+			}
+			const writer = new driver.Database(legacy, { fileMustExist: true });
+			try {
+				writer.pragma("busy_timeout = 5000");
+				markVerified(writer);
+			} finally {
+				writer.close();
 			}
 		},
 	};

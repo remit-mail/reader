@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
@@ -8,7 +16,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import { LEGACY_SETS, migrateSqliteFiles } from "./in-place.js";
+import { LEGACY_SETS, migrateSqliteFiles, prepareInPlace } from "./in-place.js";
 import {
 	ADDED_COLUMNS,
 	captureBefore,
@@ -623,5 +631,99 @@ describe("the spec's delta table", () => {
 		);
 		assert.equal(newer("__drizzle_migrations_auth", V0922_LAST.auth), 1);
 		sqlite.close();
+	});
+});
+
+/**
+ * What v0.9.27 left: the v0.9.22 file with the entities tail to 0044, auth
+ * 0001 and the mcp set to 0001 applied by its own migrator.
+ */
+const seedV0927 = (path: string): void => {
+	seedV0922(path);
+	const sqlite = new Database(path);
+	for (const set of LEGACY_SETS) {
+		migrate(drizzle(sqlite), {
+			migrationsFolder: join(ROOT, set.migrationsFolder),
+			migrationsTable: set.migrationsTable,
+		});
+	}
+	sqlite.exec(
+		"CREATE TABLE __drizzle_migrations_mcp (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)",
+	);
+	for (const migration of readMigrationFiles({
+		migrationsFolder: join(ROOT, "migrations-sqlite", "mcp"),
+	}).slice(0, 2)) {
+		for (const statement of migration.sql) {
+			if (statement.trim()) sqlite.exec(statement);
+		}
+		sqlite
+			.prepare(
+				"INSERT INTO __drizzle_migrations_mcp (hash, created_at) VALUES (?, ?)",
+			)
+			.run(migration.hash, migration.folderMillis);
+	}
+	sqlite.close();
+};
+
+describe("a v0.9.27 remit.db migrated in place", async () => {
+	const path = freshPath();
+	seedV0927(path);
+	const newest = read(path, (sqlite) =>
+		sqlite
+			.prepare("SELECT max(created_at) FROM __drizzle_migrations_entities")
+			.pluck()
+			.get(),
+	);
+	await migrateSqliteFiles(sameFile(path), driver, ROOT, quiet);
+
+	test("starts from the entities journal at 0044", () => {
+		const [last] = readMigrationFiles({
+			migrationsFolder: join(ROOT, LEGACY_SETS[0].migrationsFolder),
+		}).slice(-1);
+		assert.equal(Number(newest), last.folderMillis);
+	});
+
+	test("keeps the filter with rules and the pending mutations", () => {
+		assert.deepEqual(rows(path, "SELECT filter_id FROM filter"), [
+			{ filter_id: "filter-rules" },
+		]);
+		assert.equal(rows(path, "SELECT * FROM message_placement_move").length, 1);
+		assert.equal(rows(path, "SELECT * FROM message_flag_push").length, 1);
+	});
+
+	test("applies mcp 0002 on top of the 0001 it already held", () => {
+		assert.equal(
+			rows(path, "SELECT * FROM __drizzle_migrations_mcp").length,
+			3,
+		);
+	});
+});
+
+describe("a run that stopped before verifying", () => {
+	test("is refused on the next run instead of reported migrated", async () => {
+		const path = freshPath();
+		seedV0922(path);
+		assert.ok(await prepareInPlace(sameFile(path), driver, ROOT, quiet));
+		await assert.rejects(
+			migrateSqliteFiles(sameFile(path), driver, ROOT, quiet),
+			/was migrated in place by a run that did not finish its verification.*Restore the pre-update snapshot/,
+		);
+	});
+});
+
+describe("a volume a v0.9.28 to v0.10 release split", () => {
+	test("is refused rather than migrated as an empty install", async () => {
+		const volume = join(dir, "split-volume");
+		mkdirSync(volume);
+		const seeded = freshPath();
+		seedV0922(seeded);
+		copyFileSync(seeded, join(volume, "remit.db.pre-split"));
+		writeFileSync(join(volume, "app.db"), "the split app database");
+		const path = join(volume, "remit.db");
+		await assert.rejects(
+			migrateSqliteFiles(sameFile(path), driver, ROOT, quiet),
+			/remit\.db is missing or empty, but app\.db, remit\.db\.pre-split beside it hold the data of a release that split remit\.db\..*Nothing was changed\./,
+		);
+		assert.ok(!existsSync(path), "an empty remit.db was created");
 	});
 });

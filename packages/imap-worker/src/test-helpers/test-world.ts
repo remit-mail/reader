@@ -162,7 +162,7 @@ export interface World {
 	siblingFolder: (path: string) => Promise<MailboxItem>;
 	message: (
 		mailbox: MailboxItem,
-		options?: { messageIdHeader?: string },
+		options?: { messageIdHeader?: string; internalDate?: Date },
 	) => Promise<SeededMessage>;
 	row: (messageId: string) => Promise<MessageItem | undefined>;
 	threadRows: (
@@ -286,11 +286,13 @@ const createWorld = async (
 
 	const message = async (
 		mailbox: MailboxItem,
-		options: { messageIdHeader?: string } = {},
+		options: { messageIdHeader?: string; internalDate?: Date } = {},
 	): Promise<SeededMessage> => {
 		const messageIdHeader =
 			options.messageIdHeader ?? `<${randomUUID()}@example.com>`;
-		const uid = imap.deliver(mailbox.fullPath, mail(messageIdHeader));
+		const uid = imap.deliver(mailbox.fullPath, mail(messageIdHeader), {
+			internalDate: options.internalDate,
+		});
 		const baseline = {
 			connections: imap.connections,
 			commands: imap.log.length,

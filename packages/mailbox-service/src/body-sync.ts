@@ -331,6 +331,23 @@ export interface CalendarSuggestionConfig {
 	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
 }
 
+/** Where a stored body's message sits and when the server received it. */
+interface Arrival {
+	placement: FolderPlacement;
+	internalDate: number;
+}
+
+const internalDateOf = (
+	internalDates: ReadonlyMap<string, number>,
+	messageId: string,
+): number => {
+	const internalDate = internalDates.get(messageId);
+	if (internalDate === undefined) {
+		throw new Error(`${messageId} was fetched but never read from the batch`);
+	}
+	return internalDate;
+};
+
 interface BatchLookups {
 	roleMailboxes: () => Promise<FolderRoleMailboxes>;
 	activeFilters: () => Promise<FilterItem[]>;
@@ -411,6 +428,7 @@ export class BodySyncService {
 		// decision re-run. A message with no stored body inside a forced batch
 		// is still a first store and takes the full decision pass.
 		const reStoredMessageIds = new Set<string>();
+		const internalDates = new Map<string, number>();
 
 		// One read per round, not per message (issue #72). The list is small by
 		// design and almost always empty, so a lookup per message would put a
@@ -468,6 +486,7 @@ export class BodySyncService {
 			}
 			if (message.bodyStorageKey) reStoredMessageIds.add(messageId);
 			pending.set(message.uid, messageId);
+			internalDates.set(messageId, message.internalDate);
 		}
 
 		if (pending.size === 0) {
@@ -541,7 +560,10 @@ export class BodySyncService {
 							accountId,
 							accountConfigId,
 							body,
-							folder.placement,
+							{
+								placement: folder.placement,
+								internalDate: internalDateOf(internalDates, messageId),
+							},
 							reStoredMessageIds.has(messageId),
 							lookups,
 							location,
@@ -673,7 +695,7 @@ export class BodySyncService {
 		accountId: string,
 		accountConfigId: string,
 		body: Buffer,
-		placement: FolderPlacement,
+		arrival: Arrival,
 		isReStore: boolean,
 		lookups: BatchLookups,
 		location: {
@@ -696,7 +718,7 @@ export class BodySyncService {
 					accountConfigId,
 					body,
 					{ uri: ref.uri },
-					placement,
+					arrival,
 					isReStore,
 					lookups,
 				),
@@ -763,7 +785,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		body: Buffer,
 		bodyRef: { uri: string },
-		placement: FolderPlacement,
+		arrival: Arrival,
 		/**
 		 * Whether this call is a re-store of an already-classified message
 		 * rather than a first store. The two re-entrant paths (`force: true`
@@ -838,7 +860,7 @@ export class BodySyncService {
 		const classification = await this.classifyMessage(
 			accountConfigId,
 			parsed,
-			placement,
+			arrival.placement,
 		);
 
 		// Decide the placement move from the in-memory classification before the
@@ -859,7 +881,7 @@ export class BodySyncService {
 			lookups,
 			messageId,
 			parsed,
-			placement,
+			arrival,
 		);
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
@@ -1142,7 +1164,7 @@ export class BodySyncService {
 				accountConfigId,
 				body,
 				{ uri: ref.uri },
-				folder.placement,
+				{ placement: folder.placement, internalDate: message.internalDate },
 				message.bodyStorageKey != null,
 				this.batchLookups(accountConfigId, accountId),
 			);
@@ -1527,16 +1549,15 @@ export class BodySyncService {
 		lookups: BatchLookups,
 		messageId: string,
 		parsed: ParsedMail,
-		placement: FolderPlacement,
+		arrival: Arrival,
 	): Promise<FilterDecision> {
 		const { filterPipeline } = this;
-		if (!filterPipeline || placement === "other") return { labels: [] };
-		const { internalDate } = await this.messageService.get(messageId);
+		if (!filterPipeline) return { labels: [] };
 		return lookups
 			.usableFilters()
 			.then((usable) =>
 				filterPipeline.decide(
-					filtersForArrival(usable, { placement, internalDate }),
+					filtersForArrival(usable, arrival),
 					toFilterMessage(parsed),
 				),
 			)
