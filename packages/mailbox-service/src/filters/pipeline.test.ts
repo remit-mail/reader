@@ -135,6 +135,23 @@ describe("FilterPipeline over literal filters", () => {
 	});
 });
 
+describe("FilterPipeline over a filter with no rules", () => {
+	it("resolves nothing, so the filter does not file every message", async () => {
+		await store.filter.create({
+			accountConfigId: ACCOUNT,
+			name: "Notifications npm",
+			scope: FilterScope.Standing,
+			matchOperator: FilterMatchOperator.And,
+			literalClauses: [],
+			actionMailboxId: archive,
+		});
+
+		assert.deepEqual(await evaluate(account.accountId, fromGithub), {
+			labels: [],
+		});
+	});
+});
+
 describe("FilterPipeline scopes a filter to its folder's account", () => {
 	it("leaves another account's mail alone, as if the filter had not matched", async () => {
 		const sibling = await store.account.create({

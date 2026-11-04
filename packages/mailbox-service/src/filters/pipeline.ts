@@ -5,6 +5,7 @@ import type {
 	IMessageLabelRepository,
 } from "@remit/data-ports";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
+import type { FolderPlacement } from "../heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
 	type FilterMessage,
@@ -139,6 +140,24 @@ export class FilterPipeline {
 		return filters;
 	}
 }
+
+/**
+ * The filters a stored body is matched against. A filter acts on new mail:
+ * mail that arrived in Inbox or Junk, the folders mail is delivered to, after
+ * its rule or action was last set. Mail filed anywhere else, or delivered
+ * before the rule existed, is never moved by a body sync, which also runs for
+ * every old message a resync fetches again; applying a rule to existing mail
+ * is the organize job's.
+ */
+export const filtersForArrival = (
+	prepared: PreparedFilters,
+	arrival: { placement: FolderPlacement; internalDate: number },
+): PreparedFilters => {
+	if (arrival.placement === "other") return [];
+	return prepared.filter(
+		(filter) => arrival.internalDate >= filter.actionChangedAt * 1000,
+	);
+};
 
 const filterMatches = (filter: FilterItem, msg: FilterMessage): boolean =>
 	literalClausesMatch(filter.literalClauses, filter.matchOperator, msg);

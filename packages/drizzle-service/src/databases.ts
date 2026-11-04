@@ -4,11 +4,13 @@ import type { Db, SqliteStore } from "./db.js";
 import { messageDataSchema } from "./schema/message-data.js";
 import { createSqliteDatabase } from "./sqlite-client.js";
 
-// The three databases a self-host instance runs on (#1420). The app database
-// holds what lives in the client: accounts, config, rules, settings and auth.
-// The tenant mail database holds what lives on the IMAP server, plus the local
-// rows that refer to it. The tenant search database holds the full-text index,
-// rebuilt from the mail database, so it never commits together with it.
+// The three databases an instance runs on (#1420), each on the file its
+// SQLITE_*_DB_PATH names; a self-host points all three at one remit.db. The app
+// database holds what lives in the client: accounts, config, rules, settings
+// and auth. The tenant mail database holds what lives on the IMAP server, plus
+// the local rows that refer to it. The tenant search database holds the
+// full-text index, rebuilt from the mail database, so it never commits together
+// with it.
 export interface SqliteDatabases {
 	app: Db<Record<string, unknown>>;
 	mail: Db<Record<string, unknown>>;

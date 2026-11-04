@@ -1,0 +1,1 @@
+ALTER TABLE `outbox_message` ADD `appended_uid` integer DEFAULT 0 NOT NULL;

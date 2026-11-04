@@ -109,11 +109,11 @@ describe("the stack fetches mail with no browser open", {
 		assert.equal(scheduler.environment.DATA_BACKEND, "sqlite");
 		assert.equal(
 			scheduler.environment.SQLITE_APP_DB_PATH,
-			"/data/sqlite/app.db",
+			"/data/sqlite/remit.db",
 		);
 		assert.equal(
 			scheduler.environment.SQLITE_MAIL_DB_PATH,
-			"/data/sqlite/mail.db",
+			"/data/sqlite/remit.db",
 		);
 		assert.deepEqual(
 			scheduler.volumes.map((volume) => `${volume.source}:${volume.target}`),

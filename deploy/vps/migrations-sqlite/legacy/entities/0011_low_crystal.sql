@@ -1,0 +1,1 @@
+ALTER TABLE `message` ADD `placement_decided_at` integer;

@@ -154,8 +154,9 @@ const arrangeFiling = async () => {
 		],
 		actionMailboxId: travel.mailboxId,
 	});
-	const first = await w.message(inbox);
-	const second = await w.message(inbox);
+	// Delivered after the filter was set, the only mail a filter files.
+	const first = await w.message(inbox, { internalDate: new Date() });
+	const second = await w.message(inbox, { internalDate: new Date() });
 	return {
 		w,
 		travel,

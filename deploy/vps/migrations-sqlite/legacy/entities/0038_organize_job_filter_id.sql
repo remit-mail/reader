@@ -1,0 +1,1 @@
+ALTER TABLE `organize_job_request` ADD `filter_id` text DEFAULT 'None' NOT NULL;
