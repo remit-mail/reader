@@ -197,11 +197,11 @@ const validateDocument = (
 	);
 	duplicate(
 		"labels",
-		document.labels.map((label) => normalize(label.name)),
+		document.labels.map((label) => label.name),
 	);
 	duplicate(
 		"filters",
-		document.filters.map((filter) => normalize(filter.name)),
+		document.filters.map((filter) => filter.name),
 	);
 	duplicate(
 		"addressFlags",
@@ -209,8 +209,8 @@ const validateDocument = (
 	);
 
 	const labelNames = new Set([
-		...document.labels.map((label) => normalize(label.name)),
-		...existing.labels.map((label) => normalize(label.name)),
+		...document.labels.map((label) => label.name),
+		...existing.labels.map((label) => label.name),
 	]);
 	const accountIds = new Set([
 		...document.accounts.map((account) => account.accountId),
@@ -220,7 +220,7 @@ const validateDocument = (
 	for (const filter of document.filters) {
 		if (
 			filter.actionLabelName !== null &&
-			!labelNames.has(normalize(filter.actionLabelName))
+			!labelNames.has(filter.actionLabelName)
 		) {
 			errors.push(
 				problem(
@@ -442,13 +442,11 @@ const applyDocument = async (
 
 	// ---- labels ---------------------------------------------------------
 	const labelIdByName = new Map(
-		existing.labels.map(
-			(label) => [normalize(label.name), label.labelId] as const,
-		),
+		existing.labels.map((label) => [label.name, label.labelId] as const),
 	);
 
 	for (const label of document.labels) {
-		const key = normalize(label.name);
+		const key = label.name;
 		const heldId = labelIdByName.get(key);
 		if (heldId) {
 			await write(ConfigImportSection.Labels, label.name, () =>
@@ -477,7 +475,7 @@ const applyDocument = async (
 
 	// ---- filters --------------------------------------------------------
 	const existingFilterByName = new Map(
-		existing.filters.map((filter) => [normalize(filter.name), filter] as const),
+		existing.filters.map((filter) => [filter.name, filter] as const),
 	);
 
 	const resolveFilterFolder = (
@@ -494,7 +492,7 @@ const applyDocument = async (
 	};
 
 	for (const filter of document.filters) {
-		const key = normalize(filter.name);
+		const key = filter.name;
 		const folder = resolveFilterFolder(filter);
 		const shape = {
 			scope: filter.scope,
@@ -505,7 +503,7 @@ const applyDocument = async (
 			actionLabelId:
 				filter.actionLabelName === null
 					? NO_ACTION
-					: (labelIdByName.get(normalize(filter.actionLabelName)) ?? NO_ACTION),
+					: (labelIdByName.get(filter.actionLabelName) ?? NO_ACTION),
 			actionMailboxId: folder.actionMailboxId,
 			...(folder.pending
 				? {
@@ -978,12 +976,8 @@ const plan = (
 	const heldEmails = new Set(
 		existing.accounts.map((account) => normalize(account.email)),
 	);
-	const heldLabels = new Set(
-		existing.labels.map((label) => normalize(label.name)),
-	);
-	const heldFilters = new Set(
-		existing.filters.map((filter) => normalize(filter.name)),
-	);
+	const heldLabels = new Set(existing.labels.map((label) => label.name));
+	const heldFilters = new Set(existing.filters.map((filter) => filter.name));
 
 	const verdict = (held: boolean): ConfigImportItemReport["verdict"] =>
 		held ? ConfigImportVerdict.Updated : ConfigImportVerdict.Created;
@@ -1005,7 +999,7 @@ const plan = (
 		items.push({
 			section: ConfigImportSection.Labels,
 			key: label.name,
-			verdict: verdict(heldLabels.has(normalize(label.name))),
+			verdict: verdict(heldLabels.has(label.name)),
 		});
 	}
 	for (const filter of document.filters) {
@@ -1018,7 +1012,7 @@ const plan = (
 		items.push({
 			section: ConfigImportSection.Filters,
 			key: filter.name,
-			verdict: verdict(heldFilters.has(normalize(filter.name))),
+			verdict: verdict(heldFilters.has(filter.name)),
 			...(awaiting && actionFolder
 				? { reason: awaitingFolderReason(actionFolder.folderPath) }
 				: {}),

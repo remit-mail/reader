@@ -1463,7 +1463,7 @@ test("a document naming the same label twice is refused before anything is writt
 	const document = (await exportSource()) as unknown as {
 		labels: { name: string; color: string }[];
 	};
-	document.labels.push({ name: "facturen", color: "Green" });
+	document.labels.push({ name: "Facturen", color: "Green" });
 	const store = emptyStore();
 
 	const report = reportOf(await apply(store, document));
@@ -1471,6 +1471,30 @@ test("a document naming the same label twice is refused before anything is writt
 	assert.equal(report.valid, false);
 	assert.equal(report.errors[0]?.code, "duplicate_key");
 	assert.deepEqual(store.labels, []);
+});
+
+test("two filters whose names differ only in case survive an export and an import", async () => {
+	const fixture = sourceFixture();
+	fixture.filters = [
+		...fixture.filters,
+		makeFilter({
+			filterId: "flt-release-lower",
+			name: "release notes",
+			literalClauses: [{ field: "Subject", value: "changelog" }],
+		}),
+	];
+	const document = await exportSource(fixture);
+	const store = emptyStore();
+
+	const report = reportOf(await apply(store, document));
+
+	assert.deepEqual(report.errors, []);
+	assert.equal(report.applied, true);
+	assert.deepEqual(store.filters.map((filter) => filter.name).sort(), [
+		"Invoices to Facturen",
+		"Release notes",
+		"release notes",
+	]);
 });
 
 test("a filter pointing at a label no one has is refused", async () => {
