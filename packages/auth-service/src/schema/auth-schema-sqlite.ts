@@ -10,7 +10,14 @@
 // every deployed instance and rewrite all five tables. Match better-auth's
 // runtime expectations by hand when a version bump changes them, and let
 // vps-migrations-drift.sqlite.test.ts catch the migration side.
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import {
+	index,
+	integer,
+	sqliteTable,
+	text,
+	uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const auth_user = sqliteTable("auth_user", {
 	id: text("id").primaryKey(),
@@ -26,6 +33,10 @@ export const auth_user = sqliteTable("auth_user", {
 	updatedAt: integer("updated_at", { mode: "timestamp" })
 		.$defaultFn(() => /* @__PURE__ */ new Date())
 		.$onUpdate(() => /* @__PURE__ */ new Date())
+		.notNull(),
+	disabled: integer("disabled", { mode: "boolean" }).default(false).notNull(),
+	lastSignInAt: integer("last_sign_in_at", { mode: "timestamp" })
+		.default(sql`0`)
 		.notNull(),
 });
 
@@ -107,3 +118,36 @@ export const auth_jwks = sqliteTable("auth_jwks", {
 	alg: text("alg"),
 	crv: text("crv"),
 });
+
+// Not better-auth tables: the self-host People operations own these
+// (packages/auth-service/src/people.ts). Times are epoch milliseconds.
+export const identity_audit_event = sqliteTable(
+	"identity_audit_event",
+	{
+		auditEventId: text("audit_event_id").primaryKey(),
+		occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
+		actor: text("actor").notNull(),
+		target: text("target").notNull(),
+		action: text("action").notNull(),
+		outcome: text("outcome").notNull(),
+		clientIp: text("client_ip").notNull(),
+	},
+	(table) => [
+		index("identity_audit_event_occurred_at_idx").on(table.occurredAt),
+	],
+);
+
+export const identity_step_up = sqliteTable(
+	"identity_step_up",
+	{
+		digest: text("digest").notNull(),
+		callerUserId: text("caller_user_id").notNull(),
+		action: text("action").notNull(),
+		targetUserId: text("target_user_id").notNull(),
+		expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("identity_step_up_digest_idx").on(table.digest),
+		index("identity_step_up_caller_idx").on(table.callerUserId),
+	],
+);

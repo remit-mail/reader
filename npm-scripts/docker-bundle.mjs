@@ -201,6 +201,14 @@ export const TARGETS = [
 		outfile: "dist-docker/backend/config-save.mjs",
 		external: [SQLITE],
 	},
+	// `remit people enable|reset <email>` (#1519): the host-side recovery for
+	// accounts nobody left in the web client can act on, in the same shape.
+	{
+		name: "backend-people-admin",
+		entry: "packages/backend/scripts/people-admin.ts",
+		outfile: "dist-docker/backend/people-admin.mjs",
+		external: [SQLITE],
+	},
 	{
 		name: "backend-remit-cli",
 		entry: "packages/remit-cli/src/main.ts",

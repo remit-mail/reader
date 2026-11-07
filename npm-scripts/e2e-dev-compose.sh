@@ -44,7 +44,7 @@ e2e_dev_compose() {
 		"$@"
 }
 
-# The ten ports a slot claims, contiguous so one block per slot covers the
+# The eleven ports a slot claims, contiguous so one block per slot covers the
 # whole stack. 400 blocks is far more than a host runs concurrently; a hash
 # collision between two live slots is caught by e2e_dev_require_free_ports, which
 # fails the run rather than letting it attach to the other stack.
@@ -57,7 +57,7 @@ e2e_dev_slot_ports() {
 	[ -n "$E2E_DEV_SLOT" ] || return 0
 	local index base
 	index=$(($(printf '%s' "$E2E_DEV_SLOT" | cksum | cut -d' ' -f1) % 400))
-	base=$((20000 + index * 10))
+	base=$((20000 + index * 11))
 	: "${E2E_HTTP_PORT:=$base}"
 	: "${SERVER_PORT:=$((base + 1))}"
 	: "${QUEUE_SIDECAR_PORT:=$((base + 2))}"
@@ -68,7 +68,8 @@ e2e_dev_slot_ports() {
 	: "${E2E_SMTP_REJECT_HTTP_PORT:=$((base + 7))}"
 	: "${E2E_IMAP_NAMED_TRASH_PORT:=$((base + 8))}"
 	: "${E2E_MSOAUTH_TOKEN_PORT:=$((base + 9))}"
-	echo "e2e-dev: slot $E2E_DEV_SLOT — project $E2E_DEV_PROJECT, ports $base-$((base + 9))"
+	: "${E2E_PEOPLE_SERVER_PORT:=$((base + 10))}"
+	echo "e2e-dev: slot $E2E_DEV_SLOT — project $E2E_DEV_PROJECT, ports $base-$((base + 10))"
 }
 
 # Resolve the committed template into the generated env this run uses, then load
@@ -85,7 +86,7 @@ e2e_dev_install_env() {
 
 	for name in E2E_HTTP_PORT E2E_IMAP_PORT E2E_IMAP_NAMED_TRASH_PORT E2E_SMTP_PORT \
 		E2E_SMTP_HTTP_PORT E2E_SMTP_REJECT_PORT E2E_SMTP_REJECT_HTTP_PORT SERVER_PORT \
-		QUEUE_SIDECAR_PORT E2E_MSOAUTH_TOKEN_PORT; do
+		QUEUE_SIDECAR_PORT E2E_MSOAUTH_TOKEN_PORT E2E_PEOPLE_SERVER_PORT; do
 		[ -n "${!name-}" ] || continue
 		printf '%s=%s\n' "$name" "${!name}" >>"$DEV_ENV"
 		echo "e2e-dev: $name overridden to ${!name}"
@@ -289,6 +290,6 @@ e2e_dev_require_free_ports() {
 	done
 	[ ${#occupied[@]} -eq 0 ] && return 0
 	echo "e2e-dev: ports already in use: ${occupied[*]}" >&2
-	echo "e2e-dev: move this run with E2E_HTTP_PORT / E2E_IMAP_PORT / E2E_IMAP_NAMED_TRASH_PORT / E2E_SMTP_PORT / E2E_SMTP_HTTP_PORT / E2E_SMTP_REJECT_PORT / E2E_SMTP_REJECT_HTTP_PORT / SERVER_PORT / QUEUE_SIDECAR_PORT / E2E_MSOAUTH_TOKEN_PORT" >&2
+	echo "e2e-dev: move this run with E2E_HTTP_PORT / E2E_IMAP_PORT / E2E_IMAP_NAMED_TRASH_PORT / E2E_SMTP_PORT / E2E_SMTP_HTTP_PORT / E2E_SMTP_REJECT_PORT / E2E_SMTP_REJECT_HTTP_PORT / SERVER_PORT / QUEUE_SIDECAR_PORT / E2E_MSOAUTH_TOKEN_PORT / E2E_PEOPLE_SERVER_PORT" >&2
 	return 1
 }

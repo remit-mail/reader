@@ -224,6 +224,10 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-classifi
 # their configuration before a migration drops the database, with no browser and
 # no session — see packages/backend/scripts/config-save.ts.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/config-save.mjs ./config-save.mjs
+# Same shape again, for `remit people enable|reset` (#1519): recovery from the
+# host when nobody left in the web client can act — see
+# packages/backend/scripts/people-admin.ts.
+COPY --from=builder --chown=node:node /app/dist-docker/backend/people-admin.mjs ./people-admin.mjs
 # The API commands `remit` delegates to, run in the migrate service against apisix.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/remit-cli.mjs ./remit-cli.mjs
 # The migration set, staged in the builder into one directory so this COPY has a

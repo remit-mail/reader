@@ -18,6 +18,7 @@
  * does not.
  */
 import { test } from "@playwright/test";
+import { peopleApiUrl } from "./env.js";
 
 export const stack: "image" | "dev" =
 	process.env.E2E_STACK === "dev" ? "dev" : "image";
@@ -38,4 +39,15 @@ export const imageStackOnly = (reason: string): void => {
 		console.log(`e2e: skipped on the source-built stack — ${reason}`);
 	}
 	test.skip(isDevStack, `image stack only: ${reason}`);
+};
+
+/**
+ * Declare a group as needing the backend with self sign-up closed, which only
+ * the source-built lane runs. Like `imageStackOnly`, the skip is named.
+ */
+export const peopleApiOnly = (reason: string): void => {
+	test.skip(
+		peopleApiUrl === undefined,
+		`needs the closed sign-up backend: ${reason}`,
+	);
 };

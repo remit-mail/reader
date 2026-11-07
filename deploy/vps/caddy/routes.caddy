@@ -58,6 +58,10 @@
 	# packages/auth-service (CLIENT_IP_HEADER).
 	request_header X-Remit-Client-IP {client_ip}
 
+	# A reset link carries its single-use token in the path (#1519). The page
+	# must not hand that path to anything it loads or links to.
+	header /reset-password/* Referrer-Policy no-referrer
+
 	# Routing mirrors the dev vite proxy 1:1 (packages/web/vite.config.ts):
 	#   /api/auth/*  -> apisix, path unchanged (better-auth's own routes)
 	#   /api/*       -> apisix, with the /api prefix stripped (business routes,

@@ -511,8 +511,7 @@ describe("the installer summary", () => {
 		assert.ok(at >= 0, `no sign-up step in the summary:\n${run.stdout}`);
 		const tail = run.stdout.slice(at);
 		assert.match(tail, /sign up/i);
-		assert.match(tail, /SELF_SIGN_UP_ENABLED=false/);
-		assert.match(tail, /remit restart/);
+		assert.match(tail, /remit sign-up off/);
 		assert.ok(
 			at > run.stdout.indexOf("  Config"),
 			"the step has to be the last thing read, not one line among the facts",

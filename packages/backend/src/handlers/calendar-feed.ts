@@ -267,6 +267,14 @@ export const getCalendarFeedIcal: PublicOperationHandler = async (
 	// and answering it would serve the feed at an address nobody was handed.
 	const feedToken = readCalendarFeedToken(context.request.path);
 	if (feedToken === null) return feedNotFound();
+	// The kill switch stops every feed with the answer an unknown token gets;
+	// the rows stay, so feeds resume when sign-in is turned back on.
+	if (
+		ctx.config.auth.mode === "BetterAuthJwt" &&
+		ctx.config.auth.signIn === "Disabled"
+	) {
+		return feedNotFound();
+	}
 
 	const ifNoneMatch = context.request.headers["if-none-match"];
 	const ifModifiedSince = context.request.headers["if-modified-since"];

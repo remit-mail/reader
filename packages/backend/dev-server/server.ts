@@ -22,6 +22,7 @@ import express, {
 import { handler, OpenAPISpec } from "../src/index.js";
 import { safeJsonParse } from "../src/json.js";
 import { getClient } from "../src/service/data-client.js";
+import { setPeopleDirectory } from "../src/service/people-directory.js";
 import { authorizeContentRequest } from "./content-auth.js";
 import { serveContent } from "./content-handler.js";
 import { resolveContentPath } from "./content-path.js";
@@ -100,9 +101,24 @@ if (isSelfHostBackend) {
 		},
 	);
 
-	const { createAuth, resolveAuthConfig, toNodeHandler, withRateLimitLogging } =
-		await import("@remit/auth-service");
-	const auth = await createAuth(resolveAuthConfig());
+	const {
+		createAuth,
+		createPeopleDirectory,
+		resolveAuthConfig,
+		toNodeHandler,
+		withRateLimitLogging,
+	} = await import("@remit/auth-service");
+	const authConfig = resolveAuthConfig();
+	const auth = await createAuth(authConfig);
+	// The kill switch is applied before the first request: with it off, every
+	// session and MCP grant is revoked here, on every boot.
+	const people = await createPeopleDirectory({
+		auth,
+		connectionString: authConfig.connectionString,
+		baseURL: authConfig.baseURL,
+	});
+	people.applySignInSwitch(authConfig.signInEnabled);
+	setPeopleDirectory(people);
 	app.all(/^\/api\/auth\//, toNodeHandler(withRateLimitLogging(auth)));
 }
 

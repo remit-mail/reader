@@ -109,7 +109,12 @@ describe("getContentSigner", () => {
 	it("returns a working signer in SQLite mode", () => {
 		const signer = getContentSigner(
 			testApiConfig({
-				auth: { mode: "BetterAuthJwt", contentSigningSecret: SECRET },
+				auth: {
+					mode: "BetterAuthJwt",
+					signIn: "Enabled",
+					selfSignUp: "Enabled",
+					contentSigningSecret: SECRET,
+				},
 			}),
 		);
 		assert.ok(signer);

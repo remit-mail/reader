@@ -125,6 +125,7 @@ describe("a rate-limited auth response is logged", () => {
 			secret: "rate-limit-log-test-secret-value-32chars",
 			baseURL: "http://localhost:3000",
 			selfSignUpEnabled: true,
+			signInEnabled: true,
 		});
 
 	it("names the endpoint and the address the limit is keyed on", async () => {

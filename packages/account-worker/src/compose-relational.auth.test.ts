@@ -111,6 +111,7 @@ describe("relational deletion capabilities — login user erase", () => {
 			secret: "relational-auth-secret-0123456789abcdef",
 			baseURL: ORIGIN,
 			selfSignUpEnabled: true,
+			signInEnabled: true,
 		});
 		erased = await signUp(auth, "erased@remit.test");
 		kept = await signUp(auth, "kept@remit.test");

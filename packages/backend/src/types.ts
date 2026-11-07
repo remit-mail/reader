@@ -19,6 +19,11 @@ export type OperationIds =
 	| "ConfigOperations_importConfig"
 	| "SystemOperations_getSystemUpdate"
 	| "SystemOperations_applySystemUpdate"
+	| "PeopleOperations_listPeople"
+	| "PeopleOperations_createStepUp"
+	| "PeopleOperations_signOutPerson"
+	| "PeopleOperations_updatePerson"
+	| "PeopleOperations_createPasswordReset"
 	| "AccountOperations_createAccount"
 	| "AccountOperations_testConnection"
 	| "AccountDetailOperations_updateAccount"
@@ -106,6 +111,8 @@ export type MeOperationIds = MatchPrefix<"MeOperations_", OperationIds>;
 export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
 
 export type SystemOperationIds = MatchPrefix<"SystemOperations_", OperationIds>;
+
+export type PeopleOperationIds = MatchPrefix<"PeopleOperations_", OperationIds>;
 
 export type AccountOperationIds = MatchPrefix<
 	"AccountOperations_",

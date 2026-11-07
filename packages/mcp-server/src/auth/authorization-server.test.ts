@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { type Auth, createAuth } from "@remit/auth-service";
+import {
+	type Auth,
+	createAuth,
+	createPeopleDirectory,
+	type PeopleAdmin,
+} from "@remit/auth-service";
 import {
 	createJwtVerifier,
 	resolveVerifierConfig,
@@ -87,6 +92,7 @@ const buildApp = (): { auth: McpAuth; handler: McpRequestHandler } => {
 		origin: MCP_ORIGIN,
 		secret: "mcp-instance-secret-0123456789abcdef",
 		db: database.db,
+		signInEnabled: true,
 	});
 	return {
 		auth: instance,
@@ -119,6 +125,7 @@ before(async () => {
 		secret: "main-instance-secret-0123456789abcdef",
 		baseURL: MAIN_ORIGIN,
 		selfSignUpEnabled: true,
+		signInEnabled: true,
 	});
 	const signUp = await mainAuth.api.signUpEmail({
 		body: { email: EMAIL, password: PASSWORD, name: "Owner" },
@@ -893,6 +900,118 @@ describe("device authorization (RFC 8628)", () => {
 		assert.equal(
 			((await authorization.json()) as { error: string }).error,
 			"invalid_client",
+		);
+	});
+});
+
+describe("the People operations reach the connector (#1519)", () => {
+	let people: PeopleAdmin;
+
+	before(async () => {
+		people = await createPeopleDirectory({
+			auth: mainAuth,
+			connectionString: filename,
+			baseURL: MAIN_ORIGIN,
+		});
+	});
+
+	after(() => people.close());
+
+	const userIdOf = (email: string): string => {
+		const sqlite = new Database(filename, { readonly: true });
+		const row = sqlite
+			.prepare("SELECT id FROM auth_user WHERE email = ?")
+			.get(email) as { id: string };
+		sqlite.close();
+		return row.id;
+	};
+
+	const signInFrom = async (
+		clientIp: string,
+		email: string,
+		password: string,
+	): Promise<Response> => {
+		const { challenge } = pkce();
+		const toLogin = locationOf(
+			await call(authorizeUrl(await registerClient(), challenge)),
+		);
+		return app(
+			new Request(`${MCP_ORIGIN}/login`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/x-www-form-urlencoded",
+					origin: MCP_ORIGIN,
+				},
+				body: new URLSearchParams({
+					email,
+					password,
+					oauth_query: toLogin.search.slice(1),
+				}),
+			}),
+			clientIp,
+		);
+	};
+
+	const stepUp = async (
+		targetId: string,
+		action: "SignOut" | "Disable",
+	): Promise<string> => {
+		const granted = await people.createStepUp({
+			callerId: userIdOf(EMAIL),
+			clientIp: PEER,
+			targetId,
+			action,
+			password: PASSWORD,
+		});
+		assert.ok(granted.ok, JSON.stringify(granted));
+		return granted.value.stepUpToken;
+	};
+
+	it("refuses an MCP access token once its user is signed out everywhere", async () => {
+		const signedIn = await signInFrom("203.0.113.151", EMAIL, PASSWORD);
+		const cookie = cookiesOf(signedIn);
+		const clientId = await registerClient();
+		const { verifier, challenge } = pkce();
+		const code = await authorizeSignedIn(clientId, challenge, cookie);
+		const { body } = await exchange(clientId, code, verifier);
+		assert.ok(body.access_token);
+		assert.equal((await listTools(body.access_token)).status, 200);
+
+		const ownerId = userIdOf(EMAIL);
+		const signedOut = await people.signOutPerson({
+			callerId: ownerId,
+			clientIp: PEER,
+			targetId: ownerId,
+			stepUpToken: await stepUp(ownerId, "SignOut"),
+		});
+		assert.ok(signedOut.ok);
+
+		const refused = await listTools(body.access_token);
+		assert.equal(refused.status, 401);
+	});
+
+	it("refuses a disabled user's MCP sign-in after a right password", async () => {
+		const email = "disabled@remit.test";
+		const signedUp = await mainAuth.api.signUpEmail({
+			body: { email, password: PASSWORD, name: "Disabled" },
+			asResponse: true,
+		});
+		assert.equal(signedUp.status, 200);
+		const disabled = await people.updatePerson({
+			callerId: userIdOf(EMAIL),
+			clientIp: PEER,
+			targetId: userIdOf(email),
+			status: "Disabled",
+			stepUpToken: await stepUp(userIdOf(email), "Disable"),
+		});
+		assert.ok(disabled.ok);
+
+		const refused = await signInFrom("203.0.113.152", email, PASSWORD);
+		assert.equal(refused.status, 403);
+		assert.equal(refused.headers.getSetCookie().length, 0);
+		assert.equal(
+			(await signInFrom("203.0.113.152", email, "wrong password")).status,
+			401,
 		);
 	});
 });

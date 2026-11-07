@@ -52,9 +52,12 @@ is added from the app itself (Settings → Add account). Close sign-up once you
 have your account:
 
 ```bash
-sed -i 's/^SELF_SIGN_UP_ENABLED=.*/SELF_SIGN_UP_ENABLED=false/' .env
-remit restart
+remit sign-up off
 ```
+
+`remit sign-in off` is the kill switch: it refuses every sign-in and revokes
+every session until `remit sign-in on`. `remit people enable <email>` and
+`remit people reset <email>` recover an account from the host.
 
 ## Managing the deployment
 

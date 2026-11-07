@@ -11,6 +11,11 @@ const required = (name: string, value: string | undefined): string => {
 	return value;
 };
 
+const isSwitchOn = (raw: string | undefined): boolean => {
+	const value = (raw ?? "").trim().toLowerCase();
+	return value !== "false" && value !== "0" && value !== "no";
+};
+
 /**
  * Whether self-service signup is open on the better-auth tier. Mirrors the
  * Cognito user pool's `selfSignUpEnabled` prop: enabled means users can
@@ -23,10 +28,16 @@ const required = (name: string, value: string | undefined): string => {
  */
 export const resolveSelfSignUpEnabled = (
 	raw: string | undefined = process.env.SELF_SIGN_UP_ENABLED,
-): boolean => {
-	const value = (raw ?? "").trim().toLowerCase();
-	return value !== "false" && value !== "0" && value !== "no";
-};
+): boolean => isSwitchOn(raw);
+
+/**
+ * The self-host kill switch. `SIGN_IN_ENABLED` reads like
+ * `SELF_SIGN_UP_ENABLED`: unset or any other value is on, and an explicit
+ * `false`/`0`/`no` turns every sign-in, token mint and session read off.
+ */
+export const resolveSignInEnabled = (
+	raw: string | undefined = process.env.SIGN_IN_ENABLED,
+): boolean => isSwitchOn(raw);
 
 export interface DataConnectionConfig {
 	connectionString: string;
@@ -59,6 +70,7 @@ export const resolveAuthConfig = (): AuthConfig => {
 			.map((origin) => origin.trim())
 			.filter((origin) => origin.length > 0),
 		selfSignUpEnabled: resolveSelfSignUpEnabled(),
+		signInEnabled: resolveSignInEnabled(),
 	};
 };
 

@@ -74,6 +74,7 @@ describe("sign-in rate limiting is per client", () => {
 			secret: "rate-limit-test-secret-value-32chars-min",
 			baseURL: "http://localhost:3000",
 			selfSignUpEnabled: true,
+			signInEnabled: true,
 		});
 
 	it("locks out only the client that spent the budget", async () => {

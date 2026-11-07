@@ -67,6 +67,8 @@ describe("configFromEnv", () => {
 
 		assert.deepEqual(config.auth, {
 			mode: "BetterAuthJwt",
+			signIn: "Enabled",
+			selfSignUp: "Enabled",
 			contentSigningSecret: "a-signing-secret-of-at-least-32-characters",
 		});
 		assert.deepEqual(config.corsAllowedOrigins, [

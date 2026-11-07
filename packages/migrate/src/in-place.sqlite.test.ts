@@ -22,6 +22,7 @@ import {
 	captureBefore,
 	DROPPED_COLUMNS,
 	DROPPED_TABLES,
+	FILLED_COLUMNS,
 	isDerivedTable,
 	verifyAfter,
 } from "./in-place-verify.js";
@@ -528,6 +529,8 @@ const NEW_TABLES: ReadonlyMap<string, string> = new Map([
 	["body_structure_refetch", "entities 0041"],
 	["sync_warning", "entities 0042"],
 	["calendar_task", "app 0001"],
+	["identity_audit_event", "app 0002"],
+	["identity_step_up", "app 0002"],
 	["message_search_text", "mail 0001"],
 	["outbox_scheduling_part", "mail 0006"],
 	["mcp_jwks", "mcp 0000"],
@@ -604,7 +607,9 @@ describe("the spec's delta table", () => {
 			...[...DROPPED_COLUMNS.keys()].map(
 				(column) => `dropped column ${column}`,
 			),
-			...[...ADDED_COLUMNS.keys()].map((column) => `added column ${column}`),
+			...[...ADDED_COLUMNS.keys(), ...FILLED_COLUMNS.keys()].map(
+				(column) => `added column ${column}`,
+			),
 			...[...NEW_TABLES.keys()].map((table) => `added table ${table}`),
 		];
 		assert.deepEqual(found.sort(), listed.sort());
