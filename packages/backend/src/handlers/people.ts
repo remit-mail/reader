@@ -14,7 +14,7 @@ import type {
 	PeopleOutcome,
 	PeopleRefusal,
 } from "@remit/auth-service/people";
-import type { APIGatewayProxyResult } from "aws-lambda";
+import { PeopleErrorCode } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
 import { getPeopleDirectory } from "../service/people-directory.js";
 import type {
@@ -25,25 +25,37 @@ import type {
 
 const CLIENT_IP_HEADER = "x-remit-client-ip";
 
-const refuse = (
-	statusCode: number,
-	code: string,
-	message: string,
-): APIGatewayProxyResult =>
-	({ statusCode, body: { code, message } }) as unknown as APIGatewayProxyResult;
+interface Refusal {
+	statusCode: number;
+	body: { code: PeopleRefusal; message: string };
+}
 
 const REFUSALS: Record<PeopleRefusal, [number, string]> = {
-	caller_disabled: [403, "Your account is disabled."],
+	[PeopleErrorCode.SignInDisabled]: [
+		403,
+		"Sign-in is turned off on this server.",
+	],
+	[PeopleErrorCode.CallerDisabled]: [403, "Your account is disabled."],
+	[PeopleErrorCode.ForeignOrigin]: [
+		403,
+		"This request came from a page this server does not serve.",
+	],
+	[PeopleErrorCode.StepUpRequired]: [403, "Confirm your password again."],
+	[PeopleErrorCode.WrongPassword]: [403, "That password is not right."],
+	[PeopleErrorCode.StepUpLocked]: [
+		429,
+		"Too many wrong passwords. Try again in 15 minutes.",
+	],
+	[PeopleErrorCode.CannotDisableSelf]: [
+		409,
+		"You cannot disable your own account.",
+	],
 	not_found: [404, "Not found"],
-	step_up_required: [403, "Confirm your password again."],
-	wrong_password: [403, "That password is not right."],
-	step_up_locked: [429, "Too many wrong passwords. Try again in 15 minutes."],
-	cannot_disable_self: [409, "You cannot disable your own account."],
 };
 
-const refusalOf = (refusal: PeopleRefusal): APIGatewayProxyResult => {
-	const [statusCode, message] = REFUSALS[refusal];
-	return refuse(statusCode, refusal, message);
+const refusalOf = (code: PeopleRefusal): Refusal => {
+	const [statusCode, message] = REFUSALS[code];
+	return { statusCode, body: { code, message } };
 };
 
 const headerOf = (context: Context, name: string): string | undefined => {
@@ -71,7 +83,7 @@ const guard = (
 	ctx: HandlerContext,
 	targetId: string,
 	unsafe: boolean,
-): Guarded | APIGatewayProxyResult => {
+): Guarded | Refusal => {
 	const directory = getPeopleDirectory();
 	const { auth } = ctx.config;
 	if (
@@ -88,18 +100,13 @@ const guard = (
 	};
 	const refuseAudited = (
 		outcome: GuardRefusal,
-		code: string,
-		message: string,
-	): APIGatewayProxyResult => {
+		code: PeopleRefusal,
+	): Refusal => {
 		directory.recordRefusal({ ...request, targetId, outcome });
-		return refuse(403, code, message);
+		return refusalOf(code);
 	};
 	if (auth.signIn === "Disabled") {
-		return refuseAudited(
-			"RefusedSignInOff",
-			"sign_in_disabled",
-			"Sign-in is turned off on this server.",
-		);
+		return refuseAudited("RefusedSignInOff", PeopleErrorCode.SignInDisabled);
 	}
 	const origin = headerOf(context, "origin");
 	if (
@@ -107,19 +114,15 @@ const guard = (
 		origin !== undefined &&
 		!ctx.config.corsAllowedOrigins.includes(origin)
 	) {
-		return refuseAudited(
-			"RefusedForeignOrigin",
-			"foreign_origin",
-			"This request came from a page this server does not serve.",
-		);
+		return refuseAudited("RefusedForeignOrigin", PeopleErrorCode.ForeignOrigin);
 	}
 	return request;
 };
 
-const isGuarded = (value: Guarded | APIGatewayProxyResult): value is Guarded =>
+const isGuarded = (value: Guarded | Refusal): value is Guarded =>
 	"directory" in value;
 
-const answer = <T>(outcome: PeopleOutcome<T>): T | APIGatewayProxyResult =>
+const answer = <T>(outcome: PeopleOutcome<T>): T | Refusal =>
 	outcome.ok ? outcome.value : refusalOf(outcome.refusal);
 
 const targetOf = (context: Context): string =>
@@ -132,7 +135,7 @@ export const PeopleOperations: Record<
 	PeopleOperations_listPeople: async (
 		context: Context,
 		ctx: HandlerContext,
-	): Promise<PeopleListResponse | APIGatewayProxyResult> => {
+	): Promise<PeopleListResponse | Refusal> => {
 		const guarded = guard(context, ctx, "all", false);
 		if (!isGuarded(guarded)) return guarded;
 		const listed = answer(await guarded.directory.listPeople(guarded));
@@ -142,7 +145,7 @@ export const PeopleOperations: Record<
 	PeopleOperations_createStepUp: async (
 		context: Context,
 		ctx: HandlerContext,
-	): Promise<StepUpResponse | APIGatewayProxyResult> => {
+	): Promise<StepUpResponse | Refusal> => {
 		const body = context.request.requestBody as StepUpInput;
 		const guarded = guard(context, ctx, body.userId, true);
 		if (!isGuarded(guarded)) return guarded;
@@ -159,7 +162,7 @@ export const PeopleOperations: Record<
 	PeopleOperations_signOutPerson: async (
 		context: Context,
 		ctx: HandlerContext,
-	): Promise<Person | APIGatewayProxyResult> => {
+	): Promise<Person | Refusal> => {
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
@@ -176,7 +179,7 @@ export const PeopleOperations: Record<
 	PeopleOperations_updatePerson: async (
 		context: Context,
 		ctx: HandlerContext,
-	): Promise<Person | APIGatewayProxyResult> => {
+	): Promise<Person | Refusal> => {
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
@@ -195,7 +198,7 @@ export const PeopleOperations: Record<
 	PeopleOperations_createPasswordReset: async (
 		context: Context,
 		ctx: HandlerContext,
-	): Promise<PasswordResetResponse | APIGatewayProxyResult> => {
+	): Promise<PasswordResetResponse | Refusal> => {
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;

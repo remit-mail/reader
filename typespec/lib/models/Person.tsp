@@ -1,4 +1,5 @@
 import "@typespec/http";
+import "../enums/PeopleErrorCode.tsp";
 
 using TypeSpec.Http;
 
@@ -93,27 +94,28 @@ model PasswordResetResponse {
   expiresAt: int64;
 }
 
-@doc("""
-  The People operation is refused for the caller. `code` is one of
-  `sign_in_disabled` (the kill switch is on), `caller_disabled` (the caller's
-  account is disabled or gone), `foreign_origin` (an unsafe request from an
-  origin this instance does not serve), `step_up_required` (the step-up token
-  is missing, spent, expired, or bound to another caller, action or person) and
-  `wrong_password` (the step-up password is wrong).
-  """)
+@doc("The People operation is refused for the caller.")
 model PeopleForbiddenError {
   @statusCode statusCode: 403;
-  ...ApiError;
+  ...OmitProperties<ApiError, "code">;
+  code:
+    | PeopleErrorCode.SignInDisabled
+    | PeopleErrorCode.CallerDisabled
+    | PeopleErrorCode.ForeignOrigin
+    | PeopleErrorCode.StepUpRequired
+    | PeopleErrorCode.WrongPassword;
 }
 
-@doc("Five wrong step-up passwords in 15 minutes. `code` is `step_up_locked`.")
+@doc("Too many wrong step-up passwords.")
 model StepUpLockedError {
   @statusCode statusCode: 429;
-  ...ApiError;
+  ...OmitProperties<ApiError, "code">;
+  code: PeopleErrorCode.StepUpLocked;
 }
 
-@doc("A person cannot disable themselves. `code` is `cannot_disable_self`.")
+@doc("The caller tried to disable their own account.")
 model CannotDisableSelfError {
   @statusCode statusCode: 409;
-  ...ApiError;
+  ...OmitProperties<ApiError, "code">;
+  code: PeopleErrorCode.CannotDisableSelf;
 }

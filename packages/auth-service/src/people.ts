@@ -5,6 +5,7 @@ import type {
 	StepUpAction,
 } from "@remit/api-openapi-types";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import { PeopleErrorCode } from "@remit/domain-enums";
 import { calendarFeedTokens } from "@remit/drizzle-sqlite-schema";
 import { and, asc, count, eq, gt, lte, sql } from "drizzle-orm";
 import type { Auth } from "./auth.js";
@@ -38,13 +39,10 @@ export interface PasswordReset {
 	expiresAt: number;
 }
 
-export type PeopleRefusal =
-	| "caller_disabled"
-	| "not_found"
-	| "step_up_required"
-	| "wrong_password"
-	| "step_up_locked"
-	| "cannot_disable_self";
+export type PeopleErrorCodeValue =
+	(typeof PeopleErrorCode)[keyof typeof PeopleErrorCode];
+
+export type PeopleRefusal = PeopleErrorCodeValue | "not_found";
 
 export interface Refused {
 	ok: false;
@@ -190,7 +188,7 @@ const callerRefusal = (
 		outcome: "RefusedCallerDisabled",
 		clientIp: request.clientIp,
 	});
-	return refused("caller_disabled");
+	return refused(PeopleErrorCode.CallerDisabled);
 };
 
 const stepUpRefusal = (
@@ -218,7 +216,7 @@ const stepUpRefusal = (
 		outcome: "RefusedStepUp",
 		clientIp: request.clientIp,
 	});
-	return refused("step_up_required");
+	return refused(PeopleErrorCode.StepUpRequired);
 };
 
 const issueReset = (
@@ -327,7 +325,8 @@ export const createPeopleDirectory = async (
 						),
 					)
 					.get()?.failures ?? 0;
-			if (failures >= STEP_UP_MAX_FAILURES) return refused("step_up_locked");
+			if (failures >= STEP_UP_MAX_FAILURES)
+				return refused(PeopleErrorCode.StepUpLocked);
 			return ok(
 				store.audit({
 					actor: request.callerId,
@@ -399,7 +398,7 @@ export const createPeopleDirectory = async (
 			const attempt = reserveAttempt(request);
 			if (!attempt.ok) return attempt;
 			if (!(await passwordMatches(request.callerId, request.password))) {
-				return refused("wrong_password");
+				return refused(PeopleErrorCode.WrongPassword);
 			}
 			return grantStepUp(request, attempt.value);
 		},
@@ -435,7 +434,7 @@ export const createPeopleDirectory = async (
 						outcome: "RefusedSelf",
 						clientIp: request.clientIp,
 					});
-					return refused("cannot_disable_self");
+					return refused(PeopleErrorCode.CannotDisableSelf);
 				}
 				const stepUpRefused = stepUpRefusal(
 					store,
