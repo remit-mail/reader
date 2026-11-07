@@ -104,17 +104,19 @@ if (isSelfHostBackend) {
 	const {
 		createAuth,
 		createPeopleDirectory,
+		openIdentityStore,
 		resolveAuthConfig,
 		toNodeHandler,
 		withRateLimitLogging,
 	} = await import("@remit/auth-service");
 	const authConfig = resolveAuthConfig();
-	const auth = await createAuth(authConfig);
+	const store = await openIdentityStore(authConfig.connectionString);
+	const auth = await createAuth(authConfig, store);
 	// The kill switch is applied before the first request: with it off, every
 	// session and MCP grant is revoked here, on every boot.
 	const people = await createPeopleDirectory({
 		auth,
-		connectionString: authConfig.connectionString,
+		store,
 		baseURL: authConfig.baseURL,
 	});
 	people.applySignInSwitch(authConfig.signInEnabled);

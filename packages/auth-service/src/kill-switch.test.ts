@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { type Auth, createAuth } from "./auth.js";
+import { openIdentityStore } from "./identity-store.js";
 import { createPeopleDirectory } from "./people.js";
 
 const ORIGIN = "http://localhost:3000";
@@ -20,19 +21,22 @@ const PASSWORD = "correct horse battery staple";
 let dir: string;
 let filename: string;
 
-const build = (signInEnabled: boolean): Promise<Auth> =>
-	createAuth({
-		connectionString: filename,
-		secret: "kill-switch-test-secret-value-32chars-min",
-		baseURL: ORIGIN,
-		selfSignUpEnabled: true,
-		signInEnabled,
-	});
+const build = async (signInEnabled: boolean): Promise<Auth> =>
+	createAuth(
+		{
+			connectionString: filename,
+			secret: "kill-switch-test-secret-value-32chars-min",
+			baseURL: ORIGIN,
+			selfSignUpEnabled: true,
+			signInEnabled,
+		},
+		await openIdentityStore(filename),
+	);
 
 const boot = async (auth: Auth, signInEnabled: boolean): Promise<void> => {
 	const people = await createPeopleDirectory({
 		auth,
-		connectionString: filename,
+		store: await openIdentityStore(filename),
 		baseURL: ORIGIN,
 	});
 	people.applySignInSwitch(signInEnabled);

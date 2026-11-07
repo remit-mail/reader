@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { type Auth, CLIENT_IP_HEADER, createAuth } from "./auth.js";
+import { openIdentityStore } from "./identity-store.js";
 import {
 	createPeopleDirectory,
 	type PeopleAdmin,
@@ -109,16 +110,20 @@ before(async () => {
 	}
 	sqlite.close();
 
-	auth = await createAuth({
-		connectionString: filename,
-		secret: "people-test-secret-value-of-32-chars-min",
-		baseURL: ORIGIN,
-		selfSignUpEnabled: true,
-		signInEnabled: true,
-	});
+	const store = await openIdentityStore(filename);
+	auth = await createAuth(
+		{
+			connectionString: filename,
+			secret: "people-test-secret-value-of-32-chars-min",
+			baseURL: ORIGIN,
+			selfSignUpEnabled: true,
+			signInEnabled: true,
+		},
+		store,
+	);
 	people = await createPeopleDirectory({
 		auth,
-		connectionString: filename,
+		store,
 		baseURL: ORIGIN,
 	});
 	operatorId = await signUp(OPERATOR);

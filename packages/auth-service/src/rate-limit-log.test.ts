@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type { Auth } from "./auth.js";
 import { CLIENT_IP_HEADER, createAuth } from "./auth.js";
+import { openIdentityStore } from "./identity-store.js";
 
 /**
  * #441: better-auth answers a rate-limited request from inside its own router,
@@ -119,14 +120,19 @@ describe("a rate-limited auth response is logged", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	const build = async (name: string): Promise<Auth> =>
-		createAuth({
-			connectionString: await createDatabase(dir, name),
-			secret: "rate-limit-log-test-secret-value-32chars",
-			baseURL: "http://localhost:3000",
-			selfSignUpEnabled: true,
-			signInEnabled: true,
-		});
+	const build = async (name: string): Promise<Auth> => {
+		const connectionString = await createDatabase(dir, name);
+		return createAuth(
+			{
+				connectionString,
+				secret: "rate-limit-log-test-secret-value-32chars",
+				baseURL: "http://localhost:3000",
+				selfSignUpEnabled: true,
+				signInEnabled: true,
+			},
+			await openIdentityStore(connectionString),
+		);
+	};
 
 	it("names the endpoint and the address the limit is keyed on", async () => {
 		const handler = withRateLimitLogging(await build("logged"));

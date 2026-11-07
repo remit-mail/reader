@@ -44,7 +44,8 @@
     "jose": "^6.2.3",
     "@types/better-sqlite3": "^7.6.13",
     "@remit/data-ports": "*",
-    "@remit/drizzle-sqlite-schema": "*"
+    "@remit/drizzle-sqlite-schema": "*",
+    "@remit/api-openapi-types": "*"
   },
   "license": "MIT",
   "publishConfig": {

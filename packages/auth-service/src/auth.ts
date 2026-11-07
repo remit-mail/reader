@@ -9,7 +9,6 @@ import {
 	type IdentityStore,
 	isUserDisabled,
 	markSignedIn,
-	openIdentityStore,
 	sessionUserOf,
 } from "./identity-store.js";
 import * as authSchemaSqlite from "./schema/auth-schema-sqlite.js";
@@ -30,11 +29,6 @@ export interface AuthConfig {
 	 * `disableSignUp`; accounts are then provisioned out-of-band.
 	 */
 	selfSignUpEnabled: boolean;
-	/**
-	 * The self-host kill switch (`SIGN_IN_ENABLED`). `false` refuses every
-	 * better-auth path but `/jwks`, so nobody signs in, signs up, mints a token
-	 * or reads a session, while APISIX keeps verifying the JWTs already out.
-	 */
 	signInEnabled: boolean;
 }
 
@@ -173,9 +167,9 @@ const intEnv = (name: string, fallback: number): number => {
 // the public type stable across any consumer's dependency graph.
 export const createAuth = async (
 	config: AuthConfig,
+	store: IdentityStore,
 ): Promise<BetterAuthInstance> => {
 	const database = await buildAuthAdapter(config);
-	const store = await openIdentityStore(config.connectionString);
 
 	return betterAuth({
 		secret: config.secret,

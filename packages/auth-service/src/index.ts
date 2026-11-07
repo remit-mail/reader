@@ -22,7 +22,9 @@ export {
 export {
 	type AuditRecord,
 	HOST_CLIENT_IP,
+	type IdentityStore,
 	isUserDisabled,
+	openIdentityStore,
 	writeAudit,
 } from "./identity-store.js";
 export {

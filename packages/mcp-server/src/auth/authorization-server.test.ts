@@ -9,6 +9,8 @@ import {
 	type Auth,
 	createAuth,
 	createPeopleDirectory,
+	type IdentityStore,
+	openIdentityStore,
 	type PeopleAdmin,
 } from "@remit/auth-service";
 import {
@@ -64,6 +66,7 @@ let filename: string;
 let database: McpAuthDatabase;
 let deps: McpDeps;
 let mainAuth: Auth;
+let mainStore: IdentityStore;
 let auth: McpAuth;
 let handler: McpRequestHandler;
 
@@ -120,13 +123,17 @@ before(async () => {
 	}
 	migrating.close();
 
-	mainAuth = await createAuth({
-		connectionString: filename,
-		secret: "main-instance-secret-0123456789abcdef",
-		baseURL: MAIN_ORIGIN,
-		selfSignUpEnabled: true,
-		signInEnabled: true,
-	});
+	mainStore = await openIdentityStore(filename);
+	mainAuth = await createAuth(
+		{
+			connectionString: filename,
+			secret: "main-instance-secret-0123456789abcdef",
+			baseURL: MAIN_ORIGIN,
+			selfSignUpEnabled: true,
+			signInEnabled: true,
+		},
+		mainStore,
+	);
 	const signUp = await mainAuth.api.signUpEmail({
 		body: { email: EMAIL, password: PASSWORD, name: "Owner" },
 		asResponse: true,
@@ -910,7 +917,7 @@ describe("the People operations reach the connector (#1519)", () => {
 	before(async () => {
 		people = await createPeopleDirectory({
 			auth: mainAuth,
-			connectionString: filename,
+			store: mainStore,
 			baseURL: MAIN_ORIGIN,
 		});
 	});

@@ -1,4 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import type {
+	Person,
+	PersonStatus,
+	StepUpAction,
+} from "@remit/api-openapi-types";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { calendarFeedTokens } from "@remit/drizzle-sqlite-schema";
 import { and, asc, count, eq, gt, lte, sql } from "drizzle-orm";
@@ -8,7 +13,6 @@ import {
 	findUser,
 	HOST_CLIENT_IP,
 	type IdentityStore,
-	openIdentityStore,
 	revokeUser,
 	type UserRow,
 } from "./identity-store.js";
@@ -21,19 +25,7 @@ import {
 	identity_step_up,
 } from "./schema/auth-schema-sqlite.js";
 
-export type PersonStatus = "Active" | "Disabled";
-
-export type StepUpAction = "SignOut" | "Disable" | "Enable" | "ResetPassword";
-
-export interface Person {
-	userId: string;
-	email: string;
-	createdAt: number;
-	lastSignInAt: number;
-	sessionCount: number;
-	status: PersonStatus;
-	isCaller: boolean;
-}
+export type { Person, PersonStatus, StepUpAction };
 
 export interface StepUpGrant {
 	stepUpToken: string;
@@ -103,7 +95,7 @@ export interface PeopleAdmin extends PeopleDirectory {
 
 export interface PeopleConfig {
 	auth: Auth;
-	connectionString: string;
+	store: IdentityStore;
 	baseURL: string;
 }
 
@@ -201,11 +193,6 @@ const callerRefusal = (
 	return refused("caller_disabled");
 };
 
-/**
- * Spend a step-up token: one statement deletes the row bound to this digest,
- * caller, action and target, and only exactly one unexpired row lets the
- * operation go on. A token works once, for one action on one person.
- */
 const stepUpRefusal = (
 	store: IdentityStore,
 	request: TargetedRequest,
@@ -234,11 +221,6 @@ const stepUpRefusal = (
 	return refused("step_up_required");
 };
 
-/**
- * Replace the user's reset link and password: earlier reset rows go first, so
- * the delete can never take the new one; the old password stops working; every
- * session, MCP grant and step-up of the user is revoked.
- */
 const issueReset = (
 	store: IdentityStore,
 	userId: string,
@@ -298,7 +280,7 @@ const enable = (store: IdentityStore, userId: string): void => {
 export const createPeopleDirectory = async (
 	config: PeopleConfig,
 ): Promise<PeopleAdmin> => {
-	const store = await openIdentityStore(config.connectionString);
+	const { store } = config;
 	const { password: passwords } = await config.auth.$context;
 	const resetUrlOf = (token: string): string =>
 		`${config.baseURL}/reset-password/${token}`;

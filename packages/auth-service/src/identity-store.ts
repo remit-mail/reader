@@ -97,18 +97,11 @@ const insertAudit = (db: SqliteDb, record: AuditRecord): string => {
 	return auditEventId;
 };
 
-/** One audit record in its own write, for a caller outside any transaction. */
 export const writeAudit = (db: SqliteDb, record: AuditRecord): void => {
 	insertAudit(db, record);
 	logAudit(record);
 };
 
-/**
- * The identity tables behind one drizzle connection. Every write that changes
- * who may sign in runs in `immediate`, a `BEGIN IMMEDIATE` transaction, so two
- * writers are serialized before either reads. An audit record is logged only
- * once the transaction that wrote it commits.
- */
 export const identityStore = (db: IdentityDb): IdentityStore => {
 	let pending: AuditRecord[] | null = null;
 	const sqlite = db.$client;
@@ -216,10 +209,6 @@ export const deleteSessions = (store: IdentityStore, userId: string): void => {
 	store.db.delete(auth_session).where(eq(auth_session.userId, userId)).run();
 };
 
-/**
- * Sign one user out of everything: browser sessions, every MCP grant and any
- * step-up they earned. A JWT already minted lives out its 15 minutes.
- */
 export const revokeUser = (store: IdentityStore, userId: string): void => {
 	const { db } = store;
 	const revoked = new Date();
@@ -268,12 +257,6 @@ const revokeEveryone = (store: IdentityStore): void => {
 	db.delete(identity_step_up).run();
 };
 
-/**
- * Bring the database in line with `SIGN_IN_ENABLED` at boot. With the switch
- * off every session, MCP grant and step-up goes, and a `KillSwitchOn` record is
- * written the first time; with it on, a `KillSwitchOff` is written when the
- * last record says it was off. A repeat boot changes nothing more.
- */
 export const applySignInSwitch = (
 	store: IdentityStore,
 	signInEnabled: boolean,

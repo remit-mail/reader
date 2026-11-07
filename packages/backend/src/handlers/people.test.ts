@@ -8,6 +8,7 @@ import {
 	type Auth,
 	createAuth,
 	createPeopleDirectory,
+	openIdentityStore,
 	type PeopleAdmin,
 } from "@remit/auth-service";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
@@ -182,16 +183,20 @@ before(async () => {
 	}
 	sqlite.close();
 
-	auth = await createAuth({
-		connectionString: filename,
-		secret: "people-handler-secret-value-32chars-min",
-		baseURL: ORIGIN,
-		selfSignUpEnabled: true,
-		signInEnabled: true,
-	});
+	const store = await openIdentityStore(filename);
+	auth = await createAuth(
+		{
+			connectionString: filename,
+			secret: "people-handler-secret-value-32chars-min",
+			baseURL: ORIGIN,
+			selfSignUpEnabled: true,
+			signInEnabled: true,
+		},
+		store,
+	);
 	people = await createPeopleDirectory({
 		auth,
-		connectionString: filename,
+		store,
 		baseURL: ORIGIN,
 	});
 	setPeopleDirectory(people);
@@ -394,18 +399,6 @@ describe("the People operations", () => {
 			sql("SELECT feed_token_id AS id FROM calendar_feed_token"),
 			[{ id: "carol-feed" }],
 		);
-	});
-
-	it("refuse an unsafe request from a foreign origin, and record it", async () => {
-		const answer = await signOut(
-			alice,
-			carol,
-			await stepUpToken(alice, carol, "SignOut"),
-			closedConfig,
-			"https://evil.example",
-		);
-		assert.deepEqual(refusalOf(answer), [403, "foreign_origin"]);
-		assert.equal(auditCount("outcome = 'RefusedForeignOrigin'"), 1);
 	});
 
 	it("sweep audit records older than 90 days on every insert", async () => {

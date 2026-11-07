@@ -1,18 +1,12 @@
 import {
 	createAuth,
 	createPeopleDirectory,
+	openIdentityStore,
 	resolveAuthConfig,
 } from "@remit/auth-service";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 
 installNodeLogger();
-
-/**
- * `remit people enable <email>` and `remit people reset <email>` (#1519): the
- * host-side recovery when the people who could act in the web client are
- * disabled or locked out. Shell access to the host is the trust root, so no
- * step-up is asked for; every action is audited with actor `shell`.
- */
 
 const USAGE = `Usage: node people-admin.mjs <enable|reset> <email>
 
@@ -33,9 +27,10 @@ const run = async (): Promise<void> => {
 	}
 
 	const config = resolveAuthConfig();
+	const store = await openIdentityStore(config.connectionString);
 	const people = await createPeopleDirectory({
-		auth: await createAuth(config),
-		connectionString: config.connectionString,
+		auth: await createAuth(config, store),
+		store,
 		baseURL: config.baseURL,
 	});
 	const unknownEmail = (): void => {

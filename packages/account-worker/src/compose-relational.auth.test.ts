@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { type Auth, createAuth } from "@remit/auth-service";
+import { type Auth, createAuth, openIdentityStore } from "@remit/auth-service";
 import { auth_session, auth_user } from "@remit/auth-service/schema";
 import { noopLogger } from "@remit/logger";
 import Database from "better-sqlite3";
@@ -106,13 +106,16 @@ describe("relational deletion capabilities — login user erase", () => {
 		}
 		migrating.close();
 
-		auth = await createAuth({
-			connectionString: filename,
-			secret: "relational-auth-secret-0123456789abcdef",
-			baseURL: ORIGIN,
-			selfSignUpEnabled: true,
-			signInEnabled: true,
-		});
+		auth = await createAuth(
+			{
+				connectionString: filename,
+				secret: "relational-auth-secret-0123456789abcdef",
+				baseURL: ORIGIN,
+				selfSignUpEnabled: true,
+				signInEnabled: true,
+			},
+			await openIdentityStore(filename),
+		);
 		erased = await signUp(auth, "erased@remit.test");
 		kept = await signUp(auth, "kept@remit.test");
 
