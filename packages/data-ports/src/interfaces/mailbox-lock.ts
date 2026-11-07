@@ -1,5 +1,9 @@
 import type { MailboxLockItem, WithMailboxLockResult } from "../types.js";
 
+export interface MailboxLease {
+	renew(): Promise<void>;
+}
+
 export interface IMailboxLockRepository {
 	tryAcquireLock(
 		mailboxId: string,
@@ -18,7 +22,7 @@ export interface IMailboxLockRepository {
 		mailboxId: string,
 		eventName: string,
 		accountId: string,
-		operation: () => Promise<T>,
+		operation: (lease: MailboxLease) => Promise<T>,
 		options?: { lockId?: string },
 	): Promise<WithMailboxLockResult<T>>;
 	get(

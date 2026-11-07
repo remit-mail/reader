@@ -1,8 +1,10 @@
 import type {
 	IMailboxLockRepository,
+	MailboxLease,
 	MailboxLockItem,
 	WithMailboxLockResult,
 } from "@remit/data-ports";
+import { LostLeaseError } from "@remit/data-ports/errors";
 import { and, eq, lt } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { randomId } from "../id.js";
@@ -10,7 +12,7 @@ import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 
 type DB = RepositoryDb<Record<string, unknown>>;
 
-const TTL_SECONDS = 3600;
+const LEASE_SECONDS = 60;
 
 function rowToItem(row: typeof mailboxLockTable.$inferSelect): MailboxLockItem {
 	return {
@@ -25,7 +27,10 @@ function rowToItem(row: typeof mailboxLockTable.$inferSelect): MailboxLockItem {
 }
 
 export class MailboxLockRepo implements IMailboxLockRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private leaseSeconds = LEASE_SECONDS,
+	) {}
 
 	async tryAcquireLock(
 		mailboxId: string,
@@ -81,7 +86,7 @@ export class MailboxLockRepo implements IMailboxLockRepository {
 		mailboxId: string,
 		eventName: string,
 		accountId: string,
-		operation: () => Promise<T>,
+		operation: (lease: MailboxLease) => Promise<T>,
 		options?: { lockId?: string },
 	): Promise<WithMailboxLockResult<T>> {
 		const lockId = options?.lockId ?? randomId();
@@ -91,13 +96,37 @@ export class MailboxLockRepo implements IMailboxLockRepository {
 			eventName,
 			accountId,
 			lockId,
-			TTL_SECONDS,
+			this.leaseSeconds,
 		);
 		if (!acquired) return { executed: false };
 
-		return operation()
+		const lease: MailboxLease = {
+			renew: () => this.renewLock(accountId, mailboxId, eventName, lockId),
+		};
+		return operation(lease)
 			.then((result) => ({ executed: true as const, result }))
 			.finally(() => this.releaseLock(accountId, mailboxId, eventName, lockId));
+	}
+
+	private async renewLock(
+		accountId: string,
+		mailboxId: string,
+		eventName: string,
+		lockId: string,
+	): Promise<void> {
+		const rows = await this.db
+			.update(mailboxLockTable)
+			.set({ ttl: Math.floor(Date.now() / 1000) + this.leaseSeconds })
+			.where(
+				and(
+					eq(mailboxLockTable.accountId, accountId),
+					eq(mailboxLockTable.mailboxId, mailboxId),
+					eq(mailboxLockTable.eventName, eventName),
+					eq(mailboxLockTable.lockId, lockId),
+				),
+			)
+			.returning();
+		if (rows.length === 0) throw new LostLeaseError(mailboxId, eventName);
 	}
 
 	async get(

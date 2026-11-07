@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { LostLeaseError } from "@remit/data-ports/errors";
 import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { MailboxLockRepo } from "./i4-mailbox-lock.js";
@@ -280,6 +281,35 @@ describe("MailboxLockRepo", () => {
 
 		const lock = await repo.get(accountId, mailboxId, eventName);
 		assert.equal(lock, null, "lock released after throw");
+	});
+
+	test("renew throws once a lapsed lease is taken by another holder", async () => {
+		const leased = new MailboxLockRepo(db as never, 1);
+		const mailboxId = randomId();
+		const accountId = randomId();
+		const eventName = "SYNC_MESSAGES";
+		const successor = randomId();
+
+		await assert.rejects(
+			leased.withMailboxLock(mailboxId, eventName, accountId, async (lease) => {
+				await lease.renew();
+				await new Promise((resolve) => setTimeout(resolve, 2_100));
+				const taken = await leased.tryAcquireLock(
+					mailboxId,
+					eventName,
+					accountId,
+					successor,
+					60,
+				);
+				assert.equal(taken, true, "the lapsed lease is free to take");
+				await lease.renew();
+			}),
+			LostLeaseError,
+		);
+
+		const lock = await repo.get(accountId, mailboxId, eventName);
+		assert.equal(lock?.lockId, successor, "the successor keeps its lock");
+		await repo.releaseLock(accountId, mailboxId, eventName, successor);
 	});
 
 	test("get returns null when no lock exists", async () => {

@@ -258,3 +258,17 @@ export class MailSyncOffError extends BadRequestError {
 		};
 	}
 }
+
+/**
+ * The holder of a mailbox lock renewed after its lease lapsed and another
+ * holder took the lock, so it must stop before it writes beside that holder.
+ */
+export class LostLeaseError extends Error {
+	override name = "LostLeaseError";
+
+	constructor(mailboxId: string, eventName: string) {
+		super(
+			`lost the ${eventName} lease on mailbox ${mailboxId}: another holder took it after it lapsed`,
+		);
+	}
+}
