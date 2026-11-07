@@ -1,4 +1,17 @@
-import { isStorageNotFoundError } from "@remit/storage-service";
+import type {
+	IEnvelopeRepository,
+	IMailboxRepository,
+	IMessageRepository,
+} from "@remit/data-ports";
+import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
+import {
+	buildBodyPartKey,
+	isStorageNotFoundError,
+	MATERIALIZED_SENTINEL_PART_PATH,
+	MATERIALIZED_SENTINEL_V2_PART_PATH,
+	type StorageService,
+} from "@remit/storage-service";
+import { isMessageBodySyncBroken } from "./body-sync-terminal.js";
 
 /**
  * The slice of `BodySyncService` the read path needs to lazily materialize
@@ -84,4 +97,78 @@ export const materializeBodyParts = async (
 		await args.cue.requestBodySync({ accountId, mailboxId, messageId, uid });
 		return { ready: false };
 	}
+};
+
+export type BodyReadMiss = "NotFound" | "Broken" | "Pending";
+
+export interface BodyReadMissDeps {
+	message: Pick<IMessageRepository, "get">;
+	mailbox: Pick<IMailboxRepository, "get">;
+	envelope: Pick<IEnvelopeRepository, "listBodyParts">;
+	storage: Pick<StorageService, "bodyPartExists" | "deleteKeys">;
+}
+
+export interface BodyReadMissInput {
+	accountConfigId: string;
+	accountId: string;
+	messageId: string;
+	partPath: string;
+}
+
+/**
+ * What a content read that found no object at a part key should answer. It
+ * never enqueues: the describe read path (`materializeBodyParts`) re-arms the
+ * body sync, and the client re-describes on every 202.
+ *
+ * - `NotFound` — the message, its mailbox under `accountId`, or a leaf at
+ *   `partPath` does not exist; no retry can produce the object.
+ * - `Broken` — the body sync exhausted its retries against a message the
+ *   server still holds (`isMessageBodySyncBroken`).
+ * - `Pending` — anything else; a retry after the next describe succeeds.
+ *
+ * A missing leaf under a present `.materialized` sentinel means the sentinel
+ * no longer vouches for its parts, and `ensureBodyPartsStored` would skip the
+ * message forever. The sentinel is dropped so the next describe materializes
+ * the parts again; that delete is the one write here.
+ */
+export const resolveBodyReadMiss = async (
+	deps: BodyReadMissDeps,
+	{ accountConfigId, accountId, messageId, partPath }: BodyReadMissInput,
+): Promise<BodyReadMiss> => {
+	const [message] = await deps.message.get([messageId]);
+	if (!message) return "NotFound";
+	const [mailbox] = await deps.mailbox.get(accountId, [message.mailboxId]);
+	if (!mailbox) return "NotFound";
+	if (
+		await isMessageBodySyncBroken(
+			deps.storage,
+			accountConfigId,
+			accountId,
+			messageId,
+		)
+	) {
+		return "Broken";
+	}
+	const bodyParts = await deps.envelope.listBodyParts(messageId);
+	const leaf = bodyParts.find(
+		(part) => part.partPath === partPath && !part.isMultipart,
+	);
+	if (!leaf) return "NotFound";
+	if (!message.bodyStorageKey) return "Pending";
+	const sentinel = bodyParts.some(isEncapsulatedMessage)
+		? MATERIALIZED_SENTINEL_V2_PART_PATH
+		: MATERIALIZED_SENTINEL_PART_PATH;
+	if (
+		await deps.storage.bodyPartExists(
+			accountConfigId,
+			accountId,
+			messageId,
+			sentinel,
+		)
+	) {
+		await deps.storage.deleteKeys([
+			buildBodyPartKey(accountConfigId, accountId, messageId, sentinel),
+		]);
+	}
+	return "Pending";
 };
