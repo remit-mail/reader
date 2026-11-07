@@ -259,10 +259,14 @@ export {
 export { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 export {
 	type BodyPartMaterializer,
+	type BodyReadMiss,
+	type BodyReadMissDeps,
+	type BodyReadMissInput,
 	type BodySyncCue,
 	type MaterializeLogger,
 	type MaterializeResult,
 	materializeBodyParts,
+	resolveBodyReadMiss,
 } from "./message-read.js";
 export {
 	type ImapConnectionFactory,
