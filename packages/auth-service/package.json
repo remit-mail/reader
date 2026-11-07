@@ -45,7 +45,8 @@
     "@types/better-sqlite3": "^7.6.13",
     "@remit/data-ports": "*",
     "@remit/drizzle-sqlite-schema": "*",
-    "@remit/api-openapi-types": "*"
+    "@remit/api-openapi-types": "*",
+    "@remit/domain-enums": "*"
   },
   "license": "MIT",
   "publishConfig": {

@@ -71,6 +71,7 @@ import "./LabelAction.tsp";
 
 // Message quarantine (issue #72)
 import "./QuarantineFailureStage.tsp";
+import "./PeopleErrorCode.tsp";
 import "./QuarantineFailureCode.tsp";
 
 // Sync warnings (issue #1400)
