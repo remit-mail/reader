@@ -14,3 +14,4 @@ export {
 	withLogContext,
 } from "./logger.js";
 export { noopLogger } from "./noop-logger.js";
+export { isSecretKey, REDACTED, redact } from "./redact.js";
