@@ -148,36 +148,6 @@ const REAUTH_REQUIRED =
 const UNFILED_CONNECTION_LOST =
 	"The connection to the outgoing server dropped during the send, so this message may already have been delivered. Check with the recipient before sending it again.";
 
-/**
- * The connection failures that prove nothing was submitted: no session ever
- * opened, so the server holds no copy and `failed` is safe — Retry sends the
- * only copy there is.
- *
- * `ECONNRESET`, `ETIMEDOUT` and `ECONNECTION` (the server closed the
- * connection) classify as `network` too and are deliberately absent. Each can
- * land after DATA, with the message already queued on the server, and a
- * redelivery or a `failed` row's Retry delivers it twice.
- */
-const NEVER_SUBMITTED_CODES: ReadonlySet<string> = new Set([
-	"ECONNREFUSED",
-	"ENOTFOUND",
-	"EHOSTUNREACH",
-]);
-
-const errorCode = (cause: unknown): string =>
-	cause instanceof Error && "code" in cause && typeof cause.code === "string"
-		? cause.code
-		: "";
-
-/**
- * Whether the message can be re-sent without risking a second copy. An auth
- * rejection is decided before the envelope; a connection failure carries the
- * code that says how far it got. Anything else counts as possibly delivered,
- * which is the answer that cannot produce a duplicate.
- */
-const neverSubmitted = (err: SmtpConnectionError): boolean =>
-	err.kind === "auth" || NEVER_SUBMITTED_CODES.has(errorCode(err.cause));
-
 const SENDABLE_STATUSES: ReadonlySet<OutboxMessageItem["status"]> = new Set([
 	OutboxMessageStatus.draft,
 	OutboxMessageStatus.queued,
@@ -409,29 +379,18 @@ export const handleSendMessage = async (
 			await settleBlockedOnReauth(OutboxMessageStatus.sending);
 			return; // ACK — do not retry
 		}
-		// A password account's auth failure and a connection that never opened
-		// retry on SQS redelivery until the queue's own budget runs out, then
-		// settle `failed` instead of dead-lettering with the row stuck at
-		// `sending` (issue #951): `neverSubmitted` says the message cannot be
-		// on the server, so `failed` offers the Retry the user needs. Any other
-		// connection failure may have landed after DATA, where a redelivery
-		// sends a second copy, so it settles `unfiled` on its first attempt:
-		// the state that says a copy may be out there and which Retry is not
-		// offered on. Wait-or-reconcile
-		// (docs/architecture/imap-mutations.md R2): neither applies — a
-		// submission leaves no server-side handle to reconcile against, so the
-		// row settles on what the failure itself proves.
+		// Once the whole message is written the server may hold a copy, so a
+		// redelivery or a Retry could deliver it twice.
 		if (err instanceof SmtpConnectionError) {
-			const safeToResend = neverSubmitted(err);
-			if (safeToResend && receiveCount < ctx.maxAttempts) {
+			if (!err.afterData && receiveCount < ctx.maxAttempts) {
 				throw err;
 			}
-			const settled = safeToResend
-				? { status: OutboxMessageStatus.failed, lastError: err.message }
-				: {
+			const settled = err.afterData
+				? {
 						status: OutboxMessageStatus.unfiled,
 						lastError: `${UNFILED_CONNECTION_LOST} (${err.message})`,
-					};
+					}
+				: { status: OutboxMessageStatus.failed, lastError: err.message };
 			await ports.outboxMessage.update(
 				accountConfigId,
 				outboxMessageId,

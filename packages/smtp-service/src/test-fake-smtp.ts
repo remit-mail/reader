@@ -3,7 +3,7 @@ import net from "node:net";
 export interface FakeSmtpOptions {
 	authResponse?: string;
 	dataFinalResponse?: string;
-	dropAfterGreeting?: boolean;
+	dropBeforeGreeting?: boolean;
 	dropAfterData?: boolean;
 }
 
@@ -19,7 +19,7 @@ export const startFakeSmtp = (opts: FakeSmtpOptions = {}): Promise<FakeSmtp> =>
 		const authCommands: string[] = [];
 		const received: string[] = [];
 		const server = net.createServer((socket) => {
-			if (opts.dropAfterGreeting) {
+			if (opts.dropBeforeGreeting) {
 				socket.destroy();
 				return;
 			}

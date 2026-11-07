@@ -14,7 +14,7 @@ enum OutboxMessageStatus {
   @doc("Message was successfully sent")
   sent: "sent",
 
-  @doc("Sent over SMTP but not filed in the Sent mailbox — the account has no Sent folder to append to. Terminal: the message was delivered, so it is never re-sent.")
+  @doc("May have been delivered but is not filed in the Sent mailbox: the account has no Sent folder, or the connection dropped after the message was written. Never re-sent on its own; the user can edit and send it again.")
   unfiled: "unfiled",
 
   @doc("Permanent failure - exceeded retries or non-retryable error")

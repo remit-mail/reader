@@ -226,10 +226,20 @@ const attach = async (
 	});
 };
 
-const refusingSocket =
-	(code: string): SendMessageContext["getSocket"] =>
+const closedPort = (): Promise<number> =>
+	new Promise((resolve) => {
+		const server = net.createServer();
+		server.listen(0, "127.0.0.1", () => {
+			const address = server.address();
+			const port = typeof address === "object" && address ? address.port : 0;
+			server.close(() => resolve(port));
+		});
+	});
+
+const socketTo =
+	(port: number): SendMessageContext["getSocket"] =>
 	(_request, callback) => {
-		callback(Object.assign(new Error(`connect ${code}`), { code }), false);
+		callback(null, { connection: net.connect(port, "127.0.0.1") });
 	};
 
 const seedAddress = async (w: World, email: string): Promise<string> => {
@@ -675,7 +685,7 @@ describe("handleSendMessage retry-budget exhaustion (issue #951)", () => {
 
 		await handleSendMessage(
 			a.event,
-			{ ...w.ctx, getSocket: refusingSocket("ECONNREFUSED"), maxAttempts: 1 },
+			{ ...w.ctx, getSocket: socketTo(await closedPort()), maxAttempts: 1 },
 			1,
 		);
 
@@ -685,24 +695,22 @@ describe("handleSendMessage retry-budget exhaustion (issue #951)", () => {
 		assert.deepEqual(w.failures, ["network"]);
 	});
 
-	for (const code of ["ECONNRESET", "ETIMEDOUT"]) {
-		it(`settles a ${code} at \`unfiled\` on the first attempt — the server may hold the message`, async () => {
-			// Both classify as `network` and both can land after DATA, so a
-			// redelivery or a `failed` row's Retry would deliver a second copy.
-			const a = await arrange(w);
+	it("retries a connection the server drops before DATA, then settles it `failed`", async () => {
+		w.close();
+		w = await openWorld({ dropBeforeGreeting: true });
+		const a = await arrange(w);
 
-			await handleSendMessage(
-				a.event,
-				{ ...w.ctx, getSocket: refusingSocket(code) },
-				1,
-			);
+		await assert.rejects(
+			() => handleSendMessage(a.event, w.ctx, MAX_ATTEMPTS - 1),
+			SmtpConnectionError,
+		);
+		await handleSendMessage(a.event, w.ctx, MAX_ATTEMPTS);
 
-			const row = await outboxRow(w, a);
-			assert.equal(row.status, OutboxMessageStatus.unfiled);
-			assert.match(String(row.lastError), /may already have been delivered/);
-			assert.match(String(row.lastError), new RegExp(code));
-		});
-	}
+		const row = await outboxRow(w, a);
+		assert.equal(row.status, OutboxMessageStatus.failed);
+		assert.equal(w.smtp.received.length, 0);
+		assert.deepEqual(w.failures, ["network"]);
+	});
 
 	it("settles a connection the server closes after DATA at `unfiled`, sending once", async () => {
 		w.close();

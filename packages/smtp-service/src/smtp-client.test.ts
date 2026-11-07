@@ -167,13 +167,27 @@ describe("sendMail", () => {
 		assert.equal(result.isTransient, true);
 	});
 
-	it("throws a network SmtpConnectionError when the server closes the connection", async () => {
-		const server = await spawn({ dropAfterGreeting: true });
+	it("throws a network SmtpConnectionError before data when the server drops before the greeting", async () => {
+		const server = await spawn({ dropBeforeGreeting: true });
 
 		await assert.rejects(
 			() => sendMail(configFor(server.port), testMessage),
 			(error: unknown) =>
-				error instanceof SmtpConnectionError && error.kind === "network",
+				error instanceof SmtpConnectionError &&
+				error.kind === "network" &&
+				!error.afterData,
+		);
+	});
+
+	it("marks a drop after the whole message was written as after data", async () => {
+		const server = await spawn({ dropAfterData: true });
+
+		await assert.rejects(
+			() => sendMail(configFor(server.port), testMessage),
+			(error: unknown) =>
+				error instanceof SmtpConnectionError &&
+				error.kind === "network" &&
+				error.afterData,
 		);
 	});
 });

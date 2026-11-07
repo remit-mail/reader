@@ -12,10 +12,12 @@ import { OutboxMessageStatus } from "@remit/domain-enums";
  * queued the same envelope, and Edit took a 409 on the flush that precedes the
  * send (#933).
  *
- * Everything absent is in the worker's hands or settled: `queued` and `sending`
- * are mid-flight, `sent` and `unfiled` were delivered.
+ * `unfiled` may have been delivered, so it is open only to a deliberate edit
+ * and send; nothing re-sends it on its own. `queued` and `sending` are
+ * mid-flight and `sent` was delivered.
  */
 export const isOpenForWork = (status: OutboxMessageItem["status"]): boolean =>
 	status === OutboxMessageStatus.draft ||
 	status === OutboxMessageStatus.failed ||
-	status === OutboxMessageStatus.blocked;
+	status === OutboxMessageStatus.blocked ||
+	status === OutboxMessageStatus.unfiled;
