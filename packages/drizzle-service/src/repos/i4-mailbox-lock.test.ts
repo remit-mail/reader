@@ -282,6 +282,45 @@ describe("MailboxLockRepo", () => {
 		assert.equal(lock, null, "lock released after throw");
 	});
 
+	test("withMailboxLock renews its lease while the operation runs", async () => {
+		const leased = new MailboxLockRepo(db as never, {
+			seconds: 2,
+			renewEveryMs: 500,
+		});
+		const mailboxId = randomId();
+		const accountId = randomId();
+		const eventName = "SYNC_MESSAGES";
+		const startedAt = Date.now();
+
+		const heldPastLease = await leased.withMailboxLock(
+			mailboxId,
+			eventName,
+			accountId,
+			async () => {
+				const acquired = await leased.get(accountId, mailboxId, eventName);
+				assert.ok(acquired);
+				assert.ok(acquired.ttl <= Math.floor(startedAt / 1000) + 3);
+				await new Promise((resolve) => setTimeout(resolve, 3_500));
+				return leased.tryAcquireLock(
+					mailboxId,
+					eventName,
+					accountId,
+					randomId(),
+					2,
+				);
+			},
+		);
+
+		assert.equal(heldPastLease.executed, true);
+		assert.equal(
+			heldPastLease.result,
+			false,
+			"the renewed lease is still held",
+		);
+		const lock = await leased.get(accountId, mailboxId, eventName);
+		assert.equal(lock, null, "lock released after operation");
+	});
+
 	test("get returns null when no lock exists", async () => {
 		const lock = await repo.get(randomId(), randomId(), "SYNC_MESSAGES");
 		assert.equal(lock, null);
