@@ -178,6 +178,60 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		);
 	});
 
+	const operatorCases = [
+		{
+			term: "a OR b",
+			matching: ["a OR b literal"],
+			other: ["a alone", "b alone"],
+		},
+		{
+			term: "NOT x",
+			matching: ["NOT x here"],
+			other: ["x alone", "y alone"],
+		},
+		{
+			term: "NEAR(a b)",
+			matching: ["NEAR a b together"],
+			other: ["a then b", "a b"],
+		},
+		{
+			term: '"',
+			matching: ['say "hi"'],
+			other: ["plain words"],
+		},
+		{
+			term: "*",
+			matching: ["2 * 3"],
+			other: ["plain words"],
+		},
+		{
+			term: "subject:x",
+			matching: ["subject x notes"],
+			other: ["x alone", "plain words"],
+		},
+		{
+			term: "^x",
+			matching: ["x alone"],
+			other: ["y alone", "plain words"],
+		},
+	];
+
+	for (const { term, matching, other } of operatorCases) {
+		test(`search treats ${JSON.stringify(term)} as literal text, not FTS5 syntax`, async () => {
+			const mailboxId = `mbx-operators-${Math.random().toString(36).slice(2)}`;
+			for (const subject of [...matching, ...other]) {
+				await repo.create(makeInput({ mailboxId, subject }));
+			}
+			const result = await repo.searchByMailbox(
+				ACCOUNT,
+				mailboxId,
+				{ subject: term },
+				{ count: 50 },
+			);
+			assert.deepEqual(result.items.map((i) => i.subject).sort(), matching);
+		});
+	}
+
 	test("countByMailbox counts matches under the same predicate", async () => {
 		const n = await repo.countByMailbox(ACCOUNT, MAILBOX, {
 			subject: "invoice",
