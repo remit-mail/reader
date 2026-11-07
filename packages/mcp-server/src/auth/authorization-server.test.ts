@@ -178,8 +178,12 @@ after(async () => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
+// The address every helper calls from. A group that would spend another's
+// per-address budget for client registration or token exchange moves it.
+let callerAddress = PEER;
+
 const call = (path: string, init: RequestInit = {}): Promise<Response> =>
-	app(new Request(`${MCP_ORIGIN}${path}`, init), PEER);
+	app(new Request(`${MCP_ORIGIN}${path}`, init), callerAddress);
 
 const form = (
 	path: string,
@@ -915,6 +919,7 @@ describe("the People operations reach the connector (#1519)", () => {
 	let people: PeopleAdmin;
 
 	before(async () => {
+		callerAddress = "203.0.113.150";
 		people = await createPeopleDirectory({
 			auth: mainAuth,
 			store: mainStore,
@@ -922,7 +927,10 @@ describe("the People operations reach the connector (#1519)", () => {
 		});
 	});
 
-	after(() => people.close());
+	after(() => {
+		callerAddress = PEER;
+		people.close();
+	});
 
 	const userIdOf = (email: string): string => {
 		const sqlite = new Database(filename, { readonly: true });

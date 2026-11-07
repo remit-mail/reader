@@ -56,8 +56,16 @@ const cookiesOf = (response: Response): string =>
 		.map((value) => value.split(";")[0])
 		.join("; ");
 
-const signIn = (email: string, password = PASSWORD) =>
-	post("/sign-in/email", { email, password });
+// Each group signs in from its own address: the sign-in limit is five a minute
+// per address, and the groups together sign in more often than that.
+const signInFrom =
+	(clientIp: string) =>
+	(email: string, password = PASSWORD) =>
+		post(
+			"/sign-in/email",
+			{ email, password },
+			{ [CLIENT_IP_HEADER]: clientIp },
+		);
 
 const signUp = async (email: string): Promise<string> => {
 	const response = await post("/sign-up/email", {
@@ -135,6 +143,7 @@ after(() => {
 });
 
 describe("a disabled account", () => {
+	const signIn = signInFrom("198.51.100.31");
 	const EMAIL = "disabled@remit.test";
 	let userId: string;
 
@@ -191,6 +200,7 @@ describe("a disabled account", () => {
 });
 
 describe("a password reset link", () => {
+	const signIn = signInFrom("198.51.100.32");
 	const EMAIL = "reset@remit.test";
 	const NEW_PASSWORD = "a different long passphrase";
 	let userId: string;
@@ -240,9 +250,14 @@ describe("a password reset link", () => {
 
 	it("stops the old password and every session at once", async () => {
 		assert.equal((await signIn(EMAIL)).status, 401);
-		assert.deepEqual(
-			sql("SELECT id FROM auth_session WHERE user_id = ?", userId),
-			[],
+		const listed = await people.listPeople({
+			callerId: operatorId,
+			clientIp: PEER,
+		});
+		assert.ok(listed.ok);
+		assert.equal(
+			listed.value.find((person) => person.userId === userId)?.sessionCount,
+			0,
 		);
 	});
 
