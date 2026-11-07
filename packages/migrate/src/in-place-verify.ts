@@ -28,6 +28,12 @@ export const ADDED_COLUMNS: ReadonlyMap<string, string> = new Map([
 	["auth_jwks.crv", "auth 0001"],
 ]);
 
+/** Columns the migration adds with a value on every row: never NULL. */
+export const FILLED_COLUMNS: ReadonlyMap<string, string> = new Map([
+	["auth_user.disabled", "app 0002"],
+	["auth_user.last_sign_in_at", "app 0002"],
+]);
+
 /**
  * Rebuilt from the mail rows, or the migrators' own bookkeeping: neither is
  * data the migration has to carry.
@@ -376,6 +382,7 @@ export const verifyAfter = (
 		}
 		for (const column of now) {
 			if (columns.includes(column)) continue;
+			if (FILLED_COLUMNS.has(`${table}.${column}`)) continue;
 			if (!ADDED_COLUMNS.has(`${table}.${column}`)) {
 				problems.push(`${table}.${column} was added outside the delta`);
 				continue;

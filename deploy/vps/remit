@@ -188,6 +188,15 @@ Usage: $PROG <command> [args]
   mcp login            Connect a headless Claude Code to the MCP server: prints
                        a code to approve in a browser, then the
                        'claude mcp add' line that carries the issued token.
+  sign-in on|off       The kill switch. Off refuses every sign-in, token and
+                       session, revokes every session and MCP connection, and
+                       stops calendar feeds. Mail and settings are untouched.
+  sign-up on|off       Whether anyone who reaches this server can create an
+                       account. Turn it off once everyone has signed up; the
+                       People page in Settings appears then.
+  people enable <email>
+                       Let a disabled account sign in again.
+  people reset <email> Print a single-use password reset link for an account.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -551,9 +560,12 @@ set_var() {
 	rm -f "$REMIT_DIR/.env.tmp"
 	(
 		umask 077
+		# The key is written once, in place of its first line, and every later
+		# line with the same key is dropped: Compose reads the last duplicate, so
+		# a stray second line would otherwise override the value written here.
 		_k="$_k" _v="$_v" awk '
 			BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"]; done = 0 }
-			!done && index($0, k "=") == 1 { print k "=" v; done = 1; next }
+			index($0, k "=") == 1 { if (!done) print k "=" v; done = 1; next }
 			{ print }
 			END { if (!done) print k "=" v }
 		' "$REMIT_DIR/.env" >"$REMIT_DIR/.env.tmp"
@@ -3806,6 +3818,94 @@ cmd_mcp() {
 	esac
 }
 
+# --- sign-in, sign-up, people (#1519) ---------------------------------------
+
+# How many times the running backend is asked whether it read the switch, one
+# GATE_PROBE_INTERVAL apart: `up -d` returns before a recreated backend serves.
+SIGN_IN_PROBE_ATTEMPTS="${REMIT_SIGN_IN_PROBE_ATTEMPTS:-30}"
+
+# Run inside the backend container, so it asks the process that is serving and
+# not the file. Prints "<status> <body>" on one line.
+# shellcheck disable=SC2016 # JavaScript, not shell
+SIGN_IN_PROBE='fetch("http://127.0.0.1:8080/api/auth/get-session").then(async (r) => console.log(`${r.status} ${(await r.text()).replace(/\s+/g, " ")}`), (e) => console.log(`000 ${e.message}`))'
+
+# Writes VAR=true|false, then reads the file back: exactly one line, holding the
+# value just written, or nothing restarts.
+set_switch() {
+	_ss_cmd=$1
+	_ss_var=$2
+	_ss_value=$3
+	set_var "$_ss_var" "$_ss_value"
+	_ss_lines=$(grep -c "^$_ss_var=" "$REMIT_DIR/.env" || true)
+	_ss_read=$(get_var "$_ss_var")
+	if [ "$_ss_lines" != "1" ] || [ "$_ss_read" != "$_ss_value" ]; then
+		die "$_ss_cmd: expected one line $_ss_var=$_ss_value in $REMIT_DIR/.env, found $_ss_lines line(s) reading '$_ss_read'. Nothing was restarted."
+	fi
+	apply
+}
+
+switch_value() {
+	[ $# -eq 2 ] || die "$1: needs 'on' or 'off'"
+	case "$2" in
+	on) printf true ;;
+	off) printf false ;;
+	*) die "$1: needs 'on' or 'off', not '$2'" ;;
+	esac
+}
+
+# Off must answer 403 SIGN_IN_DISABLED; on must answer anything else.
+probe_sign_in() {
+	_ps_want=$1
+	_ps_try=0
+	while :; do
+		_ps_try=$((_ps_try + 1))
+		_ps_got=$(compose exec -T backend node -e "$SIGN_IN_PROBE" 2>&1) || true
+		case "$_ps_got" in
+		"403 "*'"SIGN_IN_DISABLED"'*) _ps_off=true ;;
+		*) _ps_off=false ;;
+		esac
+		case "$_ps_want:$_ps_off:$_ps_got" in
+		off:true:* | on:false:[1-9]*) return 0 ;;
+		esac
+		[ "$_ps_try" -lt "$SIGN_IN_PROBE_ATTEMPTS" ] || break
+		sleep "$GATE_PROBE_INTERVAL"
+	done
+	die "sign-in: .env says sign-in is $_ps_want, but the running backend answered '${_ps_got:-nothing}'. See '$PROG logs backend'."
+}
+
+cmd_sign_in() {
+	require_deployment
+	_si_value=$(switch_value sign-in "$@") || exit 1
+	set_switch sign-in SIGN_IN_ENABLED "$_si_value"
+	probe_sign_in "$1"
+	if [ "$1" = "off" ]; then
+		printf "Sign-in is off. Every session is revoked. Turn it back on with '%s sign-in on'.\n" "$PROG"
+	else
+		printf "Sign-in is on. People sign in again with their passwords. Turn it off with '%s sign-in off'.\n" "$PROG"
+	fi
+}
+
+cmd_sign_up() {
+	require_deployment
+	_su_value=$(switch_value sign-up "$@") || exit 1
+	set_switch sign-up SELF_SIGN_UP_ENABLED "$_su_value"
+	if [ "$1" = "off" ]; then
+		printf "Sign-up is off. Only existing accounts sign in, and the People page is in Settings. Turn it back on with '%s sign-up on'.\n" "$PROG"
+	else
+		printf "Sign-up is on. Anyone who reaches this server can create an account. Turn it off with '%s sign-up off'.\n" "$PROG"
+	fi
+}
+
+cmd_people() {
+	require_deployment
+	[ $# -eq 2 ] || die "people: needs 'enable <email>' or 'reset <email>'"
+	case "$1" in
+	enable | reset) ;;
+	*) die "people: unknown subcommand '$1' — use 'enable <email>' or 'reset <email>'" ;;
+	esac
+	compose run --rm --no-deps -T migrate node people-admin.mjs "$1" "$2"
+}
+
 # --- doctor (docs/design/standalone-observability.md D4) --------------------
 #
 # The verdict is computed in the `doctor` container and nowhere else. The
@@ -4040,6 +4140,9 @@ main() {
 	check-categories) cmd_check_categories "$@" ;;
 	cert) cmd_cert "$@" ;;
 	mcp) cmd_mcp "$@" ;;
+	sign-in) cmd_sign_in "$@" ;;
+	sign-up) cmd_sign_up "$@" ;;
+	people) cmd_people "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"
 		probe_host "$1"

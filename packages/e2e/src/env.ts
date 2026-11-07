@@ -143,3 +143,13 @@ export const rejectingSmtpSinkApi = `http://127.0.0.1:${required("E2E_SMTP_REJEC
  * redelivery an at-least-once queue produces on its own (#858).
  */
 export const queueApi = `http://127.0.0.1:${required("E2E_QUEUE_PORT")}`;
+
+/**
+ * The backend that serves the People operations (#1519). They answer only with
+ * self sign-up closed, and every other spec signs up, so the source-built lane
+ * runs a second backend on the same databases with sign-up closed and reaches
+ * it directly. The image lane has none.
+ */
+const peoplePort = process.env.E2E_PEOPLE_SERVER_PORT;
+export const peopleApiUrl =
+	peoplePort === undefined ? undefined : `http://127.0.0.1:${peoplePort}`;

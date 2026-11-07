@@ -49,6 +49,9 @@ import "./OrganizeJobRequest.tsp";
 // Standalone self-update (RFC 037)
 import "./SystemUpdate.tsp";
 
+// Self-host People operations (#1519)
+import "./Person.tsp";
+
 // Calendar Layer (iCalendar RFC 5545, CalDAV RFC 4791, issue #15)
 import "./CalendarCollection.tsp";
 import "./CalendarObject.tsp";

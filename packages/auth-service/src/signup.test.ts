@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createAuth } from "./auth.js";
 import { resolveSelfSignUpEnabled } from "./config.js";
+import { openIdentityStore } from "./identity-store.js";
 
 describe("resolveSelfSignUpEnabled", () => {
 	it("defaults to enabled when unset or blank", () => {
@@ -36,7 +37,10 @@ const baseConfig = {
 
 describe("createAuth self-signup gate", () => {
 	it("rejects a signup request server-side when disabled, before any DB access", async () => {
-		const auth = await createAuth({ ...baseConfig, selfSignUpEnabled: false });
+		const auth = await createAuth(
+			{ ...baseConfig, selfSignUpEnabled: false, signInEnabled: true },
+			await openIdentityStore(baseConfig.connectionString),
+		);
 		const request = new Request(
 			"http://localhost:3000/api/auth/sign-up/email",
 			{

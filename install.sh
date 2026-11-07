@@ -806,16 +806,17 @@ signup_block() {
   DO THIS NOW — sign-up is open on a public address
 
   $ORIGIN is reachable from the whole internet, and anyone who
-  finds it can create an account until you close sign-up. Three steps:
+  finds it can create an account until you close sign-up. Two steps:
 
     1. Open $ORIGIN and sign up. That first account is yours.
        Give it a password worth having: it is exposed to password spraying
        now, not to a LAN.
 
     2. Close sign-up to everyone else:
-         sed -i 's/^SELF_SIGN_UP_ENABLED=.*/SELF_SIGN_UP_ENABLED=false/' $DIR/.env
+         $remit sign-up off
 
-    3. $remit restart
+  If anything goes wrong, turn every sign-in off at once:
+    $remit sign-in off
 
   ══════════════════════════════════════════════════════════════════════════
 EOF

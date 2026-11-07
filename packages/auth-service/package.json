@@ -21,6 +21,10 @@
     "./schema": {
       "types": "./src/schema/auth-schema-sqlite.ts",
       "default": "./src/schema/auth-schema-sqlite.ts"
+    },
+    "./people": {
+      "types": "./src/people.ts",
+      "default": "./src/people.ts"
     }
   },
   "scripts": {
@@ -38,7 +42,10 @@
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
-    "@types/better-sqlite3": "^7.6.13"
+    "@types/better-sqlite3": "^7.6.13",
+    "@remit/data-ports": "*",
+    "@remit/drizzle-sqlite-schema": "*",
+    "@remit/api-openapi-types": "*"
   },
   "license": "MIT",
   "publishConfig": {

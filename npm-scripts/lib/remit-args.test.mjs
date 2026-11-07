@@ -290,6 +290,53 @@ const CASES = {
 			},
 		],
 	},
+	// Taking a form means probing the running backend until it answers, which
+	// this do-nothing docker never does; remit-sign-in.test.mjs drives it.
+	"sign-in": {
+		refusal: /^remit: sign-in: needs 'on' or 'off'/m,
+		takes: [],
+		refuses: [
+			{ args: [], message: /^remit: sign-in: needs 'on' or 'off'$/m },
+			{
+				args: ["zzz"],
+				message: /^remit: sign-in: needs 'on' or 'off', not 'zzz'/m,
+			},
+			{
+				args: ["on", "zzz"],
+				message: /^remit: sign-in: needs 'on' or 'off'$/m,
+			},
+		],
+	},
+	"sign-up": {
+		refusal: /^remit: sign-up: needs 'on' or 'off'/m,
+		takes: [{ args: ["off"], proof: / up -d --remove-orphans$/m }],
+		refuses: [
+			{ args: [], message: /^remit: sign-up: needs 'on' or 'off'$/m },
+			{
+				args: ["zzz"],
+				message: /^remit: sign-up: needs 'on' or 'off', not 'zzz'/m,
+			},
+		],
+	},
+	people: {
+		refusal: /^remit: people: (needs|unknown subcommand)/m,
+		takes: [
+			{
+				args: ["enable", "a@example.com"],
+				proof: / migrate node people-admin\.mjs enable a@example\.com$/m,
+			},
+		],
+		refuses: [
+			{
+				args: [],
+				message: /^remit: people: needs 'enable <email>' or 'reset <email>'/m,
+			},
+			{
+				args: ["zzz", "a@example.com"],
+				message: /^remit: people: unknown subcommand 'zzz'/m,
+			},
+		],
+	},
 	redrive: {
 		refusal: /^remit: redrive: name one dead-letter queue/m,
 		takes: [

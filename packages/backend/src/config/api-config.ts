@@ -1,7 +1,14 @@
 import type { MsOAuthConfig } from "./msoauth.js";
 
+export type Switch = "Enabled" | "Disabled";
+
 export type AuthConfig =
-	| { mode: "BetterAuthJwt"; contentSigningSecret: string }
+	| {
+			mode: "BetterAuthJwt";
+			contentSigningSecret: string;
+			signIn: Switch;
+			selfSignUp: Switch;
+	  }
 	| { mode: "GatewayAuthorizer" };
 
 export type ResponseValidation = "Log" | "Skip";

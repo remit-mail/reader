@@ -1,4 +1,8 @@
-import type { ApiConfig, AuthConfig } from "./api-config.js";
+import {
+	resolveSelfSignUpEnabled,
+	resolveSignInEnabled,
+} from "@remit/auth-service/verifier";
+import type { ApiConfig, AuthConfig, Switch } from "./api-config.js";
 import type { MsOAuthConfig, MsOAuthCredentials } from "./msoauth.js";
 import { msOAuthCredentialsFromSecret } from "./msoauth-secrets-manager.js";
 
@@ -24,6 +28,8 @@ const commaList = (raw: string | undefined): readonly string[] =>
 		.map((origin) => origin.trim())
 		.filter((origin) => origin.length > 0);
 
+const switchOf = (on: boolean): Switch => (on ? "Enabled" : "Disabled");
+
 const authFromEnv = (env: NodeJS.ProcessEnv): AuthConfig =>
 	env.DATA_BACKEND === "sqlite"
 		? {
@@ -32,6 +38,10 @@ const authFromEnv = (env: NodeJS.ProcessEnv): AuthConfig =>
 					env,
 					"BETTER_AUTH_SECRET",
 					"The self-host SQL backend signs content URLs with it.",
+				),
+				signIn: switchOf(resolveSignInEnabled(env.SIGN_IN_ENABLED)),
+				selfSignUp: switchOf(
+					resolveSelfSignUpEnabled(env.SELF_SIGN_UP_ENABLED),
 				),
 			}
 		: { mode: "GatewayAuthorizer" };

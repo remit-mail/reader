@@ -163,7 +163,12 @@ describe("an unauthenticated calendar request", () => {
 	const selfHost = lambdaHandler(
 		async () => client,
 		testApiConfig({
-			auth: { mode: "BetterAuthJwt", contentSigningSecret: "s".repeat(32) },
+			auth: {
+				mode: "BetterAuthJwt",
+				signIn: "Enabled",
+				selfSignUp: "Enabled",
+				contentSigningSecret: "s".repeat(32),
+			},
 		}),
 	);
 

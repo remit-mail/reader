@@ -1,4 +1,14 @@
-import type { ApiConfig } from "./api-config.js";
+import type { ApiConfig, AuthConfig } from "./api-config.js";
+
+export const testSelfHostAuth = (
+	overrides: Partial<Extract<AuthConfig, { mode: "BetterAuthJwt" }>> = {},
+): AuthConfig => ({
+	mode: "BetterAuthJwt",
+	contentSigningSecret: "s".repeat(32),
+	signIn: "Enabled",
+	selfSignUp: "Enabled",
+	...overrides,
+});
 
 export const testApiConfig = (
 	overrides: Partial<ApiConfig> = {},

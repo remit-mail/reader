@@ -94,7 +94,12 @@ test("a self-host request with an invalid token answers 401 with correlation id 
 			throw new Error("a refused request must not build a client");
 		},
 		testApiConfig({
-			auth: { mode: "BetterAuthJwt", contentSigningSecret: "s".repeat(32) },
+			auth: {
+				mode: "BetterAuthJwt",
+				signIn: "Enabled",
+				selfSignUp: "Enabled",
+				contentSigningSecret: "s".repeat(32),
+			},
 		}),
 	);
 

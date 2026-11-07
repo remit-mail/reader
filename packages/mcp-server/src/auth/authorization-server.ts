@@ -7,7 +7,13 @@ import {
 	oauthProviderAuthServerMetadata,
 	type Scope,
 } from "@better-auth/oauth-provider";
-import { CLIENT_IP_HEADER } from "@remit/auth-service";
+import {
+	ACCOUNT_DISABLED,
+	CLIENT_IP_HEADER,
+	isUserDisabled,
+	SIGN_IN_DISABLED,
+	writeAudit,
+} from "@remit/auth-service";
 import { auth_account, auth_user } from "@remit/auth-service/schema";
 import {
 	type BetterAuthOptions,
@@ -76,6 +82,7 @@ export interface McpAuthConfig {
 	origin: string;
 	secret: string;
 	db: BetterSQLite3Database;
+	signInEnabled: boolean;
 }
 
 export const mcpResource = (origin: string): string => `${origin}${MCP_PATH}`;
@@ -198,6 +205,7 @@ const remitMcpBridge = (
 	db: BetterSQLite3Database,
 	resource: string,
 	oauthOptions: OAuthOptions<Scope[]>,
+	signInEnabled: boolean,
 ) =>
 	({
 		id: "remit-mcp",
@@ -223,6 +231,16 @@ const remitMcpBridge = (
 							message: "Invalid email or password",
 						});
 					}
+					if (isUserDisabled(db, result.userId)) {
+						writeAudit(db, {
+							actor: result.userId,
+							target: result.userId,
+							action: "SignInRefusedDisabled",
+							outcome: "RefusedDisabled",
+							clientIp: ctx.request?.headers.get(CLIENT_IP_HEADER) ?? "unknown",
+						});
+						throw new APIError("FORBIDDEN", { ...ACCOUNT_DISABLED });
+					}
 					const user = await ctx.context.internalAdapter.findUserById(
 						result.userId,
 					);
@@ -246,6 +264,9 @@ const remitMcpBridge = (
 					metadata: { SERVER_ONLY: true },
 				},
 				async (ctx) => {
+					if (!signInEnabled) {
+						throw new APIError("UNAUTHORIZED", { error: "invalid_token" });
+					}
 					const payload = await getOAuthProviderApi(
 						ctx,
 						oauthOptions,
@@ -262,6 +283,12 @@ const remitMcpBridge = (
 						throw new APIError("UNAUTHORIZED", {
 							error: "invalid_token",
 							error_description: "The user disconnected this client",
+						});
+					}
+					if (isUserDisabled(db, payload.sub)) {
+						throw new APIError("UNAUTHORIZED", {
+							error: "invalid_token",
+							error_description: "The account is disabled",
 						});
 					}
 					return ctx.json(payload);
@@ -434,6 +461,20 @@ const remitMcpBridge = (
 		},
 	}) satisfies BetterAuthPlugin;
 
+const isAlwaysServed = (path: string): boolean =>
+	path === JWKS_PATH || path.startsWith("/.well-known/");
+
+/**
+ * The kill switch on the connector's own better-auth instance: with
+ * `SIGN_IN_ENABLED` off every path but the JWKS and the server metadata is
+ * refused, so no one signs in, consents or exchanges a token.
+ */
+const signInGate = (signInEnabled: boolean) =>
+	createAuthMiddleware(async (ctx) => {
+		if (signInEnabled || isAlwaysServed(ctx.path)) return;
+		throw new APIError("FORBIDDEN", { ...SIGN_IN_DISABLED });
+	});
+
 export const buildMcpAuthOptions = (
 	config: McpAuthConfig,
 	database: BetterAuthOptions["database"],
@@ -446,6 +487,7 @@ export const buildMcpAuthOptions = (
 		trustedOrigins: [config.origin],
 		database,
 		disabledPaths: ["/token"],
+		hooks: { before: signInGate(config.signInEnabled) },
 		advanced: {
 			cookiePrefix: "remit-mcp",
 			ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
@@ -469,7 +511,12 @@ export const buildMcpAuthOptions = (
 				schema: { deviceCode: { modelName: "mcp_device_code" } },
 				verificationUri: `${config.origin}${DEVICE_PATH}`,
 			}),
-			remitMcpBridge(config.db, mcpResource(config.origin), oauthOptions),
+			remitMcpBridge(
+				config.db,
+				mcpResource(config.origin),
+				oauthOptions,
+				config.signInEnabled,
+			),
 		],
 	} satisfies BetterAuthOptions;
 };

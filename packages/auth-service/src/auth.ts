@@ -1,7 +1,16 @@
+import { logger } from "@remit/logger";
 import type { Auth as BetterAuthInstance } from "better-auth";
-import { betterAuth } from "better-auth";
+import { betterAuth, type GenericEndpointContext } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
 import { jwt } from "better-auth/plugins";
+import {
+	deleteSessions,
+	type IdentityStore,
+	isUserDisabled,
+	markSignedIn,
+	sessionUserOf,
+} from "./identity-store.js";
 import * as authSchemaSqlite from "./schema/auth-schema-sqlite.js";
 
 export interface AuthConfig {
@@ -20,6 +29,7 @@ export interface AuthConfig {
 	 * `disableSignUp`; accounts are then provisioned out-of-band.
 	 */
 	selfSignUpEnabled: boolean;
+	signInEnabled: boolean;
 }
 
 // The drizzle adapter better-auth runs against. better-sqlite3 and its drizzle
@@ -52,6 +62,88 @@ const buildAuthAdapter = async (config: AuthConfig) => {
  */
 export const CLIENT_IP_HEADER = "x-remit-client-ip";
 
+export const SIGN_IN_DISABLED = {
+	code: "SIGN_IN_DISABLED",
+	message: "Sign-in is turned off on this server.",
+} as const;
+
+export const ACCOUNT_DISABLED = {
+	code: "ACCOUNT_DISABLED",
+	message: "This account is disabled.",
+} as const;
+
+const RESET_TOKEN_TTL_SECONDS = 24 * 60 * 60;
+
+const UNKNOWN = "unknown";
+
+const clientIpOf = (ctx: GenericEndpointContext | null): string =>
+	ctx?.request?.headers.get(CLIENT_IP_HEADER) ??
+	ctx?.headers?.get(CLIENT_IP_HEADER) ??
+	UNKNOWN;
+
+const SESSION_PATHS: ReadonlySet<string> = new Set(["/token", "/get-session"]);
+
+/**
+ * The kill switch, then the disabled check on the two paths that carry a
+ * session forward. A sign-in that commits its session just after a disable
+ * would otherwise keep minting tokens; here that user's sessions go and the
+ * mint is refused.
+ */
+const gate = (store: IdentityStore, signInEnabled: boolean) =>
+	createAuthMiddleware(async (ctx) => {
+		if (!signInEnabled && ctx.path !== "/jwks") {
+			throw new APIError("FORBIDDEN", { ...SIGN_IN_DISABLED });
+		}
+		if (!SESSION_PATHS.has(ctx.path)) return;
+		const sessionToken = await ctx.getSignedCookie(
+			ctx.context.authCookies.sessionToken.name,
+			ctx.context.secret,
+		);
+		if (!sessionToken) return;
+		const user = sessionUserOf(store, sessionToken);
+		if (!user?.disabled) return;
+		store.immediate(() => {
+			deleteSessions(store, user.userId);
+			store.audit({
+				actor: user.userId,
+				target: user.userId,
+				action: "SignInRefusedDisabled",
+				outcome: "RefusedDisabled",
+				clientIp: clientIpOf(ctx),
+			});
+		});
+		throw new APIError("FORBIDDEN", { ...ACCOUNT_DISABLED });
+	});
+
+/**
+ * Every redeem of a reset link leaves a log line carrying its Origin, and a
+ * refused one an audit record. A refused token names no user.
+ */
+const resetAudit = (store: IdentityStore) =>
+	createAuthMiddleware(async (ctx) => {
+		if (ctx.path !== "/reset-password") return;
+		const refused = isAPIError(ctx.context.returned);
+		// biome-ignore lint/plugin/no-logger-info: a reset redeem is an audit-grade signal
+		logger.info(
+			{
+				origin: ctx.request?.headers.get("origin") ?? null,
+				clientIp: clientIpOf(ctx),
+				accepted: !refused,
+			},
+			"Password reset redeem",
+		);
+		if (!refused) return;
+		store.immediate(() =>
+			store.audit({
+				actor: UNKNOWN,
+				target: UNKNOWN,
+				action: "PasswordResetRefused",
+				outcome: "RefusedToken",
+				clientIp: clientIpOf(ctx),
+			}),
+		);
+	});
+
 const intEnv = (name: string, fallback: number): number => {
 	const raw = process.env[name];
 	if (!raw) return fallback;
@@ -75,6 +167,7 @@ const intEnv = (name: string, fallback: number): number => {
 // the public type stable across any consumer's dependency graph.
 export const createAuth = async (
 	config: AuthConfig,
+	store: IdentityStore,
 ): Promise<BetterAuthInstance> => {
 	const database = await buildAuthAdapter(config);
 
@@ -87,6 +180,45 @@ export const createAuth = async (
 			enabled: true,
 			autoSignIn: true,
 			disableSignUp: !config.selfSignUpEnabled,
+			resetPasswordTokenExpiresIn: RESET_TOKEN_TTL_SECONDS,
+			revokeSessionsOnPasswordReset: true,
+			onPasswordReset: async ({ user }, request) => {
+				store.immediate(() =>
+					store.audit({
+						actor: user.id,
+						target: user.id,
+						action: "PasswordResetRedeemed",
+						outcome: "Succeeded",
+						clientIp: request?.headers.get(CLIENT_IP_HEADER) ?? UNKNOWN,
+					}),
+				);
+			},
+		},
+		hooks: {
+			before: gate(store, config.signInEnabled),
+			after: resetAudit(store),
+		},
+		databaseHooks: {
+			session: {
+				create: {
+					before: async (session, ctx) => {
+						if (!isUserDisabled(store.db, session.userId)) return;
+						store.immediate(() =>
+							store.audit({
+								actor: session.userId,
+								target: session.userId,
+								action: "SignInRefusedDisabled",
+								outcome: "RefusedDisabled",
+								clientIp: clientIpOf(ctx),
+							}),
+						);
+						throw new APIError("FORBIDDEN", { ...ACCOUNT_DISABLED });
+					},
+					after: async (session) => {
+						markSignedIn(store, session.userId);
+					},
+				},
+			},
 		},
 		// Listing one header, and not better-auth's `x-forwarded-for` default,
 		// is what keeps the resolved address out of a caller's reach: an
@@ -118,10 +250,27 @@ export const createAuth = async (
 				},
 			},
 		},
-		user: { modelName: "auth_user" },
+		user: {
+			modelName: "auth_user",
+			additionalFields: {
+				disabled: {
+					type: "boolean",
+					required: false,
+					defaultValue: false,
+					input: false,
+					returned: false,
+				},
+			},
+		},
 		session: { modelName: "auth_session" },
 		account: { modelName: "auth_account" },
-		verification: { modelName: "auth_verification" },
+		verification: {
+			modelName: "auth_verification",
+			storeIdentifier: {
+				default: "plain",
+				overrides: { "reset-password": "hashed" },
+			},
+		},
 		plugins: [
 			jwt({
 				schema: { jwks: { modelName: "auth_jwks" } },

@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { resolveSignInEnabled } from "@remit/auth-service/verifier";
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
@@ -92,6 +93,7 @@ const auth = createMcpAuth({
 	origin: config.origin,
 	secret: config.secret,
 	db: openMcpAuthDatabase(config.databases.app).db,
+	signInEnabled: resolveSignInEnabled(),
 });
 const app = createMcpApp({
 	origin: config.origin,

@@ -202,6 +202,12 @@ export const TARGETS = [
 		external: [SQLITE],
 	},
 	{
+		name: "backend-people-admin",
+		entry: "packages/backend/scripts/people-admin.ts",
+		outfile: "dist-docker/backend/people-admin.mjs",
+		external: [SQLITE],
+	},
+	{
 		name: "backend-remit-cli",
 		entry: "packages/remit-cli/src/main.ts",
 		outfile: "dist-docker/backend/remit-cli.mjs",

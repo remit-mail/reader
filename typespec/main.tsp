@@ -127,6 +127,67 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Self-host People Operations (#1519)
+  // ============================================
+
+  @route("/people")
+  namespace PeopleOperations {
+    @doc("List everyone who signs in to this instance, ordered by email. Self-host only, and absent (404) while self sign-up is open.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listPeople():
+      | PeopleListResponse
+      | UnauthorizedError
+      | PeopleForbiddenError
+      | NotFoundError;
+
+    @doc("Trade the caller's current password for a single-use token that allows one action on one person for five minutes. Five wrong passwords in 15 minutes refuse further step-ups with 429. Absent (404) while self sign-up is open, or when the person does not exist.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/step-up")
+    op createStepUp(@body body: StepUpInput):
+      | StepUpResponse
+      | UnauthorizedError
+      | PeopleForbiddenError
+      | NotFoundError
+      | StepUpLockedError;
+
+    @doc("Sign the person out of every browser session and MCP connection. Needs a `SignOut` step-up for this person. A JWT already minted works until it expires, at most 15 minutes.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/{userId}/sign-out")
+    op signOutPerson(@path userId: string, @body body: SignOutPersonInput):
+      | Person
+      | UnauthorizedError
+      | PeopleForbiddenError
+      | NotFoundError;
+
+    @doc("Disable or enable the person. Needs a `Disable` or `Enable` step-up for this person. Refused with 409 `cannot_disable_self` when the caller disables themselves.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: false })
+    @route("/{userId}")
+    op updatePerson(@path userId: string, @body body: UpdatePersonInput):
+      | Person
+      | UnauthorizedError
+      | PeopleForbiddenError
+      | NotFoundError
+      | CannotDisableSelfError;
+
+    @doc("Issue a single-use password reset link for the person, valid 24 hours. Needs a `ResetPassword` step-up for this person. The person's old password stops working and their sessions are revoked.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/{userId}/password-reset")
+    op createPasswordReset(
+      @path userId: string,
+      @body body: CreatePasswordResetInput,
+    ):
+      | PasswordResetResponse
+      | UnauthorizedError
+      | PeopleForbiddenError
+      | NotFoundError;
+  }
+
+  // ============================================
   // Account Mailbox Operations
   // ============================================
 

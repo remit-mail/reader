@@ -10,6 +10,8 @@ export {
 	AUTH_BASE_PATH,
 	AUTH_JWKS_PATH,
 	AUTH_TOKEN_PATH,
+	resolveSelfSignUpEnabled,
+	resolveSignInEnabled,
 	resolveVerifierConfig,
 	type VerifierConfig,
 } from "./config.js";

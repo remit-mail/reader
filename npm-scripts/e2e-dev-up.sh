@@ -18,7 +18,8 @@ e2e_dev_install_env
 e2e_dev_require_free_ports "$E2E_HTTP_PORT" "$E2E_IMAP_PORT" \
 	"$E2E_IMAP_NAMED_TRASH_PORT" "$E2E_SMTP_PORT" "$E2E_SMTP_HTTP_PORT" \
 	"$E2E_SMTP_REJECT_PORT" "$E2E_SMTP_REJECT_HTTP_PORT" \
-	"$SERVER_PORT" "$QUEUE_SIDECAR_PORT" "$E2E_MSOAUTH_TOKEN_PORT"
+	"$SERVER_PORT" "$QUEUE_SIDECAR_PORT" "$E2E_MSOAUTH_TOKEN_PORT" \
+	"$E2E_PEOPLE_SERVER_PORT"
 mkdir -p "$STORAGE_LOCAL_PATH"
 
 echo "e2e-dev: starting both dovecots, both mailpits and the Microsoft token stand-in"
@@ -42,6 +43,12 @@ e2e_dev_start imap-worker npm --prefix "$REPO_ROOT" run dev -w @remit/imap-worke
 e2e_dev_start smtp-worker npm --prefix "$REPO_ROOT" run dev -w @remit/smtp-worker
 e2e_dev_start account-worker npm --prefix "$REPO_ROOT" run dev -w @remit/account-worker
 e2e_dev_wait_for backend "http://127.0.0.1:${SERVER_PORT}/health" 90
+
+# The same backend on the same databases with self sign-up closed: the People
+# operations answer only there (#1519), and every other spec needs it open.
+e2e_dev_start backend-people env SERVER_PORT="$E2E_PEOPLE_SERVER_PORT" \
+	SELF_SIGN_UP_ENABLED=false npm --prefix "$REPO_ROOT" run serve -w @remit/backend
+e2e_dev_wait_for backend-people "http://127.0.0.1:${E2E_PEOPLE_SERVER_PORT}/health" 90
 e2e_dev_require_running imap-worker smtp-worker account-worker
 
 echo "e2e-dev: starting the web client"
