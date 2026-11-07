@@ -11,8 +11,9 @@ import type {
 	IQuarantineRepository,
 	ISyncWarningRepository,
 	IThreadMessageRepository,
+	MailboxLease,
 } from "@remit/data-ports";
-import { isNotFoundError } from "@remit/data-ports/errors";
+import { isNotFoundError, LostLeaseError } from "@remit/data-ports/errors";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -180,12 +181,13 @@ export const syncMessages = async (
 				event.mailboxId,
 				"SYNC_MESSAGES",
 				event.accountId,
-				async () => {
+				async (lease) => {
 					try {
 						await syncMailboxMessages(
 							event,
 							account,
 							pool.borrow(account, credentials),
+							lease,
 							{
 								accountService,
 								mailboxService,
@@ -211,6 +213,20 @@ export const syncMessages = async (
 							(err instanceof MailConnectionError && err.kind === "auth")
 						) {
 							throw err;
+						}
+						// A successor took the lapsed lease and now owns this mailbox's
+						// sync, so this round stops without recording an error phase.
+						if (err instanceof LostLeaseError) {
+							log.warn(
+								{
+									accountId: event.accountId,
+									mailboxId: event.mailboxId,
+									eventId: event.eventId,
+									error: err.message,
+								},
+								"Resolving SYNC_MESSAGES: another holder took the lapsed mailbox lock",
+							);
+							return;
 						}
 						// The guard above is a check-then-act: a delete asked for while
 						// this round was in flight lands inside it, and the round then
@@ -357,6 +373,7 @@ const syncMailboxMessages = async (
 	event: SyncMessagesEvent,
 	account: AccountItem,
 	borrowed: BorrowedConnection,
+	lease: MailboxLease,
 	deps: SyncDeps,
 	log: Logger,
 ): Promise<void> => {
@@ -421,6 +438,7 @@ const syncMailboxMessages = async (
 			MESSAGE_BATCH_SIZE,
 		);
 	})().finally(() => borrowed.release());
+	await lease.renew();
 	log.info(
 		{
 			syncedCount: result.syncedCount,

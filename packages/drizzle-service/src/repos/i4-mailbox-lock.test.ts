@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { LostLeaseError } from "@remit/data-ports/errors";
 import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { MailboxLockRepo } from "./i4-mailbox-lock.js";
@@ -282,43 +283,33 @@ describe("MailboxLockRepo", () => {
 		assert.equal(lock, null, "lock released after throw");
 	});
 
-	test("withMailboxLock renews its lease while the operation runs", async () => {
-		const leased = new MailboxLockRepo(db as never, {
-			seconds: 2,
-			renewEveryMs: 500,
-		});
+	test("renew throws once a lapsed lease is taken by another holder", async () => {
+		const leased = new MailboxLockRepo(db as never, 1);
 		const mailboxId = randomId();
 		const accountId = randomId();
 		const eventName = "SYNC_MESSAGES";
-		const startedAt = Date.now();
+		const successor = randomId();
 
-		const heldPastLease = await leased.withMailboxLock(
-			mailboxId,
-			eventName,
-			accountId,
-			async () => {
-				const acquired = await leased.get(accountId, mailboxId, eventName);
-				assert.ok(acquired);
-				assert.ok(acquired.ttl <= Math.floor(startedAt / 1000) + 3);
-				await new Promise((resolve) => setTimeout(resolve, 3_500));
-				return leased.tryAcquireLock(
+		await assert.rejects(
+			leased.withMailboxLock(mailboxId, eventName, accountId, async (lease) => {
+				await lease.renew();
+				await new Promise((resolve) => setTimeout(resolve, 2_100));
+				const taken = await leased.tryAcquireLock(
 					mailboxId,
 					eventName,
 					accountId,
-					randomId(),
-					2,
+					successor,
+					60,
 				);
-			},
+				assert.equal(taken, true, "the lapsed lease is free to take");
+				await lease.renew();
+			}),
+			LostLeaseError,
 		);
 
-		assert.equal(heldPastLease.executed, true);
-		assert.equal(
-			heldPastLease.result,
-			false,
-			"the renewed lease is still held",
-		);
-		const lock = await leased.get(accountId, mailboxId, eventName);
-		assert.equal(lock, null, "lock released after operation");
+		const lock = await repo.get(accountId, mailboxId, eventName);
+		assert.equal(lock?.lockId, successor, "the successor keeps its lock");
+		await repo.releaseLock(accountId, mailboxId, eventName, successor);
 	});
 
 	test("get returns null when no lock exists", async () => {
