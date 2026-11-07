@@ -74,6 +74,10 @@ export const ACCOUNT_DISABLED = {
 
 const RESET_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 
+const MIN_PASSWORD_LENGTH = 12;
+
+const MAX_PASSWORD_LENGTH = 128;
+
 const UNKNOWN = "unknown";
 
 const clientIpOf = (ctx: GenericEndpointContext | null): string =>
@@ -180,6 +184,8 @@ export const createAuth = async (
 			enabled: true,
 			autoSignIn: true,
 			disableSignUp: !config.selfSignUpEnabled,
+			minPasswordLength: MIN_PASSWORD_LENGTH,
+			maxPasswordLength: MAX_PASSWORD_LENGTH,
 			resetPasswordTokenExpiresIn: RESET_TOKEN_TTL_SECONDS,
 			revokeSessionsOnPasswordReset: true,
 			onPasswordReset: async ({ user }, request) => {

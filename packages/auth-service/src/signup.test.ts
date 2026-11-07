@@ -60,4 +60,28 @@ describe("createAuth self-signup gate", () => {
 		const body = (await response.json()) as { code?: string };
 		assert.equal(body.code, "EMAIL_PASSWORD_SIGN_UP_DISABLED");
 	});
+
+	it("refuses an 11-character password", async () => {
+		const auth = await createAuth(
+			{ ...baseConfig, selfSignUpEnabled: true, signInEnabled: true },
+			await openIdentityStore(baseConfig.connectionString),
+		);
+		const request = new Request(
+			"http://localhost:3000/api/auth/sign-up/email",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "short@example.com",
+					password: "elevenchars",
+					name: "Short",
+				}),
+			},
+		);
+
+		const response = await auth.handler(request);
+
+		const body = (await response.json()) as { code?: string };
+		assert.equal(body.code, "PASSWORD_TOO_SHORT");
+	});
 });
