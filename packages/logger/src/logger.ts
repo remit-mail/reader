@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { redact } from "./redact.js";
 
 export type LogBindings = Record<string, unknown>;
 
@@ -190,7 +191,7 @@ export const createJsonLogger = (options: JsonLoggerOptions = {}): Logger => {
 						: value;
 			}
 			line.msg = msg;
-			write(JSON.stringify(line, safeReplacer()));
+			write(JSON.stringify(redact(line), safeReplacer()));
 		};
 
 		return {
