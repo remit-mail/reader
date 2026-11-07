@@ -167,14 +167,28 @@ describe("sendMail", () => {
 		assert.equal(result.isTransient, true);
 	});
 
-	it("returns a non-transient failure when the socket errors without an SMTP code", async () => {
-		const server = await spawn({ dropAfterGreeting: true });
-		const result = await sendMail(configFor(server.port), testMessage);
+	it("throws a network SmtpConnectionError before data when the server drops before the greeting", async () => {
+		const server = await spawn({ dropBeforeGreeting: true });
 
-		assert.equal(result.success, false);
-		assert.equal(result.isTransient, false);
-		assert.equal(result.smtpCode, undefined);
-		assert.ok(result.error);
+		await assert.rejects(
+			() => sendMail(configFor(server.port), testMessage),
+			(error: unknown) =>
+				error instanceof SmtpConnectionError &&
+				error.kind === "network" &&
+				!error.afterData,
+		);
+	});
+
+	it("marks a drop after the whole message was written as after data", async () => {
+		const server = await spawn({ dropAfterData: true });
+
+		await assert.rejects(
+			() => sendMail(configFor(server.port), testMessage),
+			(error: unknown) =>
+				error instanceof SmtpConnectionError &&
+				error.kind === "network" &&
+				error.afterData,
+		);
 	});
 });
 

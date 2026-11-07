@@ -25,11 +25,19 @@ export type SmtpErrorKind = "auth" | "network";
  */
 export class SmtpConnectionError extends Error {
 	readonly kind: SmtpErrorKind;
+	/** The whole message, end-of-data included, was written before it failed. */
+	readonly afterData: boolean;
 
-	constructor(kind: SmtpErrorKind, message: string, cause?: unknown) {
+	constructor(
+		kind: SmtpErrorKind,
+		message: string,
+		cause?: unknown,
+		afterData = false,
+	) {
 		super(message, { cause });
 		this.name = "SmtpConnectionError";
 		this.kind = kind;
+		this.afterData = afterData;
 	}
 }
 
@@ -95,19 +103,59 @@ type SmtpFailure = Error & {
 	code?: string;
 	command?: string;
 	response?: string;
+	originalCode?: string;
 };
 
+/**
+ * nodemailer's own codes for a connection that failed. It moves the system
+ * code (`ECONNRESET`, `ECONNREFUSED`) to `originalCode`.
+ */
 const NETWORK_ERROR_CODES = new Set([
-	"ECONNREFUSED",
+	"ECONNECTION",
+	"ESOCKET",
 	"ETIMEDOUT",
-	"ENOTFOUND",
-	"ECONNRESET",
-	"EHOSTUNREACH",
+	"EDNS",
+	"ETLS",
 ]);
+
+const noop = (): void => undefined;
+
+/**
+ * A nodemailer logger that only records whether the whole message, end of
+ * data included, was written to the socket: the one point after which the
+ * server may hold a copy.
+ */
+const dataWatch = () => {
+	const watch = {
+		afterData: false,
+		logger: {
+			trace: noop,
+			debug: noop,
+			warn: noop,
+			error: noop,
+			fatal: noop,
+			info: (entry: unknown) => {
+				if (
+					typeof entry === "object" &&
+					entry !== null &&
+					"tnx" in entry &&
+					entry.tnx === "message"
+				) {
+					watch.afterData = true;
+				}
+			},
+		},
+	};
+	return watch;
+};
 
 const VERIFY_TIMEOUT_MS = 12_000;
 
-const transporterFor = (config: SmtpConfig, socketTimeout: number) => {
+const transporterFor = (
+	config: SmtpConfig,
+	socketTimeout: number,
+	logger: ReturnType<typeof dataWatch>["logger"] | false = false,
+) => {
 	const timeout = config.connectionTimeout ?? 30_000;
 	return nodemailer.createTransport({
 		host: config.host,
@@ -119,10 +167,14 @@ const transporterFor = (config: SmtpConfig, socketTimeout: number) => {
 		greetingTimeout: timeout,
 		socketTimeout,
 		getSocket: config.getSocket,
+		logger,
 	});
 };
 
-const classifySmtpError = (error: SmtpFailure): SmtpConnectionError | null => {
+const classifySmtpError = (
+	error: SmtpFailure,
+	afterData = false,
+): SmtpConnectionError | null => {
 	const smtpCode = error.responseCode;
 
 	if (
@@ -145,8 +197,9 @@ const classifySmtpError = (error: SmtpFailure): SmtpConnectionError | null => {
 	if (error.code !== undefined && NETWORK_ERROR_CODES.has(error.code)) {
 		return new SmtpConnectionError(
 			"network",
-			`SMTP connection failed: ${error.code}`,
+			`SMTP connection failed: ${error.originalCode ?? error.code}`,
 			error,
+			afterData,
 		);
 	}
 
@@ -160,7 +213,8 @@ export const sendMail = async (
 	config: SmtpConfig,
 	message: MailMessage,
 ): Promise<SendResult> => {
-	const transporter = transporterFor(config, 300_000);
+	const watch = dataWatch();
+	const transporter = transporterFor(config, 300_000, watch.logger);
 
 	return transporter
 		.sendMail(toNodemailerOptions(message))
@@ -171,7 +225,7 @@ export const sendMail = async (
 			isTransient: false,
 		}))
 		.catch((error: SmtpFailure) => {
-			const classified = classifySmtpError(error);
+			const classified = classifySmtpError(error, watch.afterData);
 			if (classified) {
 				throw classified;
 			}

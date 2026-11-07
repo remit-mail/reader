@@ -174,17 +174,18 @@ describe("a row the worker settled", () => {
 		await assert.rejects(current(other.outboxMessageId));
 	});
 
-	it("is discardable but never sendable from unfiled", async () => {
+	it("is sendable again from unfiled, and discardable", async () => {
 		const unfiled = await message(OutboxMessageStatus.unfiled);
 
-		await assert.rejects(
-			queue().send(account.accountConfigId, unfiled.outboxMessageId),
-			/cannot be sent again/,
+		await queue().send(account.accountConfigId, unfiled.outboxMessageId);
+		assert.equal(
+			(await current(unfiled.outboxMessageId)).status,
+			OutboxMessageStatus.queued,
 		);
-		assert.deepEqual(enqueued, []);
 
-		await queue().deleteDraft(account.accountConfigId, unfiled.outboxMessageId);
-		await assert.rejects(current(unfiled.outboxMessageId));
+		const other = await message(OutboxMessageStatus.unfiled);
+		await queue().deleteDraft(account.accountConfigId, other.outboxMessageId);
+		await assert.rejects(current(other.outboxMessageId));
 	});
 });
 
@@ -278,7 +279,6 @@ describe("a message that is not the user's to edit", () => {
 		OutboxMessageStatus.queued,
 		OutboxMessageStatus.sending,
 		OutboxMessageStatus.sent,
-		OutboxMessageStatus.unfiled,
 	]) {
 		it(`refuses the edit of a ${status} row`, async () => {
 			const row = await message(status);
