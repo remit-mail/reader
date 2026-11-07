@@ -4,6 +4,7 @@ export interface FakeSmtpOptions {
 	authResponse?: string;
 	dataFinalResponse?: string;
 	dropAfterGreeting?: boolean;
+	dropAfterData?: boolean;
 }
 
 export interface FakeSmtp {
@@ -30,6 +31,10 @@ export const startFakeSmtp = (opts: FakeSmtpOptions = {}): Promise<FakeSmtp> =>
 					received.push(line);
 					if (line.includes("\r\n.\r\n")) {
 						inData = false;
+						if (opts.dropAfterData) {
+							socket.destroy();
+							return;
+						}
 						socket.write(opts.dataFinalResponse ?? "250 2.0.0 Ok\r\n");
 					}
 					return;

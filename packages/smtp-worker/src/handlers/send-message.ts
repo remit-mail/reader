@@ -153,9 +153,10 @@ const UNFILED_CONNECTION_LOST =
  * opened, so the server holds no copy and `failed` is safe — Retry sends the
  * only copy there is.
  *
- * `ECONNRESET` and `ETIMEDOUT` classify as `network` too and are deliberately
- * absent. Either can land after DATA, with the message already queued on the
- * server, and a `failed` row invites a Retry that delivers it twice.
+ * `ECONNRESET`, `ETIMEDOUT` and `ECONNECTION` (the server closed the
+ * connection) classify as `network` too and are deliberately absent. Each can
+ * land after DATA, with the message already queued on the server, and a
+ * redelivery or a `failed` row's Retry delivers it twice.
  */
 const NEVER_SUBMITTED_CODES: ReadonlySet<string> = new Set([
 	"ECONNREFUSED",
@@ -408,22 +409,24 @@ export const handleSendMessage = async (
 			await settleBlockedOnReauth(OutboxMessageStatus.sending);
 			return; // ACK — do not retry
 		}
-		// A password account's auth failure and every network failure retry on
-		// SQS redelivery until the queue's own budget runs out, then settle
-		// here instead of dead-lettering with the row stuck at `sending`
-		// (issue #951). Where it settles is the double-send question:
-		// `neverSubmitted` says the message cannot be on the server, so
-		// `failed` offers the Retry the user needs; anything else settles
-		// `unfiled`, the state that says a copy may be out there and which
-		// Retry is not offered on. Wait-or-reconcile
+		// A password account's auth failure and a connection that never opened
+		// retry on SQS redelivery until the queue's own budget runs out, then
+		// settle `failed` instead of dead-lettering with the row stuck at
+		// `sending` (issue #951): `neverSubmitted` says the message cannot be
+		// on the server, so `failed` offers the Retry the user needs. Any other
+		// connection failure may have landed after DATA, where a redelivery
+		// sends a second copy, so it settles `unfiled` on its first attempt:
+		// the state that says a copy may be out there and which Retry is not
+		// offered on. Wait-or-reconcile
 		// (docs/architecture/imap-mutations.md R2): neither applies — a
 		// submission leaves no server-side handle to reconcile against, so the
 		// row settles on what the failure itself proves.
 		if (err instanceof SmtpConnectionError) {
-			if (receiveCount < ctx.maxAttempts) {
+			const safeToResend = neverSubmitted(err);
+			if (safeToResend && receiveCount < ctx.maxAttempts) {
 				throw err;
 			}
-			const settled = neverSubmitted(err)
+			const settled = safeToResend
 				? { status: OutboxMessageStatus.failed, lastError: err.message }
 				: {
 						status: OutboxMessageStatus.unfiled,
@@ -444,7 +447,7 @@ export const handleSendMessage = async (
 					receiveCount,
 					status: settled.status,
 				},
-				"SMTP send retry exhausted; settling the row",
+				"SMTP connection failed; settling the row",
 			);
 			return; // ACK — settled terminal, no more retries
 		}

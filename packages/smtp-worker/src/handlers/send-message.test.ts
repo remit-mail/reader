@@ -686,15 +686,15 @@ describe("handleSendMessage retry-budget exhaustion (issue #951)", () => {
 	});
 
 	for (const code of ["ECONNRESET", "ETIMEDOUT"]) {
-		it(`settles an exhausted ${code} at \`unfiled\` — the server may hold the message`, async () => {
+		it(`settles a ${code} at \`unfiled\` on the first attempt — the server may hold the message`, async () => {
 			// Both classify as `network` and both can land after DATA, so a
-			// `failed` row here would offer a Retry that delivers a second copy.
+			// redelivery or a `failed` row's Retry would deliver a second copy.
 			const a = await arrange(w);
 
 			await handleSendMessage(
 				a.event,
 				{ ...w.ctx, getSocket: refusingSocket(code) },
-				MAX_ATTEMPTS,
+				1,
 			);
 
 			const row = await outboxRow(w, a);
@@ -703,6 +703,23 @@ describe("handleSendMessage retry-budget exhaustion (issue #951)", () => {
 			assert.match(String(row.lastError), new RegExp(code));
 		});
 	}
+
+	it("settles a connection the server closes after DATA at `unfiled`, sending once", async () => {
+		w.close();
+		w = await openWorld({ dropAfterData: true });
+		const a = await arrange(w);
+
+		await handleSendMessage(a.event, w.ctx, 1);
+
+		const row = await outboxRow(w, a);
+		assert.equal(row.status, OutboxMessageStatus.unfiled);
+		assert.match(String(row.lastError), /may already have been delivered/);
+		assert.equal(
+			w.smtp.received.filter((chunk) => chunk.includes("\r\n.\r\n")).length,
+			1,
+		);
+		assert.deepEqual(w.failures, ["network"]);
+	});
 
 	it("settles an exhausted transient SMTP refusal at `failed` instead of leaving it `queued` forever", async () => {
 		w.close();

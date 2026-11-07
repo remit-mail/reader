@@ -167,14 +167,14 @@ describe("sendMail", () => {
 		assert.equal(result.isTransient, true);
 	});
 
-	it("returns a non-transient failure when the socket errors without an SMTP code", async () => {
+	it("throws a network SmtpConnectionError when the server closes the connection", async () => {
 		const server = await spawn({ dropAfterGreeting: true });
-		const result = await sendMail(configFor(server.port), testMessage);
 
-		assert.equal(result.success, false);
-		assert.equal(result.isTransient, false);
-		assert.equal(result.smtpCode, undefined);
-		assert.ok(result.error);
+		await assert.rejects(
+			() => sendMail(configFor(server.port), testMessage),
+			(error: unknown) =>
+				error instanceof SmtpConnectionError && error.kind === "network",
+		);
 	});
 });
 
