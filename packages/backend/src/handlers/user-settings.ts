@@ -1,4 +1,5 @@
 import type {
+	ClassificationTestInput,
 	UpdateUserSettingsInput,
 	UserSettingsResponse,
 } from "@remit/api-openapi-types";
@@ -12,6 +13,7 @@ import type {
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import { AccountSettingName } from "@remit/domain-enums";
+import { logger } from "@remit/logger";
 import type { SecretsService } from "@remit/secrets-service";
 import type {
 	HandlerContext,
@@ -26,6 +28,7 @@ import {
 	readStoredClassification,
 	writeClassificationChange,
 } from "./classification-settings.js";
+import { testClassificationProvider } from "./classification-test.js";
 
 export interface UserSettingsDeps {
 	accountSetting: Pick<
@@ -157,5 +160,19 @@ export const UserSettingsOperations: Record<
 			ctx.identity.accountConfigId,
 		);
 		return readUserSettings(deps, ctx.identity.accountConfigId);
+	},
+
+	UserSettingsOperations_testClassificationProvider: async (context, ctx) => {
+		const tested = await testClassificationProvider(
+			{
+				accountSetting: ctx.client.accountSetting,
+				secrets: ctx.client.secrets,
+				logger,
+			},
+			ctx.identity.accountConfigId,
+			context.request.requestBody as ClassificationTestInput,
+		);
+		if (!tested.ok) return badRequest(tested.error);
+		return tested.value;
 	},
 };
