@@ -63,6 +63,11 @@ export {
 	type ClassificationBackfillTotals,
 } from "./classification-backfill.js";
 export {
+	CLASSIFICATION_LABEL_NAMES,
+	type ClassificationLabelDeps,
+	ensureClassificationLabels,
+} from "./classification-labels.js";
+export {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "./classify-message.js";

@@ -22,6 +22,7 @@ describe("the default invitation sender", () => {
 				accountSetting: client.accountSetting,
 				accounts: client.account,
 				secrets: client.secrets,
+				label: client.label,
 			},
 			accountConfigId,
 			{ defaultInvitationSenderAccountId: "1".repeat(25) },
