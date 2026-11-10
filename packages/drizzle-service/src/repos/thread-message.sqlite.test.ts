@@ -6,6 +6,7 @@ import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { queryPlan, selectsIssuedDuring } from "../test-query-plan.js";
 import {
 	BASE_DATE,
 	type Category,
@@ -1307,37 +1308,6 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		// this index on its (account_config_id, mailbox_id) prefix alone, so an
 		// index-only assertion would still pass with the predicate removed.
 		describe("query plan", () => {
-			const selectsDuring = async (
-				run: () => Promise<unknown>,
-			): Promise<string[]> => {
-				const captured: string[] = [];
-				const original = sqlite.prepare.bind(sqlite);
-				const record = (source: string) => {
-					captured.push(source);
-					return original(source);
-				};
-				sqlite.prepare = record as typeof sqlite.prepare;
-				try {
-					await run();
-				} finally {
-					sqlite.prepare = original as typeof sqlite.prepare;
-				}
-				return captured.filter((source) => /^\s*select/i.test(source));
-			};
-
-			const plansFor = (statements: string[]): string[] => {
-				assert.ok(statements.length > 0, "the repo issued a select");
-				return statements.flatMap((source) => {
-					const parameters = new Array((source.match(/\?/g) ?? []).length).fill(
-						0,
-					);
-					const rows = sqlite
-						.prepare(`EXPLAIN QUERY PLAN ${source}`)
-						.all(...parameters) as Array<{ detail: string }>;
-					return rows.map((row) => row.detail);
-				});
-			};
-
 			const assertServedByIndex = (plan: string[]): void => {
 				assert.ok(
 					plan.some(
@@ -1350,7 +1320,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 			};
 
 			test("the filtered window is served by tm_by_mailbox_category_date", async () => {
-				const statements = await selectsDuring(() =>
+				const statements = await selectsIssuedDuring(sqlite, () =>
 					repo.searchByMailboxWindow(
 						CAT_ACCOUNT,
 						CAT_MAILBOX,
@@ -1358,11 +1328,11 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 						{ limit: 50, order: "desc", excludeDeleted: true },
 					),
 				);
-				assertServedByIndex(plansFor(statements));
+				assertServedByIndex(queryPlan(sqlite, statements));
 			});
 
 			test("the filtered count is served by tm_by_mailbox_category_date", async () => {
-				const statements = await selectsDuring(() =>
+				const statements = await selectsIssuedDuring(sqlite, () =>
 					repo.countByMailbox(
 						CAT_ACCOUNT,
 						CAT_MAILBOX,
@@ -1370,7 +1340,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 						{ excludeDeleted: true },
 					),
 				);
-				assertServedByIndex(plansFor(statements));
+				assertServedByIndex(queryPlan(sqlite, statements));
 			});
 		});
 	});
