@@ -1,4 +1,4 @@
-import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
+import { classificationDefaultFromEnv } from "../config/classification-default.js";
 import type { RemitClient } from "./create-remit-client.js";
 
 export type {
@@ -8,14 +8,7 @@ export type {
 
 let clientPromise: Promise<RemitClient> | null = null;
 let injected: RemitClient | null = null;
-let classificationDefault: ClassificationDeploymentDefault | null = null;
-
-export const setClassificationDefault = (
-	value: ClassificationDeploymentDefault,
-): void => {
-	classificationDefault = value;
-	clientPromise = null;
-};
+const classificationDefault = classificationDefaultFromEnv(process.env);
 
 /**
  * Register the client from the composition root. An adapter that lives outside
@@ -46,11 +39,6 @@ const buildRelationalClient = async (): Promise<RemitClient> => {
 			"no client registered — register one with setClient() from your composition root",
 		);
 	}
-	if (!classificationDefault) {
-		throw new Error(
-			"no classification default registered — parse it at boot with classificationDefaultFromEnv() and register it with setClassificationDefault()",
-		);
-	}
 	const composition = await import("./compose-sqlite.js");
 	return composition.buildSqliteClient(classificationDefault);
 };
@@ -66,5 +54,4 @@ export const getClient = (): Promise<RemitClient> => {
 export const _resetForTest = (): void => {
 	clientPromise = null;
 	injected = null;
-	classificationDefault = null;
 };

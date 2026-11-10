@@ -1,5 +1,3 @@
-import { classificationDefaultFromEnv } from "@remit/backend/classification-default";
-import { setClassificationDefault } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
 import { startMetricsServer } from "@remit/logger-lambda/metrics";
 import { installNodeLogger } from "@remit/logger-lambda/node";
@@ -8,7 +6,6 @@ import { env } from "expect-env";
 import { fanoutHandler, finalizeHandler } from "./index.js";
 
 installNodeLogger();
-setClassificationDefault(classificationDefaultFromEnv(process.env));
 
 /**
  * Production queue poller, and the standalone entrypoint for the dedicated

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { setTimeout as delay } from "node:timers/promises";
 import { finishHalfDeletedAccounts } from "@remit/backend/account-deletion";
-import { classificationDefaultFromEnv } from "@remit/backend/classification-default";
-import { getClient, setClassificationDefault } from "@remit/backend/client";
+import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 import { backfillSearchText } from "@remit/mailbox-service";
@@ -20,7 +19,6 @@ import {
 } from "./tick.js";
 
 installNodeLogger();
-setClassificationDefault(classificationDefaultFromEnv(process.env));
 
 /**
  * The scheduled-sync runner for every deployment that has no EventBridge: the
