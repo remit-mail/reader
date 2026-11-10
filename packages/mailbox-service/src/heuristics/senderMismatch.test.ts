@@ -240,13 +240,11 @@ describe("extractSenderMismatch", () => {
 		'<a href="https://betaal-vordering.example.org/pay">Betaal uw factuur</a>',
 	];
 
-	it("flags the display name and the links on a spam-classified message", async () => {
+	it("flags an unrelated display name and an off-domain link", async () => {
 		const parsed = await parse(infoMedicsPhish);
 		assert.deepEqual(
 			extractSenderMismatch(parsed, {
 				fromDomain: "serviceupdatebank.atlassian.net",
-				providerSpamClassified: true,
-				placement: "other",
 				bulkSender: false,
 			}),
 			{
@@ -255,53 +253,6 @@ describe("extractSenderMismatch", () => {
 			},
 		);
 	});
-
-	it("flags a message sitting in Junk that the provider rated clean", async () => {
-		const parsed = await parse(infoMedicsPhish);
-		assert.deepEqual(
-			extractSenderMismatch(parsed, {
-				fromDomain: "serviceupdatebank.atlassian.net",
-				providerSpamClassified: false,
-				placement: "junk",
-				bulkSender: false,
-			}),
-			{
-				displayNameCorrespondence: DisplayNameCorrespondence.Unrelated,
-				offDomainLinkDomains: ["example.org"],
-			},
-		);
-	});
-
-	it("flags a provider-classified message outside Junk", async () => {
-		const parsed = await parse(infoMedicsPhish);
-		assert.deepEqual(
-			extractSenderMismatch(parsed, {
-				fromDomain: "serviceupdatebank.atlassian.net",
-				providerSpamClassified: true,
-				placement: "inbox",
-				bulkSender: false,
-			}),
-			{
-				displayNameCorrespondence: DisplayNameCorrespondence.Unrelated,
-				offDomainLinkDomains: ["example.org"],
-			},
-		);
-	});
-
-	for (const placement of ["inbox", "other"] as const) {
-		it(`compares nothing in ${placement} when the provider did not call the message spam`, async () => {
-			const parsed = await parse(infoMedicsPhish);
-			assert.deepEqual(
-				extractSenderMismatch(parsed, {
-					fromDomain: "serviceupdatebank.atlassian.net",
-					providerSpamClassified: false,
-					placement,
-					bulkSender: false,
-				}),
-				{},
-			);
-		});
-	}
 
 	it("flags a display name spelling the recipient's own address over a foreign domain", async () => {
 		const parsed = await parse([
@@ -315,8 +266,6 @@ describe("extractSenderMismatch", () => {
 		assert.equal(
 			extractSenderMismatch(parsed, {
 				fromDomain: "secresaludguaviare.gov.co",
-				providerSpamClassified: true,
-				placement: "other",
 				bulkSender: false,
 			}).displayNameCorrespondence,
 			DisplayNameCorrespondence.ForeignAddress,
@@ -336,8 +285,6 @@ describe("extractSenderMismatch", () => {
 		]);
 		const signals = extractSenderMismatch(parsed, {
 			fromDomain: "mailer.esp.example",
-			providerSpamClassified: true,
-			placement: "other",
 			bulkSender: true,
 		});
 		assert.equal(signals.displayNameCorrespondence, undefined);

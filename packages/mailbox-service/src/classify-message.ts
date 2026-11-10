@@ -13,7 +13,6 @@ import {
 	extractHasListUnsubscribe,
 	extractProviderSpam,
 } from "./heuristics/classifyByHeaders.js";
-import type { FolderPlacement } from "./heuristics/classifyPlacement.js";
 import { extractSenderMismatch } from "./heuristics/senderMismatch.js";
 
 type ThreadMessageCategory = ThreadMessageItem["category"];
@@ -81,7 +80,6 @@ export const classifyParsedMessage = async (
 	addressService: Pick<IAddressRepository, "getAddress">,
 	accountConfigId: string,
 	parsed: ParsedMail,
-	placement: FolderPlacement,
 ): Promise<ParsedMessageClassification> => {
 	const headerCategory = classifyByHeaders(parsed);
 	const authenticity = extractAuthenticity(parsed);
@@ -89,18 +87,11 @@ export const classifyParsedMessage = async (
 	const providerSpam = extractProviderSpam(parsed);
 	const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
 
-	// A passing SPF/DKIM/DMARC check proves the sending domain, not the
-	// identity the message claims — on a shared-tenant host the verified
-	// subdomain belongs to whoever signed up. These two comparisons say
-	// whether the claim holds, and run only over mail the provider already
-	// called spam or that sits in the Junk folder.
 	const senderMismatch =
 		authenticity === null
 			? {}
 			: extractSenderMismatch(parsed, {
 					fromDomain: authenticity.fromDomain,
-					providerSpamClassified: providerSpam?.classified === true,
-					placement,
 					bulkSender: hasListUnsubscribe,
 				});
 

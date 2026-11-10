@@ -144,7 +144,6 @@ export {
 } from "./folder-operations.js";
 export {
 	type FolderPlacementLookup,
-	resolveAccountFolderPlacements,
 	resolveFolderPlacement,
 } from "./folder-placement.js";
 export {

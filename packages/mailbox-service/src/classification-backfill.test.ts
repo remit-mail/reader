@@ -52,17 +52,14 @@ let storage: StorageService;
 let imap: FakeImapServer;
 let account: AccountItem;
 let inbox: MailboxItem;
-let junk: MailboxItem;
 
 beforeEach(async () => {
 	store = await openStore();
 	storage = store.storage();
 	imap = new FakeImapServer();
 	imap.addFolder("INBOX");
-	imap.addFolder("Junk");
 	account = await seedAccount(store);
 	inbox = await seedMailbox(store, account, "INBOX");
-	junk = await seedMailbox(store, account, "Junk", { specialUse: "Junk" });
 });
 
 afterEach(() => store.close());
@@ -81,8 +78,6 @@ const stored = async (
 
 const deps = () => ({
 	accountConfigService: store.accountConfig,
-	accountService: store.account,
-	mailboxSpecialUseService: store.mailboxSpecialUse,
 	addressService: store.address,
 	threadMessageService: store.threadMessage,
 	messageService: store.message,
@@ -113,20 +108,15 @@ describe("backfillClassifications", () => {
 		assert.equal(thread.listId, "news.example.com");
 	});
 
-	it("compares the sender of a Junk row the provider rated clean, not of an inbox row", async () => {
-		const inJunk = await stored(IMPERSONATION, junk);
-		const inInbox = await stored(IMPERSONATION);
+	it("compares the sender of an Inbox row", async () => {
+		const messageId = await stored(IMPERSONATION);
 
 		await backfillClassifications(deps());
 
 		assert.equal(
-			(await store.message.get(inJunk)).authenticity?.displayNameCorrespondence,
-			DisplayNameCorrespondence.Unrelated,
-		);
-		assert.equal(
-			(await store.message.get(inInbox)).authenticity
+			(await store.message.get(messageId)).authenticity
 				?.displayNameCorrespondence,
-			undefined,
+			DisplayNameCorrespondence.Unrelated,
 		);
 	});
 

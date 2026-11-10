@@ -58,7 +58,6 @@ describe("classifyParsedMessage", () => {
 			store.address,
 			"acc-1",
 			parsed,
-			"inbox",
 		);
 
 		assert.equal(classification.category, "newsletter");
@@ -82,7 +81,6 @@ describe("classifyParsedMessage", () => {
 			store.address,
 			"acc-1",
 			parsed,
-			"inbox",
 		);
 
 		assert.equal(classification.category, "personal");
@@ -90,14 +88,13 @@ describe("classifyParsedMessage", () => {
 });
 
 describe("classifyParsedMessage sender mismatch", () => {
-	it("compares the sender of mail in Junk the provider rated clean", async () => {
+	it("flags an unrelated display name and an off-domain link", async () => {
 		const parsed = await parseMessageBody(IMPERSONATION_EML);
 
 		const { fields: classification } = await classifyParsedMessage(
 			store.address,
 			"acc-1",
 			parsed,
-			"junk",
 		);
 
 		assert.equal(
@@ -107,23 +104,6 @@ describe("classifyParsedMessage sender mismatch", () => {
 		assert.deepEqual(classification.authenticity?.offDomainLinkDomains, [
 			"example.org",
 		]);
-	});
-
-	it("compares nothing for the same mail outside Junk without a provider verdict", async () => {
-		const parsed = await parseMessageBody(IMPERSONATION_EML);
-
-		const { fields: classification } = await classifyParsedMessage(
-			store.address,
-			"acc-1",
-			parsed,
-			"inbox",
-		);
-
-		assert.equal(
-			classification.authenticity?.displayNameCorrespondence,
-			undefined,
-		);
-		assert.equal(classification.authenticity?.offDomainLinkDomains, undefined);
 	});
 });
 

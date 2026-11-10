@@ -1,6 +1,5 @@
 import type {
 	IAccountConfigRepository,
-	IAccountRepository,
 	IAddressRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
@@ -12,11 +11,6 @@ import { parseMessageBody } from "./body-parse.js";
 import { extractSnippet } from "./body-sync.js";
 import { classifyParsedMessage } from "./classify-message.js";
 import { extractListId } from "./filters/list-id.js";
-import {
-	type FolderPlacementLookup,
-	resolveAccountFolderPlacements,
-} from "./folder-placement.js";
-import type { FolderPlacement } from "./heuristics/classifyPlacement.js";
 import {
 	denormalizeMessageCategory,
 	hasDecidedCategory,
@@ -50,8 +44,6 @@ export interface ClassificationBackfillCheckpointStore {
 
 export interface ClassificationBackfillDeps {
 	accountConfigService: Pick<IAccountConfigRepository, "listAll">;
-	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
-	mailboxSpecialUseService: FolderPlacementLookup;
 	/** Reads the sender's `Address.flags.category` override (issue #299). */
 	addressService: Pick<IAddressRepository, "getAddress">;
 	threadMessageService: Pick<
@@ -124,7 +116,6 @@ const classifyAndApply = async (
 	accountConfigId: string,
 	row: ThreadMessageItem,
 	bodyStorageKey: string,
-	placement: FolderPlacement,
 ): Promise<void> => {
 	const body = await deps.storageService.retrieve(bodyStorageKey);
 	const parsed = await parseMessageBody(body);
@@ -132,7 +123,6 @@ const classifyAndApply = async (
 		deps.addressService,
 		accountConfigId,
 		parsed,
-		placement,
 	);
 
 	// The same denormalized fields the body-store path writes (see
@@ -233,13 +223,6 @@ export const backfillClassifications = async (
 		const account = accounts[accountIndex];
 		let continuationToken: string | undefined =
 			accountIndex === startIndex ? startContinuationToken : undefined;
-		const mailAccounts = await deps.accountService.listAllByAccountConfig(
-			account.accountConfigId,
-		);
-		const placements = await resolveAccountFolderPlacements(
-			deps.mailboxSpecialUseService,
-			mailAccounts.map((mailAccount) => mailAccount.accountId),
-		);
 
 		do {
 			const page = await deps.threadMessageService.listByAccount(
@@ -314,7 +297,6 @@ export const backfillClassifications = async (
 						account.accountConfigId,
 						row,
 						message.bodyStorageKey,
-						placements.get(row.mailboxId) ?? "other",
 					).then(
 						() => null,
 						(error: unknown) => error,
