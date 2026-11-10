@@ -118,3 +118,55 @@ union ClassificationSettings {
   notConfigured: ClassificationNotConfigured,
   configured: ClassificationConfigured,
 }
+
+@doc("The classification provider form as it stands, saved or not.")
+model ClassificationTestInput {
+  presetId: ClassificationPresetId;
+
+  @doc("The model to ask for. Empty means the preset's default model.")
+  `model`: string;
+
+  @doc("The http or https base URL to call. Empty means the preset's default base URL.")
+  baseUrl: string;
+
+  @doc("The provider's API key. Empty means the key saved for this preset.")
+  apiKey: string;
+}
+
+@doc("The provider classified the sample message.")
+model ClassificationTestPassed {
+  state: "Passed";
+
+  @doc("How long the provider call took, in milliseconds.")
+  latencyMs: int32;
+
+  @doc("The label the provider chose for the sample message.")
+  label: ClassificationLabel;
+
+  @doc("The provider's confidence in `label`, between 0 and 1.")
+  confidence: float64;
+}
+
+@doc("The provider call gave no usable answer.")
+model ClassificationTestFailed {
+  state: "Failed";
+
+  @doc("How long the provider call took, in milliseconds.")
+  latencyMs: int32;
+
+  @doc("The HTTP status the provider answered with. Absent when no answer arrived.")
+  status?: int32;
+
+  kind: ClassificationFailureKind;
+
+  @doc("The form field to change. Absent when no field can fix it: a rate limit or a provider error.")
+  field?: ClassificationField;
+
+  @doc("What to change so the next test passes.")
+  fix: string;
+}
+
+union ClassificationTestResponse {
+  passed: ClassificationTestPassed,
+  failed: ClassificationTestFailed,
+}

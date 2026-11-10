@@ -745,6 +745,15 @@ namespace RemitApi {
     @delete
     @route("/classification-provider")
     op clearClassificationProvider(): UserSettingsResponse | UnauthorizedError;
+
+    @doc("Classify one built-in sample message with the form values, saved or not, and answer with the label or the failure. An empty key uses the saved key. Saved settings stay as they were, and the call counts toward no daily limit.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/classification-test")
+    op testClassificationProvider(@body input: ClassificationTestInput):
+      | ClassificationTestResponse
+      | ValidationError
+      | UnauthorizedError;
   }
 
   @route("/calendar-tasks")

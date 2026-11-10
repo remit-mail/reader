@@ -50,6 +50,6 @@ describe("a classification provider save", () => {
 		);
 
 		assert.ok(decided.ok);
-		assert.equal(decided.value.baseUrl, "https://api.eu.mistral.ai");
+		assert.equal(decided.value.baseUrl, "https://api.eu.mistral.ai/v1");
 	});
 });

@@ -13,6 +13,10 @@
       "types": "./src/filters/filter-config.ts",
       "default": "./src/filters/filter-config.ts"
     },
+    "./classifier": {
+      "types": "./src/classifier/index.ts",
+      "default": "./src/classifier/index.ts"
+    },
     "./body-sync-queue": {
       "types": "./src/body-sync-queue.ts",
       "default": "./src/body-sync-queue.ts"
@@ -44,6 +48,10 @@
     "./test-helpers/test-store": {
       "types": "./src/test-helpers/test-store.ts",
       "default": "./src/test-helpers/test-store.ts"
+    },
+    "./test-helpers/stub-http-server": {
+      "types": "./src/test-helpers/stub-http-server.ts",
+      "default": "./src/test-helpers/stub-http-server.ts"
     }
   },
   "scripts": {
@@ -97,6 +105,10 @@
         "types": "./dist/filters/filter-config.d.ts",
         "default": "./dist/filters/filter-config.js"
       },
+      "./classifier": {
+        "types": "./dist/classifier/index.d.ts",
+        "default": "./dist/classifier/index.js"
+      },
       "./body-sync-queue": {
         "types": "./dist/body-sync-queue.d.ts",
         "default": "./dist/body-sync-queue.js"
@@ -128,6 +140,10 @@
       "./test-helpers/test-store": {
         "types": "./dist/test-helpers/test-store.d.ts",
         "default": "./dist/test-helpers/test-store.js"
+      },
+      "./test-helpers/stub-http-server": {
+        "types": "./dist/test-helpers/stub-http-server.d.ts",
+        "default": "./dist/test-helpers/stub-http-server.js"
       }
     },
     "files": [
