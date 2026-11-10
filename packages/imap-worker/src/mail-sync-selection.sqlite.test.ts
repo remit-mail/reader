@@ -143,6 +143,7 @@ const tick = async (): Promise<{ enqueued: number; accountIds: string[] }> => {
 	const queue = recordingQueue();
 	const result = await runSchedulerTick({
 		redriveStrandedPlacements: async () => 0,
+		enqueueJunkReevaluation: async () => false,
 		accountService: accounts,
 		queue: queue.fifo,
 		log: silentLogger,

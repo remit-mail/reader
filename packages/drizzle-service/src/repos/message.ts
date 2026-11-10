@@ -9,6 +9,7 @@ import {
 	and,
 	asc,
 	type Column,
+	desc,
 	eq,
 	exists,
 	gt,
@@ -16,6 +17,7 @@ import {
 	isNotNull,
 	isNull,
 	lt,
+	lte,
 	or,
 	type SQL,
 	sql,
@@ -920,6 +922,31 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.from(messageTable)
 			.where(strandedPlacementCondition(mailboxIds, untouchedSince))
 			.orderBy(asc(messageTable.updatedAt), asc(messageTable.messageId));
+		return rows.map(toMessageItem);
+	}
+
+	async listUndecidedJunkBacklog(
+		junkMailboxId: string,
+		arrivedBy: number,
+		limit: number,
+	): ReturnType<IMessageRepository["listUndecidedJunkBacklog"]> {
+		const rows = await this.db
+			.select()
+			.from(messageTable)
+			.where(
+				and(
+					eq(messageTable.mailboxId, junkMailboxId),
+					lte(messageTable.internalDate, arrivedBy),
+					eq(messageTable.status, "active"),
+					isNull(messageTable.placementDecidedAt),
+					isNull(messageTable.spamReport),
+					isNull(messageTable.originalMailboxId),
+					eq(messageTable.movedByRemit, false),
+					isNotNull(messageTable.bodyStorageKey),
+				),
+			)
+			.orderBy(desc(messageTable.internalDate), asc(messageTable.messageId))
+			.limit(limit);
 		return rows.map(toMessageItem);
 	}
 

@@ -1,5 +1,10 @@
-import type { MessageItem } from "@remit/data-ports";
-import { SenderOverride, SenderTrust } from "@remit/domain-enums";
+import type { MessageItem, UpdateMessageInput } from "@remit/data-ports";
+import {
+	PlacementAction as PlacementActionValue,
+	PlacementConfidence,
+	SenderOverride,
+	SenderTrust,
+} from "@remit/domain-enums";
 
 type SenderTrustValue = (typeof SenderTrust)[keyof typeof SenderTrust];
 
@@ -263,5 +268,31 @@ export const decidePlacement = (
 			reasons: asInbox.reasons,
 		},
 		destination: autoArchive ? "archive" : "inbox",
+	};
+};
+
+export type MessagePlacementVerdict = NonNullable<
+	UpdateMessageInput["placementVerdict"]
+>;
+
+export const placementVerdictRecord = (
+	{ verdict, destination }: PlacementDecision,
+	placement: FolderPlacement,
+	decidedAt: number,
+): MessagePlacementVerdict | undefined => {
+	if (verdict.action === "leave" || destination === "archive") return undefined;
+	return {
+		action:
+			verdict.action === "move-to-inbox"
+				? PlacementActionValue.MoveToInbox
+				: PlacementActionValue.MoveToJunk,
+		confidence:
+			verdict.confidence === "confident"
+				? PlacementConfidence.Confident
+				: PlacementConfidence.Unsure,
+		fromPlacement: placement,
+		reasons: verdict.reasons,
+		dryRun: false,
+		decidedAt,
 	};
 };

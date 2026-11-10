@@ -22,10 +22,6 @@ import {
 	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
-	classificationUsageName,
-	utcDateOf,
-} from "@remit/data-ports/classification-presets";
-import {
 	MessageGoneFromServerError,
 	MessagePlacementUnsettledError,
 	NotFoundError,
@@ -36,11 +32,7 @@ import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
 	MessageClassificationState,
-	PlacementAction,
-	PlacementConfidence,
 	QuarantineFailureStage,
-	SenderOverride,
-	SenderTrust,
 	SyncWarningStage,
 } from "@remit/domain-enums";
 import {
@@ -59,21 +51,17 @@ import {
 	parsePartSource,
 } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
-import { classifyWithProvider } from "./classifier/classifier-adapter.js";
+import { consultClassifier } from "./classifier/classifier-consult.js";
 import {
 	CLASSIFIER_OFF,
 	type ClassifierConfig,
 	type ClassifierGate,
-	classifierMessageOf,
 	readClassifierGate,
 } from "./classifier/classifier-gate.js";
 import {
-	type ClassifierAnswer,
 	type ClassifierVerdict,
 	classificationLabelOf,
-	classifierVerdict,
 } from "./classifier/classifier-precedence.js";
-import { CLASSIFIER_LABELS } from "./classifier/index.js";
 import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
@@ -94,42 +82,31 @@ import {
 	placementOf,
 	resolveFolderRoleMailboxes,
 } from "./folder-placement.js";
-import {
-	decidePlacement,
-	type FolderPlacement,
-	resolveSenderPlacement,
-} from "./heuristics/classifyPlacement.js";
+import type { FolderPlacement } from "./heuristics/classifyPlacement.js";
 import {
 	denormalizeMessageCategory,
 	hasDecidedCategory,
 } from "./message-category.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
+import {
+	type PlaceMessageResult,
+	type PlacementUpdate,
+	placeMessage,
+} from "./place-message.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
+import {
+	readSenderPlacement,
+	type SenderPlacement,
+} from "./sender-placement.js";
 import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const BODY_PART_STORE_CONCURRENCY = 4;
 
-type MessagePlacementVerdict = NonNullable<
-	UpdateMessageInput["placementVerdict"]
->;
-
 type MessageFilterMove = NonNullable<UpdateMessageInput["filterMove"]>;
-
-/**
- * Outcome of {@link BodySyncService.resolvePlacement}: the audit `verdict` to
- * persist on the Message (present whenever Remit decided to act, i.e. action
- * != leave), and the IMAP `move` to enqueue (present only for a confident,
- * actionable verdict). An unsure verdict carries a `verdict` but no `move`.
- */
-interface PlacementOutcome {
-	verdict?: MessagePlacementVerdict;
-	move?: { destinationMailboxId: string; destinationPath: string };
-	placementDecidedAt?: number;
-}
 
 /**
  * Whether the body-sync hot path defers per-part S3 objects. Each MIME leaf is
@@ -350,12 +327,6 @@ const internalDateOf = (
 	}
 	return internalDate;
 };
-
-interface SenderPlacement {
-	senderTrust: (typeof SenderTrust)[keyof typeof SenderTrust];
-	senderOverride: (typeof SenderOverride)[keyof typeof SenderOverride];
-	autoArchive: boolean;
-}
 
 const NO_CLASSIFIER_VERDICT: ClassifierVerdict = { kind: "None" };
 
@@ -897,22 +868,6 @@ export class BodySyncService {
 			senderPlacement,
 		);
 
-		// Decide the placement move from the in-memory classification before the
-		// write, so its `movedByRemit` flag and audit verdict join the same
-		// UpdateItem. The verdict is recorded whenever Remit decided to act
-		// (action != leave); the move is enqueued only for a confident,
-		// actionable verdict.
-		const resolved = await this.resolvePlacement(
-			lookups,
-			messageId,
-			accountId,
-			accountConfigId,
-			arrival,
-			classification,
-			verdict.kind === "Junk",
-			senderPlacement,
-		);
-
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
 		// so if we wrote it first and the parsed-cache write then failed, the
@@ -949,6 +904,7 @@ export class BodySyncService {
 		// classifier's placement move (RFC 034 Decision 3.1) — an explicit user
 		// rule wins the single mailbox a message occupies — so at most one move is
 		// enqueued. A non-confident/leave verdict with no filter move is a no-op.
+		const decidedRow = await this.messageService.get(messageId);
 		let filterMove: MessageFilterMove | undefined;
 		let filterMoved = false;
 		if (filterDecision.move) {
@@ -961,21 +917,20 @@ export class BodySyncService {
 			// undo to stay derivable. A redelivery after a failed enqueue finds
 			// the move already applied locally, so the source is the folder the
 			// uid still names, not the one the row now points at.
-			const sourceMailboxId = uidMailboxIdOf(
-				await this.messageService.get(messageId),
-			);
+			const sourceMailboxId = uidMailboxIdOf(decidedRow);
 			const filed = await this.filterConfig?.placementMoveService.moveMessage(
 				accountConfigId,
 				messageId,
 				destinationMailboxId,
 				accountId,
+				decidedRow.mailboxId,
 			);
 			// A filter matches by content, not location: a message delivered
 			// straight into the destination (a server-side rule) or already filed
 			// there matches but was not moved by Remit. `moveMessage` no-ops in that
 			// case; record neither the marker nor `movedByRemit`, so the badge never
 			// claims a move that did not happen and its Undo is never a no-op.
-			if (sourceMailboxId !== destinationMailboxId && filed !== "refused") {
+			if (filed === "filed") {
 				filterMoved = true;
 				filterMove = {
 					filterId: filterDecision.move.filterId,
@@ -984,14 +939,19 @@ export class BodySyncService {
 					decidedAt: Date.now(),
 				};
 			}
-		} else if (resolved.move) {
-			await this.placementConfig?.placementMoveService.moveMessage(
-				accountConfigId,
-				messageId,
-				resolved.move.destinationMailboxId,
-				accountId,
-			);
 		}
+
+		const placed = await this.placeArrival(
+			lookups,
+			{ accountId, accountConfigId },
+			{ ...decidedRow, ...classification },
+			arrival,
+			verdict.kind === "Junk",
+			senderPlacement,
+			!filterDecision.move,
+		);
+		const placementUpdate: PlacementUpdate =
+			placed?.state === "Decided" ? placed.update : {};
 
 		// Additive label actions (RFC 034 Decision 3.1): every matching filter's
 		// label applies. The deterministic MessageLabel upsert is idempotent, so a
@@ -1040,8 +1000,6 @@ export class BodySyncService {
 			existingMessage.bodyStorageKey,
 		);
 
-		const moved = Boolean(resolved.move || filterMoved);
-
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
 		// classification/derived field + the move flag + the audit verdict,
 		// collapsed into a single write.
@@ -1059,11 +1017,6 @@ export class BodySyncService {
 		// override (issue #299): recomputing would let a *later* override silently
 		// rewrite a category already decided, which is exactly the churn RFC
 		// 030's GSI-safety argument forbids.
-		//
-		// `resolved.placementDecidedAt` (issue #383) is only ever present on
-		// the pass that first decided it: the re-store paths skip placement
-		// entirely (issue #1011), so `computePlacement` is reached only on a
-		// first store.
 		const finalCategory = hasDecidedCategory(existingMessage.category)
 			? existingMessage.category
 			: verdict.kind === "Category"
@@ -1088,12 +1041,9 @@ export class BodySyncService {
 			...classification,
 			category: finalCategory,
 			classificationState: MessageClassificationState.Examined,
-			...(moved ? { movedByRemit: true } : {}),
-			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
+			...placementUpdate,
+			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
-			...(resolved.placementDecidedAt
-				? { placementDecidedAt: resolved.placementDecidedAt }
-				: {}),
 		};
 		await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");
@@ -1295,52 +1245,15 @@ export class BodySyncService {
 		throw new MessageGoneFromServerError(messageId);
 	}
 
-	private async senderPlacementOf(
+	private senderPlacementOf(
 		accountConfigId: string,
 		parsed: ParsedMail,
 	): Promise<SenderPlacement> {
-		const fromEmail = extractPrimaryFromEmail(parsed);
-		const signals = fromEmail
-			? await this.deriveSenderPlacementSignals(accountConfigId, fromEmail)
-			: {
-					trust: SenderTrust.Unknown,
-					blocked: false,
-					neverSpam: false,
-					autoArchive: false,
-				};
-		return {
-			...resolveSenderPlacement(
-				{ trust: signals.trust, setAt: signals.trustSetAt },
-				{ blocked: signals.blocked, setAt: signals.blockedSetAt },
-				signals.neverSpam,
-			),
-			autoArchive: signals.autoArchive,
-		};
-	}
-
-	private async consultClassifier(
-		config: ClassifierConfig,
-		gate: Extract<ClassifierGate, { state: "On" }>,
-		account: { accountId: string; accountConfigId: string },
-		parsed: ParsedMail,
-	): Promise<ClassifierAnswer | undefined> {
-		const claim = await config.accountSetting.claimDailyCount({
-			accountConfigId: account.accountConfigId,
-			name: classificationUsageName(account.accountId),
-			date: utcDateOf(Date.now()),
-			limit: gate.dailyLimit,
-		});
-		if (claim.state === "AtLimit") return undefined;
-		const result = await classifyWithProvider(
-			{
-				provider: gate.provider,
-				labels: CLASSIFIER_LABELS,
-				message: classifierMessageOf(parsed),
-			},
-			{ logger: config.logger },
+		return readSenderPlacement(
+			this.addressService,
+			accountConfigId,
+			extractPrimaryFromEmail(parsed),
 		);
-		if (!result.ok) return undefined;
-		return { scores: result.scores, confidenceKind: result.confidenceKind };
 	}
 
 	private async decideClassifierVerdict(
@@ -1359,15 +1272,17 @@ export class BodySyncService {
 		if (gate.state === "Off" || arrival.internalDate <= gate.classifiesAfter) {
 			return NO_CLASSIFIER_VERDICT;
 		}
-		const { senderOverride } = await senderPlacement();
-		if (senderOverride !== SenderOverride.None) return NO_CLASSIFIER_VERDICT;
-		const answer = await this.consultClassifier(
+		const consulted = await consultClassifier(
 			classifierConfig,
 			gate,
 			account,
 			parsed,
+			(await senderPlacement()).senderOverride,
+			Date.now(),
 		);
-		return answer ? classifierVerdict(answer) : NO_CLASSIFIER_VERDICT;
+		return consulted.state === "Answered"
+			? consulted.verdict
+			: NO_CLASSIFIER_VERDICT;
 	}
 
 	private async applyClassifierLabel(
@@ -1413,75 +1328,6 @@ export class BodySyncService {
 			Date.now(),
 			bulk,
 		);
-	}
-
-	/**
-	 * The per-sender signals {@link computePlacement} needs, from ONE `Address`
-	 * fetch (RFC 039 Decision 3/3a, issue #300): the trust reads exactly as
-	 * `deriveSenderTrust` always did — `vip → wellknown → unknown`, untouched by
-	 * `blocked` — plus `blocked`/`autoArchive` off the same row. `trustSetAt` is
-	 * the `setAt` of whichever flag produced the trust value, needed by
-	 * {@link resolveSenderPlacement}'s tie-break; it stays local to placement and
-	 * never reaches `deriveSenderTrust`'s own contract (the trust badge).
-	 */
-	private async deriveSenderPlacementSignals(
-		accountConfigId: string,
-		fromEmail: string,
-	): Promise<{
-		trust: (typeof SenderTrust)[keyof typeof SenderTrust];
-		trustSetAt?: number;
-		blocked: boolean;
-		blockedSetAt?: number;
-		neverSpam: boolean;
-		autoArchive: boolean;
-	}> {
-		const unknown = {
-			trust: SenderTrust.Unknown,
-			blocked: false,
-			neverSpam: false,
-			autoArchive: false,
-		} as const;
-		try {
-			const addressId = deriveAddressId(accountConfigId, fromEmail);
-			const address = await this.addressService.getAddress(
-				accountConfigId,
-				addressId,
-			);
-			const flags = address.flags;
-			if (flags?.vip?.value === true) {
-				return {
-					trust: SenderTrust.Vip,
-					trustSetAt: flags.vip.setAt,
-					blocked: flags.blocked?.value === true,
-					blockedSetAt: flags.blocked?.setAt,
-					neverSpam: flags.neverSpam?.value === true,
-					autoArchive: flags.autoArchive?.value === true,
-				};
-			}
-			if (flags?.wellknown?.value === true) {
-				return {
-					trust: SenderTrust.Wellknown,
-					trustSetAt: flags.wellknown.setAt,
-					blocked: flags.blocked?.value === true,
-					blockedSetAt: flags.blocked?.setAt,
-					neverSpam: flags.neverSpam?.value === true,
-					autoArchive: flags.autoArchive?.value === true,
-				};
-			}
-			return {
-				...unknown,
-				blocked: flags?.blocked?.value === true,
-				blockedSetAt: flags?.blocked?.setAt,
-				neverSpam: flags?.neverSpam?.value === true,
-				autoArchive: flags?.autoArchive?.value === true,
-			};
-		} catch (err) {
-			// A genuinely-absent address means "no signals". Any other failure
-			// (AccessDenied, throttle, infra) must NOT be silently downgraded — let
-			// it crash so the placement decision isn't made on bad data.
-			if (!(err instanceof NotFoundError)) throw err;
-		}
-		return unknown;
 	}
 
 	/**
@@ -1733,179 +1579,38 @@ export class BodySyncService {
 		};
 	}
 
-	/**
-	 * Resolve the placement decision for a message, BEFORE the single Message
-	 * update — so both the `movedByRemit` flag and the audit verdict join that
-	 * one UpdateItem instead of a second mutation. Drives both directions off the
-	 * pure {@link decidePlacement}, which judges a Junk arrival as an Inbox
-	 * arrival (issue #1553).
-	 *
-	 * Returns a {@link PlacementOutcome}: a `verdict` to persist whenever Remit
-	 * decided to act (action != leave), confident and unsure alike, so the
-	 * distribution is queryable on the message; a `move` to enqueue when the
-	 * decision moves; and `placementDecidedAt` whenever a verdict — including
-	 * "leave" — was genuinely computed (issue #383), so a re-entrant call short-
-	 * circuits instead of re-deciding a placement the user may have since
-	 * overridden by hand.
-	 *
-	 * Always logs a structured verdict line for every move so the real
-	 * distribution is observable on a live mailbox.
-	 *
-	 * The verdict reads the just-computed classification rather than a persisted
-	 * row, since those fields are not written until the single update. Placement
-	 * is auxiliary to the body store — the primary artifact (body.eml) is already
-	 * durable by the time this runs — so a failure here (e.g. a placement-repo
-	 * query erroring on a schema-drifted DB) is caught and logged loudly with an
-	 * alertable field instead of failing the surrounding message store. The empty
-	 * {@link PlacementOutcome} means "no action", whether Remit genuinely decided
-	 * to leave the message alone or placement itself failed; the alert log is
-	 * what distinguishes the latter, and neither case marks the message decided.
-	 */
-	private async resolvePlacement(
+	private async placeArrival(
 		lookups: BatchLookups,
-		messageId: string,
-		accountId: string,
-		accountConfigId: string,
+		account: { accountId: string; accountConfigId: string },
+		message: MessageItem,
 		arrival: Arrival,
-		classification: UpdateMessageInput,
 		classifierJunk: boolean,
 		senderPlacement: () => Promise<SenderPlacement>,
-	): Promise<PlacementOutcome> {
-		if (!this.placementConfig) return {};
-		return this.computePlacement(
-			this.placementConfig,
-			lookups,
-			messageId,
-			accountId,
-			arrival,
-			classification,
-			classifierJunk,
-			senderPlacement,
-		).catch((error: unknown) => {
-			this.log.error?.(
-				{
-					alert: "body_sync_placement_failed",
-					messageId,
-					accountId,
-					accountConfigId,
-					errorName: (error as { name?: string })?.name,
-					error: inspect(error),
-				},
-				"Placement resolution failed; body already stored, continuing without placement (best-effort, non-fatal)",
-			);
-			return {};
-		});
-	}
-
-	private async computePlacement(
-		placementConfig: PlacementConfig,
-		lookups: BatchLookups,
-		messageId: string,
-		accountId: string,
-		arrival: Arrival,
-		classification: UpdateMessageInput,
-		classifierJunk: boolean,
-		senderPlacement: () => Promise<SenderPlacement>,
-	): Promise<PlacementOutcome> {
-		const { mailboxSpecialUseService } = placementConfig;
-
-		const message = await this.messageService.get(messageId);
-
-		// Issue #383 / #1011: placement still runs once per message (RFC 039
-		// Non-goals), but the once-per-message guarantee now comes from the
-		// caller rather than a guard here — the re-store paths
-		// (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force:
-		// true)`) skip the decision steps entirely, so only the pass that first
-		// stores a body ever reaches this method.
-
-		const roleMailboxes = await lookups.roleMailboxes();
-		const { junkMailbox, inboxMailbox } = roleMailboxes;
-		const placement = placementOf(message.mailboxId, roleMailboxes);
-
+		move: boolean,
+	): Promise<PlaceMessageResult | undefined> {
+		const { placementConfig } = this;
+		if (!placementConfig) return undefined;
+		const roles = await lookups.roleMailboxes();
+		const placement = placementOf(message.mailboxId, roles);
 		if (
 			placement === "junk" &&
 			arrival.internalDate <= arrival.folderCreatedAt
 		) {
-			return {};
+			return undefined;
 		}
-
-		const { senderTrust, senderOverride, autoArchive } =
-			await senderPlacement();
-		const archiveMailbox = autoArchive
-			? await mailboxSpecialUseService.findArchiveMailbox(accountId)
-			: null;
-
-		// The verdict needs the classification signals (providerSpam,
-		// authResult, authenticity) that this body-sync pass just derived; the
-		// stored row does not carry them yet, so overlay them onto the message.
-		const candidate = { ...message, ...classification };
-		const { verdict, destination } = decidePlacement(
-			candidate,
-			placement,
-			senderTrust,
-			senderOverride,
-			classifierJunk,
-			archiveMailbox !== null,
-		);
-
-		// Issue #383: "leave" is itself a verdict, not "not yet evaluated". An
-		// Archive move carries no audit verdict: `PlacementAction` has only
-		// `MoveToInbox`/`MoveToJunk` (issue #300).
-		const decidedAt = Date.now();
-		const outcome: PlacementOutcome =
-			verdict.action === "leave" || destination === "archive"
-				? { placementDecidedAt: decidedAt }
-				: {
-						verdict: {
-							action:
-								verdict.action === "move-to-inbox"
-									? PlacementAction.MoveToInbox
-									: PlacementAction.MoveToJunk,
-							confidence:
-								verdict.confidence === "confident"
-									? PlacementConfidence.Confident
-									: PlacementConfidence.Unsure,
-							fromPlacement: placement,
-							reasons: verdict.reasons,
-							dryRun: false,
-							decidedAt,
-						},
-						placementDecidedAt: decidedAt,
-					};
-
-		const target =
-			destination === undefined
-				? null
-				: {
-						inbox: inboxMailbox,
-						junk: junkMailbox,
-						archive: archiveMailbox,
-					}[destination];
-		if (!target || target.mailboxId === message.mailboxId) return outcome;
-
-		// Structured verdict line — emitted for every move so the real verdict
-		// distribution is observable on a live mailbox.
-		this.log.info(
+		return placeMessage(
+			{ ...placementConfig, log: this.log },
 			{
-				messageId,
-				accountId,
+				account,
+				message,
 				placement,
-				action: verdict.action,
-				confidence: verdict.confidence,
-				reasons: verdict.reasons,
-				destination,
-				destinationMailboxId: target.mailboxId,
+				roles,
+				sender: senderPlacement,
+				classifier: { state: "Judged", junk: classifierJunk },
+				move,
+				now: Date.now(),
 			},
-			"Placement verdict",
 		);
-
-		return {
-			...outcome,
-			move: {
-				destinationMailboxId: target.mailboxId,
-				destinationPath: target.fullPath,
-			},
-		};
 	}
 
 	// The old `enqueuePlacementMove` (best-effort, catch-and-log) lived here.

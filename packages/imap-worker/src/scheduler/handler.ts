@@ -9,6 +9,7 @@ import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import {
 	buildAttachmentSweep,
+	buildJunkReevaluationEnqueue,
 	redriveStrandedPlacements,
 	runSchedulerTick,
 } from "./tick.js";
@@ -54,6 +55,7 @@ export const buildScheduledHandler = (queues: WorkerQueues): ScheduledHandler =>
 				client,
 				log,
 			),
+			enqueueJunkReevaluation: buildJunkReevaluationEnqueue(client),
 			redriveStrandedPlacements: (account, tickNow) =>
 				redriveStrandedPlacements(
 					{

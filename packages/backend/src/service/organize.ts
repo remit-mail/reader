@@ -389,6 +389,7 @@ export const applyOrganize = async (
 				messageId,
 				predicate.actionMailboxId,
 				accountId,
+				message.mailboxId,
 			);
 			if (outcome === "refused") return { kind: "skipped" };
 		}

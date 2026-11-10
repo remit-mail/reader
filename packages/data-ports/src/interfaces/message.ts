@@ -57,6 +57,12 @@ export interface IMessageRepository {
 		mailboxIds: readonly string[],
 		untouchedSince: number,
 	): Promise<MessageItem[]>;
+	/** Active rows of a Junk folder that arrived by `arrivedBy`, body stored, that nothing has placed or decided yet, newest first. */
+	listUndecidedJunkBacklog(
+		junkMailboxId: string,
+		arrivedBy: number,
+		limit: number,
+	): Promise<MessageItem[]>;
 	describe(messageId: string): Promise<MessageDescription>;
 	updateUid(
 		messageId: string,

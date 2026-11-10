@@ -8,6 +8,7 @@ export type {
 	AccountDeleteEvent,
 	AccountExportEvent,
 	AccountFanoutEvent,
+	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
 } from "./interfaces/account-fanout-events.js";

@@ -223,6 +223,7 @@ describe("a move whose event dies leaves no row moving", () => {
 			a.message.messageId,
 			a.siblingTravel.mailboxId,
 			a.w.account.accountId,
+			a.inbox.mailboxId,
 		);
 
 		assert.equal(outcome, "refused");
@@ -415,6 +416,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 				a.message.messageId,
 				a.notifications.mailboxId,
 				a.w.account.accountId,
+				a.inbox.mailboxId,
 			),
 		);
 		assert.equal(

@@ -81,6 +81,7 @@ const moveToJunk = async (a: Arranged): Promise<PlacementMovePushEvent> => {
 		a.message.messageId,
 		a.junk.mailboxId,
 		a.w.account.accountId,
+		a.inbox.mailboxId,
 	);
 	return queuedOf<PlacementMovePushEvent>(a.w, "PLACEMENT_MOVE_PUSH");
 };
