@@ -29,6 +29,10 @@
 			"types": "./src/id.ts",
 			"default": "./src/id.ts"
 		},
+		"./classification-presets": {
+			"types": "./src/classification-presets.ts",
+			"default": "./src/classification-presets.ts"
+		},
 		"./account-settings": {
 			"types": "./src/account-settings.ts",
 			"default": "./src/account-settings.ts"

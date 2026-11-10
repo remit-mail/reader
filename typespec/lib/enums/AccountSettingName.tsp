@@ -46,4 +46,22 @@ enum AccountSettingName {
 
   @doc("The account calendar invitations, updates and cancellations go out from unless the event editor picks another: `UserSettings.defaultInvitationSenderAccountId`. String-valued (an accountId).")
   DefaultInvitationSenderAccountId,
+
+  @doc("The classification provider preset the reader saved (`ClassificationPresetId`). String-valued. Its absence means no provider is configured.")
+  ClassificationPresetId,
+
+  @doc("The model the classification provider is asked for. String-valued; the preset's default model when the reader left it empty.")
+  ClassificationModel,
+
+  @doc("The base URL the classification provider is called on. String-valued; the preset's default base URL when the reader left it empty.")
+  ClassificationBaseUrl,
+
+  @doc("The classification provider's API key as secrets-service ciphertext (`SerializedEncryptedPayload`). Map-valued. Never returned and never exported.")
+  ClassificationApiKey,
+
+  @doc("Whether classification runs. Boolean-valued; absent means off.")
+  ClassificationEnabled,
+
+  @doc("The most classification calls per mail account per UTC day. Number-valued; absent means 500.")
+  ClassificationDailyLimit,
 }

@@ -83,6 +83,7 @@ export type OperationIds =
 	| "UserSettingsOperations_getUserSettings"
 	| "UserSettingsOperations_updateUserSettings"
 	| "UserSettingsOperations_clearDefaultInvitationSender"
+	| "UserSettingsOperations_clearClassificationProvider"
 	| "CalendarTaskOperations_listCalendarTasks"
 	| "CalendarTaskOperations_createCalendarTask"
 	| "CalendarTaskDetailOperations_getCalendarTask"

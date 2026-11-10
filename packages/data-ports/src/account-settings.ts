@@ -83,6 +83,12 @@ export const accountSettingRegistry = {
 	 */
 	[AccountSettingName.MailboxRole]: StringSettingSchema,
 	[AccountSettingName.DefaultInvitationSenderAccountId]: StringSettingSchema,
+	[AccountSettingName.ClassificationPresetId]: StringSettingSchema,
+	[AccountSettingName.ClassificationModel]: StringSettingSchema,
+	[AccountSettingName.ClassificationBaseUrl]: StringSettingSchema,
+	[AccountSettingName.ClassificationApiKey]: MapSettingSchema,
+	[AccountSettingName.ClassificationEnabled]: BooleanSettingSchema,
+	[AccountSettingName.ClassificationDailyLimit]: NumberSettingSchema,
 } as const satisfies Record<AccountSettingNameValue, z.ZodTypeAny>;
 
 export type AccountSettingRegistry = typeof accountSettingRegistry;

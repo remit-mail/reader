@@ -96,3 +96,8 @@ import "./CalendarInviteAnswer.tsp";
 import "./CalendarInviteMethod.tsp";
 import "./CalendarSuggestionSource.tsp";
 import "./CalendarSuggestionState.tsp";
+
+// Classification provider (issue #1528)
+import "./ClassificationPresetId.tsp";
+import "./ClassificationAdapterShape.tsp";
+import "./ClassificationPresetGroup.tsp";
