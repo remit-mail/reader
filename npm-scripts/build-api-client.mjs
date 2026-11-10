@@ -33,6 +33,7 @@ const manifest = {
 	name: "@remit/api-http-client",
 	version: "1.0.0",
 	type: "module",
+	sideEffects: false,
 	main: "./dist/index.js",
 	types: "./dist/index.d.ts",
 	exports: {
