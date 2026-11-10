@@ -37,7 +37,7 @@ namespace RemitImap;
   {
     index: "gsi1",
     pk: [ThreadMessage.messageId],
-    sk: [],
+    sk: [ThreadMessage.accountConfigId],
   }
 )
 // GSI2: Filter/count unread messages (moved from LSI for independent scaling)
@@ -88,10 +88,6 @@ namespace RemitImap;
     pk: [ThreadMessage.accountConfigId],
     sk: [ThreadMessage.mailboxId, ThreadMessage.isRead, ThreadMessage.sentDate],
   }
-)
-@Drizzle.indexDef(
-  "thread_message_by_account_message_id",
-  [ThreadMessage.accountConfigId, ThreadMessage.messageId]
 )
 // NOTE: A "byDeletedStatus" LSI6 was removed here (see #516) — it was never
 // provisioned (the table only has lsi1–lsi5) and DynamoDB's 5-LSI hard limit

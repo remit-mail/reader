@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0870d994-1968-4878-9fcd-ef7eba63a6d9",
+  "id": "66648f9d-0dad-44ae-9c7e-d549a33954be",
   "prevId": "81f25bf7-1c9b-4371-ad1f-15d16ebd61a5",
   "tables": {
     "address": {
@@ -3048,7 +3048,8 @@
         "thread_message_by_message_id": {
           "name": "thread_message_by_message_id",
           "columns": [
-            "message_id"
+            "message_id",
+            "account_config_id"
           ],
           "isUnique": false
         },
@@ -3078,14 +3079,6 @@
             "category",
             "is_deleted",
             "sent_date"
-          ],
-          "isUnique": false
-        },
-        "thread_message_by_account_message_id": {
-          "name": "thread_message_by_account_message_id",
-          "columns": [
-            "account_config_id",
-            "message_id"
           ],
           "isUnique": false
         }
