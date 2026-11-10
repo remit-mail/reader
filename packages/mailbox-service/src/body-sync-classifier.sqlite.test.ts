@@ -42,6 +42,39 @@ const secrets = createSecretsService({
 	decryptDataKey: async () => dataKey,
 });
 
+const otherSecrets = createSecretsService({
+	generateDataKey: async () => {
+		const key = randomBytes(32);
+		return { plaintext: key, encrypted: key };
+	},
+	decryptDataKey: async (encrypted) => encrypted,
+});
+
+const BROKEN_SETTINGS = [
+	{
+		name: "a preset id the code does not know",
+		break: () =>
+			upsert(AccountSettingName.ClassificationPresetId, {
+				kind: "String",
+				value: "RetiredPreset",
+			}),
+		warning:
+			"Stored classification preset is unknown; using the built-in rules",
+	},
+	{
+		name: "an api key that does not decrypt",
+		break: async () =>
+			upsert(AccountSettingName.ClassificationApiKey, {
+				kind: "Map",
+				value: {
+					...serializeEncryptedPayload(await otherSecrets.encrypt("sk-other")),
+				},
+			}),
+		warning:
+			"Classification api key does not decrypt; using the built-in rules",
+	},
+];
+
 const SHOP = eml(
 	{
 		From: "Shop <deals@shop.example>",
@@ -119,20 +152,20 @@ afterEach(async () => {
 	await world.store.close();
 });
 
+const upsert = (
+	name: string,
+	value: Parameters<Store["accountSetting"]["upsert"]>[0]["value"],
+) =>
+	world.store.accountSetting.upsert({
+		accountConfigId: world.account.accountConfigId,
+		name,
+		value,
+	});
+
 const saveProvider = async (
 	baseUrl: string = world.provider.baseUrl,
 	enabled = true,
 ): Promise<void> => {
-	const { store, account } = world;
-	const upsert = (
-		name: string,
-		value: Parameters<Store["accountSetting"]["upsert"]>[0]["value"],
-	) =>
-		store.accountSetting.upsert({
-			accountConfigId: account.accountConfigId,
-			name,
-			value,
-		});
 	await upsert(AccountSettingName.ClassificationApiKey, {
 		kind: "Map",
 		value: {
@@ -309,6 +342,32 @@ describe("body sync with a saved classification provider", () => {
 
 		assert.equal(world.provider.requests.length, 0);
 	});
+
+	for (const broken of BROKEN_SETTINGS) {
+		it(`stores every message with the built-in result under ${broken.name}`, async () => {
+			const expected = await builtInCategory(SHOP);
+			await saveProvider();
+			await broken.break();
+			world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
+			const messageIds = [await arrive(SHOP), await arrive(SHOP)];
+
+			const result = await sync(bodySync(), messageIds);
+
+			assert.equal(result.syncedCount, 2);
+			assert.equal(result.failedCount, 0);
+			assert.equal(world.provider.requests.length, 0);
+			assert.deepEqual(world.warnings, [broken.warning]);
+			for (const messageId of messageIds) {
+				const row = await world.store.message.get(messageId);
+				assert.equal(row.category, expected);
+				assert.equal(
+					row.classificationState,
+					MessageClassificationState.Examined,
+				);
+				assert.equal(row.mailboxId, world.inbox.mailboxId);
+			}
+		});
+	}
 
 	it("stores the message with the built-in result while the provider is down", async () => {
 		const expected = await builtInCategory(SHOP);
