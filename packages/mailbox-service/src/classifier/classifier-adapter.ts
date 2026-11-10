@@ -85,19 +85,36 @@ const scoreOf = (
 	return { label, confidence };
 };
 
-const scoresOf = (
-	values: unknown,
-	labelKey: string,
-	confidenceKey: string,
-): ClassifierScore[] | undefined => {
-	if (!Array.isArray(values)) return undefined;
-	const scores = values.map((value) => scoreOf(value, labelKey, confidenceKey));
+const DECISION_INSTRUCTION = "Which label fits this email best?";
+
+const CHAT_INSTRUCTION =
+	"Classify this email with exactly one of the given labels. Answer with the label and your confidence between 0 and 1.";
+
+const DECISION_QUESTION = "label";
+
+const decisionScores = async (
+	answer: unknown,
+): Promise<ClassifierScore[] | undefined> => {
+	if (!isRecord(answer) || !isRecord(answer.answers)) return undefined;
+	const choice = answer.answers[DECISION_QUESTION];
+	if (!isRecord(choice) || choice.type !== "choice") return undefined;
+	if (!isRecord(choice.probabilities)) return undefined;
+	if (typeof choice.choice !== "string") return undefined;
+	if (!Object.hasOwn(choice.probabilities, choice.choice)) return undefined;
+	const scores = Object.entries(choice.probabilities).map(([label, value]) =>
+		scoreOf({ label, confidence: value }, "label", "confidence"),
+	);
 	if (scores.some((score) => score === undefined)) return undefined;
 	return scores.filter((score) => score !== undefined);
 };
 
-const INSTRUCTION =
-	"Classify this email with exactly one of the given labels. Answer with the label and your confidence between 0 and 1.";
+const jinaScores = async (
+	answer: unknown,
+): Promise<ClassifierScore[] | undefined> => {
+	if (!isRecord(answer) || !Array.isArray(answer.data)) return undefined;
+	const score = scoreOf(answer.data[0], "prediction", "score");
+	return score ? [score] : undefined;
+};
 
 const chatCompletionsPath = (baseUrl: string): string =>
 	/\/(v\d+[a-z0-9]*|openai)$/i.test(new URL(baseUrl).pathname)
@@ -125,14 +142,16 @@ const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
 		path: () => "/v1/systemone",
 		body: (model, labels, text) => ({
 			model,
-			question: INSTRUCTION,
-			input: text,
-			options: labels,
+			state: text,
+			questions: {
+				[DECISION_QUESTION]: {
+					type: "choice",
+					instructions: DECISION_INSTRUCTION,
+					criteria: Object.fromEntries(labels.map((label) => [label, label])),
+				},
+			},
 		}),
-		read: async (answer) =>
-			isRecord(answer)
-				? scoresOf(answer.probabilities, "option", "probability")
-				: undefined,
+		read: decisionScores,
 		confidenceKind: "Calibrated",
 	},
 	[ClassificationAdapterShape.ChatJsonSchema]: {
@@ -141,7 +160,7 @@ const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
 			model,
 			temperature: 0,
 			messages: [
-				{ role: "system", content: INSTRUCTION },
+				{ role: "system", content: CHAT_INSTRUCTION },
 				{ role: "user", content: text },
 			],
 			response_format: {
@@ -166,13 +185,12 @@ const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
 	},
 	[ClassificationAdapterShape.JinaClassify]: {
 		path: () => "/v1/classify",
-		body: (model, labels, text) => ({ model, input: [text], labels }),
-		read: async (answer) => {
-			if (!isRecord(answer) || !Array.isArray(answer.data)) return undefined;
-			const [first] = answer.data;
-			if (!isRecord(first)) return undefined;
-			return scoresOf(first.predictions, "label", "score");
-		},
+		body: (model, labels, text) => ({
+			model,
+			input: [{ text }],
+			labels,
+		}),
+		read: jinaScores,
 		confidenceKind: "Advisory",
 	},
 };

@@ -159,8 +159,8 @@ model ClassificationTestFailed {
 
   kind: ClassificationFailureKind;
 
-  @doc("The form field to change.")
-  field: ClassificationField;
+  @doc("The form field to change. Absent when no field can fix it: a rate limit or a provider error.")
+  field?: ClassificationField;
 
   @doc("What to change so the next test passes.")
   fix: string;

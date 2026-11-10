@@ -95,14 +95,12 @@ const answerOf = (
 			confidence: top.confidence,
 		};
 	}
-	const help = CLASSIFIER_FAILURE_HELP[result.kind];
 	return {
 		state: "Failed",
 		latencyMs: result.latencyMs,
 		...(result.status === undefined ? {} : { status: result.status }),
 		kind: result.kind,
-		field: help.field,
-		fix: help.fix,
+		...CLASSIFIER_FAILURE_HELP[result.kind],
 	};
 };
 

@@ -8,10 +8,11 @@ export type ClassificationFailureKindValue =
 export type ClassificationFieldValue =
 	(typeof ClassificationField)[keyof typeof ClassificationField];
 
-export interface ClassifierFailureHelp {
-	field: ClassificationFieldValue;
-	fix: string;
-}
+export type ClassifierFailureHelp =
+	| { field: ClassificationFieldValue; fix: string }
+	| { fix: string };
+
+const DEFAULT_MODEL_FIX = "Use the preset's default model";
 
 export const CLASSIFIER_FAILURE_HELP: Record<
 	ClassificationFailureKindValue,
@@ -19,35 +20,33 @@ export const CLASSIFIER_FAILURE_HELP: Record<
 > = {
 	[ClassificationFailureKind.Unauthorized]: {
 		field: ClassificationField.ApiKey,
-		fix: "The provider refused the API key. Paste a valid key for this provider.",
+		fix: "Replace the key, save, test again",
 	},
 	[ClassificationFailureKind.ModelNotFound]: {
 		field: ClassificationField.Model,
-		fix: "The provider does not know this model. Check the model name, or leave it empty for the default.",
+		fix: "Check the model name, or empty it for the default",
 	},
 	[ClassificationFailureKind.RateLimited]: {
-		field: ClassificationField.ApiKey,
-		fix: "The provider is rate limiting this key. Wait a minute and test again, or raise the key's quota.",
+		fix: "Raise the limit at the provider, or lower the daily limit",
 	},
 	[ClassificationFailureKind.Rejected]: {
 		field: ClassificationField.Model,
-		fix: "The provider rejected the request. Check that the model supports classification.",
+		fix: DEFAULT_MODEL_FIX,
 	},
 	[ClassificationFailureKind.ProviderError]: {
-		field: ClassificationField.BaseUrl,
-		fix: "The provider had an error. Test again later, or check the base URL points at the provider's API.",
+		fix: "The provider is failing; built-in rules cover until it recovers",
 	},
 	[ClassificationFailureKind.Unreachable]: {
 		field: ClassificationField.BaseUrl,
-		fix: "Nothing answered at this base URL. Check the address and that the provider is running.",
+		fix: "Check the endpoint runs and the Remit server can reach it",
 	},
 	[ClassificationFailureKind.TimedOut]: {
 		field: ClassificationField.BaseUrl,
-		fix: "The provider did not answer within 10 seconds. Check the base URL, or test again when the provider is less busy.",
+		fix: "Check the endpoint runs and the Remit server can reach it",
 	},
 	[ClassificationFailureKind.Unparseable]: {
 		field: ClassificationField.Model,
-		fix: "The provider's answer could not be read as one of the labels. Pick a model that follows the classification request.",
+		fix: DEFAULT_MODEL_FIX,
 	},
 };
 

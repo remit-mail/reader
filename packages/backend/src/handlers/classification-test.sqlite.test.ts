@@ -127,11 +127,16 @@ beforeEach(async () => {
 	reply = {
 		status: 200,
 		body: JSON.stringify({
-			probabilities: [
-				{ option: "newsletter", probability: 0.91 },
-				{ option: "personal", probability: 0.04 },
-			],
-			confidence: 0.91,
+			model: "jev-2026-10",
+			answers: {
+				label: {
+					type: "choice",
+					choice: "newsletter",
+					confidence: 0.91,
+					probabilities: { newsletter: 0.91, personal: 0.04 },
+				},
+			},
+			usage: { input_tokens: 180, output_tokens: 1 },
 		}),
 	};
 	provider = await startStubHttpServer(() => reply);
@@ -197,7 +202,7 @@ describe("a classification test", () => {
 		assert.equal(failed.status, 401);
 		assert.equal(failed.kind, ClassificationFailureKind.Unauthorized);
 		assert.equal(failed.field, ClassificationField.ApiKey);
-		assert.ok(failed.fix.length > 0);
+		assert.equal(failed.fix, "Replace the key, save, test again");
 		assert.deepEqual(await classificationRows(), []);
 	});
 

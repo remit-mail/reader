@@ -33,11 +33,21 @@ const json = (status: number, body: unknown): StubReply => ({
 
 const decisionAnswer = (label: string, probability: number): StubReply =>
 	json(200, {
-		probabilities: CLASSIFIER_LABELS.map((option) => ({
-			option,
-			probability: option === label ? probability : 0.01,
-		})),
-		confidence: probability,
+		model: "jev-2026-10",
+		answers: {
+			label: {
+				type: "choice",
+				choice: label,
+				confidence: probability,
+				probabilities: Object.fromEntries(
+					CLASSIFIER_LABELS.map((option) => [
+						option,
+						option === label ? probability : 0.01,
+					]),
+				),
+			},
+		},
+		usage: { input_tokens: 212, output_tokens: 1 },
 	});
 
 const chatAnswer = (content: string): StubReply =>
@@ -53,7 +63,6 @@ const jinaAnswer = (label: string, score: number): StubReply =>
 				index: 0,
 				prediction: label,
 				score,
-				predictions: [{ label, score }],
 			},
 		],
 	});
@@ -103,6 +112,13 @@ describe("every adapter shape", () => {
 
 		assert.equal(sent().path, "/v1/systemone");
 		assert.equal(sent().headers.authorization, `Bearer ${API_KEY}`);
+		const body = JSON.parse(sent().body);
+		assert.deepEqual(Object.keys(body).sort(), ["model", "questions", "state"]);
+		assert.equal(body.questions.label.type, "choice");
+		assert.deepEqual(
+			Object.keys(body.questions.label.criteria),
+			CLASSIFIER_LABELS,
+		);
 		assert.ok(result.ok);
 		assert.equal(result.confidenceKind, "Calibrated");
 		assert.equal(result.scores.length, CLASSIFIER_LABELS.length);
@@ -139,12 +155,16 @@ describe("every adapter shape", () => {
 		assert.equal(sent().path, "/v1beta/openai/chat/completions");
 	});
 
-	it("JinaClassify posts to /v1/classify and reads its predictions", async () => {
+	it("JinaClassify posts to /v1/classify and reads its prediction and score", async () => {
 		const result = await run(ClassificationAdapterShape.JinaClassify, () =>
 			jinaAnswer("marketing", 0.61),
 		);
 
 		assert.equal(sent().path, "/v1/classify");
+		const body = JSON.parse(sent().body);
+		assert.deepEqual(body.labels, CLASSIFIER_LABELS);
+		assert.equal(body.input.length, 1);
+		assert.equal(typeof body.input[0].text, "string");
 		assert.ok(result.ok);
 		assert.equal(result.confidenceKind, "Advisory");
 		assert.deepEqual(result.scores, [{ label: "marketing", confidence: 0.61 }]);
@@ -163,7 +183,7 @@ describe("an answer the adapter cannot use", () => {
 	it("is unparseable when it names a label outside the set", async () => {
 		unparseable(
 			await run(ClassificationAdapterShape.DecisionApi, () =>
-				json(200, { probabilities: [{ option: "urgent", probability: 0.9 }] }),
+				decisionAnswer("urgent", 0.9),
 			),
 		);
 		unparseable(
@@ -256,14 +276,9 @@ describe("the request body", () => {
 		const request = sent();
 		assert.equal(request.headers.authorization, undefined);
 		const body = JSON.parse(request.body);
-		assert.deepEqual(Object.keys(body).sort(), [
-			"input",
-			"model",
-			"options",
-			"question",
-		]);
+		assert.deepEqual(Object.keys(body).sort(), ["model", "questions", "state"]);
 		assert.equal(
-			body.input,
+			body.state,
 			[
 				"From: a@example.com",
 				"To: b@example.com",
