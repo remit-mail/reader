@@ -127,7 +127,9 @@ describe("executeThreadSearch", () => {
 	});
 
 	type RecordedCall = {
-		search: { category?: Category[] };
+		search: Parameters<
+			ThreadSearchClient["threadMessage"]["searchByMailboxWindow"]
+		>[2];
 		continuationToken?: string;
 		limit?: number;
 	};
@@ -214,21 +216,24 @@ describe("executeThreadSearch", () => {
 		assert.equal(response.items, undefined);
 	});
 
-	// The one request shape that still takes the off-row branch. `category` must
-	// reach `search` anyway, so the window is category-filtered before the
-	// enrichment the off-row criterion needs.
-	it("keeps category in search when an off-row criterion is also set", async () => {
+	it("passes senderTrust and dkimMismatch to the port's search", async () => {
 		const { client, windowCalls } = fakeClient(ACCOUNT_ROWS);
 
 		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
 			category: [MessageCategory.personal],
-			senderTrust: [SenderTrust.Unknown],
+			senderTrust: [SenderTrust.Vip, SenderTrust.Wellknown],
+			dkimMismatch: false,
 		});
 
 		assert.equal(windowCalls.length, 1);
 		assert.deepEqual(windowCalls[0].search.category, [
 			MessageCategory.personal,
 		]);
+		assert.deepEqual(windowCalls[0].search.senderTrust, [
+			SenderTrust.Vip,
+			SenderTrust.Wellknown,
+		]);
+		assert.equal(windowCalls[0].search.dkimMismatch, false);
 		assert.deepEqual(
 			response.items?.map((item) => item.threadMessageId),
 			["tm-1"],
@@ -285,47 +290,49 @@ describe("executeThreadSearch", () => {
 		assert.equal(response.count, matches);
 	});
 
-	// #305: `senderTrust` and `dkimMismatch` are resolved by enriching rows, so
-	// the only number the handler could put in `count` is this page's post-filter
-	// length — a page length wearing the name of a total. Absent instead.
-	it("omits count under senderTrust rather than counting the page", async () => {
-		const { client, countCalls } = fakeClient(ACCOUNT_ROWS);
+	it("counts the whole match under senderTrust", async () => {
+		const trustById = new Map([
+			["tm-1", SenderTrust.Vip],
+			["tm-2", SenderTrust.Unknown],
+			["tm-3", SenderTrust.Wellknown],
+		]);
+		const countCalls: RecordedCall["search"][] = [];
+		const trusted = (search: RecordedCall["search"]) =>
+			ACCOUNT_ROWS.filter((row) => {
+				const trust = trustById.get(row.threadMessageId);
+				return trust !== undefined && search.senderTrust?.includes(trust);
+			});
+		const client: ThreadSearchClient = {
+			threadMessage: {
+				async searchByMailboxWindow(_account, _mailbox, search, options) {
+					return {
+						items: trusted(search).slice(0, options?.limit),
+						continuationToken: "next",
+					};
+				},
+				async countByMailbox(_account, _mailbox, search) {
+					countCalls.push(search);
+					return trusted(search).length;
+				},
+			},
+			message: { get: async () => [] },
+			address: { getAddress: async () => [] },
+			messageLabel: { listByMessageIds: async () => [] },
+			label: { listByAccountConfig: async () => [] },
+		};
 
 		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			senderTrust: [SenderTrust.Unknown],
+			senderTrust: [SenderTrust.Vip, SenderTrust.Wellknown],
 			count: true,
+			limit: 1,
 		});
 
-		assert.equal(response.count, undefined);
-		assert.equal(countCalls.length, 0, "nothing to count off the row");
-		assert.equal(response.items?.length, ACCOUNT_ROWS.length);
-	});
-
-	it("omits count under dkimMismatch rather than counting the page", async () => {
-		const { client } = fakeClient(ACCOUNT_ROWS);
-
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			dkimMismatch: true,
-			count: true,
-		});
-
-		assert.equal(response.count, undefined);
-	});
-
-	// The count it asked for cannot be answered and the rows it declined are not
-	// wanted, so there is nothing left to read.
-	it("reads nothing for a count-only request under an off-row criterion", async () => {
-		const { client, windowCalls, countCalls } = fakeClient(ACCOUNT_ROWS);
-
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			dkimMismatch: true,
-			count: true,
-			results: false,
-		});
-
-		assert.deepEqual(response, {});
-		assert.equal(windowCalls.length, 0);
-		assert.equal(countCalls.length, 0);
+		assert.equal(response.items?.length, 1);
+		assert.equal(response.count, 2);
+		assert.deepEqual(countCalls[0].senderTrust, [
+			SenderTrust.Vip,
+			SenderTrust.Wellknown,
+		]);
 	});
 
 	it("answers the same count whether or not rows were asked for", async () => {

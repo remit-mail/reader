@@ -1152,7 +1152,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       attachments?: boolean,
 
-      @doc("Filter to messages whose From address has one of these trust levels. Off-row criterion: resolved by enriching the rows this page read, not by a predicate over the mailbox, so `count` comes back absent whenever it is supplied.")
+      @doc("Filter to messages whose From address has one of these trust levels. Applied as a SQL predicate over the whole mailbox, so a page comes back full of matches.")
       @query(#{ explode: true })
       senderTrust?: SenderTrust[],
 
@@ -1160,11 +1160,11 @@ namespace RemitApi {
       @query(#{ explode: true })
       category?: MessageCategory[],
 
-      @doc("Filter on the DKIM-alignment signal (true = DKIM mismatch). Off-row criterion, like `senderTrust`: rows without an authenticity signal never match, and `count` comes back absent whenever it is supplied.")
+      @doc("Filter on the DKIM-alignment signal (true = DKIM mismatch). Applied as a SQL predicate over the whole mailbox; rows without an authenticity signal never match.")
       @query(#{ explode: true })
       dkimMismatch?: boolean,
 
-      @doc("Include how many messages the query matches, exactly, over the whole mailbox. Opt-in because it is a second read over the entire match set rather than a by-product of the page: ask for it on a deliberate act, never on a keystroke. Answered as absent — not as a page length — when the query carries `senderTrust` or `dkimMismatch`, which no predicate can count.")
+      @doc("Include how many messages the query matches, exactly, over the whole mailbox. Opt-in because it is a second read over the entire match set rather than a by-product of the page: ask for it on a deliberate act, never on a keystroke.")
       @query(#{ explode: true })
       count?: boolean,
 

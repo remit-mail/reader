@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
@@ -56,6 +57,34 @@ describe("thread-message lookups without sqlite_stat1", () => {
 		assertPlanSearches(
 			await planDuring(() => repo.countByThread("acct", "thread")),
 			"thread_message_by_thread_id",
+		);
+	});
+
+	test("searchByMailboxWindow under senderTrust and dkimMismatch probes address and message by index", async () => {
+		const plan = await planDuring(() =>
+			repo.searchByMailboxWindow(
+				"acct",
+				"junk",
+				{ senderTrust: ["vip", "wellknown"], dkimMismatch: false },
+				{ excludeDeleted: true, limit: 500 },
+			),
+		);
+		const accesses = (table: string) =>
+			plan.filter((detail) => detail.startsWith(`SEARCH ${table} `));
+
+		assertPlanSearches(
+			accesses("thread_message"),
+			"thread_message_by_mailbox_id",
+		);
+		assertPlanSearches(accesses("address"), "address_by_normalized_email");
+		assert.deepEqual(accesses("message"), [
+			"SEARCH message EXISTS USING INDEX sqlite_autoindex_message_1 (message_id=?)",
+		]);
+		assert.ok(
+			!plan.some((detail) =>
+				/^SCAN (thread_message|address|message)\b/.test(detail),
+			),
+			`a filtered search fell back to a scan: ${plan.join(" | ")}`,
 		);
 	});
 

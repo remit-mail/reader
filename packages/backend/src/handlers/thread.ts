@@ -11,10 +11,6 @@ import {
 	type EnrichClient,
 	enrichThreadRows,
 } from "../derive/enrichThreadRows.js";
-import {
-	filterByOffRowCriteria,
-	hasOffRowCriteria,
-} from "../derive/filterThreadCriteria.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -109,6 +105,8 @@ type ThreadSearch = {
 	starred?: boolean;
 	attachments?: boolean;
 	category?: MessageCategory[];
+	senderTrust?: SenderTrust[];
+	dkimMismatch?: boolean;
 };
 
 /**
@@ -154,21 +152,12 @@ export type ThreadSearchParams = {
 };
 
 /**
- * Run a per-mailbox thread search: select the index/window read, optionally
- * count, and resolve off-row criteria by enriching+filtering the window. The
- * `results` toggle omits `items` (count-only) and `count` adds the match count.
+ * Run a per-mailbox thread search: select the index/window read and optionally
+ * count. The `results` toggle omits `items` (count-only) and `count` adds the
+ * match count.
  *
  * `count` names the whole match, never the page: a page size bounds the rows a
  * response carries and has no bearing on how many messages match (#509).
- *
- * An off-row criterion is the one shape that has no such number. `senderTrust`
- * and `dkimMismatch` are resolved by enriching a window, so counting them means
- * enriching every candidate row in the mailbox. `count` is therefore absent
- * (#305) — a page's post-filter length labelled `count` is a page length
- * presented as a total, which is the defect the field exists to avoid. Absence
- * is the same answer the response already gives for a count nobody asked for,
- * so no caller needs a second shape to read it. A count-only request under an
- * off-row criterion therefore reads nothing at all.
  */
 export const executeThreadSearch = async (
 	client: ThreadSearchClient,
@@ -184,8 +173,6 @@ export const executeThreadSearch = async (
 		starred: params.starred,
 		attachments: params.attachments,
 		category: params.category,
-	};
-	const offRow = {
 		senderTrust: params.senderTrust,
 		dkimMismatch: params.dkimMismatch,
 	};
@@ -196,25 +183,6 @@ export const executeThreadSearch = async (
 		order: params.order,
 		limit: params.limit,
 	});
-
-	if (hasOffRowCriteria(offRow)) {
-		if (!wantResults) return {};
-		const window = await client.threadMessage.searchByMailboxWindow(
-			accountConfigId,
-			mailboxId,
-			search,
-			options,
-		);
-		const enriched = await enrichThreadRows(
-			window.items,
-			client,
-			accountConfigId,
-		);
-		return {
-			items: filterByOffRowCriteria(enriched, offRow),
-			continuationToken: window.continuationToken,
-		};
-	}
 
 	const response: ThreadSearchResponse = {};
 
