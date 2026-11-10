@@ -149,10 +149,11 @@ test.describe("Mail classification settings (#1532)", () => {
 		await clear.click();
 
 		const dialog = page.getByRole("dialog");
+		await expect(dialog).toContainText("Clear the provider settings?");
 		await expect(dialog).toContainText(
-			"Clear the OpenAI-compatible endpoint key?",
+			"Clearing the provider returns every field to the deployment default.",
 		);
-		await dialog.getByRole("button", { name: "Clear key" }).click();
+		await dialog.getByRole("button", { name: "Clear", exact: true }).click();
 
 		await expect(page.getByText(NOT_CONFIGURED_NOTE)).toBeVisible({
 			timeout: 15_000,
