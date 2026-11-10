@@ -6,6 +6,9 @@ import {
 	type Document,
 	OpenAPIBackend,
 	type Context as OpenAPIContext,
+	type Operation,
+	type Request,
+	type ValidationResult,
 } from "openapi-backend";
 import { defaultErrorCode } from "./error.js";
 import { postResponseHandler } from "./response.js";
@@ -42,6 +45,22 @@ class PrecompiledOpenAPIBackend extends OpenAPIBackend {
 				requestValidators[operationId];
 		}
 		return initialized;
+	}
+
+	private ready(): this {
+		if (!this.initalized) void this.init();
+		return this;
+	}
+
+	override matchOperation(req: Request): Operation | undefined {
+		return this.ready().router.matchOperation(req);
+	}
+
+	override validateRequest(
+		req: Request,
+		operation?: Operation | string,
+	): ValidationResult {
+		return this.ready().validator.validateRequest(req, operation);
 	}
 }
 
@@ -108,8 +127,6 @@ api.register("notImplemented", () => ({
 	statusCode: 501,
 	body: { code: defaultErrorCode(501), message: "Not implemented" },
 }));
-
-api.init();
 
 export { setLogger } from "@remit/logger";
 export { api };

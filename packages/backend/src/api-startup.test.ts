@@ -13,11 +13,9 @@ it("loads the api without Node's process metrics", async () => {
 
 // A Cloudflare Worker refuses `new Function`, which ajv compiles validators
 // with, so every validated request answered 500 there. The query params still
-// have to arrive coerced, because handlers forward `limit` as a number. The
-// Worker calls init itself, which rebuilds the router validator.
+// have to arrive coerced, because handlers forward `limit` as a number.
 it("validates and coerces a request without compiling code", async () => {
 	const { api } = await import("./api.js");
-	await api.init();
 	const NativeFunction = globalThis.Function;
 	globalThis.Function = new Proxy(NativeFunction, {
 		construct: () => {
