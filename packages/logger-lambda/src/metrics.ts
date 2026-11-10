@@ -15,9 +15,7 @@ import {
 
 /**
  * The process-wide metric registry every service renders at `/metrics`
- * (docs/design/standalone-observability.md D2/D5). Powertools' `Metrics`
- * emitted CloudWatch Embedded Metric Format, which no configuration turns into
- * a scrape endpoint; this registry is what the endpoint renders.
+ * (docs/design/standalone-observability.md D2).
  *
  * The exported recorders are the only way an application series enters it. The
  * registry itself is exported for a service that owns a signal of its own shape
