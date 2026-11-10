@@ -6,6 +6,7 @@ import type {
 	ClassificationTestPassed,
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository } from "@remit/data-ports";
+import { readStoredClassification } from "@remit/data-ports/classification-presets";
 import {
 	ClassificationFailureKind as FailureKind,
 	ClassificationField as Field,
@@ -25,7 +26,6 @@ import {
 import {
 	type ClassificationProviderSave,
 	decideClassificationProvider,
-	readStoredClassification,
 } from "./classification-settings.js";
 import type { UserSettingsOutcome } from "./user-settings.js";
 

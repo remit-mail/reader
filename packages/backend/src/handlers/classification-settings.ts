@@ -4,15 +4,11 @@ import type {
 	ClassificationPreset,
 	UpdateUserSettingsInput,
 } from "@remit/api-openapi-types";
-import type {
-	AccountSettingItem,
-	IAccountSettingRepository,
-} from "@remit/data-ports";
-import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
+import type { IAccountSettingRepository } from "@remit/data-ports";
 import {
 	CLASSIFICATION_PRESETS,
-	DEFAULT_CLASSIFICATION_DAILY_LIMIT,
-	isClassificationPresetId,
+	CLASSIFICATION_SETTING_NAMES,
+	type StoredClassification,
 } from "@remit/data-ports/classification-presets";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
@@ -26,15 +22,6 @@ import {
 } from "@remit/secrets-service";
 import type { UserSettingsOutcome } from "./user-settings.js";
 
-export const CLASSIFICATION_SETTING_NAMES = [
-	AccountSettingName.ClassificationPresetId,
-	AccountSettingName.ClassificationModel,
-	AccountSettingName.ClassificationBaseUrl,
-	AccountSettingName.ClassificationApiKey,
-	AccountSettingName.ClassificationEnabled,
-	AccountSettingName.ClassificationDailyLimit,
-] as const;
-
 export type ClassificationSettingsDeps = {
 	accountSetting: Pick<
 		IAccountSettingRepository,
@@ -43,12 +30,6 @@ export type ClassificationSettingsDeps = {
 	secrets: Pick<SecretsService, "encrypt">;
 	label: ClassificationLabelDeps;
 };
-
-export type StoredClassification =
-	| ClassificationNotConfigured
-	| (ClassificationConfigured & {
-			apiKeyCiphertext: SerializedEncryptedPayload | undefined;
-	  });
 
 type Refusal = Extract<UserSettingsOutcome, { ok: false }>;
 type Decision<T> = { ok: true; value: T } | Refusal;
@@ -169,68 +150,6 @@ export const decideClassificationProvider = (
 			baseUrl: baseUrl.value,
 			apiKey: apiKey.value,
 		},
-	};
-};
-
-const settingOf = (
-	rows: AccountSettingItem[],
-	name: string,
-): AccountSettingItem | undefined => rows.find((row) => row.name === name);
-
-export const readStoredClassification = async (
-	accountSetting: Pick<IAccountSettingRepository, "getMany">,
-	accountConfigId: string,
-): Promise<StoredClassification> => {
-	const rows = await accountSetting.getMany(
-		[accountConfigId],
-		CLASSIFICATION_SETTING_NAMES,
-	);
-	const presetRow = settingOf(rows, AccountSettingName.ClassificationPresetId);
-	if (!presetRow) return { state: "NotConfigured" };
-	const presetId = parseAccountSettingValue(
-		AccountSettingName.ClassificationPresetId,
-		presetRow.value,
-	).value;
-	if (!isClassificationPresetId(presetId)) {
-		throw new Error(`Stored classification preset is unknown: ${presetId}`);
-	}
-
-	const stringOf = (
-		name:
-			| typeof AccountSettingName.ClassificationModel
-			| typeof AccountSettingName.ClassificationBaseUrl,
-	): string => {
-		const row = settingOf(rows, name);
-		return row ? parseAccountSettingValue(name, row.value).value : "";
-	};
-	const keyRow = settingOf(rows, AccountSettingName.ClassificationApiKey);
-	const enabledRow = settingOf(rows, AccountSettingName.ClassificationEnabled);
-	const limitRow = settingOf(rows, AccountSettingName.ClassificationDailyLimit);
-	return {
-		state: "Configured",
-		presetId,
-		model: stringOf(AccountSettingName.ClassificationModel),
-		baseUrl: stringOf(AccountSettingName.ClassificationBaseUrl),
-		apiKeySaved: keyRow !== undefined,
-		apiKeyCiphertext: keyRow
-			? parseAccountSettingValue(
-					AccountSettingName.ClassificationApiKey,
-					keyRow.value,
-				).value
-			: undefined,
-		enabled: enabledRow
-			? parseAccountSettingValue(
-					AccountSettingName.ClassificationEnabled,
-					enabledRow.value,
-				).value
-			: false,
-		dailyLimit: limitRow
-			? parseAccountSettingValue(
-					AccountSettingName.ClassificationDailyLimit,
-					limitRow.value,
-				).value
-			: DEFAULT_CLASSIFICATION_DAILY_LIMIT,
-		savedAt: presetRow.updatedAt,
 	};
 };
 

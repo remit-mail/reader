@@ -105,6 +105,8 @@ export const syncMessageBody = async (
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
 		calendarStore,
+		accountSetting: accountSettingService,
+		label: labelService,
 	} = ctx.client;
 
 	const account = await accountService.get(accountId);
@@ -219,6 +221,13 @@ export const syncMessageBody = async (
 					filterService,
 					accountService,
 				},
+				{
+					accountSetting: accountSettingService,
+					secrets,
+					labelService,
+					messageLabelService,
+					logger: log,
+				},
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The
@@ -243,6 +252,7 @@ export const syncMessageBody = async (
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
 				uidValidity: mailbox.uidValidity,
+				initialSyncCompletedAt: mailbox.initialSyncCompletedAt,
 				placement: await resolveFolderPlacement(
 					mailboxSpecialUseService,
 					accountId,

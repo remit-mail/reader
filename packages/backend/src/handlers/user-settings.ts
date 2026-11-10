@@ -12,6 +12,7 @@ import type {
 	IAccountSettingRepository,
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
+import { readStoredClassification } from "@remit/data-ports/classification-presets";
 import { AccountSettingName } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import type { ClassificationLabelDeps } from "@remit/mailbox-service";
@@ -27,7 +28,6 @@ import {
 	clearClassification,
 	decideClassificationChange,
 	publicClassification,
-	readStoredClassification,
 	writeClassificationChange,
 } from "./classification-settings.js";
 import { testClassificationProvider } from "./classification-test.js";

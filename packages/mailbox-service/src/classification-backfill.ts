@@ -128,7 +128,7 @@ const classifyAndApply = async (
 ): Promise<void> => {
 	const body = await deps.storageService.retrieve(bodyStorageKey);
 	const parsed = await parseMessageBody(body);
-	const classification = await classifyParsedMessage(
+	const { fields: classification } = await classifyParsedMessage(
 		deps.addressService,
 		accountConfigId,
 		parsed,

@@ -56,6 +56,11 @@ const resolveCategoryOverride = async (
 	}
 };
 
+export interface ParsedMessageClassification {
+	fields: UpdateMessageInput & { category: ThreadMessageCategory };
+	categoryOverridden: boolean;
+}
+
 /**
  * Header classification, with the sender's `Address.flags.category` override
  * (issue #299, RFC 039 Decision 3) substituted for the header-derived
@@ -77,7 +82,7 @@ export const classifyParsedMessage = async (
 	accountConfigId: string,
 	parsed: ParsedMail,
 	placement: FolderPlacement,
-): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> => {
+): Promise<ParsedMessageClassification> => {
 	const headerCategory = classifyByHeaders(parsed);
 	const authenticity = extractAuthenticity(parsed);
 	const authResult = extractAuthResult(parsed);
@@ -105,12 +110,15 @@ export const classifyParsedMessage = async (
 		: undefined;
 
 	return {
-		category: categoryOverride ?? headerCategory,
-		hasListUnsubscribe,
-		...(authenticity !== null
-			? { authenticity: { ...authenticity, ...senderMismatch } }
-			: {}),
-		...(authResult !== null ? { authResult } : {}),
-		...(providerSpam !== null ? { providerSpam } : {}),
+		fields: {
+			category: categoryOverride ?? headerCategory,
+			hasListUnsubscribe,
+			...(authenticity !== null
+				? { authenticity: { ...authenticity, ...senderMismatch } }
+				: {}),
+			...(authResult !== null ? { authResult } : {}),
+			...(providerSpam !== null ? { providerSpam } : {}),
+		},
+		categoryOverridden: categoryOverride !== undefined,
 	};
 };

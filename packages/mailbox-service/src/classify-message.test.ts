@@ -54,7 +54,7 @@ describe("classifyParsedMessage", () => {
 	it("answers from the header rule table when the sender has no override", async () => {
 		const parsed = await parseMessageBody(LIST_EML);
 
-		const classification = await classifyParsedMessage(
+		const { fields: classification } = await classifyParsedMessage(
 			store.address,
 			"acc-1",
 			parsed,
@@ -78,7 +78,7 @@ describe("classifyParsedMessage", () => {
 			),
 		);
 
-		const classification = await classifyParsedMessage(
+		const { fields: classification } = await classifyParsedMessage(
 			store.address,
 			"acc-1",
 			parsed,
@@ -93,7 +93,7 @@ describe("classifyParsedMessage sender mismatch", () => {
 	it("compares the sender of mail in Junk the provider rated clean", async () => {
 		const parsed = await parseMessageBody(IMPERSONATION_EML);
 
-		const classification = await classifyParsedMessage(
+		const { fields: classification } = await classifyParsedMessage(
 			store.address,
 			"acc-1",
 			parsed,
@@ -112,7 +112,7 @@ describe("classifyParsedMessage sender mismatch", () => {
 	it("compares nothing for the same mail outside Junk without a provider verdict", async () => {
 		const parsed = await parseMessageBody(IMPERSONATION_EML);
 
-		const classification = await classifyParsedMessage(
+		const { fields: classification } = await classifyParsedMessage(
 			store.address,
 			"acc-1",
 			parsed,
