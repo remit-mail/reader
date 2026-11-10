@@ -188,6 +188,7 @@ const createWorld = async (
 	const imap = new FakeImapServer();
 	const logs: LogLine[] = [];
 	const password = await client.secrets.encrypt("app-password");
+	await client.accountConfig.create({ accountConfigId, userId: "user-1" });
 	const account = await client.account.create({
 		accountConfigId,
 		username: "person@example.com",
