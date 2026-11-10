@@ -8,6 +8,7 @@ import type {
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
+import { SenderTrust } from "@remit/domain-enums";
 import {
 	and,
 	asc,
@@ -29,6 +30,7 @@ import { NotFoundError } from "../error.js";
 import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
+import { messageTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import type {
 	SearchIndex,
@@ -187,6 +189,15 @@ function toItem(row: Row): ThreadMessageItem {
 const mutedSender = (): SQL =>
 	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
 
+const senderFlag = (name: "vip" | "wellknown"): SQL =>
+	sql`json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), ${`$.${name}.value`}) = 1`;
+
+const senderTrustIn = (trust: readonly string[]): SQL =>
+	sql`coalesce((select case when ${senderFlag("vip")} then ${SenderTrust.Vip} when ${senderFlag("wellknown")} then ${SenderTrust.Wellknown} end from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) limit 1), ${SenderTrust.Unknown}) in (select value from json_each(${JSON.stringify(trust)}))`;
+
+const dkimMismatchIs = (mismatch: boolean): SQL =>
+	sql`exists (select 1 from ${messageTable} where ${messageTable.messageId} = ${threadMessageTable.messageId} and json_extract(${messageTable.authenticity}, '$.dkimMismatch') = ${mismatch ? 1 : 0})`;
+
 // The columns the search index is built from, and the snippet, which body sync
 // writes after the body's search text; an update that sets none of them leaves
 // the index as it is.
@@ -243,6 +254,12 @@ function buildSearchConditions(search: SearchOptions): SearchConditions {
 	// tm_by_mailbox_category_date.
 	if (search.category?.length) {
 		row.push(inArray(threadMessageTable.category, search.category));
+	}
+	if (search.senderTrust?.length) {
+		row.push(senderTrustIn(search.senderTrust));
+	}
+	if (search.dkimMismatch !== undefined) {
+		row.push(dkimMismatchIs(search.dkimMismatch));
 	}
 
 	return { text: text.length > 0 ? and(...text) : undefined, row };

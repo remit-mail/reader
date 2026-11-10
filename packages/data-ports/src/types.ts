@@ -35,7 +35,7 @@ import type {
 	SyncWarningSchema,
 	ThreadMessageSchema,
 } from "@remit/api-zod-schemas";
-import type { ReferenceType } from "@remit/domain-enums";
+import type { ReferenceType, SenderTrust } from "@remit/domain-enums";
 import type { z } from "zod";
 
 export type ResultList<T> = {
@@ -683,6 +683,18 @@ export type SearchOptions = {
 	 * and no read path filters on it (issue #331).
 	 */
 	category?: ThreadMessageItem["category"][];
+	/**
+	 * Any-of set over the trust derived from the From address flags: `vip`
+	 * when the vip flag is set, else `wellknown` when that flag is set, else
+	 * `unknown`, including a sender with no Address row. An empty or absent set
+	 * means no trust filter.
+	 */
+	senderTrust?: (typeof SenderTrust)[keyof typeof SenderTrust][];
+	/**
+	 * Matches the Message row authenticity `dkimMismatch` signal. A message
+	 * whose authenticity is not yet set matches neither value.
+	 */
+	dkimMismatch?: boolean;
 };
 
 export type CreateLabelInput = Omit<

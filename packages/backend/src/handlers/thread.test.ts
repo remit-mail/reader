@@ -127,7 +127,9 @@ describe("executeThreadSearch", () => {
 	});
 
 	type RecordedCall = {
-		search: { category?: Category[] };
+		search: Parameters<
+			ThreadSearchClient["threadMessage"]["searchByMailboxWindow"]
+		>[2];
 		continuationToken?: string;
 		limit?: number;
 	};
@@ -214,21 +216,26 @@ describe("executeThreadSearch", () => {
 		assert.equal(response.items, undefined);
 	});
 
-	// The one request shape that still takes the off-row branch. `category` must
-	// reach `search` anyway, so the window is category-filtered before the
-	// enrichment the off-row criterion needs.
-	it("keeps category in search when an off-row criterion is also set", async () => {
+	// #1555: a filter over the rows a page already read returns a handful of a
+	// page, so the trust and DKIM criteria have to reach the port with the rest.
+	it("passes senderTrust and dkimMismatch to the port's search", async () => {
 		const { client, windowCalls } = fakeClient(ACCOUNT_ROWS);
 
 		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
 			category: [MessageCategory.personal],
-			senderTrust: [SenderTrust.Unknown],
+			senderTrust: [SenderTrust.Vip, SenderTrust.Wellknown],
+			dkimMismatch: false,
 		});
 
 		assert.equal(windowCalls.length, 1);
 		assert.deepEqual(windowCalls[0].search.category, [
 			MessageCategory.personal,
 		]);
+		assert.deepEqual(windowCalls[0].search.senderTrust, [
+			SenderTrust.Vip,
+			SenderTrust.Wellknown,
+		]);
+		assert.equal(windowCalls[0].search.dkimMismatch, false);
 		assert.deepEqual(
 			response.items?.map((item) => item.threadMessageId),
 			["tm-1"],
@@ -285,9 +292,8 @@ describe("executeThreadSearch", () => {
 		assert.equal(response.count, matches);
 	});
 
-	// #305: `senderTrust` and `dkimMismatch` are resolved by enriching rows, so
-	// the only number the handler could put in `count` is this page's post-filter
-	// length — a page length wearing the name of a total. Absent instead.
+	// #305: the API answers `count` as absent under `senderTrust` or
+	// `dkimMismatch`.
 	it("omits count under senderTrust rather than counting the page", async () => {
 		const { client, countCalls } = fakeClient(ACCOUNT_ROWS);
 
