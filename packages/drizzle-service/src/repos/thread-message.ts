@@ -327,6 +327,9 @@ function sentDateCursorCond(
 	);
 }
 
+const tenantFilter = (accountConfigId: string): SQL =>
+	sql`+${threadMessageTable.accountConfigId} = ${accountConfigId}`;
+
 // ─── Repository ──────────────────────────────────────────────────────────────
 
 export class DrizzleThreadMessageRepository
@@ -1061,7 +1064,7 @@ export class DrizzleThreadMessageRepository
 			.from(threadMessageTable)
 			.where(
 				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
+					tenantFilter(accountConfigId),
 					eq(threadMessageTable.threadId, fromThreadId),
 				),
 			);
@@ -1121,7 +1124,7 @@ export class DrizzleThreadMessageRepository
 			.from(threadMessageTable)
 			.where(
 				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
+					tenantFilter(accountConfigId),
 					eq(threadMessageTable.messageId, messageId),
 				),
 			)
@@ -1138,7 +1141,7 @@ export class DrizzleThreadMessageRepository
 			.from(threadMessageTable)
 			.where(
 				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
+					tenantFilter(accountConfigId),
 					eq(threadMessageTable.messageId, messageId),
 				),
 			);
@@ -1212,7 +1215,7 @@ export class DrizzleThreadMessageRepository
 			.from(threadMessageTable)
 			.where(
 				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
+					tenantFilter(accountConfigId),
 					eq(threadMessageTable.threadId, threadId),
 				),
 			);

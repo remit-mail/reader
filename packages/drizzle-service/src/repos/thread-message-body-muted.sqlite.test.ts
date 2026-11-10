@@ -16,6 +16,7 @@ import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { queryPlan, selectsIssuedDuring } from "../test-query-plan.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 import type { DrizzleThreadMessageRepository } from "./thread-message.js";
 
@@ -320,34 +321,16 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 		// brief counts seven sections, so an unindexed lookup here is seven scans
 		// of every address the config has ever seen.
 		test("the muted lookup is served by an index, never a scan", async () => {
-			const captured: string[] = [];
-			const original = sqlite.prepare.bind(sqlite);
-			sqlite.prepare = ((source: string) => {
-				captured.push(source);
-				return original(source);
-			}) as typeof sqlite.prepare;
-			try {
-				await repo.countThreadsInScope(
-					MUTED_ACCOUNT,
-					{ muted: false },
-					{ mailboxIds: MUTED_SCOPE },
-				);
-			} finally {
-				sqlite.prepare = original as typeof sqlite.prepare;
-			}
-
-			const selects = captured.filter((source) => /^\s*select/i.test(source));
-			assert.ok(selects.length > 0, "the repo issued a select");
-			const plan = selects.flatMap((source) => {
-				const parameters = new Array((source.match(/\?/g) ?? []).length).fill(
-					"",
-				);
-				return (
-					sqlite
-						.prepare(`EXPLAIN QUERY PLAN ${source}`)
-						.all(...parameters) as Array<{ detail: string }>
-				).map((row) => row.detail);
-			});
+			const plan = queryPlan(
+				sqlite,
+				await selectsIssuedDuring(sqlite, () =>
+					repo.countThreadsInScope(
+						MUTED_ACCOUNT,
+						{ muted: false },
+						{ mailboxIds: MUTED_SCOPE },
+					),
+				),
+			);
 
 			assert.ok(
 				plan.some((detail) => detail.includes("address_by_normalized_email")),
