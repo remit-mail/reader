@@ -4,17 +4,6 @@ import { ClassificationPresetId } from "@remit/domain-enums";
 import { decideClassificationProvider } from "./classification-settings.js";
 
 describe("a classification provider save", () => {
-	it("refuses a preset id that is not a preset", () => {
-		const decided = decideClassificationProvider(
-			{ classificationPresetId: "Cohere", classificationApiKey: "k" },
-			undefined,
-		);
-
-		assert.ok(!decided.ok);
-		assert.equal(decided.error.code, "UnknownClassificationPreset");
-		assert.match(decided.error.message, /classificationPresetId/);
-	});
-
 	it("refuses a base URL that is not an http or https URL", () => {
 		for (const classificationBaseUrl of [
 			"not a url",
@@ -27,7 +16,7 @@ describe("a classification provider save", () => {
 					classificationBaseUrl,
 					classificationApiKey: "k",
 				},
-				undefined,
+				{ state: "NotConfigured" },
 			);
 
 			assert.ok(!decided.ok, classificationBaseUrl);
@@ -36,14 +25,14 @@ describe("a classification provider save", () => {
 		}
 	});
 
-	it("refuses a missing base URL for a preset that needs one", () => {
+	it("refuses a missing base URL for a preset without a default one", () => {
 		const decided = decideClassificationProvider(
 			{
 				classificationPresetId: ClassificationPresetId.OpenAiCompatible,
 				classificationBaseUrl: "  ",
 				classificationApiKey: "k",
 			},
-			undefined,
+			{ state: "NotConfigured" },
 		);
 
 		assert.ok(!decided.ok);
@@ -57,7 +46,7 @@ describe("a classification provider save", () => {
 				classificationPresetId: ClassificationPresetId.Mistral,
 				classificationApiKey: "k",
 			},
-			undefined,
+			{ state: "NotConfigured" },
 		);
 
 		assert.ok(decided.ok);

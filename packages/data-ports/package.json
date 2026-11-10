@@ -106,6 +106,7 @@
 		"test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=85 --test 'src/**/*.test.ts'"
 	},
 	"dependencies": {
+		"@remit/api-openapi-types": "*",
 		"@remit/domain-enums": "*",
 		"short-uuid": "^6.0.3",
 		"uuid": "^13.0.2",

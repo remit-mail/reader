@@ -1,7 +1,7 @@
 import type {
 	ClassificationConfigured,
 	ClassificationNotConfigured,
-	ClassificationPreset as ClassificationPresetResponse,
+	ClassificationPreset,
 	UpdateUserSettingsInput,
 } from "@remit/api-openapi-types";
 import type {
@@ -11,15 +11,15 @@ import type {
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import {
 	CLASSIFICATION_PRESETS,
-	type ClassificationPreset,
 	DEFAULT_CLASSIFICATION_DAILY_LIMIT,
-	findClassificationPreset,
+	isClassificationPresetId,
 } from "@remit/data-ports/classification-presets";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
 	type SecretsService,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
+import type { UserSettingsOutcome } from "./user-settings.js";
 
 export const CLASSIFICATION_SETTING_NAMES = [
 	AccountSettingName.ClassificationPresetId,
@@ -38,24 +38,12 @@ export type ClassificationSettingsDeps = {
 	secrets: Pick<SecretsService, "encrypt">;
 };
 
-export interface StoredClassificationProvider {
-	presetId: string;
-	model: string;
-	baseUrl: string;
-	apiKeySaved: boolean;
-	enabled: boolean;
-	dailyLimit: number;
-	savedAt: number;
-}
+export type StoredClassification =
+	| ClassificationNotConfigured
+	| ClassificationConfigured;
 
-export interface ClassificationRefusal {
-	code: string;
-	message: string;
-}
-
-type Decision<T> =
-	| { ok: true; value: T }
-	| { ok: false; error: ClassificationRefusal };
+type Refusal = Extract<UserSettingsOutcome, { ok: false }>;
+type Decision<T> = { ok: true; value: T } | Refusal;
 
 type ApiKeyChange =
 	| { action: "Keep" }
@@ -79,7 +67,7 @@ type ClassificationInput = Pick<
 	| "classificationDailyLimit"
 >;
 
-const refuse = <T>(code: string, message: string): Decision<T> => ({
+const refuse = (code: string, message: string): Refusal => ({
 	ok: false,
 	error: { code, message },
 });
@@ -90,9 +78,7 @@ const isHttpUrl = (value: string): boolean => {
 	return protocol === "http:" || protocol === "https:";
 };
 
-export const savesClassificationProvider = (
-	input: ClassificationInput,
-): boolean =>
+const savesClassificationProvider = (input: ClassificationInput): boolean =>
 	input.classificationPresetId !== undefined ||
 	input.classificationModel !== undefined ||
 	input.classificationBaseUrl !== undefined ||
@@ -103,7 +89,7 @@ const baseUrlFor = (
 	requested: string,
 ): Decision<string> => {
 	if (requested === "") {
-		if (preset.needsBaseUrl) {
+		if (preset.defaultBaseUrl === undefined) {
 			return refuse(
 				"InvalidClassificationBaseUrl",
 				`classificationBaseUrl is required for ${preset.label}`,
@@ -138,23 +124,18 @@ const apiKeyFor = (
 
 export const decideClassificationProvider = (
 	input: ClassificationInput,
-	stored: StoredClassificationProvider | undefined,
+	stored: StoredClassification,
 ): Decision<ClassificationProviderSave> => {
-	const presetId = input.classificationPresetId ?? stored?.presetId;
+	const saved = stored.state === "Configured" ? stored : undefined;
+	const presetId = input.classificationPresetId ?? saved?.presetId;
 	if (presetId === undefined) {
 		return refuse(
 			"ClassificationNotConfigured",
 			"classificationPresetId is required: no classification provider is saved",
 		);
 	}
-	const preset = findClassificationPreset(presetId);
-	if (!preset) {
-		return refuse(
-			"UnknownClassificationPreset",
-			`classificationPresetId ${presetId} is not a classification preset`,
-		);
-	}
-	const kept = stored?.presetId === preset.presetId ? stored : undefined;
+	const preset = CLASSIFICATION_PRESETS[presetId];
+	const kept = saved?.presetId === presetId ? saved : undefined;
 
 	const baseUrl = baseUrlFor(
 		preset,
@@ -189,13 +170,20 @@ const settingOf = (
 export const readStoredClassification = async (
 	accountSetting: Pick<IAccountSettingRepository, "getMany">,
 	accountConfigId: string,
-): Promise<StoredClassificationProvider | undefined> => {
+): Promise<StoredClassification> => {
 	const rows = await accountSetting.getMany(
 		[accountConfigId],
 		CLASSIFICATION_SETTING_NAMES,
 	);
 	const presetRow = settingOf(rows, AccountSettingName.ClassificationPresetId);
-	if (!presetRow) return undefined;
+	if (!presetRow) return { state: "NotConfigured" };
+	const presetId = parseAccountSettingValue(
+		AccountSettingName.ClassificationPresetId,
+		presetRow.value,
+	).value;
+	if (!isClassificationPresetId(presetId)) {
+		throw new Error(`Stored classification preset is unknown: ${presetId}`);
+	}
 
 	const stringOf = (
 		name:
@@ -208,10 +196,8 @@ export const readStoredClassification = async (
 	const enabledRow = settingOf(rows, AccountSettingName.ClassificationEnabled);
 	const limitRow = settingOf(rows, AccountSettingName.ClassificationDailyLimit);
 	return {
-		presetId: parseAccountSettingValue(
-			AccountSettingName.ClassificationPresetId,
-			presetRow.value,
-		).value,
+		state: "Configured",
+		presetId,
 		model: stringOf(AccountSettingName.ClassificationModel),
 		baseUrl: stringOf(AccountSettingName.ClassificationBaseUrl),
 		apiKeySaved:
@@ -232,27 +218,8 @@ export const readStoredClassification = async (
 	};
 };
 
-export const classificationPresetsResponse =
-	(): ClassificationPresetResponse[] =>
-		CLASSIFICATION_PRESETS.map((preset) => ({ ...preset }));
-
-export const classificationResponse = (
-	stored: StoredClassificationProvider | undefined,
-): ClassificationNotConfigured | ClassificationConfigured => {
-	if (!stored) return { state: "NotConfigured" };
-	const preset = findClassificationPreset(stored.presetId);
-	if (!preset) return { state: "NotConfigured" };
-	return {
-		state: "Configured",
-		presetId: preset.presetId,
-		model: stored.model,
-		baseUrl: stored.baseUrl,
-		apiKeySaved: stored.apiKeySaved,
-		enabled: stored.enabled,
-		dailyLimit: stored.dailyLimit,
-		savedAt: stored.savedAt,
-	};
-};
+export const classificationPresetsResponse = (): ClassificationPreset[] =>
+	Object.values(CLASSIFICATION_PRESETS);
 
 interface ClassificationChange {
 	provider: ClassificationProviderSave | undefined;
@@ -262,7 +229,7 @@ interface ClassificationChange {
 
 export const decideClassificationChange = (
 	input: ClassificationInput,
-	stored: StoredClassificationProvider | undefined,
+	stored: StoredClassification,
 ): Decision<ClassificationChange> => {
 	let provider: ClassificationProviderSave | undefined;
 	if (savesClassificationProvider(input)) {
@@ -270,7 +237,7 @@ export const decideClassificationChange = (
 		if (!decided.ok) return decided;
 		provider = decided.value;
 	}
-	const configured = provider !== undefined || stored !== undefined;
+	const configured = provider !== undefined || stored.state === "Configured";
 	if (input.classificationEnabled === true && !configured) {
 		return refuse(
 			"ClassificationNotConfigured",
@@ -287,7 +254,7 @@ export const decideClassificationChange = (
 		ok: true,
 		value: {
 			provider,
-			enabled: input.classificationEnabled,
+			enabled: configured ? input.classificationEnabled : undefined,
 			dailyLimit: input.classificationDailyLimit,
 		},
 	};

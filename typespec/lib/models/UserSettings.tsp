@@ -29,13 +29,13 @@ model UpdateUserSettingsInput {
   @doc("The account invitations go out from by default. Refused with 400 `unknown_sender` when it is not an account of the caller's account config that sends mail. Cleared with `clearDefaultInvitationSender`.")
   defaultInvitationSenderAccountId?: UUID;
 
-  @doc("Save a classification provider. Refused with 400 `unknown_classification_preset` for an id that is not a preset. Saving another preset deletes the stored key. Without it, the classification fields below apply to the saved provider.")
-  classificationPresetId?: string;
+  @doc("Save a classification provider. Saving another preset deletes the stored key. Without it, the classification fields below apply to the saved provider.")
+  classificationPresetId?: ClassificationPresetId;
 
   @doc("The model to ask for. Empty means the preset's default model.")
   classificationModel?: string;
 
-  @doc("The http or https base URL to call. Empty means the preset's default base URL. Refused with 400 `invalid_classification_base_url` when it is not a URL, or when the preset needs one and none is given.")
+  @doc("The http or https base URL to call. Empty means the preset's default base URL. Refused with 400 `invalid_classification_base_url` when it is not a URL, or when the preset has no default base URL and none is given.")
   classificationBaseUrl?: string;
 
   @doc("The provider's API key. Write-only: stored encrypted and never returned. Refused with 400 `classification_api_key_required` when the preset needs a key and none is stored for it.")
@@ -77,7 +77,7 @@ model ClassificationPreset {
   group: ClassificationPresetGroup;
   adapterShape: ClassificationAdapterShape;
 
-  @doc("The base URL used when the reader leaves it empty. Absent when the reader has to name one.")
+  @doc("The base URL used when the reader leaves it empty. Absent when a save has to name one in `classificationBaseUrl`.")
   defaultBaseUrl?: string;
 
   @doc("The model used when the reader leaves it empty.")
@@ -85,9 +85,6 @@ model ClassificationPreset {
 
   @doc("Whether a save needs `classificationApiKey`.")
   needsKey: boolean;
-
-  @doc("Whether a save needs `classificationBaseUrl`.")
-  needsBaseUrl: boolean;
 
   price: ClassificationPrice;
 }

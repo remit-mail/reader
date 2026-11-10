@@ -21,7 +21,6 @@ import type {
 import { badRequest } from "./calendar.js";
 import {
 	classificationPresetsResponse,
-	classificationResponse,
 	clearClassification,
 	decideClassificationChange,
 	readStoredClassification,
@@ -71,8 +70,9 @@ export const readUserSettings = async (
 		defaultInvitationSenderChosen:
 			inEffect !== undefined && inEffect.accountId === chosen,
 		classificationPresets: classificationPresetsResponse(),
-		classification: classificationResponse(
-			await readStoredClassification(deps.accountSetting, accountConfigId),
+		classification: await readStoredClassification(
+			deps.accountSetting,
+			accountConfigId,
 		),
 	};
 };

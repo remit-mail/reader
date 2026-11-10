@@ -35,6 +35,7 @@ import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
+import { ConfigOperations } from "./config.js";
 import { UserSettingsOperations } from "./user-settings.js";
 
 const SUB = "classification-sub-1528";
@@ -185,7 +186,6 @@ describe("a saved classification provider", () => {
 
 		const switched = await patch({
 			classificationPresetId: ClassificationPresetId.Local,
-			classificationBaseUrl: "http://localhost:8080",
 		});
 
 		assert.equal(switched.statusCode, 200);
@@ -242,12 +242,57 @@ describe("a saved classification provider", () => {
 	});
 });
 
+describe("a config export", () => {
+	it("carries no classification key, in plain text or as ciphertext", async () => {
+		await saveJev();
+
+		const exported = JSON.stringify(
+			await ConfigOperations.ConfigOperations_exportConfig(context(), caller()),
+		);
+
+		assert.doesNotMatch(exported, new RegExp(JEV_KEY));
+		assert.doesNotMatch(exported, /ClassificationApiKey|encryptedDek/);
+	});
+});
+
+describe("a request naming a preset", () => {
+	it("is refused with 400 when the preset id is unknown", async () => {
+		const handler = lambdaHandler(async () => caller().client, testApiConfig());
+
+		const result = await handler(
+			{
+				httpMethod: "PATCH",
+				path: "/settings",
+				headers: { "content-type": "application/json" },
+				requestContext: {
+					authorizer: { claims: { sub: SUB, email: "caller@example.com" } },
+				},
+				body: JSON.stringify({
+					classificationPresetId: "Cohere",
+					classificationApiKey: JEV_KEY,
+				}),
+			} as unknown as APIGatewayProxyEvent,
+			{ awsRequestId: "req-unknown-preset" } as LambdaContext,
+		);
+
+		assert.equal(result.statusCode, 400, result.body);
+		assert.deepEqual(await classificationRows(), []);
+	});
+});
+
 describe("switching classification", () => {
 	it("on is refused when no provider is saved", async () => {
 		const refused = await patch({ classificationEnabled: true });
 
 		assert.equal(refused.statusCode, 400);
 		assert.match(refused.body, /classification_not_configured/);
+		assert.deepEqual(await classificationRows(), []);
+	});
+
+	it("off with no provider saved stores nothing", async () => {
+		const answered = await patch({ classificationEnabled: false });
+
+		assert.equal(answered.statusCode, 200);
 		assert.deepEqual(await classificationRows(), []);
 	});
 
