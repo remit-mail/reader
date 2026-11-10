@@ -156,6 +156,7 @@ describe("a saved classification provider", () => {
 				enabled: false,
 				dailyLimit: 500,
 				savedAt: 0,
+				usage: [],
 			},
 		);
 	});

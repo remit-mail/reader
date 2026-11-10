@@ -112,6 +112,40 @@ model ClassificationConfigured {
 
   @doc("When the provider, model, base URL or key was last saved, in epoch milliseconds (UTC).")
   savedAt: int64;
+
+  @doc("Today's provider calls, one row per mail account of the account config.")
+  usage: ClassificationUsage[];
+}
+
+@doc("The cost of today's calls, counting each call as 1,500 input tokens at the preset's price.")
+model ClassificationCostPriced {
+  state: "Priced";
+
+  @doc("ISO 4217 currency of `amount`.")
+  currency: "USD";
+
+  amount: float64;
+}
+
+union ClassificationCost {
+  priced: ClassificationCostPriced,
+  noPrice: ClassificationNoPrice,
+}
+
+@doc("One mail account's classification calls today.")
+model ClassificationUsage {
+  accountId: UUID;
+
+  @doc("Provider calls made today (UTC). Test calls do not count.")
+  calls: int32;
+
+  @doc("The most calls this mail account makes per UTC day.")
+  dailyLimit: int32;
+
+  @doc("When `calls` restarts at zero: the next 00:00 UTC.")
+  resetsAt: utcDateTime;
+
+  cost: ClassificationCost;
 }
 
 union ClassificationSettings {

@@ -22,6 +22,10 @@ import {
 	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
+	classificationUsageName,
+	utcDateOf,
+} from "@remit/data-ports/classification-presets";
+import {
 	MessageGoneFromServerError,
 	MessagePlacementUnsettledError,
 	NotFoundError,
@@ -55,10 +59,7 @@ import {
 	parsePartSource,
 } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
-import {
-	type ClassifierProvider,
-	classifyWithProvider,
-} from "./classifier/classifier-adapter.js";
+import { classifyWithProvider } from "./classifier/classifier-adapter.js";
 import {
 	CLASSIFIER_OFF,
 	type ClassifierConfig,
@@ -907,6 +908,7 @@ export class BodySyncService {
 
 		const verdict = await this.decideClassifierVerdict(
 			lookups,
+			{ accountId, accountConfigId },
 			parsed,
 			arrival,
 			filterDecision.labels.length > 0 ||
@@ -1356,12 +1358,20 @@ export class BodySyncService {
 
 	private async consultClassifier(
 		config: ClassifierConfig,
-		provider: ClassifierProvider,
+		gate: Extract<ClassifierGate, { state: "On" }>,
+		account: { accountId: string; accountConfigId: string },
 		parsed: ParsedMail,
 	): Promise<ClassifierAnswer | undefined> {
+		const claim = await config.accountSetting.claimDailyCount({
+			accountConfigId: account.accountConfigId,
+			name: classificationUsageName(account.accountId),
+			date: utcDateOf(Date.now()),
+			limit: gate.dailyLimit,
+		});
+		if (claim.state === "AtLimit") return undefined;
 		const result = await classifyWithProvider(
 			{
-				provider,
+				provider: gate.provider,
 				labels: CLASSIFIER_LABELS,
 				message: classifierMessageOf(parsed),
 			},
@@ -1373,6 +1383,7 @@ export class BodySyncService {
 
 	private async decideClassifierVerdict(
 		lookups: BatchLookups,
+		account: { accountId: string; accountConfigId: string },
 		parsed: ParsedMail,
 		arrival: Arrival,
 		userRuleApplies: boolean,
@@ -1390,7 +1401,8 @@ export class BodySyncService {
 		if (senderOverride !== SenderOverride.None) return NO_CLASSIFIER_VERDICT;
 		const answer = await this.consultClassifier(
 			classifierConfig,
-			gate.provider,
+			gate,
+			account,
 			parsed,
 		);
 		return answer ? classifierVerdict(answer) : NO_CLASSIFIER_VERDICT;

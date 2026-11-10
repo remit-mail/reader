@@ -84,6 +84,65 @@ export const accountSettingRepoSuite = (open: OpenTestStores): void => {
 			await repo.delete(accountConfigId, "Density");
 		});
 
+		test("claimDailyCount stops at the limit and restarts on a new date", async () => {
+			const accountConfigId = randomId();
+			const claim = (date: string) =>
+				repo.claimDailyCount({
+					accountConfigId,
+					name: "ClassificationUsage#account",
+					date,
+					limit: 2,
+				});
+
+			assert.deepEqual(await claim("2026-11-09"), {
+				state: "Claimed",
+				calls: 1,
+			});
+			assert.deepEqual(await claim("2026-11-09"), {
+				state: "Claimed",
+				calls: 2,
+			});
+			assert.deepEqual(await claim("2026-11-09"), { state: "AtLimit" });
+			assert.deepEqual(await claim("2026-11-10"), {
+				state: "Claimed",
+				calls: 1,
+			});
+
+			const stored = await repo.get(
+				accountConfigId,
+				"ClassificationUsage#account",
+			);
+			assert.deepEqual(stored?.value, {
+				kind: "DailyCount",
+				value: { date: "2026-11-10", calls: 1 },
+			});
+		});
+
+		test("claimDailyCount never counts past the limit when claims race", async () => {
+			const accountConfigId = randomId();
+			const name = "ClassificationUsage#account";
+
+			const claims = await Promise.all(
+				Array.from({ length: 20 }, () =>
+					repo.claimDailyCount({
+						accountConfigId,
+						name,
+						date: "2026-11-10",
+						limit: 5,
+					}),
+				),
+			);
+
+			assert.equal(
+				claims.filter((claim) => claim.state === "Claimed").length,
+				5,
+			);
+			assert.deepEqual((await repo.get(accountConfigId, name))?.value, {
+				kind: "DailyCount",
+				value: { date: "2026-11-10", calls: 5 },
+			});
+		});
+
 		test("delete removes the setting", async () => {
 			const accountConfigId = randomId();
 			await repo.upsert({

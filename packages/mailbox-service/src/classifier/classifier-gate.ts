@@ -24,7 +24,10 @@ import type {
 import type { ClassifierMessage } from "./classifier-request.js";
 
 export interface ClassifierConfig {
-	accountSetting: Pick<IAccountSettingRepository, "getMany">;
+	accountSetting: Pick<
+		IAccountSettingRepository,
+		"getMany" | "claimDailyCount"
+	>;
 	secrets: Pick<SecretsService, "decrypt">;
 	labelService: ClassificationLabelDeps;
 	messageLabelService: Pick<IMessageLabelRepository, "apply">;
@@ -37,6 +40,7 @@ export type ClassifierGate =
 			state: "On";
 			provider: ClassifierProvider;
 			savedAt: number;
+			dailyLimit: number;
 			labels: ClassificationLabels;
 	  };
 
@@ -88,6 +92,7 @@ export const readClassifierGate = async (
 			apiKey: key.apiKey,
 		},
 		savedAt: saved.savedAt,
+		dailyLimit: saved.dailyLimit,
 		labels: await ensureClassificationLabels(
 			config.labelService,
 			accountConfigId,

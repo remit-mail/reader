@@ -64,4 +64,7 @@ enum AccountSettingName {
 
   @doc("The most classification calls per mail account per UTC day. Number-valued; absent means 500.")
   ClassificationDailyLimit,
+
+  @doc("Today's classification calls for a single mail account. Stored per-account: the persisted name is composed as `ClassificationUsage#<accountId>`. DailyCount-valued: the UTC date and the calls made on it; an earlier date reads as zero calls.")
+  ClassificationUsage,
 }

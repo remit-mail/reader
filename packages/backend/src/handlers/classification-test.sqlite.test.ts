@@ -5,6 +5,10 @@ import type {
 	ClassificationTestFailed,
 	ClassificationTestPassed,
 } from "@remit/api-openapi-types";
+import {
+	classificationUsageName,
+	utcDateOf,
+} from "@remit/data-ports/classification-presets";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	ClassificationFailureKind,
@@ -165,6 +169,33 @@ describe("a classification test", () => {
 		assert.equal(passed.confidence, 0.91);
 		assert.ok(passed.latencyMs >= 0);
 		assert.deepEqual(await classificationRows(), before);
+	});
+
+	it("leaves every daily count as it was", async () => {
+		await patch({
+			classificationPresetId: ClassificationPresetId.Jev,
+			classificationApiKey: SAVED_KEY,
+			classificationEnabled: true,
+		});
+		const usageName = classificationUsageName("1".repeat(25));
+		await repos.accountSetting.upsert({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			name: usageName,
+			value: {
+				kind: "DailyCount",
+				value: { date: utcDateOf(Date.now()), calls: 7 },
+			},
+		});
+		const before = await repos.accountSetting.get(ACCOUNT_CONFIG_ID, usageName);
+
+		const answered = await testProvider(jevForm(""));
+
+		assert.equal(answered.statusCode, 200, answered.body);
+		assert.equal(provider.requests.length, 1);
+		assert.deepEqual(
+			await repos.accountSetting.get(ACCOUNT_CONFIG_ID, usageName),
+			before,
+		);
 	});
 
 	it("with an empty key field sends the saved key", async () => {

@@ -157,7 +157,13 @@ export type AccountSettingValue =
 				expiresAt?: number;
 				reason?: string;
 			};
-	  };
+	  }
+	| { kind: "DailyCount"; value: DailyCount };
+
+export interface DailyCount {
+	date: string;
+	calls: number;
+}
 
 export type AccountSettingItem = {
 	accountSettingId: string;
@@ -317,6 +323,17 @@ export type UpsertAccountSettingInput = {
 	name: string;
 	value: AccountSettingValue;
 };
+
+export interface ClaimDailyCountInput {
+	accountConfigId: string;
+	name: string;
+	date: string;
+	limit: number;
+}
+
+export type DailyCountClaim =
+	| { state: "Claimed"; calls: number }
+	| { state: "AtLimit" };
 
 export type AddressFlags = NonNullable<AddressItem["flags"]>;
 export type FlagsMergePatch = {

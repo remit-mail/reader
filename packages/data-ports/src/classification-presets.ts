@@ -12,6 +12,7 @@ import {
 } from "@remit/domain-enums";
 import {
 	type AccountSettingValueFor,
+	composeSettingName,
 	parseAccountSettingValue,
 } from "./account-settings.js";
 import type { IAccountSettingRepository } from "./interfaces/account-setting.js";
@@ -104,9 +105,14 @@ export type ClassificationApiKeyCiphertext = AccountSettingValueFor<
 	typeof AccountSettingName.ClassificationApiKey
 >["value"];
 
+export type SavedClassificationProvider = Omit<
+	ClassificationConfigured,
+	"usage"
+>;
+
 export type StoredClassification =
 	| ClassificationNotConfigured
-	| (ClassificationConfigured & {
+	| (SavedClassificationProvider & {
 			apiKeyCiphertext: ClassificationApiKeyCiphertext | undefined;
 	  });
 
@@ -188,3 +194,9 @@ export const readStoredClassification = async (
 	}
 	return saved;
 };
+
+export const classificationUsageName = (accountId: string): string =>
+	composeSettingName(AccountSettingName.ClassificationUsage, accountId);
+
+export const utcDateOf = (epochMs: number): string =>
+	new Date(epochMs).toISOString().slice(0, 10);

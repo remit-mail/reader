@@ -28,6 +28,7 @@ import {
 	clearClassification,
 	decideClassificationChange,
 	publicClassification,
+	readClassificationUsage,
 	writeClassificationChange,
 } from "./classification-settings.js";
 import { testClassificationProvider } from "./classification-test.js";
@@ -67,18 +68,28 @@ export const readUserSettings = async (
 		deps.accountSetting,
 		accountConfigId,
 	);
-	const inEffect = invitationSenderInEffect(
-		await deps.accounts.listAllByAccountConfig(accountConfigId),
-		chosen,
+	const accounts = await deps.accounts.listAllByAccountConfig(accountConfigId);
+	const inEffect = invitationSenderInEffect(accounts, chosen);
+	const stored = await readStoredClassification(
+		deps.accountSetting,
+		accountConfigId,
 	);
+	const usage =
+		stored.state === "Configured"
+			? await readClassificationUsage(
+					deps.accountSetting,
+					accountConfigId,
+					accounts.map((account) => account.accountId),
+					stored,
+					Date.now(),
+				)
+			: [];
 	return {
 		...(inEffect && { defaultInvitationSenderAccountId: inEffect.accountId }),
 		defaultInvitationSenderChosen:
 			inEffect !== undefined && inEffect.accountId === chosen,
 		classificationPresets: classificationPresetsResponse(),
-		classification: publicClassification(
-			await readStoredClassification(deps.accountSetting, accountConfigId),
-		),
+		classification: publicClassification(stored, usage),
 	};
 };
 
