@@ -134,9 +134,10 @@ describe("resolveClassification", () => {
 	});
 
 	it("falls back to the preset defaults, off and 500 with no deployment default", () => {
-		const resolved = configured([preset(ClassificationPresetId.Jev)], {
-			state: "None",
-		});
+		const resolved = configured(
+			[preset(ClassificationPresetId.Jev), apiKey()],
+			{ state: "None" },
+		);
 
 		assert.deepEqual(resolved.model, {
 			value: "jev-latest",
@@ -146,29 +147,21 @@ describe("resolveClassification", () => {
 			value: "https://api.typesafe.ai",
 			source: "Default",
 		});
-		assert.deepEqual(resolved.apiKey, { source: "Default" });
 		assert.deepEqual(resolved.enabled, { value: false, source: "Default" });
 		assert.deepEqual(resolved.dailyLimit, { value: 500, source: "Default" });
 	});
 
-	it("uses the preset defaults for model and base URL when the saved preset differs from the deployment's", () => {
-		const resolved = configured([preset(ClassificationPresetId.Jev)]);
-
-		assert.deepEqual(resolved.model, {
-			value: "jev-latest",
-			source: "Default",
+	it("takes preset defaults and withholds the key, but keeps the deployment switch and limit, for a saved preset that differs", () => {
+		assert.deepEqual(configured([preset(ClassificationPresetId.Local)]), {
+			state: "Configured",
+			presetId: { value: ClassificationPresetId.Local, source: "Saved" },
+			model: { value: "clef-flash", source: "Default" },
+			baseUrl: { value: "http://localhost:8080", source: "Default" },
+			apiKey: { source: "Default" },
+			enabled: { value: true, source: "Deployment" },
+			dailyLimit: { value: 40, source: "Deployment" },
+			classifiesAfter: SAVED_AT,
 		});
-		assert.deepEqual(resolved.baseUrl, {
-			value: "https://api.typesafe.ai",
-			source: "Default",
-		});
-	});
-
-	it("keeps the deployment switch and limit when the saved preset differs", () => {
-		const resolved = configured([preset(ClassificationPresetId.Jev)]);
-
-		assert.deepEqual(resolved.enabled, { value: true, source: "Deployment" });
-		assert.deepEqual(resolved.dailyLimit, { value: 40, source: "Deployment" });
 	});
 
 	it("uses the deployment model and base URL when the saved preset matches", () => {
@@ -208,14 +201,12 @@ describe("resolveClassification", () => {
 		});
 	});
 
-	it("withholds the deployment key once the base URL is saved elsewhere", () => {
-		const resolved = configured([baseUrl("https://other.example/v1")]);
-
-		assert.deepEqual(resolved.baseUrl, {
-			value: "https://other.example/v1",
-			source: "Saved",
+	it("cannot run once the base URL is saved elsewhere, as the deployment key is withheld", () => {
+		assert.deepEqual(resolve([baseUrl("https://other.example/v1")]), {
+			state: "Unrunnable",
+			presetId: ClassificationPresetId.Mistral,
+			reason: "NoApiKey",
 		});
-		assert.deepEqual(resolved.apiKey, { source: "Default" });
 	});
 
 	it("sends the deployment key to a saved base URL equal to the deployment's", () => {
@@ -225,27 +216,38 @@ describe("resolveClassification", () => {
 		);
 	});
 
-	it("withholds the deployment key from another preset", () => {
-		assert.deepEqual(configured([preset(ClassificationPresetId.Jev)]).apiKey, {
-			source: "Default",
+	it("cannot run another preset that needs a key, as the deployment key is withheld", () => {
+		assert.deepEqual(resolve([preset(ClassificationPresetId.Jev)]), {
+			state: "Unrunnable",
+			presetId: ClassificationPresetId.Jev,
+			reason: "NoApiKey",
 		});
 	});
 
 	it("withholds the deployment key from another preset on the same base URL", () => {
-		const resolved = configured([
-			preset(ClassificationPresetId.OpenAiCompatible),
-			baseUrl("https://mistral.example/v1"),
-		]);
-
-		assert.deepEqual(resolved.apiKey, { source: "Default" });
+		assert.deepEqual(
+			resolve([
+				preset(ClassificationPresetId.OpenAiCompatible),
+				baseUrl("https://mistral.example/v1"),
+			]),
+			{
+				state: "Unrunnable",
+				presetId: ClassificationPresetId.OpenAiCompatible,
+				reason: "NoApiKey",
+			},
+		);
 	});
 
-	it("reports a preset with no base URL from anywhere", () => {
+	it("cannot run a preset with no base URL from anywhere", () => {
 		assert.deepEqual(
-			resolve([preset(ClassificationPresetId.OpenAiCompatible)], {
+			resolve([preset(ClassificationPresetId.OpenAiCompatible), apiKey()], {
 				state: "None",
 			}),
-			{ state: "NoBaseUrl", presetId: ClassificationPresetId.OpenAiCompatible },
+			{
+				state: "Unrunnable",
+				presetId: ClassificationPresetId.OpenAiCompatible,
+				reason: "NoBaseUrl",
+			},
 		);
 	});
 });

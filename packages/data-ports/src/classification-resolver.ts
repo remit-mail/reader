@@ -49,10 +49,16 @@ export interface ResolvedClassificationProvider {
 	classifiesAfter: number;
 }
 
+export type UnrunnableReason = "NoBaseUrl" | "NoApiKey";
+
 export type ResolvedClassification =
 	| { state: "NotConfigured" }
 	| { state: "UnknownPreset"; presetId: string }
-	| { state: "NoBaseUrl"; presetId: ClassificationPresetId }
+	| {
+			state: "Unrunnable";
+			presetId: ClassificationPresetId;
+			reason: UnrunnableReason;
+	  }
 	| ResolvedClassificationProvider;
 
 export interface ClassificationResolverInput {
@@ -145,7 +151,19 @@ export const resolveClassification = ({
 			matching?.baseUrl,
 		) ?? defaultBaseUrlOf(preset.defaultBaseUrl);
 	if (baseUrl === undefined) {
-		return { state: "NoBaseUrl", presetId: presetId.value };
+		return {
+			state: "Unrunnable",
+			presetId: presetId.value,
+			reason: "NoBaseUrl",
+		};
+	}
+	const apiKey = apiKeyOf(rows, deployed, presetId.value, baseUrl.value);
+	if (preset.needsKey && apiKey.source === ClassificationSource.Default) {
+		return {
+			state: "Unrunnable",
+			presetId: presetId.value,
+			reason: "NoApiKey",
+		};
 	}
 
 	return {
@@ -159,7 +177,7 @@ export const resolveClassification = ({
 			preset.defaultModel,
 		),
 		baseUrl,
-		apiKey: apiKeyOf(rows, deployed, presetId.value, baseUrl.value),
+		apiKey,
 		enabled: orDefault(
 			savedOrDeployed(
 				savedValue(rows, AccountSettingName.ClassificationEnabled),

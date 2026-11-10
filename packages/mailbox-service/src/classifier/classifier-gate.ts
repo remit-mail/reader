@@ -83,10 +83,10 @@ export const readClassifierGate = async (
 		);
 		return CLASSIFIER_OFF;
 	}
-	if (resolved.state === "NoBaseUrl") {
+	if (resolved.state === "Unrunnable") {
 		config.logger.warn(
-			{ accountConfigId, presetId: resolved.presetId },
-			"Classification base URL is missing; using the built-in rules",
+			{ accountConfigId, presetId: resolved.presetId, reason: resolved.reason },
+			"Classification provider cannot run; using the built-in rules",
 		);
 		return CLASSIFIER_OFF;
 	}

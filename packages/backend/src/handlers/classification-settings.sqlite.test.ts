@@ -284,6 +284,18 @@ describe("a deployment classification default", () => {
 		assert.doesNotMatch(JSON.stringify(settings), new RegExp(DEPLOYMENT_KEY));
 	});
 
+	it("turns the inherited switch off and changes the inherited limit", async () => {
+		const switchedOff = await patch({ classificationEnabled: false });
+		const limited = await patch({ classificationDailyLimit: 9 });
+
+		assert.equal(switchedOff.statusCode, 200);
+		assert.equal(limited.statusCode, 200);
+		const now = await configured();
+		assert.equal(now.presetId, ClassificationPresetId.Mistral);
+		assert.equal(now.enabled, false);
+		assert.equal(now.dailyLimit, 9);
+	});
+
 	it("gives way to a saved limit and switch", async () => {
 		await saveJev();
 		await patch({ classificationEnabled: false, classificationDailyLimit: 7 });

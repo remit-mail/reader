@@ -5,8 +5,7 @@ import type {
 	ClassificationTestInput,
 	ClassificationTestPassed,
 } from "@remit/api-openapi-types";
-import type { IAccountSettingRepository } from "@remit/data-ports";
-import { readStoredClassification } from "@remit/data-ports/classification-presets";
+import type { ClassificationResolverDeps } from "@remit/data-ports/classification-resolver";
 import {
 	ClassificationFailureKind as FailureKind,
 	ClassificationField as Field,
@@ -26,11 +25,11 @@ import {
 import {
 	type ClassificationProviderSave,
 	decideClassificationProvider,
+	readKnownClassification,
 } from "./classification-settings.js";
 import type { UserSettingsOutcome } from "./user-settings.js";
 
-export interface ClassificationTestDeps {
-	accountSetting: Pick<IAccountSettingRepository, "getMany">;
+export interface ClassificationTestDeps extends ClassificationResolverDeps {
 	secrets: Pick<SecretsService, "decrypt">;
 	logger: ClassifierLogger;
 }
@@ -120,7 +119,7 @@ export const testClassificationProvider = async (
 			classificationBaseUrl: input.baseUrl,
 			classificationApiKey: input.apiKey,
 		},
-		await readStoredClassification(deps.accountSetting, accountConfigId),
+		await readKnownClassification(deps, accountConfigId),
 	);
 	if (!decided.ok) return decided;
 	const save = decided.value;

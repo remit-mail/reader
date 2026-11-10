@@ -13,14 +13,7 @@ import type {
 	IAccountSettingRepository,
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
-import {
-	type ClassificationDeploymentDefault,
-	readStoredClassification,
-} from "@remit/data-ports/classification-presets";
-import {
-	type ResolvedClassification,
-	readResolvedClassification,
-} from "@remit/data-ports/classification-resolver";
+import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { AccountSettingName } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import type { ClassificationLabelDeps } from "@remit/mailbox-service";
@@ -37,6 +30,7 @@ import {
 	decideClassificationChange,
 	publicClassification,
 	readClassificationUsage,
+	readKnownClassification,
 	writeClassificationChange,
 } from "./classification-settings.js";
 import { testClassificationProvider } from "./classification-test.js";
@@ -52,26 +46,6 @@ export interface UserSettingsDeps {
 	secrets: Pick<SecretsService, "encrypt">;
 	label: ClassificationLabelDeps;
 }
-
-const readEffectiveClassification = async (
-	deps: UserSettingsDeps,
-	accountConfigId: string,
-): Promise<
-	Extract<ResolvedClassification, { state: "NotConfigured" | "Configured" }>
-> => {
-	const resolved = await readResolvedClassification(deps, accountConfigId);
-	if (resolved.state === "UnknownPreset") {
-		throw new Error(
-			`Stored classification preset is unknown: ${resolved.presetId}`,
-		);
-	}
-	if (resolved.state === "NoBaseUrl") {
-		throw new Error(
-			`Classification base URL is missing for preset ${resolved.presetId}`,
-		);
-	}
-	return resolved;
-};
 
 /** The account the reader chose to send invitations from, if they chose one. */
 export const chosenInvitationSender = async (
@@ -100,7 +74,12 @@ export const readUserSettings = async (
 	);
 	const accounts = await deps.accounts.listAllByAccountConfig(accountConfigId);
 	const inEffect = invitationSenderInEffect(accounts, chosen);
-	const resolved = await readEffectiveClassification(deps, accountConfigId);
+	const resolved = await readKnownClassification(deps, accountConfigId);
+	if (resolved.state === "Unrunnable") {
+		throw new Error(
+			`Classification provider ${resolved.presetId} cannot run: ${resolved.reason}`,
+		);
+	}
 	const usage =
 		resolved.state === "Configured"
 			? await readClassificationUsage(
@@ -134,7 +113,7 @@ export const updateUserSettingsFor = async (
 ): Promise<UserSettingsOutcome> => {
 	const classification = decideClassificationChange(
 		input,
-		await readStoredClassification(deps.accountSetting, accountConfigId),
+		await readKnownClassification(deps, accountConfigId),
 	);
 	if (!classification.ok) return classification;
 	const sender = input.defaultInvitationSenderAccountId;
@@ -212,6 +191,8 @@ export const UserSettingsOperations: Record<
 		const tested = await testClassificationProvider(
 			{
 				accountSetting: ctx.client.accountSetting,
+				accountConfig: ctx.client.accountConfig,
+				classificationDefault: ctx.client.classificationDefault,
 				secrets: ctx.client.secrets,
 				logger,
 			},
