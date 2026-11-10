@@ -8,7 +8,7 @@ export interface ClassifierMessage {
 	text: string;
 }
 
-export const BODY_TOKEN_LIMIT = 1_500;
+const BODY_WORD_LIMIT = 1_500;
 
 const SENT_HEADERS = new Set([
 	"from",
@@ -23,19 +23,18 @@ const isSentHeader = (name: string): boolean => {
 	return SENT_HEADERS.has(lower) || lower.startsWith("list-");
 };
 
-export const bodySlice = (text: string): string => {
-	const tokens = text.matchAll(/\S+/g);
+const bodySlice = (text: string): string => {
 	let end = 0;
 	let count = 0;
-	for (const token of tokens) {
-		if (count === BODY_TOKEN_LIMIT) break;
-		end = token.index + token[0].length;
+	for (const word of text.matchAll(/\S+/g)) {
+		if (count === BODY_WORD_LIMIT) break;
+		end = word.index + word[0].length;
 		count++;
 	}
 	return text.slice(0, end);
 };
 
-export const countTokens = (text: string): number =>
+export const countWords = (text: string): number =>
 	text.match(/\S+/g)?.length ?? 0;
 
 export const classifierRequestText = (message: ClassifierMessage): string => {

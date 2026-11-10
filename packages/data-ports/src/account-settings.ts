@@ -30,6 +30,15 @@ export const MapSettingSchema = z.object({
 	kind: z.literal("Map"),
 	value: z.record(z.string(), z.string()),
 });
+export const CiphertextSettingSchema = z.object({
+	kind: z.literal("Map"),
+	value: z.object({
+		encryptedDek: z.string(),
+		encryptedData: z.string(),
+		iv: z.string(),
+		authTag: z.string(),
+	}),
+});
 /**
  * MutedFlag-valued setting. The value is a rich mute object (`MutedFlag` in
  * TypeSpec / `@remit/api-openapi-types`): a boolean plus audit metadata. The
@@ -86,7 +95,7 @@ export const accountSettingRegistry = {
 	[AccountSettingName.ClassificationPresetId]: StringSettingSchema,
 	[AccountSettingName.ClassificationModel]: StringSettingSchema,
 	[AccountSettingName.ClassificationBaseUrl]: StringSettingSchema,
-	[AccountSettingName.ClassificationApiKey]: MapSettingSchema,
+	[AccountSettingName.ClassificationApiKey]: CiphertextSettingSchema,
 	[AccountSettingName.ClassificationEnabled]: BooleanSettingSchema,
 	[AccountSettingName.ClassificationDailyLimit]: NumberSettingSchema,
 } as const satisfies Record<AccountSettingNameValue, z.ZodTypeAny>;

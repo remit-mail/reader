@@ -75,7 +75,7 @@ interface Warned {
 const run = async (
 	adapterShape: ClassificationAdapterShapeValue,
 	reply: (request: StubRequest) => StubReply,
-	options: { basePath?: string; timeoutMs?: number; warned?: Warned[] } = {},
+	options: { timeoutMs?: number; warned?: Warned[] } = {},
 ): Promise<ClassifierResult> => {
 	await stub?.close();
 	stub = await startStubHttpServer(reply);
@@ -84,7 +84,7 @@ const run = async (
 		{
 			provider: {
 				adapterShape,
-				baseUrl: `${stub.baseUrl}${options.basePath ?? ""}`,
+				baseUrl: stub.baseUrl,
 				model: "test-model",
 				apiKey: API_KEY,
 			},
@@ -107,7 +107,7 @@ const sent = (): StubRequest => {
 describe("every adapter shape", () => {
 	it("DecisionApi reads a calibrated score per label from /v1/systemone", async () => {
 		const result = await run(ClassificationAdapterShape.DecisionApi, () =>
-			decisionAnswer("newsletter", 0.93),
+			decisionAnswer("Newsletter", 0.93),
 		);
 
 		assert.equal(sent().path, "/v1/systemone");
@@ -122,17 +122,17 @@ describe("every adapter shape", () => {
 		assert.ok(result.ok);
 		assert.equal(result.confidenceKind, "Calibrated");
 		assert.equal(result.scores.length, CLASSIFIER_LABELS.length);
-		const top = result.scores.find((score) => score.label === "newsletter");
+		const top = result.scores.find((score) => score.label === "Newsletter");
 		assert.equal(top?.confidence, 0.93);
-		assert.ok(result.inputTokens > 0);
+		assert.ok(result.inputWords > 0);
 	});
 
 	it("ChatJsonSchema asks for an enum of the labels and reads one advisory label", async () => {
 		const result = await run(ClassificationAdapterShape.ChatJsonSchema, () =>
-			chatAnswer(JSON.stringify({ label: "newsletter", confidence: 0.88 })),
+			chatAnswer(JSON.stringify({ label: "Newsletter", confidence: 0.88 })),
 		);
 
-		assert.equal(sent().path, "/v1/chat/completions");
+		assert.equal(sent().path, "/chat/completions");
 		const body = JSON.parse(sent().body);
 		assert.deepEqual(
 			body.response_format.json_schema.schema.properties.label.enum,
@@ -141,23 +141,13 @@ describe("every adapter shape", () => {
 		assert.ok(result.ok);
 		assert.equal(result.confidenceKind, "Advisory");
 		assert.deepEqual(result.scores, [
-			{ label: "newsletter", confidence: 0.88 },
+			{ label: "Newsletter", confidence: 0.88 },
 		]);
-	});
-
-	it("ChatJsonSchema on a versioned base URL calls chat completions under it", async () => {
-		await run(
-			ClassificationAdapterShape.ChatJsonSchema,
-			() => chatAnswer(JSON.stringify({ label: "social", confidence: 0.5 })),
-			{ basePath: "/v1beta/openai" },
-		);
-
-		assert.equal(sent().path, "/v1beta/openai/chat/completions");
 	});
 
 	it("JinaClassify posts to /v1/classify and reads its prediction and score", async () => {
 		const result = await run(ClassificationAdapterShape.JinaClassify, () =>
-			jinaAnswer("marketing", 0.61),
+			jinaAnswer("Marketing", 0.61),
 		);
 
 		assert.equal(sent().path, "/v1/classify");
@@ -167,7 +157,7 @@ describe("every adapter shape", () => {
 		assert.equal(typeof body.input[0].text, "string");
 		assert.ok(result.ok);
 		assert.equal(result.confidenceKind, "Advisory");
-		assert.deepEqual(result.scores, [{ label: "marketing", confidence: 0.61 }]);
+		assert.deepEqual(result.scores, [{ label: "Marketing", confidence: 0.61 }]);
 	});
 });
 
@@ -220,7 +210,7 @@ describe("an answer the adapter cannot use", () => {
 	it("is unparseable when a confidence falls outside 0 to 1", async () => {
 		unparseable(
 			await run(ClassificationAdapterShape.ChatJsonSchema, () =>
-				chatAnswer(JSON.stringify({ label: "spam", confidence: 1.4 })),
+				chatAnswer(JSON.stringify({ label: "Spam", confidence: 1.4 })),
 			),
 		);
 	});
@@ -244,7 +234,7 @@ describe("a silent provider", () => {
 describe("the request body", () => {
 	it("holds only the listed headers and the first 1,500 tokens of the text body", async () => {
 		const words = Array.from({ length: 2_000 }, (_, i) => `w${i}`);
-		stub = await startStubHttpServer(() => decisionAnswer("personal", 0.8));
+		stub = await startStubHttpServer(() => decisionAnswer("Personal", 0.8));
 		await classifyWithProvider(
 			{
 				provider: {

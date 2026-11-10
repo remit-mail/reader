@@ -1,13 +1,16 @@
 import type {
+	ClassificationFailureKind,
+	ClassificationField,
 	ClassificationTestFailed,
 	ClassificationTestInput,
 	ClassificationTestPassed,
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository } from "@remit/data-ports";
-import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
-import { AccountSettingName } from "@remit/domain-enums";
 import {
-	CLASSIFIER_FAILURE_HELP,
+	ClassificationFailureKind as FailureKind,
+	ClassificationField as Field,
+} from "@remit/domain-enums";
+import {
 	CLASSIFIER_LABELS,
 	CLASSIFIER_SAMPLE_MESSAGE,
 	type ClassifierLogger,
@@ -18,7 +21,6 @@ import {
 import {
 	deserializeEncryptedPayload,
 	type SecretsService,
-	type SerializedEncryptedPayload,
 } from "@remit/secrets-service";
 import {
 	type ClassificationProviderSave,
@@ -28,52 +30,54 @@ import {
 import type { UserSettingsOutcome } from "./user-settings.js";
 
 export interface ClassificationTestDeps {
-	accountSetting: Pick<IAccountSettingRepository, "get" | "getMany">;
+	accountSetting: Pick<IAccountSettingRepository, "getMany">;
 	secrets: Pick<SecretsService, "decrypt">;
 	logger: ClassifierLogger;
-	timeoutMs?: number;
 }
 
 export type ClassificationTestOutcome =
 	| { ok: true; value: ClassificationTestPassed | ClassificationTestFailed }
 	| Extract<UserSettingsOutcome, { ok: false }>;
 
-const PAYLOAD_FIELDS = ["encryptedDek", "encryptedData", "iv", "authTag"];
+type FailureHelp =
+	| { field: ClassificationField; fix: string }
+	| { fix: string };
 
-const isSerializedPayload = (
-	stored: Record<string, string>,
-): stored is Record<string, string> & SerializedEncryptedPayload =>
-	PAYLOAD_FIELDS.every((field) => typeof stored[field] === "string");
+const REACH_FIX = "Check the endpoint runs and the Remit server can reach it";
+const DEFAULT_MODEL_FIX = "Use the preset's default model";
 
-const savedApiKey = async (
-	deps: ClassificationTestDeps,
-	accountConfigId: string,
-): Promise<string> => {
-	const row = await deps.accountSetting.get(
-		accountConfigId,
-		AccountSettingName.ClassificationApiKey,
-	);
-	if (!row) throw new Error("Saved classification API key disappeared");
-	const stored = parseAccountSettingValue(
-		AccountSettingName.ClassificationApiKey,
-		row.value,
-	).value;
-	if (!isSerializedPayload(stored)) {
-		throw new Error("Saved classification API key is not ciphertext");
-	}
-	return deps.secrets.decrypt(deserializeEncryptedPayload(stored));
+const FAILURE_HELP: Record<ClassificationFailureKind, FailureHelp> = {
+	[FailureKind.Unauthorized]: {
+		field: Field.ApiKey,
+		fix: "Replace the key, save, test again",
+	},
+	[FailureKind.ModelNotFound]: {
+		field: Field.Model,
+		fix: "Check the model name, or empty it for the default",
+	},
+	[FailureKind.RateLimited]: {
+		fix: "Raise the limit at the provider, or lower the daily limit",
+	},
+	[FailureKind.Rejected]: { field: Field.Model, fix: DEFAULT_MODEL_FIX },
+	[FailureKind.ProviderError]: {
+		fix: "The provider is failing; built-in rules cover until it recovers",
+	},
+	[FailureKind.Unreachable]: { field: Field.BaseUrl, fix: REACH_FIX },
+	[FailureKind.TimedOut]: { field: Field.BaseUrl, fix: REACH_FIX },
+	[FailureKind.Unparseable]: { field: Field.Model, fix: DEFAULT_MODEL_FIX },
 };
 
 const apiKeyOf = (
 	deps: ClassificationTestDeps,
-	accountConfigId: string,
 	save: ClassificationProviderSave,
 ): Promise<string> => {
 	if (save.apiKey.action === "Replace") {
 		return Promise.resolve(save.apiKey.apiKey);
 	}
 	if (save.apiKey.action === "Keep") {
-		return savedApiKey(deps, accountConfigId);
+		return deps.secrets.decrypt(
+			deserializeEncryptedPayload(save.apiKey.ciphertext),
+		);
 	}
 	return Promise.resolve("");
 };
@@ -100,7 +104,7 @@ const answerOf = (
 		latencyMs: result.latencyMs,
 		...(result.status === undefined ? {} : { status: result.status }),
 		kind: result.kind,
-		...CLASSIFIER_FAILURE_HELP[result.kind],
+		...FAILURE_HELP[result.kind],
 	};
 };
 
@@ -127,12 +131,12 @@ export const testClassificationProvider = async (
 				adapterShape: save.preset.adapterShape,
 				baseUrl: save.baseUrl,
 				model: save.model,
-				apiKey: await apiKeyOf(deps, accountConfigId, save),
+				apiKey: await apiKeyOf(deps, save),
 			},
 			labels: CLASSIFIER_LABELS,
 			message: CLASSIFIER_SAMPLE_MESSAGE,
 		},
-		{ logger: deps.logger, timeoutMs: deps.timeoutMs },
+		{ logger: deps.logger },
 	);
 	return { ok: true, value: answerOf(result) };
 };

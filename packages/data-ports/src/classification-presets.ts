@@ -39,7 +39,7 @@ export const CLASSIFICATION_PRESETS: Record<
 		label: "Mistral",
 		group: ClassificationPresetGroup.Hosted,
 		adapterShape: ClassificationAdapterShape.ChatJsonSchema,
-		defaultBaseUrl: "https://api.eu.mistral.ai",
+		defaultBaseUrl: "https://api.eu.mistral.ai/v1",
 		defaultModel: "ministral-8b-latest",
 		needsKey: true,
 		price: NO_PRICE,

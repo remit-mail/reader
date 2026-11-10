@@ -1,43 +1,16 @@
-import { MessageCategory } from "@remit/domain-enums";
+import { ClassificationLabel } from "@remit/domain-enums";
+import type { ClassificationLabelValue } from "./classifier-adapter.js";
 import type { ClassifierMessage } from "./classifier-request.js";
 
 export {
-	CLASSIFIER_TIMEOUT_MS,
-	type ClassificationAdapterShapeValue,
-	type ClassifierCall,
-	type ClassifierConfidenceKind,
-	type ClassifierDeps,
 	type ClassifierLogger,
-	type ClassifierProvider,
 	type ClassifierResult,
 	type ClassifierScore,
 	classifyWithProvider,
 } from "./classifier-adapter.js";
-export {
-	CLASSIFIER_FAILURE_HELP,
-	type ClassificationFailureKindValue,
-	type ClassificationFieldValue,
-	type ClassifierFailureHelp,
-	failureKindForStatus,
-} from "./classifier-failure.js";
-export {
-	BODY_TOKEN_LIMIT,
-	type ClassifierHeader,
-	type ClassifierMessage,
-	classifierRequestText,
-} from "./classifier-request.js";
 
-export const CLASSIFIER_LABELS: readonly string[] = [
-	"spam",
-	"phishing",
-	"priority",
-	MessageCategory.personal,
-	MessageCategory.newsletter,
-	MessageCategory.marketing,
-	MessageCategory.automated,
-	MessageCategory.transactional,
-	MessageCategory.social,
-];
+export const CLASSIFIER_LABELS: readonly ClassificationLabelValue[] =
+	Object.values(ClassificationLabel);
 
 export const CLASSIFIER_SAMPLE_MESSAGE: ClassifierMessage = {
 	headers: [

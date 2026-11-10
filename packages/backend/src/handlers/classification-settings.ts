@@ -17,6 +17,7 @@ import {
 import { AccountSettingName } from "@remit/domain-enums";
 import {
 	type SecretsService,
+	type SerializedEncryptedPayload,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import type { UserSettingsOutcome } from "./user-settings.js";
@@ -40,13 +41,15 @@ export type ClassificationSettingsDeps = {
 
 export type StoredClassification =
 	| ClassificationNotConfigured
-	| ClassificationConfigured;
+	| (ClassificationConfigured & {
+			apiKeyCiphertext: SerializedEncryptedPayload | undefined;
+	  });
 
 type Refusal = Extract<UserSettingsOutcome, { ok: false }>;
 type Decision<T> = { ok: true; value: T } | Refusal;
 
 type ApiKeyChange =
-	| { action: "Keep" }
+	| { action: "Keep"; ciphertext: SerializedEncryptedPayload }
 	| { action: "Replace"; apiKey: string }
 	| { action: "Delete" };
 
@@ -109,13 +112,15 @@ const baseUrlFor = (
 const apiKeyFor = (
 	preset: ClassificationPreset,
 	requested: string,
-	keptKey: boolean,
+	keptKey: SerializedEncryptedPayload | undefined,
 ): Decision<ApiKeyChange> => {
 	if (!preset.needsKey) return { ok: true, value: { action: "Delete" } };
 	if (requested !== "") {
 		return { ok: true, value: { action: "Replace", apiKey: requested } };
 	}
-	if (keptKey) return { ok: true, value: { action: "Keep" } };
+	if (keptKey) {
+		return { ok: true, value: { action: "Keep", ciphertext: keptKey } };
+	}
 	return refuse(
 		"ClassificationApiKeyRequired",
 		`classificationApiKey is required for ${preset.label}`,
@@ -146,7 +151,7 @@ export const decideClassificationProvider = (
 	const apiKey = apiKeyFor(
 		preset,
 		(input.classificationApiKey ?? "").trim(),
-		kept?.apiKeySaved ?? false,
+		kept?.apiKeyCiphertext,
 	);
 	if (!apiKey.ok) return apiKey;
 
@@ -193,6 +198,7 @@ export const readStoredClassification = async (
 		const row = settingOf(rows, name);
 		return row ? parseAccountSettingValue(name, row.value).value : "";
 	};
+	const keyRow = settingOf(rows, AccountSettingName.ClassificationApiKey);
 	const enabledRow = settingOf(rows, AccountSettingName.ClassificationEnabled);
 	const limitRow = settingOf(rows, AccountSettingName.ClassificationDailyLimit);
 	return {
@@ -200,8 +206,13 @@ export const readStoredClassification = async (
 		presetId,
 		model: stringOf(AccountSettingName.ClassificationModel),
 		baseUrl: stringOf(AccountSettingName.ClassificationBaseUrl),
-		apiKeySaved:
-			settingOf(rows, AccountSettingName.ClassificationApiKey) !== undefined,
+		apiKeySaved: keyRow !== undefined,
+		apiKeyCiphertext: keyRow
+			? parseAccountSettingValue(
+					AccountSettingName.ClassificationApiKey,
+					keyRow.value,
+				).value
+			: undefined,
 		enabled: enabledRow
 			? parseAccountSettingValue(
 					AccountSettingName.ClassificationEnabled,
@@ -216,6 +227,14 @@ export const readStoredClassification = async (
 			: DEFAULT_CLASSIFICATION_DAILY_LIMIT,
 		savedAt: presetRow.updatedAt,
 	};
+};
+
+export const publicClassification = (
+	stored: StoredClassification,
+): ClassificationNotConfigured | ClassificationConfigured => {
+	if (stored.state === "NotConfigured") return stored;
+	const { apiKeyCiphertext: _ciphertext, ...configured } = stored;
+	return configured;
 };
 
 export const classificationPresetsResponse = (): ClassificationPreset[] =>

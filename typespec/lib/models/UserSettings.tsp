@@ -141,7 +141,7 @@ model ClassificationTestPassed {
   latencyMs: int32;
 
   @doc("The label the provider chose for the sample message.")
-  label: string;
+  label: ClassificationLabel;
 
   @doc("The provider's confidence in `label`, between 0 and 1.")
   confidence: float64;

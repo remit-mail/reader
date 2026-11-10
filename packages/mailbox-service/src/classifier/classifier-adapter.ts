@@ -1,6 +1,7 @@
 import {
 	ClassificationAdapterShape,
 	ClassificationFailureKind,
+	type ClassificationLabel,
 } from "@remit/domain-enums";
 import {
 	type ClassificationFailureKindValue,
@@ -9,16 +10,19 @@ import {
 import {
 	type ClassifierMessage,
 	classifierRequestText,
-	countTokens,
+	countWords,
 } from "./classifier-request.js";
 
 export type ClassificationAdapterShapeValue =
 	(typeof ClassificationAdapterShape)[keyof typeof ClassificationAdapterShape];
 
+export type ClassificationLabelValue =
+	(typeof ClassificationLabel)[keyof typeof ClassificationLabel];
+
 export type ClassifierConfidenceKind = "Calibrated" | "Advisory";
 
 export interface ClassifierScore {
-	label: string;
+	label: ClassificationLabelValue;
 	confidence: number;
 }
 
@@ -31,7 +35,7 @@ export interface ClassifierProvider {
 
 export interface ClassifierCall {
 	provider: ClassifierProvider;
-	labels: readonly string[];
+	labels: readonly ClassificationLabelValue[];
 	message: ClassifierMessage;
 }
 
@@ -49,7 +53,7 @@ export type ClassifierResult =
 			ok: true;
 			scores: ClassifierScore[];
 			confidenceKind: ClassifierConfidenceKind;
-			inputTokens: number;
+			inputWords: number;
 			latencyMs: number;
 	  }
 	| {
@@ -59,87 +63,85 @@ export type ClassifierResult =
 			latencyMs: number;
 	  };
 
-export const CLASSIFIER_TIMEOUT_MS = 10_000;
+const CLASSIFIER_TIMEOUT_MS = 10_000;
+
+type Labels = readonly ClassificationLabelValue[];
 
 interface AdapterSpec {
-	path(baseUrl: string): string;
-	body(model: string, labels: readonly string[], text: string): unknown;
-	read(answer: unknown): Promise<ClassifierScore[] | undefined>;
+	path: string;
+	body(model: string, labels: Labels, text: string): unknown;
+	read(answer: unknown, labels: Labels): ClassifierScore[] | undefined;
 	confidenceKind: ClassifierConfidenceKind;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
-const scoreOf = (
-	value: unknown,
-	labelKey: string,
-	confidenceKey: string,
+const score = (
+	label: unknown,
+	confidence: unknown,
+	labels: Labels,
 ): ClassifierScore | undefined => {
-	if (!isRecord(value)) return undefined;
-	const label = value[labelKey];
-	const confidence = value[confidenceKey];
-	if (typeof label !== "string" || typeof confidence !== "number") {
-		return undefined;
-	}
-	return { label, confidence };
+	const known = labels.find((candidate) => candidate === label);
+	if (known === undefined || typeof confidence !== "number") return undefined;
+	if (confidence < 0 || confidence > 1) return undefined;
+	return { label: known, confidence };
 };
+
+const DECISION_QUESTION = "label";
 
 const DECISION_INSTRUCTION = "Which label fits this email best?";
 
 const CHAT_INSTRUCTION =
 	"Classify this email with exactly one of the given labels. Answer with the label and your confidence between 0 and 1.";
 
-const DECISION_QUESTION = "label";
-
-const decisionScores = async (
+const readDecision = (
 	answer: unknown,
-): Promise<ClassifierScore[] | undefined> => {
+	labels: Labels,
+): ClassifierScore[] | undefined => {
 	if (!isRecord(answer) || !isRecord(answer.answers)) return undefined;
 	const choice = answer.answers[DECISION_QUESTION];
 	if (!isRecord(choice) || choice.type !== "choice") return undefined;
 	if (!isRecord(choice.probabilities)) return undefined;
-	if (typeof choice.choice !== "string") return undefined;
-	if (!Object.hasOwn(choice.probabilities, choice.choice)) return undefined;
-	const scores = Object.entries(choice.probabilities).map(([label, value]) =>
-		scoreOf({ label, confidence: value }, "label", "confidence"),
+	if (score(choice.choice, choice.confidence, labels) === undefined) {
+		return undefined;
+	}
+	const scores = Object.entries(choice.probabilities).map(
+		([label, probability]) => score(label, probability, labels),
 	);
-	if (scores.some((score) => score === undefined)) return undefined;
-	return scores.filter((score) => score !== undefined);
+	const known = scores.filter((entry) => entry !== undefined);
+	return known.length === scores.length ? known : undefined;
 };
 
-const jinaScores = async (
+const readChat = (
 	answer: unknown,
-): Promise<ClassifierScore[] | undefined> => {
-	if (!isRecord(answer) || !Array.isArray(answer.data)) return undefined;
-	const score = scoreOf(answer.data[0], "prediction", "score");
-	return score ? [score] : undefined;
-};
-
-const chatCompletionsPath = (baseUrl: string): string =>
-	/\/(v\d+[a-z0-9]*|openai)$/i.test(new URL(baseUrl).pathname)
-		? "/chat/completions"
-		: "/v1/chat/completions";
-
-const parseJsonString = (text: string): Promise<unknown> =>
-	Promise.resolve(text).then((raw): unknown => JSON.parse(raw));
-
-const chatScores = async (
-	answer: unknown,
-): Promise<ClassifierScore[] | undefined> => {
+	labels: Labels,
+): ClassifierScore[] | undefined => {
 	if (!isRecord(answer) || !Array.isArray(answer.choices)) return undefined;
 	const [choice] = answer.choices;
 	if (!isRecord(choice) || !isRecord(choice.message)) return undefined;
 	const { content } = choice.message;
 	if (typeof content !== "string") return undefined;
-	const parsed = await parseJsonString(content).catch(() => undefined);
-	const score = scoreOf(parsed, "label", "confidence");
-	return score ? [score] : undefined;
+	const parsed: unknown = JSON.parse(content);
+	if (!isRecord(parsed)) return undefined;
+	const chosen = score(parsed.label, parsed.confidence, labels);
+	return chosen ? [chosen] : undefined;
+};
+
+const readJina = (
+	answer: unknown,
+	labels: Labels,
+): ClassifierScore[] | undefined => {
+	if (!isRecord(answer) || !Array.isArray(answer.data)) return undefined;
+	const [first] = answer.data;
+	if (!isRecord(first)) return undefined;
+	const chosen = score(first.prediction, first.score, labels);
+	return chosen ? [chosen] : undefined;
 };
 
 const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
 	[ClassificationAdapterShape.DecisionApi]: {
-		path: () => "/v1/systemone",
+		path: "/v1/systemone",
 		body: (model, labels, text) => ({
 			model,
 			state: text,
@@ -151,11 +153,11 @@ const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
 				},
 			},
 		}),
-		read: decisionScores,
+		read: readDecision,
 		confidenceKind: "Calibrated",
 	},
 	[ClassificationAdapterShape.ChatJsonSchema]: {
-		path: chatCompletionsPath,
+		path: "/chat/completions",
 		body: (model, labels, text) => ({
 			model,
 			temperature: 0,
@@ -180,79 +182,28 @@ const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
 				},
 			},
 		}),
-		read: chatScores,
+		read: readChat,
 		confidenceKind: "Advisory",
 	},
 	[ClassificationAdapterShape.JinaClassify]: {
-		path: () => "/v1/classify",
-		body: (model, labels, text) => ({
-			model,
-			input: [{ text }],
-			labels,
-		}),
-		read: jinaScores,
+		path: "/v1/classify",
+		body: (model, labels, text) => ({ model, input: [{ text }], labels }),
+		read: readJina,
 		confidenceKind: "Advisory",
 	},
 };
 
 const isTimeout = (error: unknown): boolean =>
-	error instanceof DOMException &&
-	(error.name === "TimeoutError" || error.name === "AbortError");
+	error instanceof DOMException && error.name === "TimeoutError";
 
-interface Failure {
-	kind: ClassificationFailureKindValue;
-	status?: number;
-}
+const loggableUrl = (baseUrl: string): string => {
+	const { origin, pathname } = new URL(baseUrl);
+	return `${origin}${pathname}`;
+};
 
-type Exchange =
-	| { reached: true; answer: unknown }
-	| ({ reached: false } & Failure);
-
-const transportFailure = (error: unknown): Exchange => ({
-	reached: false,
-	kind: isTimeout(error)
-		? ClassificationFailureKind.TimedOut
-		: ClassificationFailureKind.Unreachable,
-});
-
-const exchange = (url: string, init: RequestInit): Promise<Exchange> =>
-	fetch(url, init).then((response): Promise<Exchange> | Exchange => {
-		if (!response.ok) {
-			void response.body?.cancel();
-			return {
-				reached: false,
-				kind: failureKindForStatus(response.status),
-				status: response.status,
-			};
-		}
-		return response.json().then(
-			(answer: unknown): Exchange => ({ reached: true, answer }),
-			(error: unknown): Exchange =>
-				isTimeout(error)
-					? transportFailure(error)
-					: { reached: false, kind: ClassificationFailureKind.Unparseable },
-		);
-	}, transportFailure);
-
-const validScores = (
-	scores: ClassifierScore[] | undefined,
-	labels: readonly string[],
-): scores is ClassifierScore[] =>
-	scores !== undefined &&
-	scores.length > 0 &&
-	scores.every(
-		(score) =>
-			labels.includes(score.label) &&
-			score.confidence >= 0 &&
-			score.confidence <= 1,
-	);
-
-const endpoint = (baseUrl: string, path: string): string =>
-	`${baseUrl.replace(/\/+$/, "")}${path}`;
-
-export const classifyWithProvider = async (
+const exchange = async (
 	call: ClassifierCall,
-	deps: ClassifierDeps,
+	timeoutMs: number,
 ): Promise<ClassifierResult> => {
 	const { provider, labels } = call;
 	const adapter = ADAPTERS[provider.adapterShape];
@@ -266,48 +217,77 @@ export const classifyWithProvider = async (
 	}
 
 	const started = performance.now();
-	const settled = await exchange(
-		endpoint(provider.baseUrl, adapter.path(provider.baseUrl)),
-		{
-			method: "POST",
-			headers,
-			body: JSON.stringify(adapter.body(provider.model, labels, text)),
-			signal: AbortSignal.timeout(deps.timeoutMs ?? CLASSIFIER_TIMEOUT_MS),
+	const latencyMs = (): number => Math.round(performance.now() - started);
+	const failed = (
+		kind: ClassificationFailureKindValue,
+		status?: number,
+	): ClassifierResult => ({
+		ok: false,
+		kind,
+		...(status === undefined ? {} : { status }),
+		latencyMs: latencyMs(),
+	});
+
+	return fetch(`${provider.baseUrl.replace(/\/+$/, "")}${adapter.path}`, {
+		method: "POST",
+		headers,
+		body: JSON.stringify(adapter.body(provider.model, labels, text)),
+		signal: AbortSignal.timeout(timeoutMs),
+	}).then(
+		(response) => {
+			if (!response.ok) {
+				void response.body?.cancel();
+				return failed(failureKindForStatus(response.status), response.status);
+			}
+			return response
+				.json()
+				.then((answer: unknown) => adapter.read(answer, labels))
+				.then(
+					(scores): ClassifierResult => {
+						if (!scores || scores.length === 0) {
+							return failed(ClassificationFailureKind.Unparseable);
+						}
+						return {
+							ok: true,
+							scores,
+							confidenceKind: adapter.confidenceKind,
+							inputWords: countWords(text),
+							latencyMs: latencyMs(),
+						};
+					},
+					(error: unknown) =>
+						failed(
+							isTimeout(error)
+								? ClassificationFailureKind.TimedOut
+								: ClassificationFailureKind.Unparseable,
+						),
+				);
 		},
+		(error: unknown) =>
+			failed(
+				isTimeout(error)
+					? ClassificationFailureKind.TimedOut
+					: ClassificationFailureKind.Unreachable,
+			),
 	);
-	const latencyMs = Math.round(performance.now() - started);
+};
 
-	const scores = settled.reached
-		? await adapter.read(settled.answer)
-		: undefined;
-	if (settled.reached && validScores(scores, labels)) {
-		return {
-			ok: true,
-			scores,
-			confidenceKind: adapter.confidenceKind,
-			inputTokens: countTokens(text),
-			latencyMs,
-		};
-	}
-
-	const failure: Failure = settled.reached
-		? { kind: ClassificationFailureKind.Unparseable }
-		: settled;
+export const classifyWithProvider = async (
+	call: ClassifierCall,
+	deps: ClassifierDeps,
+): Promise<ClassifierResult> => {
+	const result = await exchange(call, deps.timeoutMs ?? CLASSIFIER_TIMEOUT_MS);
+	if (result.ok) return result;
 	deps.logger.warn(
 		{
-			adapterShape: provider.adapterShape,
-			baseUrl: provider.baseUrl,
-			model: provider.model,
-			kind: failure.kind,
-			status: failure.status,
-			latencyMs,
+			adapterShape: call.provider.adapterShape,
+			baseUrl: loggableUrl(call.provider.baseUrl),
+			model: call.provider.model,
+			kind: result.kind,
+			status: result.status,
+			latencyMs: result.latencyMs,
 		},
 		"classification provider call failed",
 	);
-	return {
-		ok: false,
-		kind: failure.kind,
-		...(failure.status === undefined ? {} : { status: failure.status }),
-		latencyMs,
-	};
+	return result;
 };

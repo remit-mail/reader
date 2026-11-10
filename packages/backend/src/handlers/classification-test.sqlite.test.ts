@@ -131,9 +131,9 @@ beforeEach(async () => {
 			answers: {
 				label: {
 					type: "choice",
-					choice: "newsletter",
+					choice: "Newsletter",
 					confidence: 0.91,
-					probabilities: { newsletter: 0.91, personal: 0.04 },
+					probabilities: { Newsletter: 0.91, Personal: 0.04 },
 				},
 			},
 			usage: { input_tokens: 180, output_tokens: 1 },
@@ -161,7 +161,7 @@ describe("a classification test", () => {
 		assert.equal(answered.statusCode, 200, answered.body);
 		const passed: ClassificationTestPassed = JSON.parse(answered.body);
 		assert.equal(passed.state, "Passed");
-		assert.equal(passed.label, "newsletter");
+		assert.equal(passed.label, "Newsletter");
 		assert.equal(passed.confidence, 0.91);
 		assert.ok(passed.latencyMs >= 0);
 		assert.deepEqual(await classificationRows(), before);
@@ -191,7 +191,7 @@ describe("a classification test", () => {
 		assert.deepEqual(await classificationRows(), before);
 	});
 
-	it("answers a failure with its status, kind, field and fix", async () => {
+	it("answers a failure with its status, kind and field", async () => {
 		reply = { status: 401, body: JSON.stringify({ error: "bad key" }) };
 
 		const answered = await testProvider(jevForm("sk-jev-wrong"));
@@ -202,7 +202,6 @@ describe("a classification test", () => {
 		assert.equal(failed.status, 401);
 		assert.equal(failed.kind, ClassificationFailureKind.Unauthorized);
 		assert.equal(failed.field, ClassificationField.ApiKey);
-		assert.equal(failed.fix, "Replace the key, save, test again");
 		assert.deepEqual(await classificationRows(), []);
 	});
 

@@ -25,6 +25,7 @@ import {
 	classificationPresetsResponse,
 	clearClassification,
 	decideClassificationChange,
+	publicClassification,
 	readStoredClassification,
 	writeClassificationChange,
 } from "./classification-settings.js";
@@ -73,9 +74,8 @@ export const readUserSettings = async (
 		defaultInvitationSenderChosen:
 			inEffect !== undefined && inEffect.accountId === chosen,
 		classificationPresets: classificationPresetsResponse(),
-		classification: await readStoredClassification(
-			deps.accountSetting,
-			accountConfigId,
+		classification: publicClassification(
+			await readStoredClassification(deps.accountSetting, accountConfigId),
 		),
 	};
 };

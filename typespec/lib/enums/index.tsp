@@ -102,3 +102,4 @@ import "./ClassificationAdapterShape.tsp";
 import "./ClassificationPresetGroup.tsp";
 import "./ClassificationFailureKind.tsp";
 import "./ClassificationField.tsp";
+import "./ClassificationLabel.tsp";
