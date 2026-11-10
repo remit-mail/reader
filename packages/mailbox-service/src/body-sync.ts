@@ -276,7 +276,7 @@ export interface StoreBodyPartContentsResult {
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
 export interface BodySyncFolder
-	extends Pick<MailboxItem, "initialSyncCompletedAt"> {
+	extends Pick<MailboxItem, "initialSyncCompletedAt" | "createdAt"> {
 	mailboxId: string;
 	fullPath: string;
 	placement: FolderPlacement;
@@ -353,6 +353,7 @@ interface Arrival {
 	placement: FolderPlacement;
 	internalDate: number;
 	folderSynced: boolean;
+	folderCreatedAt: number;
 }
 
 const folderSynced = (folder: BodySyncFolder): boolean =>
@@ -594,6 +595,7 @@ export class BodySyncService {
 							{
 								placement: folder.placement,
 								folderSynced: folderSynced(folder),
+								folderCreatedAt: folder.createdAt,
 								internalDate: internalDateOf(internalDates, messageId),
 							},
 							reStoredMessageIds.has(messageId),
@@ -1223,6 +1225,7 @@ export class BodySyncService {
 					placement: folder.placement,
 					internalDate: message.internalDate,
 					folderSynced: folderSynced(folder),
+					folderCreatedAt: folder.createdAt,
 				},
 				message.bodyStorageKey != null,
 				this.batchLookups(accountConfigId, accountId),
@@ -1843,10 +1846,12 @@ export class BodySyncService {
 		const { junkMailbox, inboxMailbox } = roleMailboxes;
 		const placement = placementOf(message.mailboxId, roleMailboxes);
 
-		// Only a Junk arrival is judged here. Mail already in Junk when the
-		// folder first synced is the backlog, which the re-evaluation job judges
-		// on the classifier's daily budget (issue #1553), so it stays undecided.
-		if (placement === "junk" && !arrival.folderSynced) return {};
+		if (
+			placement === "junk" &&
+			arrival.internalDate <= arrival.folderCreatedAt
+		) {
+			return {};
+		}
 
 		const { senderTrust, senderOverride, autoArchive } =
 			await senderPlacement();

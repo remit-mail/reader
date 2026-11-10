@@ -160,7 +160,12 @@ const readBodyThroughClient = async (
 		"m-1",
 		"acc-1",
 		"cfg-1",
-		{ mailboxId: "mb-inbox", fullPath: "INBOX", placement: "inbox" },
+		{
+			mailboxId: "mb-inbox",
+			fullPath: "INBOX",
+			placement: "inbox",
+			createdAt: 0,
+		},
 		async () => connection,
 	);
 };

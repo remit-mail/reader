@@ -246,6 +246,7 @@ const placementOf = (mailbox: MailboxItem): BodySyncFolder => ({
 				? "junk"
 				: "other",
 	initialSyncCompletedAt: mailbox === world.junk ? 1 : undefined,
+	createdAt: mailbox.createdAt,
 });
 
 // Mail arrives now, after any filter the test set up: a filter acts only on

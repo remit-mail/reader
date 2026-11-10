@@ -280,6 +280,7 @@ const sync = async (service: BodySyncService, messageIds: string[]) =>
 			fullPath: world.inbox.fullPath,
 			placement: "inbox",
 			uidValidity: world.inbox.uidValidity,
+			createdAt: world.inbox.createdAt,
 			initialSyncCompletedAt: (
 				await world.store.mailbox.get(
 					world.account.accountId,
@@ -592,7 +593,7 @@ const flagNewsletterSender = async (
 interface JunkSync {
 	classifier?: boolean;
 	classifierTimeoutMs?: number;
-	initialSyncCompletedAt?: number;
+	internalDate?: Date;
 	before?: (messageId: string) => Promise<void>;
 }
 
@@ -601,18 +602,16 @@ const syncJunk = async (
 	{
 		classifier = true,
 		classifierTimeoutMs,
-		initialSyncCompletedAt = 1,
+		internalDate = new Date(Date.now() + 60_000),
 		before,
 	}: JunkSync = {},
 ): Promise<string> => {
 	await world.store.mailbox.update(
 		world.account.accountId,
 		world.junk.mailboxId,
-		{ initialSyncCompletedAt },
+		{ initialSyncCompletedAt: 1 },
 	);
-	const uid = world.imap.deliver(world.junk.fullPath, raw, {
-		internalDate: new Date(Date.now() + 60_000),
-	});
+	const uid = world.imap.deliver(world.junk.fullPath, raw, { internalDate });
 	await syncFolder(world.store, world.account, world.junk, world.imap);
 	const { messageId } = await messageAtUid(world.store, world.junk, uid);
 	await before?.(messageId);
@@ -625,7 +624,8 @@ const syncJunk = async (
 			fullPath: world.junk.fullPath,
 			placement: "junk",
 			uidValidity: world.junk.uidValidity,
-			initialSyncCompletedAt,
+			createdAt: world.junk.createdAt,
+			initialSyncCompletedAt: 1,
 		},
 		async () => world.imap.connection(),
 		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
@@ -683,16 +683,20 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		});
 	}
 
-	it("leaves mail that sat in Junk before the first sync undecided", async () => {
-		const messageId = await syncJunk(JUNK_NEWSLETTER, {
+	it("leaves mail that sat in Junk before the first sync undecided and judges the next arrival", async () => {
+		const backlog = await syncJunk(JUNK_NEWSLETTER, {
 			classifier: false,
-			initialSyncCompletedAt: 0,
+			internalDate: new Date(world.junk.createdAt - 60_000),
 		});
 
-		const row = await world.store.message.get(messageId);
+		const row = await world.store.message.get(backlog);
 		assert.equal(row.mailboxId, world.junk.mailboxId);
 		assert.equal(row.placementVerdict, undefined);
 		assert.equal(row.placementDecidedAt, undefined);
+
+		await assertMovedToInbox(
+			await syncJunk(JUNK_NEWSLETTER, { classifier: false }),
+		);
 	});
 
 	const placedInJunk = [
