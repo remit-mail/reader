@@ -1,15 +1,15 @@
-import shortUuid from "short-uuid";
+import {
+	base36uuid,
+	base36uuidv5,
+	REMIT_NAMESPACE,
+} from "@remit/data-ports/id";
 import { v5 as uuidv5 } from "uuid";
-
-const REMIT_NAMESPACE = "9e89694d-214b-4d9b-99f5-214b4d9b99f5";
-
-const base36 = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
 
 // A 25-char base36-encoded UUID, matching the id format the API contract
 // enforces (path params carry minLength 25) and the electrodb adapter's
 // base36uuid. The prior Math.random-based generator produced variable-length
 // ids (~19 chars) that failed `{accountId}`/`{messageId}` path validation.
-export const randomId = (): string => base36.generate();
+export const randomId = (): string => base36uuid();
 
 export const generateDeterministicId = (name: string): string =>
 	uuidv5(name, REMIT_NAMESPACE);
@@ -18,7 +18,7 @@ export const generateDeterministicId = (name: string): string =>
 // adapter's `base36uuidv5` so a `MessageLabel` derived from the same
 // (messageId, labelId) keys the same row on either backend.
 export const deterministicBase36Id = (name: string): string =>
-	base36.fromUUID(uuidv5(name, REMIT_NAMESPACE));
+	base36uuidv5(name, REMIT_NAMESPACE);
 
 export const bodyPartId = (messageId: string, partPath: string): string =>
 	generateDeterministicId(`${messageId}:${partPath}`);

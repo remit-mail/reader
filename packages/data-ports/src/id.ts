@@ -1,14 +1,17 @@
 import { createHash } from "node:crypto";
-import shortUuid from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
 import type { MessageIdSource, SyncWarningItem } from "./types.js";
 
-const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
+export const base36FromUUID = (uuid: string): string =>
+	BigInt(`0x${uuid.replace(/-/g, "")}`)
+		.toString(36)
+		.padStart(25, "0");
 
-export const base36uuid = (): string => translator.generate();
+export const base36uuid = (): string =>
+	base36FromUUID(globalThis.crypto.randomUUID());
 
 export const base36uuidv5 = (name: string, namespace: string): string =>
-	translator.fromUUID(uuidv5(name, namespace));
+	base36FromUUID(uuidv5(name, namespace));
 
 export const REMIT_NAMESPACE = "9e89694d-214b-4d9b-99f5-214b4d9b99f5";
 
