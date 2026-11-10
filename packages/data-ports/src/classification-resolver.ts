@@ -15,6 +15,10 @@ import {
 import type { IAccountConfigRepository } from "./interfaces/account-config.js";
 import type { IAccountSettingRepository } from "./interfaces/account-setting.js";
 import type { AccountSettingItem } from "./types.js";
+export type ClassificationSettingRow = Pick<
+	AccountSettingItem,
+	"name" | "value" | "updatedAt"
+>;
 
 export const ClassificationSource = {
 	Saved: "Saved",
@@ -62,7 +66,7 @@ export type ResolvedClassification =
 	| ResolvedClassificationProvider;
 
 export interface ClassificationResolverInput {
-	rows: readonly AccountSettingItem[];
+	rows: readonly ClassificationSettingRow[];
 	deployment: ClassificationDeploymentDefault;
 	accountConfigCreatedAt: number;
 }
@@ -73,12 +77,13 @@ type Configured = Extract<
 >;
 
 const settingOf = (
-	rows: readonly AccountSettingItem[],
+	rows: readonly ClassificationSettingRow[],
 	name: string,
-): AccountSettingItem | undefined => rows.find((row) => row.name === name);
+): ClassificationSettingRow | undefined =>
+	rows.find((row) => row.name === name);
 
 const savedValue = <N extends (typeof CLASSIFICATION_SETTING_NAMES)[number]>(
-	rows: readonly AccountSettingItem[],
+	rows: readonly ClassificationSettingRow[],
 	name: N,
 ): AccountSettingValueFor<N>["value"] | undefined => {
 	const row = settingOf(rows, name);
@@ -109,7 +114,7 @@ const defaultBaseUrlOf = (
 		: { value: defaultBaseUrl, source: ClassificationSource.Default };
 
 const apiKeyOf = (
-	rows: readonly AccountSettingItem[],
+	rows: readonly ClassificationSettingRow[],
 	deployed: Configured | undefined,
 	presetId: ClassificationPresetId,
 	baseUrl: string,
@@ -202,10 +207,10 @@ export interface ClassificationResolverDeps {
 	classificationDefault: ClassificationDeploymentDefault;
 }
 
-export const readResolvedClassification = async (
+export const readClassificationInput = async (
 	deps: ClassificationResolverDeps,
 	accountConfigId: string,
-): Promise<ResolvedClassification> => {
+): Promise<ClassificationResolverInput> => {
 	const [rows, accountConfig] = await Promise.all([
 		deps.accountSetting.getMany(
 			[accountConfigId],
@@ -213,9 +218,15 @@ export const readResolvedClassification = async (
 		),
 		deps.accountConfig.get(accountConfigId),
 	]);
-	return resolveClassification({
+	return {
 		rows,
 		deployment: deps.classificationDefault,
 		accountConfigCreatedAt: accountConfig.createdAt,
-	});
+	};
 };
+
+export const readResolvedClassification = async (
+	deps: ClassificationResolverDeps,
+	accountConfigId: string,
+): Promise<ResolvedClassification> =>
+	resolveClassification(await readClassificationInput(deps, accountConfigId));

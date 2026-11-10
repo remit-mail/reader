@@ -5,7 +5,13 @@ import type {
 	ClassificationTestInput,
 	ClassificationTestPassed,
 } from "@remit/api-openapi-types";
-import type { ClassificationResolverDeps } from "@remit/data-ports/classification-resolver";
+import { CLASSIFICATION_PRESETS } from "@remit/data-ports/classification-presets";
+import {
+	type ClassificationResolverDeps,
+	ClassificationSource,
+	type ResolvedClassificationApiKey,
+	readClassificationInput,
+} from "@remit/data-ports/classification-resolver";
 import {
 	ClassificationFailureKind as FailureKind,
 	ClassificationField as Field,
@@ -23,14 +29,13 @@ import {
 	type SecretsService,
 } from "@remit/secrets-service";
 import {
-	type ClassificationProviderSave,
-	decideClassificationProvider,
-	readKnownClassification,
+	decideClassificationChange,
+	type EnteredApiKey,
 } from "./classification-settings.js";
 import type { UserSettingsOutcome } from "./user-settings.js";
 
 export interface ClassificationTestDeps extends ClassificationResolverDeps {
-	secrets: Pick<SecretsService, "decrypt">;
+	secrets: Pick<SecretsService, "encrypt" | "decrypt">;
 	logger: ClassifierLogger;
 }
 
@@ -68,15 +73,15 @@ const FAILURE_HELP: Record<ClassificationFailureKind, FailureHelp> = {
 
 const apiKeyOf = (
 	deps: ClassificationTestDeps,
-	save: ClassificationProviderSave,
+	entered: EnteredApiKey,
+	apiKey: ResolvedClassificationApiKey,
 ): Promise<string> => {
-	if (save.apiKey.action === "Replace") {
-		return Promise.resolve(save.apiKey.apiKey);
+	if (entered.state === "Entered") return Promise.resolve(entered.apiKey);
+	if (apiKey.source === ClassificationSource.Saved) {
+		return deps.secrets.decrypt(deserializeEncryptedPayload(apiKey.ciphertext));
 	}
-	if (save.apiKey.action === "Keep") {
-		return deps.secrets.decrypt(
-			deserializeEncryptedPayload(save.apiKey.ciphertext),
-		);
+	if (apiKey.source === ClassificationSource.Deployment) {
+		return Promise.resolve(apiKey.apiKey);
 	}
 	return Promise.resolve("");
 };
@@ -112,25 +117,32 @@ export const testClassificationProvider = async (
 	accountConfigId: string,
 	input: ClassificationTestInput,
 ): Promise<ClassificationTestOutcome> => {
-	const decided = decideClassificationProvider(
+	const decided = await decideClassificationChange(
+		deps.secrets,
+		await readClassificationInput(deps, accountConfigId),
 		{
 			classificationPresetId: input.presetId,
 			classificationModel: input.model,
 			classificationBaseUrl: input.baseUrl,
 			classificationApiKey: input.apiKey,
 		},
-		await readKnownClassification(deps, accountConfigId),
 	);
 	if (!decided.ok) return decided;
-	const save = decided.value;
+	const { resolved, enteredApiKey } = decided.value;
+	if (resolved.state !== "Configured") {
+		throw new Error(
+			`A tested classification form resolved to ${resolved.state}`,
+		);
+	}
 
 	const result = await classifyWithProvider(
 		{
 			provider: {
-				adapterShape: save.preset.adapterShape,
-				baseUrl: save.baseUrl,
-				model: save.model,
-				apiKey: await apiKeyOf(deps, save),
+				adapterShape:
+					CLASSIFICATION_PRESETS[resolved.presetId.value].adapterShape,
+				baseUrl: resolved.baseUrl.value,
+				model: resolved.model.value,
+				apiKey: await apiKeyOf(deps, enteredApiKey, resolved.apiKey),
 			},
 			labels: CLASSIFIER_LABELS,
 			message: CLASSIFIER_SAMPLE_MESSAGE,

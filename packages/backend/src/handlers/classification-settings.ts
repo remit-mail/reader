@@ -3,10 +3,15 @@ import type {
 	ClassificationNotConfigured,
 	ClassificationPreset,
 	ClassificationPresetId,
+	ClassificationUnrunnable,
 	ClassificationUsage,
 	UpdateUserSettingsInput,
 } from "@remit/api-openapi-types";
-import type { DailyCount, IAccountSettingRepository } from "@remit/data-ports";
+import type {
+	DailyCount,
+	IAccountSettingRepository,
+	UpsertAccountSettingInput,
+} from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import {
 	CLASSIFICATION_PRESETS,
@@ -16,10 +21,11 @@ import {
 } from "@remit/data-ports/classification-presets";
 import {
 	type ClassificationResolverDeps,
-	ClassificationSource,
+	type ClassificationResolverInput,
+	type ClassificationSettingRow,
 	type ResolvedClassification,
-	type ResolvedClassificationProvider,
 	readResolvedClassification,
+	resolveClassification,
 } from "@remit/data-ports/classification-resolver";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
@@ -28,7 +34,6 @@ import {
 } from "@remit/mailbox-service";
 import {
 	type SecretsService,
-	type SerializedEncryptedPayload,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import type { UserSettingsOutcome } from "./user-settings.js";
@@ -38,26 +43,36 @@ export type ClassificationSettingsDeps = {
 		IAccountSettingRepository,
 		"getMany" | "upsert" | "delete"
 	>;
-	secrets: Pick<SecretsService, "encrypt">;
 	label: ClassificationLabelDeps;
 };
 
 type Refusal = Extract<UserSettingsOutcome, { ok: false }>;
 type Decision<T> = { ok: true; value: T } | Refusal;
 
-type ApiKeyChange =
-	| { action: "Keep"; ciphertext: SerializedEncryptedPayload }
-	| { action: "Replace"; apiKey: string }
-	| { action: "Delete" };
+type ClassificationSettingName = (typeof CLASSIFICATION_SETTING_NAMES)[number];
 
-export interface ClassificationProviderSave {
-	preset: ClassificationPreset;
-	model: string;
-	baseUrl: string;
-	apiKey: ApiKeyChange;
+type SettingWrite =
+	| {
+			action: "Upsert";
+			name: ClassificationSettingName;
+			value: UpsertAccountSettingInput["value"];
+	  }
+	| { action: "Delete"; name: ClassificationSettingName };
+
+type PlannedWrite = SettingWrite | { action: "Encrypt"; apiKey: string };
+
+export type EnteredApiKey =
+	| { state: "Entered"; apiKey: string }
+	| { state: "NotEntered" };
+
+export interface ClassificationChange {
+	writes: SettingWrite[];
+	enteredApiKey: EnteredApiKey;
+	resolved: KnownClassification;
+	ensuresLabels: boolean;
 }
 
-type ClassificationInput = Pick<
+export type ClassificationInput = Pick<
 	UpdateUserSettingsInput,
 	| "classificationPresetId"
 	| "classificationModel"
@@ -72,11 +87,7 @@ export type KnownClassification = Exclude<
 	{ state: "UnknownPreset" }
 >;
 
-export const readKnownClassification = async (
-	deps: ClassificationResolverDeps,
-	accountConfigId: string,
-): Promise<KnownClassification> => {
-	const resolved = await readResolvedClassification(deps, accountConfigId);
+const knownOf = (resolved: ResolvedClassification): KnownClassification => {
 	if (resolved.state === "UnknownPreset") {
 		throw new Error(
 			`Stored classification preset is unknown: ${resolved.presetId}`,
@@ -84,6 +95,12 @@ export const readKnownClassification = async (
 	}
 	return resolved;
 };
+
+export const readKnownClassification = async (
+	deps: ClassificationResolverDeps,
+	accountConfigId: string,
+): Promise<KnownClassification> =>
+	knownOf(await readResolvedClassification(deps, accountConfigId));
 
 const refuse = (code: string, message: string): Refusal => ({
 	ok: false,
@@ -102,46 +119,6 @@ const savesClassificationProvider = (input: ClassificationInput): boolean =>
 	input.classificationBaseUrl !== undefined ||
 	input.classificationApiKey !== undefined;
 
-const baseUrlFor = (
-	preset: ClassificationPreset,
-	requested: string,
-): Decision<string> => {
-	if (requested === "") {
-		if (preset.defaultBaseUrl === undefined) {
-			return refuse(
-				"InvalidClassificationBaseUrl",
-				`classificationBaseUrl is required for ${preset.label}`,
-			);
-		}
-		return { ok: true, value: preset.defaultBaseUrl };
-	}
-	if (!isHttpUrl(requested)) {
-		return refuse(
-			"InvalidClassificationBaseUrl",
-			"classificationBaseUrl must be an http or https URL",
-		);
-	}
-	return { ok: true, value: requested };
-};
-
-const apiKeyFor = (
-	preset: ClassificationPreset,
-	requested: string,
-	keptKey: SerializedEncryptedPayload | undefined,
-): Decision<ApiKeyChange> => {
-	if (!preset.needsKey) return { ok: true, value: { action: "Delete" } };
-	if (requested !== "") {
-		return { ok: true, value: { action: "Replace", apiKey: requested } };
-	}
-	if (keptKey) {
-		return { ok: true, value: { action: "Keep", ciphertext: keptKey } };
-	}
-	return refuse(
-		"ClassificationApiKeyRequired",
-		`classificationApiKey is required for ${preset.label}`,
-	);
-};
-
 const presetIdOf = (
 	known: KnownClassification,
 ): ClassificationPresetId | undefined => {
@@ -150,64 +127,236 @@ const presetIdOf = (
 	return known.presetId.value;
 };
 
-export const decideClassificationProvider = (
+const textWrite = (
+	name: ClassificationSettingName,
+	requested: string | undefined,
+	switched: boolean,
+): SettingWrite[] => {
+	const value = requested?.trim();
+	if (value === undefined) return switched ? [{ action: "Delete", name }] : [];
+	if (value === "") return [{ action: "Delete", name }];
+	return [{ action: "Upsert", name, value: { kind: "String", value } }];
+};
+
+const apiKeyWrite = (
+	preset: ClassificationPreset,
+	requested: string,
+	switched: boolean,
+): PlannedWrite[] => {
+	const name = AccountSettingName.ClassificationApiKey;
+	if (!preset.needsKey) return [{ action: "Delete", name }];
+	if (requested !== "") return [{ action: "Encrypt", apiKey: requested }];
+	return switched ? [{ action: "Delete", name }] : [];
+};
+
+const planProviderWrites = (
 	input: ClassificationInput,
 	known: KnownClassification,
-): Decision<ClassificationProviderSave> => {
-	const presetId = input.classificationPresetId ?? presetIdOf(known);
+): Decision<PlannedWrite[]> => {
+	const current = presetIdOf(known);
+	const presetId = input.classificationPresetId ?? current;
 	if (presetId === undefined) {
 		return refuse(
 			"ClassificationNotConfigured",
-			"classificationPresetId is required: no classification provider is saved",
+			"classificationPresetId is required: no classification provider is saved or inherited",
 		);
 	}
-	const preset = CLASSIFICATION_PRESETS[presetId];
-	const kept =
-		known.state === "Configured" && known.presetId.value === presetId
-			? known
-			: undefined;
+	const baseUrl = input.classificationBaseUrl?.trim();
+	if (baseUrl !== undefined && baseUrl !== "" && !isHttpUrl(baseUrl)) {
+		return refuse(
+			"InvalidClassificationBaseUrl",
+			"classificationBaseUrl must be an http or https URL",
+		);
+	}
+	const switched = presetId !== current;
+	return {
+		ok: true,
+		value: [
+			...apiKeyWrite(
+				CLASSIFICATION_PRESETS[presetId],
+				(input.classificationApiKey ?? "").trim(),
+				switched,
+			),
+			...textWrite(
+				AccountSettingName.ClassificationModel,
+				input.classificationModel,
+				switched,
+			),
+			...textWrite(AccountSettingName.ClassificationBaseUrl, baseUrl, switched),
+			...(input.classificationPresetId === undefined
+				? []
+				: [
+						{
+							action: "Upsert" as const,
+							name: AccountSettingName.ClassificationPresetId,
+							value: { kind: "String" as const, value: presetId },
+						},
+					]),
+		],
+	};
+};
 
-	const baseUrl = baseUrlFor(
-		preset,
-		(input.classificationBaseUrl ?? kept?.baseUrl.value ?? "").trim(),
+const planWrites = (
+	input: ClassificationInput,
+	known: KnownClassification,
+): Decision<PlannedWrite[]> => {
+	const provider = savesClassificationProvider(input)
+		? planProviderWrites(input, known)
+		: { ok: true as const, value: [] };
+	if (!provider.ok) return provider;
+	const writes: PlannedWrite[] = [...provider.value];
+	if (input.classificationEnabled !== undefined) {
+		writes.push({
+			action: "Upsert",
+			name: AccountSettingName.ClassificationEnabled,
+			value: { kind: "Boolean", value: input.classificationEnabled },
+		});
+	}
+	if (input.classificationDailyLimit !== undefined) {
+		writes.push({
+			action: "Upsert",
+			name: AccountSettingName.ClassificationDailyLimit,
+			value: { kind: "Number", value: input.classificationDailyLimit },
+		});
+	}
+	return { ok: true, value: writes };
+};
+
+const sealWrite = async (
+	secrets: Pick<SecretsService, "encrypt">,
+	write: PlannedWrite,
+): Promise<SettingWrite> => {
+	if (write.action !== "Encrypt") return write;
+	const ciphertext = serializeEncryptedPayload(
+		await secrets.encrypt(write.apiKey),
 	);
-	if (!baseUrl.ok) return baseUrl;
+	return {
+		action: "Upsert",
+		name: AccountSettingName.ClassificationApiKey,
+		value: { kind: "Map", value: { ...ciphertext } },
+	};
+};
 
-	const apiKey = apiKeyFor(
-		preset,
-		(input.classificationApiKey ?? "").trim(),
-		kept?.apiKey.source === ClassificationSource.Saved
-			? kept.apiKey.ciphertext
-			: undefined,
+const enteredApiKeyOf = (writes: PlannedWrite[]): EnteredApiKey => {
+	const entered = writes.find((write) => write.action === "Encrypt");
+	return entered
+		? { state: "Entered", apiKey: entered.apiKey }
+		: { state: "NotEntered" };
+};
+
+const applyWrites = (
+	rows: readonly ClassificationSettingRow[],
+	writes: readonly SettingWrite[],
+	now: number,
+): ClassificationSettingRow[] =>
+	writes.reduce<ClassificationSettingRow[]>((applied, write) => {
+		const kept = applied.filter((row) => row.name !== write.name);
+		if (write.action === "Delete") return kept;
+		return [...kept, { name: write.name, value: write.value, updatedAt: now }];
+	}, Array.from(rows));
+
+const refuseUnrunnable = (
+	resolved: Extract<KnownClassification, { state: "Unrunnable" }>,
+): Refusal => {
+	const { label } = CLASSIFICATION_PRESETS[resolved.presetId];
+	if (resolved.reason === "NoBaseUrl") {
+		return refuse(
+			"InvalidClassificationBaseUrl",
+			`classificationBaseUrl is required for ${label}`,
+		);
+	}
+	return refuse(
+		"ClassificationApiKeyRequired",
+		`classificationApiKey is required for ${label}: no key is saved, and the deployment's key only applies to its own preset and base URL`,
 	);
-	if (!apiKey.ok) return apiKey;
+};
 
-	const model = (input.classificationModel ?? kept?.model.value ?? "").trim();
+export const decideClassificationChange = async (
+	secrets: Pick<SecretsService, "encrypt">,
+	current: ClassificationResolverInput,
+	input: ClassificationInput,
+): Promise<Decision<ClassificationChange>> => {
+	const planned = planWrites(input, knownOf(resolveClassification(current)));
+	if (!planned.ok) return planned;
+	const writes = await Promise.all(
+		planned.value.map((write) => sealWrite(secrets, write)),
+	);
+	const resolved = knownOf(
+		resolveClassification({
+			...current,
+			rows: applyWrites(current.rows, writes, Date.now()),
+		}),
+	);
+	if (resolved.state === "NotConfigured") {
+		if (input.classificationEnabled === true) {
+			return refuse(
+				"ClassificationNotConfigured",
+				"classificationEnabled needs a saved or inherited classification provider",
+			);
+		}
+		if (input.classificationDailyLimit !== undefined) {
+			return refuse(
+				"ClassificationNotConfigured",
+				"classificationDailyLimit needs a saved or inherited classification provider",
+			);
+		}
+		return {
+			ok: true,
+			value: {
+				writes: [],
+				enteredApiKey: { state: "NotEntered" },
+				resolved,
+				ensuresLabels: false,
+			},
+		};
+	}
+	if (
+		resolved.state === "Unrunnable" &&
+		(savesClassificationProvider(input) || input.classificationEnabled === true)
+	) {
+		return refuseUnrunnable(resolved);
+	}
 	return {
 		ok: true,
 		value: {
-			preset,
-			model: model === "" ? preset.defaultModel : model,
-			baseUrl: baseUrl.value,
-			apiKey: apiKey.value,
+			writes,
+			enteredApiKey: enteredApiKeyOf(planned.value),
+			resolved,
+			ensuresLabels: input.classificationEnabled === true,
 		},
 	};
 };
 
 export const publicClassification = (
-	resolved: ResolvedClassificationProvider | { state: "NotConfigured" },
+	resolved: KnownClassification,
 	usage: ClassificationUsage[],
-): ClassificationNotConfigured | ClassificationConfigured => {
+):
+	| ClassificationNotConfigured
+	| ClassificationUnrunnable
+	| ClassificationConfigured => {
 	if (resolved.state === "NotConfigured") return resolved;
+	if (resolved.state === "Unrunnable") {
+		return {
+			state: "Unrunnable",
+			presetId: resolved.presetId,
+			reason: resolved.reason,
+		};
+	}
 	return {
 		state: "Configured",
 		presetId: resolved.presetId.value,
 		model: resolved.model.value,
 		baseUrl: resolved.baseUrl.value,
-		apiKeySaved: resolved.apiKey.source === ClassificationSource.Saved,
 		enabled: resolved.enabled.value,
 		dailyLimit: resolved.dailyLimit.value,
-		savedAt: resolved.classifiesAfter,
+		sources: {
+			presetId: resolved.presetId.source,
+			model: resolved.model.source,
+			baseUrl: resolved.baseUrl.source,
+			apiKey: resolved.apiKey.source,
+			enabled: resolved.enabled.source,
+			dailyLimit: resolved.dailyLimit.source,
+		},
 		usage,
 	};
 };
@@ -280,108 +429,24 @@ export const readClassificationUsage = async (
 export const classificationPresetsResponse = (): ClassificationPreset[] =>
 	Object.values(CLASSIFICATION_PRESETS);
 
-interface ClassificationChange {
-	provider: ClassificationProviderSave | undefined;
-	enabled: boolean | undefined;
-	dailyLimit: number | undefined;
-}
-
-export const decideClassificationChange = (
-	input: ClassificationInput,
-	known: KnownClassification,
-): Decision<ClassificationChange> => {
-	let provider: ClassificationProviderSave | undefined;
-	if (savesClassificationProvider(input)) {
-		const decided = decideClassificationProvider(input, known);
-		if (!decided.ok) return decided;
-		provider = decided.value;
-	}
-	const configured = provider !== undefined || known.state === "Configured";
-	if (input.classificationEnabled === true && !configured) {
-		return refuse(
-			"ClassificationNotConfigured",
-			"classificationEnabled needs a saved classification provider",
-		);
-	}
-	if (input.classificationDailyLimit !== undefined && !configured) {
-		return refuse(
-			"ClassificationNotConfigured",
-			"classificationDailyLimit needs a saved classification provider",
-		);
-	}
-	return {
-		ok: true,
-		value: {
-			provider,
-			enabled: configured ? input.classificationEnabled : undefined,
-			dailyLimit: input.classificationDailyLimit,
-		},
-	};
-};
-
-const writeProvider = async (
-	deps: ClassificationSettingsDeps,
-	accountConfigId: string,
-	save: ClassificationProviderSave,
-): Promise<void> => {
-	const { accountSetting } = deps;
-	if (save.apiKey.action === "Delete") {
-		await accountSetting.delete(
-			accountConfigId,
-			AccountSettingName.ClassificationApiKey,
-		);
-	}
-	if (save.apiKey.action === "Replace") {
-		const ciphertext = serializeEncryptedPayload(
-			await deps.secrets.encrypt(save.apiKey.apiKey),
-		);
-		await accountSetting.upsert({
-			accountConfigId,
-			name: AccountSettingName.ClassificationApiKey,
-			value: { kind: "Map", value: { ...ciphertext } },
-		});
-	}
-	await accountSetting.upsert({
-		accountConfigId,
-		name: AccountSettingName.ClassificationModel,
-		value: { kind: "String", value: save.model },
-	});
-	await accountSetting.upsert({
-		accountConfigId,
-		name: AccountSettingName.ClassificationBaseUrl,
-		value: { kind: "String", value: save.baseUrl },
-	});
-	await accountSetting.upsert({
-		accountConfigId,
-		name: AccountSettingName.ClassificationPresetId,
-		value: { kind: "String", value: save.preset.presetId },
-	});
-};
-
 export const writeClassificationChange = async (
 	deps: ClassificationSettingsDeps,
 	accountConfigId: string,
 	change: ClassificationChange,
 ): Promise<void> => {
-	if (change.provider) {
-		await writeProvider(deps, accountConfigId, change.provider);
+	for (const write of change.writes) {
+		if (write.action === "Delete") {
+			await deps.accountSetting.delete(accountConfigId, write.name);
+		} else {
+			await deps.accountSetting.upsert({
+				accountConfigId,
+				name: write.name,
+				value: write.value,
+			});
+		}
 	}
-	if (change.enabled !== undefined) {
-		await deps.accountSetting.upsert({
-			accountConfigId,
-			name: AccountSettingName.ClassificationEnabled,
-			value: { kind: "Boolean", value: change.enabled },
-		});
-	}
-	if (change.enabled === true) {
+	if (change.ensuresLabels) {
 		await ensureClassificationLabels(deps.label, accountConfigId);
-	}
-	if (change.dailyLimit !== undefined) {
-		await deps.accountSetting.upsert({
-			accountConfigId,
-			name: AccountSettingName.ClassificationDailyLimit,
-			value: { kind: "Number", value: change.dailyLimit },
-		});
 	}
 };
 

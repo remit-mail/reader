@@ -103,3 +103,5 @@ import "./ClassificationPresetGroup.tsp";
 import "./ClassificationFailureKind.tsp";
 import "./ClassificationField.tsp";
 import "./ClassificationLabel.tsp";
+import "./ClassificationValueSource.tsp";
+import "./ClassificationUnrunnableReason.tsp";

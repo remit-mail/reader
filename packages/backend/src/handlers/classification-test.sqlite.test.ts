@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { after, afterEach, beforeEach, describe, it } from "node:test";
 import type {
 	ClassificationTestFailed,
 	ClassificationTestPassed,
 } from "@remit/api-openapi-types";
 import {
+	type ClassificationDeploymentDefault,
 	classificationUsageName,
 	utcDateOf,
 } from "@remit/data-ports/classification-presets";
@@ -42,6 +43,7 @@ import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { QueueName } from "../service/queues.js";
+import { captureStdout, restoreStdout } from "../stdout-capture-fixture.js";
 import type { HandlerContext } from "../types.js";
 import { UserSettingsOperations } from "./user-settings.js";
 
@@ -59,12 +61,13 @@ let repos: SqliteRepositories;
 let close: () => void;
 let provider: StubHttpServer;
 let reply: StubReply;
+let classificationDefault: ClassificationDeploymentDefault;
 
 const caller = (): HandlerContext<QueueName> => ({
 	client: {
 		...repos,
 		secrets,
-		classificationDefault: { state: "None" },
+		classificationDefault,
 	} as unknown as RemitClient,
 	config: testApiConfig(),
 	identity: {
@@ -123,6 +126,7 @@ const sentAuthorization = (): string | undefined =>
 beforeEach(async () => {
 	const store = createShippedSqliteDb();
 	close = store.close;
+	classificationDefault = { state: "None" };
 	repos = createSqliteRepositories(
 		{ app: store.db, mail: store.db, search: store.db },
 		BETTER_SQLITE3_LIMITS,
@@ -153,6 +157,10 @@ beforeEach(async () => {
 afterEach(async () => {
 	await provider.close();
 	close();
+});
+
+after(() => {
+	restoreStdout();
 });
 
 describe("a classification test", () => {
@@ -245,6 +253,59 @@ describe("a classification test", () => {
 
 		assert.equal(answered.statusCode, 400);
 		assert.match(answered.body, /classificationApiKey/);
+		assert.equal(provider.requests.length, 0);
+	});
+});
+
+describe("a classification test under a deployment default", () => {
+	const DEPLOYMENT_KEY = "sk-deployment-0123456789";
+
+	beforeEach(() => {
+		classificationDefault = {
+			state: "Configured",
+			presetId: ClassificationPresetId.Jev,
+			model: "jev-latest",
+			baseUrl: provider.baseUrl,
+			apiKey: DEPLOYMENT_KEY,
+			enabled: true,
+			dailyLimit: 40,
+		};
+	});
+
+	it("with an empty key sends the deployment key for the same preset and base URL, without answering or logging it", async () => {
+		for (const baseUrl of [provider.baseUrl, ""]) {
+			const { result, logged } = await captureStdout(() =>
+				testProvider({ ...jevForm(""), baseUrl }),
+			);
+
+			assert.equal(result.statusCode, 200, result.body);
+			assert.equal(sentAuthorization(), `Bearer ${DEPLOYMENT_KEY}`);
+			assert.doesNotMatch(result.body, new RegExp(DEPLOYMENT_KEY));
+			assert.doesNotMatch(logged, new RegExp(DEPLOYMENT_KEY));
+		}
+	});
+
+	it("with an empty key is refused for another base URL, and calls nobody", async () => {
+		const answered = await testProvider({
+			...jevForm(""),
+			baseUrl: `${provider.baseUrl}/other`,
+		});
+
+		assert.equal(answered.statusCode, 400);
+		assert.match(answered.body, /classification_api_key_required/);
+		assert.equal(provider.requests.length, 0);
+	});
+
+	it("with an empty key is refused for another preset, and calls nobody", async () => {
+		const answered = await testProvider({
+			presetId: ClassificationPresetId.Mistral,
+			model: "",
+			baseUrl: provider.baseUrl,
+			apiKey: "",
+		});
+
+		assert.equal(answered.statusCode, 400);
+		assert.match(answered.body, /classification_api_key_required/);
 		assert.equal(provider.requests.length, 0);
 	});
 });
