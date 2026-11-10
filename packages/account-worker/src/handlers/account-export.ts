@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { PassThrough } from "node:stream";
 import type { Logger } from "@remit/logger";
 import type { StorageService } from "@remit/storage-service";
-import { ZipArchive } from "archiver";
+import type { ZipArchive } from "archiver";
 import type { CascadeServices } from "../cascade.js";
 import type { AccountExportEvent } from "../events.js";
 
@@ -97,6 +97,7 @@ export const processAccountExport = async (
 	);
 
 	try {
+		const { ZipArchive } = await import("archiver");
 		const archive = new ZipArchive({ zlib: { level: 6 } });
 		const passthrough = new PassThrough();
 		archive.pipe(passthrough);
