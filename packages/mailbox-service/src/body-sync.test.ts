@@ -245,6 +245,8 @@ const placementOf = (mailbox: MailboxItem): BodySyncFolder => ({
 			: mailbox === world.junk
 				? "junk"
 				: "other",
+	initialSyncCompletedAt: mailbox === world.junk ? 1 : undefined,
+	createdAt: mailbox.createdAt,
 });
 
 // Mail arrives now, after any filter the test set up: a filter acts only on
@@ -605,7 +607,7 @@ describe("placement follows the sender's flags", () => {
 		assert.equal((await messageRow(messageId)).mailboxId, world.junk.mailboxId);
 	});
 
-	it("does not auto-archive mail out of Junk", async () => {
+	it("files an autoArchive sender's Junk arrival to Archive", async () => {
 		await flagSender("someone@example.com", {
 			autoArchive: { value: true, setAt: 1_000 },
 		});
@@ -613,7 +615,10 @@ describe("placement follows the sender's flags", () => {
 
 		await read(bodySync({ placement: true }), messageId, world.junk);
 
-		assert.equal((await messageRow(messageId)).mailboxId, world.junk.mailboxId);
+		assert.equal(
+			(await messageRow(messageId)).mailboxId,
+			world.archive.mailboxId,
+		);
 	});
 
 	it("does not re-file mail Remit already placed", async () => {

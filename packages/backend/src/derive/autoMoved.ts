@@ -1,6 +1,5 @@
 import type { AutoMovedInfo } from "@remit/api-openapi-types";
 import type { MessageItem } from "@remit/data-ports";
-import { PlacementConfidence } from "@remit/domain-enums";
 
 /**
  * Project a Message's internal auto-move state to the public `AutoMovedInfo`
@@ -46,7 +45,6 @@ export const deriveAutoMoved = (
 
 	const verdict = message.placementVerdict;
 	if (!verdict) return undefined;
-	if (verdict.confidence !== PlacementConfidence.Confident) return undefined;
 	if (verdict.dryRun === true) return undefined;
 
 	return {

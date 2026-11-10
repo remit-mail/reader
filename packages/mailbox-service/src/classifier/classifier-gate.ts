@@ -119,13 +119,26 @@ export const readClassifierGate = async (
 	};
 };
 
+const isProviderSpamHeader = (name: string): boolean => {
+	const lower = name.toLowerCase();
+	return (
+		lower.startsWith("x-spam-") ||
+		lower === "x-spamexperts-class" ||
+		lower === "x-halone-spam-probability"
+	);
+};
+
+// The provider's spam verdict is not a signal (issue #1553), so the
+// classifier never sees it either.
 export const classifierMessageOf = (parsed: ParsedMail): ClassifierMessage => ({
-	headers: parsed.headerLines.map(({ line }) => {
-		const colon = line.indexOf(":");
-		return {
-			name: line.slice(0, colon),
-			value: line.slice(colon + 1).trim(),
-		};
-	}),
+	headers: parsed.headerLines
+		.map(({ line }) => {
+			const colon = line.indexOf(":");
+			return {
+				name: line.slice(0, colon),
+				value: line.slice(colon + 1).trim(),
+			};
+		})
+		.filter((header) => !isProviderSpamHeader(header.name)),
 	text: parsed.text ?? "",
 });

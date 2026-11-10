@@ -48,10 +48,7 @@ export interface RunState {
 	dkimMismatchFromDomain: string;
 	dkimMismatchSigningDomain: string;
 	spamSubject: string;
-	spamSenderName: string;
 	spamSenderEmail: string;
-	spamSenderDomain: string;
-	spamOffDomainLinkDomain: string;
 	/**
 	 * The INBOX message appended with `\Flagged` already set, before the account
 	 * existed. It is part of `seededSubjects` — ordinary INBOX mail in every

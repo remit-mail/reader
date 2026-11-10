@@ -158,8 +158,11 @@ export {
 } from "./heuristics/classifyByHeaders.js";
 export {
 	classifyPlacement,
+	decidePlacement,
 	type FolderPlacement,
 	type PlacementAction,
+	type PlacementDecision,
+	type PlacementDestination,
 	type PlacementVerdict,
 } from "./heuristics/classifyPlacement.js";
 export {

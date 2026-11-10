@@ -66,6 +66,7 @@ const syncedBody = async (): Promise<{
 			fullPath: inbox.fullPath,
 			placement: "inbox",
 			uidValidity: inbox.uidValidity,
+			createdAt: inbox.createdAt,
 		},
 		async () => imap.connection(),
 		{ force: false, concurrency: 1, bytesInFlight: 1024 * 1024 },

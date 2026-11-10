@@ -458,6 +458,7 @@ export const MessageOperations = {
 					mailboxId: mailbox.mailboxId,
 					fullPath: mailbox.fullPath,
 					initialSyncCompletedAt: mailbox.initialSyncCompletedAt,
+					createdAt: mailbox.createdAt,
 					placement: await resolveFolderPlacement(
 						client.mailboxSpecialUse,
 						accountId,
@@ -597,6 +598,7 @@ export const MessageOperations = {
 					mailboxId: mailbox.mailboxId,
 					fullPath: mailbox.fullPath,
 					initialSyncCompletedAt: mailbox.initialSyncCompletedAt,
+					createdAt: mailbox.createdAt,
 					placement: await resolveFolderPlacement(
 						client.mailboxSpecialUse,
 						accountId,

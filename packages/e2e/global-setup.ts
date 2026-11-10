@@ -229,10 +229,7 @@ const globalSetup = async (): Promise<void> => {
 		dkimMismatchFromDomain: DKIM_MISMATCH.fromDomain,
 		dkimMismatchSigningDomain: DKIM_MISMATCH.signingDomain,
 		spamSubject: SPAM_SEED.subject,
-		spamSenderName: SPAM_SEED.senderName,
 		spamSenderEmail: SPAM_SEED.senderEmail,
-		spamSenderDomain: SPAM_SEED.senderDomain,
-		spamOffDomainLinkDomain: SPAM_SEED.offDomainLinkDomain,
 		preFlaggedSubject: PRE_FLAGGED_SUBJECT,
 		starredElsewhereSubject: STARRED_ELSEWHERE_SUBJECT,
 	});

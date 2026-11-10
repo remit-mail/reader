@@ -77,6 +77,7 @@ const syncBody = (messageId: string, source: FakeImapConnection) =>
 			fullPath: "INBOX",
 			placement: "inbox",
 			uidValidity: inbox.uidValidity,
+			createdAt: inbox.createdAt,
 		},
 		async () => source,
 		{ force: false, concurrency: 1, bytesInFlight: 1024 * 1024 },

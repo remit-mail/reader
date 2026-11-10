@@ -257,6 +257,7 @@ export const syncMessageBody = async (
 				fullPath: mailbox.fullPath,
 				uidValidity: mailbox.uidValidity,
 				initialSyncCompletedAt: mailbox.initialSyncCompletedAt,
+				createdAt: mailbox.createdAt,
 				placement: await resolveFolderPlacement(
 					mailboxSpecialUseService,
 					accountId,

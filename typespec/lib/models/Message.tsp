@@ -79,7 +79,7 @@ model MessagePlacementVerdict {
   @doc("The direction Remit decided to move the message.")
   action: PlacementAction;
 
-  @doc("Confidence of the verdict. Only `Confident` verdicts enqueue an IMAP move (when the dark-ship flag is on).")
+  @doc("Confidence of the verdict. A Junk arrival not judged junk moves to the Inbox at either confidence, and one judged junk stays in Junk. Outside Junk only a `Confident` verdict moves the message.")
   confidence: PlacementConfidence;
 
   @doc("The folder the message was in when the verdict was made: inbox | junk | other.")
