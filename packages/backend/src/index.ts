@@ -5,11 +5,12 @@ import {
 	assertLocalBypassNotInDeployedEnv,
 	localIdentityFromEnv,
 } from "./auth.js";
+import { classificationDefaultFromEnv } from "./config/classification-default.js";
 import { configFromEnv } from "./config/from-env.js";
 import { handlers, publicHandlers } from "./handlers/index.js";
 import { createApiEventHandler } from "./lambda.js";
 import { serveApi } from "./serve.js";
-import { getClient } from "./service/data-client.js";
+import { getClient, setClassificationDefault } from "./service/data-client.js";
 
 installNodeLogger();
 
@@ -17,6 +18,7 @@ installNodeLogger();
 // deployed environment, so a leaked env var fails the process at startup
 // rather than silently opening authentication at runtime.
 assertLocalBypassNotInDeployedEnv(process.env);
+setClassificationDefault(classificationDefaultFromEnv(process.env));
 
 export { OpenAPISpec } from "./api.js";
 export { configFromEnv } from "./config/from-env.js";

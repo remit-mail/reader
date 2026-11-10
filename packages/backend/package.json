@@ -23,6 +23,10 @@
       "types": "./src/handlers/index.ts",
       "default": "./src/handlers/index.ts"
     },
+    "./classification-default": {
+      "types": "./src/config/classification-default.ts",
+      "default": "./src/config/classification-default.ts"
+    },
     "./client": {
       "types": "./src/service/data-client.ts",
       "default": "./src/service/data-client.ts"
@@ -95,6 +99,10 @@
       "./handlers": {
         "types": "./dist/src/handlers/index.d.ts",
         "default": "./dist/src/handlers/index.js"
+      },
+      "./classification-default": {
+        "types": "./dist/src/config/classification-default.d.ts",
+        "default": "./dist/src/config/classification-default.js"
       },
       "./client": {
         "types": "./dist/src/service/data-client.d.ts",

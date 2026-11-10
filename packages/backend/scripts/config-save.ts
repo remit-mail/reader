@@ -8,11 +8,16 @@ import { env } from "expect-env";
 // driver behind it into a script that reads one table.
 import { auth_user } from "../../auth-service/src/schema/auth-schema-sqlite.js";
 import { createSqliteDatabase } from "../../drizzle-service/src/sqlite-client.js";
+import { classificationDefaultFromEnv } from "../src/config/classification-default.js";
 import { configFromEnv } from "../src/config/from-env.js";
-import { getClient } from "../src/service/data-client.js";
+import {
+	getClient,
+	setClassificationDefault,
+} from "../src/service/data-client.js";
 import { exportIdentity } from "../src/service/export-identity.js";
 
 installNodeLogger();
+setClassificationDefault(classificationDefaultFromEnv(process.env));
 
 /**
  * `remit config save` (issue #1021). Writes one configuration out as a

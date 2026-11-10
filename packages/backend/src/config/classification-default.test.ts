@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CLASSIFICATION_PRESETS } from "@remit/data-ports/classification-presets";
 import { classificationDefaultFromEnv } from "./classification-default.js";
 
 describe("classificationDefaultFromEnv", () => {
@@ -12,27 +11,41 @@ describe("classificationDefaultFromEnv", () => {
 		);
 	});
 
-	it("fills each preset's defaults when only the preset and key are set", () => {
-		for (const preset of Object.values(CLASSIFICATION_PRESETS)) {
-			const baseUrl = preset.defaultBaseUrl ?? "https://llm.example.com/v1";
-			assert.deepEqual(
-				classificationDefaultFromEnv({
-					CLASSIFICATION_DEFAULT_PRESET: preset.presetId,
-					CLASSIFICATION_DEFAULT_API_KEY: "sk-test",
-					CLASSIFICATION_DEFAULT_BASE_URL: preset.defaultBaseUrl ? "" : baseUrl,
-				}),
-				{
-					state: "Configured",
-					presetId: preset.presetId,
-					model: preset.defaultModel,
-					baseUrl,
-					apiKey: "sk-test",
-					enabled: false,
-					dailyLimit: 500,
-				},
-				preset.presetId,
-			);
-		}
+	it("fills Mistral's defaults when only the key is set", () => {
+		assert.deepEqual(
+			classificationDefaultFromEnv({
+				CLASSIFICATION_DEFAULT_PRESET: "Mistral",
+				CLASSIFICATION_DEFAULT_API_KEY: "sk-test",
+			}),
+			{
+				state: "Configured",
+				presetId: "Mistral",
+				model: "ministral-8b-latest",
+				baseUrl: "https://api.eu.mistral.ai/v1",
+				apiKey: "sk-test",
+				enabled: false,
+				dailyLimit: 500,
+			},
+		);
+	});
+
+	it("fills OpenAiCompatible's default model when a base URL is set", () => {
+		assert.deepEqual(
+			classificationDefaultFromEnv({
+				CLASSIFICATION_DEFAULT_PRESET: "OpenAiCompatible",
+				CLASSIFICATION_DEFAULT_API_KEY: "sk-test",
+				CLASSIFICATION_DEFAULT_BASE_URL: "https://llm.example.com/v1",
+			}),
+			{
+				state: "Configured",
+				presetId: "OpenAiCompatible",
+				model: "gpt-5-nano",
+				baseUrl: "https://llm.example.com/v1",
+				apiKey: "sk-test",
+				enabled: false,
+				dailyLimit: 500,
+			},
+		);
 	});
 
 	it("takes every value that is set", () => {

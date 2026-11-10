@@ -1,3 +1,5 @@
+import { classificationDefaultFromEnv } from "@remit/backend/classification-default";
+import { setClassificationDefault } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
 import {
 	queueNameFromEventSource,
@@ -14,6 +16,7 @@ import { lambdaProcessContext } from "./lambda-context.js";
 import { processEvent } from "./processor.js";
 
 installNodeLogger();
+setClassificationDefault(classificationDefaultFromEnv(process.env));
 
 const log = createLogger();
 

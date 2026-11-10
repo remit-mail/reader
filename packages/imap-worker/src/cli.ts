@@ -1,14 +1,17 @@
 #!/usr/bin/env node
+import { parseArgs } from "node:util";
 // Plain text on purpose, and the one deliberate exception to the log field
 // contract in deploy/vps/README.md ("Logs"). That contract covers what a
 // container's log driver ships; this file is the `remit-worker` bin, run by hand
 // against a terminal, and is not an entrypoint of any image (see the target list
 // in npm-scripts/docker-bundle.mjs). Do not route it through the logger — usage
 // text and argument errors are for the person who typed the command.
-import { parseArgs } from "node:util";
-import { getClient } from "@remit/backend/client";
+import { classificationDefaultFromEnv } from "@remit/backend/classification-default";
+import { getClient, setClassificationDefault } from "@remit/backend/client";
 import { lambdaEmitEvent } from "./lambda-context.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./sqs-queues.js";
+
+setClassificationDefault(classificationDefaultFromEnv(process.env));
 
 const HELP = `
 remit-imap-worker - Process IMAP sync events

@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
-import { _resetForTest, getClient, type RemitClient } from "./data-client.js";
+import {
+	_resetForTest,
+	getClient,
+	type RemitClient,
+	setClassificationDefault,
+} from "./data-client.js";
 
 const REQUIRED_KEYS: ReadonlyArray<keyof RemitClient> = [
 	"accountConfig",
@@ -56,6 +61,7 @@ const withSqliteDbPath = async (run: () => Promise<void>): Promise<void> => {
 
 test("getClient() falls back to the in-package composition and constructs every service", async () => {
 	await withSqliteDbPath(async () => {
+		setClassificationDefault({ state: "None" });
 		const client = await getClient();
 
 		for (const key of REQUIRED_KEYS) {

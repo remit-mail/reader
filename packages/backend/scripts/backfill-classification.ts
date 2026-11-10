@@ -8,9 +8,14 @@ import {
 	type ClassificationBackfillCheckpoint,
 	type ClassificationBackfillCheckpointStore,
 } from "@remit/mailbox-service";
-import { getClient } from "../src/service/data-client.js";
+import { classificationDefaultFromEnv } from "../src/config/classification-default.js";
+import {
+	getClient,
+	setClassificationDefault,
+} from "../src/service/data-client.js";
 
 installNodeLogger();
+setClassificationDefault(classificationDefaultFromEnv(process.env));
 
 /**
  * One-time, full-corpus classification backfill over the stored-body cohort
