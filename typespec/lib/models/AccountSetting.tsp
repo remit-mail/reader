@@ -49,8 +49,8 @@ model MutedFlagSetting extends AccountSettingValue {
 
 @doc("A count that restarts every UTC day.")
 model DailyCount {
-  @doc("The UTC date the count belongs to, as `YYYY-MM-DD`.")
-  date: string;
+  @doc("The UTC date the count belongs to.")
+  date: plainDate;
 
   calls: int32;
 }

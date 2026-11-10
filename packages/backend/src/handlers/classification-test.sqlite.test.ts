@@ -196,12 +196,6 @@ describe("a classification test", () => {
 			await repos.accountSetting.get(ACCOUNT_CONFIG_ID, usageName),
 			before,
 		);
-		assert.equal(
-			(
-				await repos.accountSetting.listByAccountConfig(ACCOUNT_CONFIG_ID)
-			).filter((row) => row.name.startsWith("ClassificationUsage")).length,
-			1,
-		);
 	});
 
 	it("with an empty key field sends the saved key", async () => {

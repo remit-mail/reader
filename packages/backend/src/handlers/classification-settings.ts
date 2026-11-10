@@ -5,11 +5,15 @@ import type {
 	ClassificationUsage,
 	UpdateUserSettingsInput,
 } from "@remit/api-openapi-types";
-import type { IAccountSettingRepository } from "@remit/data-ports";
+import type { DailyCount, IAccountSettingRepository } from "@remit/data-ports";
+import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import {
 	CLASSIFICATION_PRESETS,
 	CLASSIFICATION_SETTING_NAMES,
+	classificationUsageName,
+	type SavedClassificationProvider,
 	type StoredClassification,
+	utcDateOf,
 } from "@remit/data-ports/classification-presets";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
@@ -163,8 +167,70 @@ export const publicClassification = (
 	return { ...configured, usage };
 };
 
-const isDailyLimit = (value: number): boolean =>
-	Number.isInteger(value) && value >= 1;
+const CLASSIFICATION_INPUT_TOKENS_PER_CALL = 1_500;
+
+const nextUtcMidnight = (epochMs: number): string => {
+	const now = new Date(epochMs);
+	return new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+	).toISOString();
+};
+
+const callsOn = (usage: DailyCount | undefined, date: string): number =>
+	usage?.date === date ? usage.calls : 0;
+
+const classificationCost = (
+	preset: ClassificationPreset,
+	calls: number,
+): ClassificationUsage["cost"] => {
+	if (preset.price.state === "NoPrice") return { state: "NoPrice" };
+	return {
+		state: "Priced",
+		currency: preset.price.currency,
+		amount:
+			(calls *
+				CLASSIFICATION_INPUT_TOKENS_PER_CALL *
+				preset.price.perMillionInputTokens) /
+			1_000_000,
+	};
+};
+
+export const readClassificationUsage = async (
+	accountSetting: Pick<IAccountSettingRepository, "getMany">,
+	accountConfigId: string,
+	accountIds: readonly string[],
+	saved: Pick<SavedClassificationProvider, "presetId" | "dailyLimit">,
+	now: number,
+): Promise<ClassificationUsage[]> => {
+	const rows = await accountSetting.getMany(
+		[accountConfigId],
+		accountIds.map(classificationUsageName),
+	);
+	const today = utcDateOf(now);
+	const resetsAt = nextUtcMidnight(now);
+	const preset = CLASSIFICATION_PRESETS[saved.presetId];
+	return accountIds.map((accountId) => {
+		const row = rows.find(
+			(candidate) => candidate.name === classificationUsageName(accountId),
+		);
+		const calls = callsOn(
+			row
+				? parseAccountSettingValue(
+						AccountSettingName.ClassificationUsage,
+						row.value,
+					).value
+				: undefined,
+			today,
+		);
+		return {
+			accountId,
+			calls,
+			dailyLimit: saved.dailyLimit,
+			resetsAt,
+			cost: classificationCost(preset, calls),
+		};
+	});
+};
 
 export const classificationPresetsResponse = (): ClassificationPreset[] =>
 	Object.values(CLASSIFICATION_PRESETS);
@@ -179,15 +245,6 @@ export const decideClassificationChange = (
 	input: ClassificationInput,
 	stored: StoredClassification,
 ): Decision<ClassificationChange> => {
-	if (
-		input.classificationDailyLimit !== undefined &&
-		!isDailyLimit(input.classificationDailyLimit)
-	) {
-		return refuse(
-			"InvalidClassificationDailyLimit",
-			"Enter a whole number of 1 or more.",
-		);
-	}
 	let provider: ClassificationProviderSave | undefined;
 	if (savesClassificationProvider(input)) {
 		const decided = decideClassificationProvider(input, stored);

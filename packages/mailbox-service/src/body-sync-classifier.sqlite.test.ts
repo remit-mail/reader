@@ -580,23 +580,4 @@ describe("body sync under the daily classification limit", () => {
 			value: { date: today(), calls: 1 },
 		});
 	});
-
-	it("never counts past the limit when claims race", async () => {
-		const claims = await Promise.all(
-			Array.from({ length: 20 }, () =>
-				world.store.accountSetting.claimDailyCount({
-					accountConfigId: world.account.accountConfigId,
-					name: classificationUsageName(world.account.accountId),
-					date: today(),
-					limit: 5,
-				}),
-			),
-		);
-
-		assert.equal(claims.filter((claim) => claim.state === "Claimed").length, 5);
-		assert.deepEqual(await storedCalls(world.account.accountId), {
-			kind: "DailyCount",
-			value: { date: today(), calls: 5 },
-		});
-	});
 });

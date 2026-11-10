@@ -44,8 +44,9 @@ model UpdateUserSettingsInput {
   @doc("Switch classification on or off. Switching on with no saved provider is refused with 400 `classification_not_configured`; switching off keeps the provider and key.")
   classificationEnabled?: boolean;
 
-  @doc("The most classification calls per mail account per UTC day. Needs a saved provider. Refused with 400 `invalid_classification_daily_limit` when it is not a whole number of 1 or more.")
-  classificationDailyLimit?: float64;
+  @doc("The most classification calls per mail account per UTC day. Needs a saved provider.")
+  @minValue(1)
+  classificationDailyLimit?: int32;
 }
 
 @doc("A classification preset that has a known price per million input tokens.")

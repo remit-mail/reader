@@ -118,6 +118,31 @@ export const accountSettingRepoSuite = (open: OpenTestStores): void => {
 			});
 		});
 
+		test("claimDailyCount never counts past the limit when claims race", async () => {
+			const accountConfigId = randomId();
+			const name = "ClassificationUsage#account";
+
+			const claims = await Promise.all(
+				Array.from({ length: 20 }, () =>
+					repo.claimDailyCount({
+						accountConfigId,
+						name,
+						date: "2026-11-10",
+						limit: 5,
+					}),
+				),
+			);
+
+			assert.equal(
+				claims.filter((claim) => claim.state === "Claimed").length,
+				5,
+			);
+			assert.deepEqual((await repo.get(accountConfigId, name))?.value, {
+				kind: "DailyCount",
+				value: { date: "2026-11-10", calls: 5 },
+			});
+		});
+
 		test("delete removes the setting", async () => {
 			const accountConfigId = randomId();
 			await repo.upsert({
