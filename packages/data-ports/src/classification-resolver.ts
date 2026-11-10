@@ -1,5 +1,13 @@
-import type { ClassificationPresetId } from "@remit/api-openapi-types";
-import { AccountSettingName } from "@remit/domain-enums";
+import type {
+	ClassificationPresetId,
+	ClassificationUnrunnableReason,
+	ClassificationValueSource,
+} from "@remit/api-openapi-types";
+import {
+	AccountSettingName,
+	ClassificationUnrunnableReason as UnrunnableReason,
+	ClassificationValueSource as ValueSource,
+} from "@remit/domain-enums";
 import {
 	type AccountSettingValueFor,
 	parseAccountSettingValue,
@@ -20,50 +28,45 @@ export type ClassificationSettingRow = Pick<
 	"name" | "value" | "updatedAt"
 >;
 
-export const ClassificationSource = {
-	Saved: "Saved",
-	Deployment: "Deployment",
-	Default: "Default",
-} as const;
-
-export type ClassificationSource =
-	(typeof ClassificationSource)[keyof typeof ClassificationSource];
-
 export interface Sourced<
 	T,
-	S extends ClassificationSource = ClassificationSource,
+	S extends ClassificationValueSource = ClassificationValueSource,
 > {
 	value: T;
 	source: S;
 }
 
-export type ResolvedClassificationApiKey =
-	| { source: "Saved"; ciphertext: ClassificationApiKeyCiphertext }
+export type SavedClassificationApiKey = {
+	ciphertext: ClassificationApiKeyCiphertext;
+};
+
+export type ResolvedClassificationApiKey<Saved = SavedClassificationApiKey> =
+	| ({ source: "Saved" } & Saved)
 	| { source: "Deployment"; apiKey: string }
 	| { source: "Default" };
 
-export interface ResolvedClassificationProvider {
+export interface ResolvedClassificationProvider<
+	Saved = SavedClassificationApiKey,
+> {
 	state: "Configured";
 	presetId: Sourced<ClassificationPresetId, "Saved" | "Deployment">;
 	model: Sourced<string>;
 	baseUrl: Sourced<string>;
-	apiKey: ResolvedClassificationApiKey;
+	apiKey: ResolvedClassificationApiKey<Saved>;
 	enabled: Sourced<boolean>;
 	dailyLimit: Sourced<number>;
 	classifiesAfter: number;
 }
 
-export type UnrunnableReason = "NoBaseUrl" | "NoApiKey";
-
-export type ResolvedClassification =
+export type ResolvedClassification<Saved = SavedClassificationApiKey> =
 	| { state: "NotConfigured" }
 	| { state: "UnknownPreset"; presetId: string }
 	| {
 			state: "Unrunnable";
 			presetId: ClassificationPresetId;
-			reason: UnrunnableReason;
+			reason: ClassificationUnrunnableReason;
 	  }
-	| ResolvedClassificationProvider;
+	| ResolvedClassificationProvider<Saved>;
 
 export interface ClassificationResolverInput {
 	rows: readonly ClassificationSettingRow[];
@@ -95,45 +98,53 @@ const savedOrDeployed = <T>(
 	deployed: T | undefined,
 ): Sourced<T, "Saved" | "Deployment"> | undefined => {
 	if (saved !== undefined) {
-		return { value: saved, source: ClassificationSource.Saved };
+		return { value: saved, source: ValueSource.Saved };
 	}
 	if (deployed !== undefined) {
-		return { value: deployed, source: ClassificationSource.Deployment };
+		return { value: deployed, source: ValueSource.Deployment };
 	}
 	return undefined;
 };
 
 const orDefault = <T>(found: Sourced<T> | undefined, fallback: T): Sourced<T> =>
-	found ?? { value: fallback, source: ClassificationSource.Default };
+	found ?? { value: fallback, source: ValueSource.Default };
 
 const defaultBaseUrlOf = (
 	defaultBaseUrl: string | undefined,
 ): Sourced<string> | undefined =>
 	defaultBaseUrl === undefined
 		? undefined
-		: { value: defaultBaseUrl, source: ClassificationSource.Default };
+		: { value: defaultBaseUrl, source: ValueSource.Default };
 
-const apiKeyOf = (
-	rows: readonly ClassificationSettingRow[],
+const apiKeyOf = <Saved>(
+	saved: Saved | undefined,
 	deployed: Configured | undefined,
 	presetId: ClassificationPresetId,
 	baseUrl: string,
-): ResolvedClassificationApiKey => {
-	const ciphertext = savedValue(rows, AccountSettingName.ClassificationApiKey);
-	if (ciphertext !== undefined) {
-		return { source: ClassificationSource.Saved, ciphertext };
+): ResolvedClassificationApiKey<Saved> => {
+	if (saved !== undefined) {
+		return { ...saved, source: ValueSource.Saved };
 	}
 	if (deployed?.presetId === presetId && deployed.baseUrl === baseUrl) {
-		return { source: ClassificationSource.Deployment, apiKey: deployed.apiKey };
+		return {
+			source: ValueSource.Deployment,
+			apiKey: deployed.apiKey,
+		};
 	}
-	return { source: ClassificationSource.Default };
+	return { source: ValueSource.Default };
 };
 
-export const resolveClassification = ({
-	rows,
-	deployment,
-	accountConfigCreatedAt,
-}: ClassificationResolverInput): ResolvedClassification => {
+export const savedClassificationApiKey = (
+	rows: readonly ClassificationSettingRow[],
+): SavedClassificationApiKey | undefined => {
+	const ciphertext = savedValue(rows, AccountSettingName.ClassificationApiKey);
+	return ciphertext === undefined ? undefined : { ciphertext };
+};
+
+export const resolveClassificationWith = <Saved>(
+	{ rows, deployment, accountConfigCreatedAt }: ClassificationResolverInput,
+	savedApiKey: Saved | undefined,
+): ResolvedClassification<Saved> => {
 	const deployed = deployment.state === "Configured" ? deployment : undefined;
 	const presetRow = settingOf(rows, AccountSettingName.ClassificationPresetId);
 	const savedPresetId = presetRow
@@ -159,15 +170,15 @@ export const resolveClassification = ({
 		return {
 			state: "Unrunnable",
 			presetId: presetId.value,
-			reason: "NoBaseUrl",
+			reason: UnrunnableReason.NoBaseUrl,
 		};
 	}
-	const apiKey = apiKeyOf(rows, deployed, presetId.value, baseUrl.value);
-	if (preset.needsKey && apiKey.source === ClassificationSource.Default) {
+	const apiKey = apiKeyOf(savedApiKey, deployed, presetId.value, baseUrl.value);
+	if (preset.needsKey && apiKey.source === ValueSource.Default) {
 		return {
 			state: "Unrunnable",
 			presetId: presetId.value,
-			reason: "NoApiKey",
+			reason: UnrunnableReason.NoApiKey,
 		};
 	}
 
@@ -200,6 +211,11 @@ export const resolveClassification = ({
 		classifiesAfter: presetRow ? presetRow.updatedAt : accountConfigCreatedAt,
 	};
 };
+
+export const resolveClassification = (
+	input: ClassificationResolverInput,
+): ResolvedClassification =>
+	resolveClassificationWith(input, savedClassificationApiKey(input.rows));
 
 export interface ClassificationResolverDeps {
 	accountSetting: Pick<IAccountSettingRepository, "getMany">;

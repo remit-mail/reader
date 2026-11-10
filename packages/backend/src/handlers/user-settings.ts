@@ -107,8 +107,7 @@ export const updateUserSettingsFor = async (
 	accountConfigId: string,
 	input: UpdateUserSettingsInput,
 ): Promise<UserSettingsOutcome> => {
-	const classification = await decideClassificationChange(
-		deps.secrets,
+	const classification = decideClassificationChange(
 		await readClassificationInput(deps, accountConfigId),
 		input,
 	);
@@ -193,7 +192,6 @@ export const UserSettingsOperations: Record<
 				secrets: ctx.client.secrets,
 				logger,
 			},
-
 			ctx.identity.accountConfigId,
 			context.request.requestBody as ClassificationTestInput,
 		);

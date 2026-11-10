@@ -302,16 +302,23 @@ describe("a deployment classification default", () => {
 		assert.equal(overridden.statusCode, 200, overridden.body);
 		const now = await configured();
 		assert.equal(now.model, "mistral-large");
-		assert.deepEqual(now.sources, { ...INHERITED, model: "Saved" });
-		assert.deepEqual(await savedNames(), ["ClassificationModel"]);
+		assert.deepEqual(now.sources, {
+			...INHERITED,
+			presetId: "Saved",
+			model: "Saved",
+		});
+		assert.deepEqual(await savedNames(), [
+			"ClassificationModel",
+			"ClassificationPresetId",
+		]);
 
 		const blanked = await patch({ classificationModel: "" });
 
 		assert.equal(blanked.statusCode, 200, blanked.body);
 		const after = await configured();
 		assert.equal(after.model, "mistral-small-latest");
-		assert.deepEqual(after.sources, INHERITED);
-		assert.deepEqual(await classificationRows(), []);
+		assert.deepEqual(after.sources, { ...INHERITED, presetId: "Saved" });
+		assert.deepEqual(await savedNames(), ["ClassificationPresetId"]);
 	});
 
 	it("inherits the base URL again when it is saved blank", async () => {
@@ -326,7 +333,10 @@ describe("a deployment classification default", () => {
 		const now = await configured();
 		assert.equal(now.baseUrl, "https://mistral.example/v1");
 		assert.equal(now.sources.baseUrl, "Deployment");
-		assert.deepEqual(await savedNames(), ["ClassificationApiKey"]);
+		assert.deepEqual(await savedNames(), [
+			"ClassificationApiKey",
+			"ClassificationPresetId",
+		]);
 	});
 
 	it("turns classification on and sets a daily limit with no saved provider", async () => {
@@ -381,6 +391,7 @@ describe("a deployment classification default", () => {
 		assert.equal(now.baseUrl, "https://own.example/v1");
 		assert.deepEqual(now.sources, {
 			...INHERITED,
+			presetId: "Saved",
 			baseUrl: "Saved",
 			apiKey: "Saved",
 		});

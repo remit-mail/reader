@@ -26,6 +26,9 @@ import {
 	type ResolvedClassification,
 	readResolvedClassification,
 	resolveClassification,
+	resolveClassificationWith,
+	type SavedClassificationApiKey,
+	savedClassificationApiKey,
 } from "@remit/data-ports/classification-resolver";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
@@ -43,6 +46,7 @@ export type ClassificationSettingsDeps = {
 		IAccountSettingRepository,
 		"getMany" | "upsert" | "delete"
 	>;
+	secrets: Pick<SecretsService, "encrypt">;
 	label: ClassificationLabelDeps;
 };
 
@@ -61,14 +65,11 @@ type SettingWrite =
 
 type PlannedWrite = SettingWrite | { action: "Encrypt"; apiKey: string };
 
-export type EnteredApiKey =
-	| { state: "Entered"; apiKey: string }
-	| { state: "NotEntered" };
+export type PlannedApiKey = Partial<SavedClassificationApiKey>;
 
 export interface ClassificationChange {
-	writes: SettingWrite[];
-	enteredApiKey: EnteredApiKey;
-	resolved: KnownClassification;
+	writes: PlannedWrite[];
+	resolved: KnownClassification<PlannedApiKey>;
 	ensuresLabels: boolean;
 }
 
@@ -82,12 +83,14 @@ export type ClassificationInput = Pick<
 	| "classificationDailyLimit"
 >;
 
-export type KnownClassification = Exclude<
-	ResolvedClassification,
+export type KnownClassification<Saved = SavedClassificationApiKey> = Exclude<
+	ResolvedClassification<Saved>,
 	{ state: "UnknownPreset" }
 >;
 
-const knownOf = (resolved: ResolvedClassification): KnownClassification => {
+const knownOf = <Saved>(
+	resolved: ResolvedClassification<Saved>,
+): KnownClassification<Saved> => {
 	if (resolved.state === "UnknownPreset") {
 		throw new Error(
 			`Stored classification preset is unknown: ${resolved.presetId}`,
@@ -119,8 +122,8 @@ const savesClassificationProvider = (input: ClassificationInput): boolean =>
 	input.classificationBaseUrl !== undefined ||
 	input.classificationApiKey !== undefined;
 
-const presetIdOf = (
-	known: KnownClassification,
+const presetIdOf = <Saved>(
+	known: KnownClassification<Saved>,
 ): ClassificationPresetId | undefined => {
 	if (known.state === "NotConfigured") return undefined;
 	if (known.state === "Unrunnable") return known.presetId;
@@ -183,15 +186,11 @@ const planProviderWrites = (
 				switched,
 			),
 			...textWrite(AccountSettingName.ClassificationBaseUrl, baseUrl, switched),
-			...(input.classificationPresetId === undefined
-				? []
-				: [
-						{
-							action: "Upsert" as const,
-							name: AccountSettingName.ClassificationPresetId,
-							value: { kind: "String" as const, value: presetId },
-						},
-					]),
+			{
+				action: "Upsert",
+				name: AccountSettingName.ClassificationPresetId,
+				value: { kind: "String", value: presetId },
+			},
 		],
 	};
 };
@@ -237,26 +236,31 @@ const sealWrite = async (
 	};
 };
 
-const enteredApiKeyOf = (writes: PlannedWrite[]): EnteredApiKey => {
-	const entered = writes.find((write) => write.action === "Encrypt");
-	return entered
-		? { state: "Entered", apiKey: entered.apiKey }
-		: { state: "NotEntered" };
-};
-
 const applyWrites = (
 	rows: readonly ClassificationSettingRow[],
-	writes: readonly SettingWrite[],
+	writes: readonly PlannedWrite[],
 	now: number,
 ): ClassificationSettingRow[] =>
 	writes.reduce<ClassificationSettingRow[]>((applied, write) => {
+		if (write.action === "Encrypt") return applied;
 		const kept = applied.filter((row) => row.name !== write.name);
 		if (write.action === "Delete") return kept;
 		return [...kept, { name: write.name, value: write.value, updatedAt: now }];
 	}, Array.from(rows));
 
+const plannedApiKeyOf = (
+	rows: readonly ClassificationSettingRow[],
+	writes: readonly PlannedWrite[],
+): PlannedApiKey | undefined =>
+	writes.some((write) => write.action === "Encrypt")
+		? {}
+		: savedClassificationApiKey(rows);
+
 const refuseUnrunnable = (
-	resolved: Extract<KnownClassification, { state: "Unrunnable" }>,
+	resolved: Extract<
+		KnownClassification<PlannedApiKey>,
+		{ state: "Unrunnable" }
+	>,
 ): Refusal => {
 	const { label } = CLASSIFICATION_PRESETS[resolved.presetId];
 	if (resolved.reason === "NoBaseUrl") {
@@ -271,21 +275,19 @@ const refuseUnrunnable = (
 	);
 };
 
-export const decideClassificationChange = async (
-	secrets: Pick<SecretsService, "encrypt">,
+export const decideClassificationChange = (
 	current: ClassificationResolverInput,
 	input: ClassificationInput,
-): Promise<Decision<ClassificationChange>> => {
+): Decision<ClassificationChange> => {
 	const planned = planWrites(input, knownOf(resolveClassification(current)));
 	if (!planned.ok) return planned;
-	const writes = await Promise.all(
-		planned.value.map((write) => sealWrite(secrets, write)),
-	);
+	const writes = planned.value;
+	const rows = applyWrites(current.rows, writes, Date.now());
 	const resolved = knownOf(
-		resolveClassification({
-			...current,
-			rows: applyWrites(current.rows, writes, Date.now()),
-		}),
+		resolveClassificationWith(
+			{ ...current, rows },
+			plannedApiKeyOf(rows, writes),
+		),
 	);
 	if (resolved.state === "NotConfigured") {
 		if (input.classificationEnabled === true) {
@@ -304,7 +306,6 @@ export const decideClassificationChange = async (
 			ok: true,
 			value: {
 				writes: [],
-				enteredApiKey: { state: "NotEntered" },
 				resolved,
 				ensuresLabels: false,
 			},
@@ -320,15 +321,14 @@ export const decideClassificationChange = async (
 		ok: true,
 		value: {
 			writes,
-			enteredApiKey: enteredApiKeyOf(planned.value),
 			resolved,
 			ensuresLabels: input.classificationEnabled === true,
 		},
 	};
 };
 
-export const publicClassification = (
-	resolved: KnownClassification,
+export const publicClassification = <Saved>(
+	resolved: KnownClassification<Saved>,
 	usage: ClassificationUsage[],
 ):
 	| ClassificationNotConfigured
@@ -434,7 +434,8 @@ export const writeClassificationChange = async (
 	accountConfigId: string,
 	change: ClassificationChange,
 ): Promise<void> => {
-	for (const write of change.writes) {
+	for (const planned of change.writes) {
+		const write = await sealWrite(deps.secrets, planned);
 		if (write.action === "Delete") {
 			await deps.accountSetting.delete(accountConfigId, write.name);
 		} else {
