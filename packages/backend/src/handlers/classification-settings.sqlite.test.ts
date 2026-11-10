@@ -164,6 +164,7 @@ describe("a saved classification provider", () => {
 			presetId: ClassificationPresetId.Jev,
 			model: "jev-latest",
 			baseUrl: "https://api.typesafe.ai",
+			apiKeySaved: true,
 			enabled: false,
 			dailyLimit: 500,
 			sources: {
@@ -288,6 +289,7 @@ describe("a deployment classification default", () => {
 			presetId: ClassificationPresetId.Mistral,
 			model: "mistral-small-latest",
 			baseUrl: "https://mistral.example/v1",
+			apiKeySaved: true,
 			enabled: true,
 			dailyLimit: 40,
 			sources: INHERITED,

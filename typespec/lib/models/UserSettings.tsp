@@ -114,6 +114,9 @@ model ClassificationConfigured {
   `model`: string;
   baseUrl: string;
 
+  @doc("Deprecated: read `sources.apiKey` instead. Whether an API key is saved or inherited from the deployment. Removed once reader-ui reads `sources`.")
+  apiKeySaved: boolean;
+
   @doc("Whether classification runs.")
   enabled: boolean;
 

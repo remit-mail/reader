@@ -30,7 +30,10 @@ import {
 	type SavedClassificationApiKey,
 	savedClassificationApiKey,
 } from "@remit/data-ports/classification-resolver";
-import { AccountSettingName } from "@remit/domain-enums";
+import {
+	AccountSettingName,
+	ClassificationValueSource as ValueSource,
+} from "@remit/domain-enums";
 import {
 	type ClassificationLabelDeps,
 	ensureClassificationLabels,
@@ -347,6 +350,7 @@ export const publicClassification = <Saved>(
 		presetId: resolved.presetId.value,
 		model: resolved.model.value,
 		baseUrl: resolved.baseUrl.value,
+		apiKeySaved: resolved.apiKey.source !== ValueSource.Default,
 		enabled: resolved.enabled.value,
 		dailyLimit: resolved.dailyLimit.value,
 		sources: {
