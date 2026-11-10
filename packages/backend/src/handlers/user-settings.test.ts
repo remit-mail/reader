@@ -18,7 +18,11 @@ describe("the default invitation sender", () => {
 	it("refuses an account that is not the caller's", async () => {
 		const accountConfigId = deriveAccountConfigId("settings-sub-2");
 		const refused = await updateUserSettingsFor(
-			{ accountSetting: client.accountSetting, accounts: client.account },
+			{
+				accountSetting: client.accountSetting,
+				accounts: client.account,
+				secrets: client.secrets,
+			},
 			accountConfigId,
 			{ defaultInvitationSenderAccountId: "1".repeat(25) },
 		);

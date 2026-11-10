@@ -12,16 +12,28 @@ import type {
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import { AccountSettingName } from "@remit/domain-enums";
+import type { SecretsService } from "@remit/secrets-service";
 import type {
 	HandlerContext,
 	OperationHandler,
 	UserSettingsOperationIds,
 } from "../types.js";
 import { badRequest } from "./calendar.js";
+import {
+	classificationPresetsResponse,
+	clearClassification,
+	decideClassificationChange,
+	readStoredClassification,
+	writeClassificationChange,
+} from "./classification-settings.js";
 
 export interface UserSettingsDeps {
-	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert" | "delete">;
+	accountSetting: Pick<
+		IAccountSettingRepository,
+		"get" | "getMany" | "upsert" | "delete"
+	>;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
+	secrets: Pick<SecretsService, "encrypt">;
 }
 
 /** The account the reader chose to send invitations from, if they chose one. */
@@ -57,6 +69,11 @@ export const readUserSettings = async (
 		...(inEffect && { defaultInvitationSenderAccountId: inEffect.accountId }),
 		defaultInvitationSenderChosen:
 			inEffect !== undefined && inEffect.accountId === chosen,
+		classificationPresets: classificationPresetsResponse(),
+		classification: await readStoredClassification(
+			deps.accountSetting,
+			accountConfigId,
+		),
 	};
 };
 
@@ -69,6 +86,11 @@ export const updateUserSettingsFor = async (
 	accountConfigId: string,
 	input: UpdateUserSettingsInput,
 ): Promise<UserSettingsOutcome> => {
+	const classification = decideClassificationChange(
+		input,
+		await readStoredClassification(deps.accountSetting, accountConfigId),
+	);
+	if (!classification.ok) return classification;
 	const sender = input.defaultInvitationSenderAccountId;
 	if (sender !== undefined) {
 		const account = sendingAccountFor(
@@ -81,6 +103,9 @@ export const updateUserSettingsFor = async (
 				error: { code: "UnknownSender", message: account.error.message },
 			};
 		}
+	}
+	await writeClassificationChange(deps, accountConfigId, classification.value);
+	if (sender !== undefined) {
 		await deps.accountSetting.upsert({
 			accountConfigId,
 			name: AccountSettingName.DefaultInvitationSenderAccountId,
@@ -93,6 +118,7 @@ export const updateUserSettingsFor = async (
 const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
 	accountSetting: ctx.client.accountSetting,
 	accounts: ctx.client.account,
+	secrets: ctx.client.secrets,
 });
 
 export const UserSettingsOperations: Record<
@@ -120,6 +146,15 @@ export const UserSettingsOperations: Record<
 		await deps.accountSetting.delete(
 			ctx.identity.accountConfigId,
 			AccountSettingName.DefaultInvitationSenderAccountId,
+		);
+		return readUserSettings(deps, ctx.identity.accountConfigId);
+	},
+
+	UserSettingsOperations_clearClassificationProvider: async (_context, ctx) => {
+		const deps = depsOf(ctx);
+		await clearClassification(
+			deps.accountSetting,
+			ctx.identity.accountConfigId,
 		);
 		return readUserSettings(deps, ctx.identity.accountConfigId);
 	},

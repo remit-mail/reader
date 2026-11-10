@@ -59,7 +59,7 @@ test.describe
 		test("the default invitation sender is a setting of its own", async () => {
 			const api = apiOf(organizer);
 			const unset = await api.request("GET", "/settings");
-			expect(await unset.json()).toEqual({
+			expect(await unset.json()).toMatchObject({
 				defaultInvitationSenderAccountId: organizer.accountId,
 				defaultInvitationSenderChosen: false,
 			});
@@ -68,7 +68,7 @@ test.describe
 				defaultInvitationSenderAccountId: organizer.accountId,
 			});
 			expect(set.status).toBe(200);
-			expect(await set.json()).toEqual({
+			expect(await set.json()).toMatchObject({
 				defaultInvitationSenderAccountId: organizer.accountId,
 				defaultInvitationSenderChosen: true,
 			});
@@ -77,7 +77,7 @@ test.describe
 				"DELETE",
 				"/settings/default-invitation-sender",
 			);
-			expect(await cleared.json()).toEqual({
+			expect(await cleared.json()).toMatchObject({
 				defaultInvitationSenderAccountId: organizer.accountId,
 				defaultInvitationSenderChosen: false,
 			});

@@ -739,6 +739,12 @@ namespace RemitApi {
     @delete
     @route("/default-invitation-sender")
     op clearDefaultInvitationSender(): UserSettingsResponse | UnauthorizedError;
+
+    @doc("Delete the saved classification provider, its key and every classification setting. Classification is then off. Answers with every setting as it now stands.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    @route("/classification-provider")
+    op clearClassificationProvider(): UserSettingsResponse | UnauthorizedError;
   }
 
   @route("/calendar-tasks")
