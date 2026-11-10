@@ -32,6 +32,7 @@ import type {
 	ISyncWarningRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
+import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { logger } from "@remit/logger";
 import {
 	BodySyncQueueService,
@@ -166,6 +167,8 @@ export interface RemitClientCore {
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
 
 	mailTransports: MailTransports;
+
+	classificationDefault: ClassificationDeploymentDefault;
 }
 
 export interface SyncQueueServices {
@@ -240,6 +243,7 @@ export interface RemitClientSharedDeps {
 	connectionScope: ConnectionScopeFactory;
 	mailTransports: MailTransports;
 	queues: RemitClientQueues;
+	classificationDefault: ClassificationDeploymentDefault;
 }
 
 export interface RemitClientDeps extends RemitClientSharedDeps {
@@ -314,8 +318,14 @@ export const buildReadPathFilterConfig = (
 export const createRemitCore = (
 	deps: Omit<RemitClientDeps, "queues">,
 ): RemitClientCore => {
-	const { repositories, storage, secrets, connectionScope, mailTransports } =
-		deps;
+	const {
+		repositories,
+		storage,
+		secrets,
+		connectionScope,
+		mailTransports,
+		classificationDefault,
+	} = deps;
 	return {
 		accountConfig: repositories.accountConfig,
 		account: repositories.account,
@@ -360,6 +370,7 @@ export const createRemitCore = (
 		}),
 		createConnectionScope: connectionScope(repositories.account, secrets),
 		mailTransports,
+		classificationDefault,
 	};
 };
 

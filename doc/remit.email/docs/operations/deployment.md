@@ -26,6 +26,10 @@ Apply an `.env` edit with `remit restart`. Compose's own `restart` reuses the ol
 
 `remit status` answers what is running. `remit doctor` answers whether anything is wrong: it runs the same checks the alerts fire on, names the accounts behind a stalled sync, and exits 0, 1 or 2, so a cron line makes it a monitoring check as it stands.
 
+## Classification default
+
+The `CLASSIFICATION_DEFAULT_*` values in `.env` set one classification provider for the deployment, and every account config inherits it. A value the server cannot use stops it from starting, with an error that names the value.
+
 ## Two deployments on one host
 
 A second deployment is a project name and a port: `--project beta` names the containers, volumes and network, installs into its own directory, and puts `remit-beta` on PATH. `--http-bind` is the one host-level number two deployments must not share; the modes that publish 80 and 443 are one deployment per host.

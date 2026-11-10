@@ -1,3 +1,4 @@
+import { classificationDefaultFromEnv } from "../config/classification-default.js";
 import type { RemitClient } from "./create-remit-client.js";
 
 export type {
@@ -7,6 +8,7 @@ export type {
 
 let clientPromise: Promise<RemitClient> | null = null;
 let injected: RemitClient | null = null;
+const classificationDefault = classificationDefaultFromEnv(process.env);
 
 /**
  * Register the client from the composition root. An adapter that lives outside
@@ -38,7 +40,7 @@ const buildRelationalClient = async (): Promise<RemitClient> => {
 		);
 	}
 	const composition = await import("./compose-sqlite.js");
-	return composition.buildSqliteClient();
+	return composition.buildSqliteClient(classificationDefault);
 };
 
 export const getClient = (): Promise<RemitClient> => {

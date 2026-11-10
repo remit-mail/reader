@@ -1,3 +1,4 @@
+import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
@@ -29,5 +30,9 @@ export const composeSqliteClient = async (
 	});
 };
 
-export const buildSqliteClient = (): Promise<RemitClient> =>
-	composeSqliteClient(buildSharedDeps(sqsQueues(sqsQueueUrlsFromEnv())));
+export const buildSqliteClient = (
+	classificationDefault: ClassificationDeploymentDefault,
+): Promise<RemitClient> =>
+	composeSqliteClient(
+		buildSharedDeps(sqsQueues(sqsQueueUrlsFromEnv()), classificationDefault),
+	);

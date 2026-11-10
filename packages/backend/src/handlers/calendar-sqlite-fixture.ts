@@ -24,7 +24,7 @@ export const createCalendarSqliteClient = async (): Promise<{
 	const directory = mkdtempSync(join(tmpdir(), "remit-calendar-handlers-"));
 	createShippedSqliteFiles(directory);
 	return {
-		client: await buildSqliteClient(),
+		client: await buildSqliteClient({ state: "None" }),
 		cleanup: () => rmSync(directory, { recursive: true, force: true }),
 	};
 };

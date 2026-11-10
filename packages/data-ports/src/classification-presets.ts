@@ -87,6 +87,18 @@ export const CLASSIFICATION_PRESETS: Record<
 
 export const DEFAULT_CLASSIFICATION_DAILY_LIMIT = 500;
 
+export type ClassificationDeploymentDefault =
+	| { state: "None" }
+	| {
+			state: "Configured";
+			presetId: ClassificationPresetIdValue;
+			model: string;
+			baseUrl: string;
+			apiKey: string;
+			enabled: boolean;
+			dailyLimit: number;
+	  };
+
 export const isClassificationPresetId = (
 	value: string,
 ): value is ClassificationPresetIdValue =>
