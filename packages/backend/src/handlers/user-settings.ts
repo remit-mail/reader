@@ -12,6 +12,7 @@ import type {
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import { AccountSettingName } from "@remit/domain-enums";
+import type { ClassificationLabelDeps } from "@remit/mailbox-service";
 import type { SecretsService } from "@remit/secrets-service";
 import type {
 	HandlerContext,
@@ -34,6 +35,7 @@ export interface UserSettingsDeps {
 	>;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 	secrets: Pick<SecretsService, "encrypt">;
+	label: ClassificationLabelDeps;
 }
 
 /** The account the reader chose to send invitations from, if they chose one. */
@@ -119,6 +121,7 @@ const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
 	accountSetting: ctx.client.accountSetting,
 	accounts: ctx.client.account,
 	secrets: ctx.client.secrets,
+	label: ctx.client.label,
 });
 
 export const UserSettingsOperations: Record<

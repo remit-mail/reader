@@ -16,6 +16,10 @@ import {
 } from "@remit/data-ports/classification-presets";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
+	type ClassificationLabelDeps,
+	ensureClassificationLabels,
+} from "@remit/mailbox-service";
+import {
 	type SecretsService,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
@@ -36,6 +40,7 @@ export type ClassificationSettingsDeps = {
 		"getMany" | "upsert" | "delete"
 	>;
 	secrets: Pick<SecretsService, "encrypt">;
+	label: ClassificationLabelDeps;
 };
 
 export type StoredClassification =
@@ -313,6 +318,9 @@ export const writeClassificationChange = async (
 			name: AccountSettingName.ClassificationEnabled,
 			value: { kind: "Boolean", value: change.enabled },
 		});
+	}
+	if (change.enabled === true) {
+		await ensureClassificationLabels(deps.label, accountConfigId);
 	}
 	if (change.dailyLimit !== undefined) {
 		await deps.accountSetting.upsert({
