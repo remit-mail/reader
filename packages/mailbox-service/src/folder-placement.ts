@@ -38,19 +38,3 @@ export const resolveFolderPlacement = async (
 	mailboxId: string,
 ): Promise<FolderPlacement> =>
 	placementOf(mailboxId, await resolveFolderRoleMailboxes(lookup, accountId));
-
-export const resolveAccountFolderPlacements = async (
-	lookup: FolderPlacementLookup,
-	accountIds: readonly string[],
-): Promise<ReadonlyMap<string, FolderPlacement>> => {
-	const placements = new Map<string, FolderPlacement>();
-	for (const accountId of accountIds) {
-		const { junkMailbox, inboxMailbox } = await resolveFolderRoleMailboxes(
-			lookup,
-			accountId,
-		);
-		if (inboxMailbox) placements.set(inboxMailbox.mailboxId, "inbox");
-		if (junkMailbox) placements.set(junkMailbox.mailboxId, "junk");
-	}
-	return placements;
-};

@@ -72,8 +72,6 @@ const run = async (): Promise<void> => {
 	const result = await backfillClassifications(
 		{
 			accountConfigService: client.accountConfig,
-			accountService: client.account,
-			mailboxSpecialUseService: client.mailboxSpecialUse,
 			addressService: client.address,
 			threadMessageService: client.threadMessage,
 			messageService: client.message,

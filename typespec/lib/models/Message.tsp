@@ -31,10 +31,10 @@ model MessageAuthenticity {
   @doc("True when DKIM signing domain(s) are present and none aligns with the From domain")
   dkimMismatch: boolean;
 
-  @doc("How the From display name relates to the From domain. Present only for a message the provider's own filter already classified as spam, and only when the sender is not bulk-shaped (no List-Unsubscribe) — absence means the comparison was never made, never that it found nothing.")
+  @doc("How the From display name relates to the From domain. Display-only: it never decides placement. Present only when the sender is not bulk-shaped (no List-Unsubscribe) — absence means the comparison was never made, never that it found nothing.")
   displayNameCorrespondence?: DisplayNameCorrespondence;
 
-  @doc("Registrable domains (eTLD+1) the body's links point at, excluding the From address's own registrable domain. Present only for a message the provider's own filter already classified as spam; an empty array means every link stayed on the sender's domain, absence means the comparison was never made.")
+  @doc("Registrable domains (eTLD+1) the body's links point at, excluding the From address's own registrable domain. Display-only: it never decides placement. An empty array means every link stayed on the sender's domain, absence means the comparison was never made.")
   offDomainLinkDomains?: string[];
 
   @doc("Registrable domain of the first verified DKIM `header.d` in trusted Authentication-Results order, or the reserved literal `unverified` when no identity could be established. Unlike `dkimDomain`, which is the unverified `d=` claim the sender wrote, this is only set from a signature the trusted Authentication-Results reported as passing. Absent for messages classified before the field existed.")

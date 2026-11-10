@@ -81,8 +81,6 @@ const stored = async (
 
 const deps = () => ({
 	accountConfigService: store.accountConfig,
-	accountService: store.account,
-	mailboxSpecialUseService: store.mailboxSpecialUse,
 	addressService: store.address,
 	threadMessageService: store.threadMessage,
 	messageService: store.message,
@@ -113,21 +111,19 @@ describe("backfillClassifications", () => {
 		assert.equal(thread.listId, "news.example.com");
 	});
 
-	it("compares the sender of a Junk row the provider rated clean, not of an inbox row", async () => {
+	it("compares the sender of a row in any folder", async () => {
 		const inJunk = await stored(IMPERSONATION, junk);
 		const inInbox = await stored(IMPERSONATION);
 
 		await backfillClassifications(deps());
 
-		assert.equal(
-			(await store.message.get(inJunk)).authenticity?.displayNameCorrespondence,
-			DisplayNameCorrespondence.Unrelated,
-		);
-		assert.equal(
-			(await store.message.get(inInbox)).authenticity
-				?.displayNameCorrespondence,
-			undefined,
-		);
+		for (const messageId of [inJunk, inInbox]) {
+			assert.equal(
+				(await store.message.get(messageId)).authenticity
+					?.displayNameCorrespondence,
+				DisplayNameCorrespondence.Unrelated,
+			);
+		}
 	});
 
 	it("applies the sender's category override over the headers", async () => {

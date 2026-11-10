@@ -893,7 +893,7 @@ export class BodySyncService {
 		// fields are folded into the single Message update below — they are NOT
 		// written here.
 		const { fields: classification, categoryOverridden } =
-			await this.classifyMessage(accountConfigId, parsed, arrival.placement);
+			await this.classifyMessage(accountConfigId, parsed);
 
 		const filterDecision = await this.evaluateFilters(
 			lookups,
@@ -1323,14 +1323,8 @@ export class BodySyncService {
 	private async classifyMessage(
 		accountConfigId: string,
 		parsed: ParsedMail,
-		placement: FolderPlacement,
 	): Promise<ParsedMessageClassification> {
-		return classifyParsedMessage(
-			this.addressService,
-			accountConfigId,
-			parsed,
-			placement,
-		);
+		return classifyParsedMessage(this.addressService, accountConfigId, parsed);
 	}
 
 	private async senderPlacementOf(

@@ -12,6 +12,7 @@ import {
 	AccountSettingName,
 	ClassificationLabel,
 	ClassificationPresetId,
+	DisplayNameCorrespondence,
 	MessageClassificationState,
 } from "@remit/domain-enums";
 import {
@@ -92,6 +93,25 @@ const SHOP = eml(
 const COLLEAGUE = eml(
 	{ From: "Alex <alex@example.com>", Subject: "Contract due today" },
 	"Can you sign the contract before five?",
+);
+
+const GMAIL_PERSON = eml(
+	{
+		From: "Jan de Vries <jan.devries@gmail.com>",
+		Subject: "Dinner on Friday",
+		"DKIM-Signature": "v=1; a=rsa-sha256; d=gmail.com; s=20230601; b=xxx",
+	},
+	"Shall we meet at seven?",
+);
+
+const ESP_NEWSLETTER = eml(
+	{
+		From: "Dutch Cycling Weekly <news@dutchcyclingweekly.nl>",
+		Subject: "This week in cycling",
+		"List-Unsubscribe": "<https://dutchcyclingweekly.nl/unsub>",
+		"DKIM-Signature": "v=1; a=rsa-sha256; d=mcsv.net; s=k1; b=xxx",
+	},
+	"Read on https://dutchcyclingweekly.us1.list-manage.com/track/click?u=1",
 );
 
 interface World {
@@ -479,6 +499,34 @@ describe("body sync with a saved classification provider", () => {
 		assert.equal(row.mailboxId, world.inbox.mailboxId);
 		assert.equal(row.category, expected);
 		assert.deepEqual(await labelNames(messageId), []);
+	});
+});
+
+describe("body sync sender mismatch", () => {
+	it("compares the sender of Inbox mail and leaves it where it is", async () => {
+		const person = await arrive(GMAIL_PERSON);
+		const newsletter = await arrive(ESP_NEWSLETTER);
+
+		await sync(bodySync(false), [person, newsletter]);
+
+		const personRow = await world.store.message.get(person);
+		assert.equal(
+			personRow.authenticity?.displayNameCorrespondence,
+			DisplayNameCorrespondence.Unrelated,
+		);
+		assert.deepEqual(personRow.authenticity?.offDomainLinkDomains, []);
+		const newsletterRow = await world.store.message.get(newsletter);
+		assert.equal(
+			newsletterRow.authenticity?.displayNameCorrespondence,
+			undefined,
+		);
+		assert.deepEqual(newsletterRow.authenticity?.offDomainLinkDomains, [
+			"list-manage.com",
+		]);
+		for (const row of [personRow, newsletterRow]) {
+			assert.equal(row.mailboxId, world.inbox.mailboxId);
+			assert.notEqual(row.movedByRemit, true);
+		}
 	});
 });
 

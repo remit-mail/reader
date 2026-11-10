@@ -1,7 +1,6 @@
 import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
 import { getDomain, parse as parseHost } from "tldts";
-import type { FolderPlacement } from "./classifyPlacement.js";
 
 type CorrespondenceValue =
 	(typeof DisplayNameCorrespondence)[keyof typeof DisplayNameCorrespondence];
@@ -10,9 +9,8 @@ type CorrespondenceValue =
  * The two signals that survive a passing SPF/DKIM/DMARC check: a display name
  * that belongs to nobody at the sending domain, and body links that leave it.
  *
- * Both are deliberately aggressive, and both are computed only for mail the
- * provider's own filter already called spam or that sits in the Junk folder
- * (see {@link extractSenderMismatch}).
+ * Both are computed for every message with an authenticity result and are
+ * display-only: neither decides placement.
  * On a shared-tenant host — a free Atlassian, Salesforce or Zendesk instance —
  * the verified subdomain is chosen by whoever signed up, so a passing signature
  * proves the domain and nothing about the identity the message claims.
@@ -24,8 +22,6 @@ export interface SenderMismatchSignals {
 
 export interface SenderMismatchContext {
 	fromDomain: string;
-	providerSpamClassified: boolean;
-	placement: FolderPlacement;
 	/**
 	 * List-Unsubscribe present. Bulk mail routinely shows a brand name over an
 	 * ESP's sending domain, so the display-name comparison says nothing there and
@@ -226,22 +222,14 @@ export const extractOffDomainLinkDomains = (
 };
 
 /**
- * Both signals, gated on a spam verdict: the provider's own, or the message
- * sitting in the Junk folder.
- *
- * The gate is what lets the checks be this aggressive: ordinary mail never
- * reaches them, so a brand name over an ESP domain or a newsletter full of
- * tracking links can never be flagged. Returns an empty object when the gate
- * does not open — the fields stay absent, meaning "not compared".
+ * Both signals, for every message with an authenticity result. A bulk sender
+ * gets only the link comparison: a brand name over an ESP domain is normal
+ * there, so the display-name comparison is not made and stays absent.
  */
 export const extractSenderMismatch = (
 	parsed: ParsedMail,
 	context: SenderMismatchContext,
 ): SenderMismatchSignals => {
-	if (!context.providerSpamClassified && context.placement !== "junk") {
-		return {};
-	}
-
 	const offDomainLinkDomains = extractOffDomainLinkDomains(
 		parsed,
 		context.fromDomain,
