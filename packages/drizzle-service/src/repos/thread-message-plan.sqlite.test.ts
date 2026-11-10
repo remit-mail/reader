@@ -21,17 +21,17 @@ describe("thread-message lookups without sqlite_stat1", () => {
 	const planDuring = async (run: () => Promise<unknown>): Promise<string[]> =>
 		queryPlan(sqlite, await selectsIssuedDuring(sqlite, run));
 
-	test("findByMessageId searches thread_message_by_message_id", async () => {
+	test("findByMessageId searches thread_message_by_account_message_id", async () => {
 		assertPlanSearches(
 			await planDuring(() => repo.findByMessageId("acct", "msg")),
-			"thread_message_by_message_id",
+			"thread_message_by_account_message_id",
 		);
 	});
 
-	test("findAllByMessageId searches thread_message_by_message_id", async () => {
+	test("findAllByMessageId searches thread_message_by_account_message_id", async () => {
 		assertPlanSearches(
 			await planDuring(() => repo.findAllByMessageId("acct", "msg")),
-			"thread_message_by_message_id",
+			"thread_message_by_account_message_id",
 		);
 	});
 
@@ -48,4 +48,18 @@ describe("thread-message lookups without sqlite_stat1", () => {
 			"thread_message_by_thread_id",
 		);
 	});
+
+	for (const order of ["asc", "desc"] as const) {
+		test(`listByThread ${order} searches thread_message_by_thread_id`, async () => {
+			assertPlanSearches(
+				await planDuring(() =>
+					repo.listByThread("thread", "acct", {
+						order,
+						excludeDeleted: true,
+					}),
+				),
+				"thread_message_by_thread_id",
+			);
+		});
+	}
 });

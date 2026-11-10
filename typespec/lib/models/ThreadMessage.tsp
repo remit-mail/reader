@@ -28,8 +28,8 @@ namespace RemitImap;
   {
     collection: "threadDetails",
     index: "gsi0",
-    pk: [ThreadMessage.threadId],
-    sk: [ThreadMessage.sentDate],
+    pk: [ThreadMessage.accountConfigId, ThreadMessage.threadId],
+    sk: [ThreadMessage.sentDate, ThreadMessage.threadMessageId],
   }
 )
 @index(
@@ -88,6 +88,10 @@ namespace RemitImap;
     pk: [ThreadMessage.accountConfigId],
     sk: [ThreadMessage.mailboxId, ThreadMessage.isRead, ThreadMessage.sentDate],
   }
+)
+@Drizzle.indexDef(
+  "thread_message_by_account_message_id",
+  [ThreadMessage.accountConfigId, ThreadMessage.messageId]
 )
 // NOTE: A "byDeletedStatus" LSI6 was removed here (see #516) — it was never
 // provisioned (the table only has lsi1–lsi5) and DynamoDB's 5-LSI hard limit
