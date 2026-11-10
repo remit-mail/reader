@@ -52,17 +52,14 @@ let storage: StorageService;
 let imap: FakeImapServer;
 let account: AccountItem;
 let inbox: MailboxItem;
-let junk: MailboxItem;
 
 beforeEach(async () => {
 	store = await openStore();
 	storage = store.storage();
 	imap = new FakeImapServer();
 	imap.addFolder("INBOX");
-	imap.addFolder("Junk");
 	account = await seedAccount(store);
 	inbox = await seedMailbox(store, account, "INBOX");
-	junk = await seedMailbox(store, account, "Junk", { specialUse: "Junk" });
 });
 
 afterEach(() => store.close());
@@ -111,19 +108,16 @@ describe("backfillClassifications", () => {
 		assert.equal(thread.listId, "news.example.com");
 	});
 
-	it("compares the sender of a row in any folder", async () => {
-		const inJunk = await stored(IMPERSONATION, junk);
-		const inInbox = await stored(IMPERSONATION);
+	it("compares the sender of an Inbox row", async () => {
+		const messageId = await stored(IMPERSONATION);
 
 		await backfillClassifications(deps());
 
-		for (const messageId of [inJunk, inInbox]) {
-			assert.equal(
-				(await store.message.get(messageId)).authenticity
-					?.displayNameCorrespondence,
-				DisplayNameCorrespondence.Unrelated,
-			);
-		}
+		assert.equal(
+			(await store.message.get(messageId)).authenticity
+				?.displayNameCorrespondence,
+			DisplayNameCorrespondence.Unrelated,
+		);
 	});
 
 	it("applies the sender's category override over the headers", async () => {

@@ -240,7 +240,7 @@ describe("extractSenderMismatch", () => {
 		'<a href="https://betaal-vordering.example.org/pay">Betaal uw factuur</a>',
 	];
 
-	it("flags the display name and the links without any spam verdict", async () => {
+	it("flags an unrelated display name and an off-domain link", async () => {
 		const parsed = await parse(infoMedicsPhish);
 		assert.deepEqual(
 			extractSenderMismatch(parsed, {

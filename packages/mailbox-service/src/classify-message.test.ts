@@ -88,7 +88,7 @@ describe("classifyParsedMessage", () => {
 });
 
 describe("classifyParsedMessage sender mismatch", () => {
-	it("compares the sender without any spam verdict", async () => {
+	it("flags an unrelated display name and an off-domain link", async () => {
 		const parsed = await parseMessageBody(IMPERSONATION_EML);
 
 		const { fields: classification } = await classifyParsedMessage(

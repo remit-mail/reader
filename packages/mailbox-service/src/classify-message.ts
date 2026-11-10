@@ -87,11 +87,6 @@ export const classifyParsedMessage = async (
 	const providerSpam = extractProviderSpam(parsed);
 	const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
 
-	// A passing SPF/DKIM/DMARC check proves the sending domain, not the
-	// identity the message claims — on a shared-tenant host the verified
-	// subdomain belongs to whoever signed up. These two comparisons say
-	// whether the claim holds, on every message that has an authenticity
-	// result. They are display-only and never decide placement.
 	const senderMismatch =
 		authenticity === null
 			? {}

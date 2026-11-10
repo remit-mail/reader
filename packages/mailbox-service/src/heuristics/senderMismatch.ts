@@ -9,15 +9,13 @@ type CorrespondenceValue =
  * The two signals that survive a passing SPF/DKIM/DMARC check: a display name
  * that belongs to nobody at the sending domain, and body links that leave it.
  *
- * Both are computed for every message with an authenticity result and are
- * display-only: neither decides placement.
  * On a shared-tenant host — a free Atlassian, Salesforce or Zendesk instance —
  * the verified subdomain is chosen by whoever signed up, so a passing signature
  * proves the domain and nothing about the identity the message claims.
  */
 export interface SenderMismatchSignals {
 	displayNameCorrespondence?: CorrespondenceValue;
-	offDomainLinkDomains?: string[];
+	offDomainLinkDomains: string[];
 }
 
 export interface SenderMismatchContext {

@@ -77,7 +77,6 @@ import { CLASSIFIER_LABELS } from "./classifier/index.js";
 import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
-	type ParsedMessageClassification,
 } from "./classify-message.js";
 
 import { extractListId } from "./filters/list-id.js";
@@ -893,7 +892,7 @@ export class BodySyncService {
 		// fields are folded into the single Message update below — they are NOT
 		// written here.
 		const { fields: classification, categoryOverridden } =
-			await this.classifyMessage(accountConfigId, parsed);
+			await classifyParsedMessage(this.addressService, accountConfigId, parsed);
 
 		const filterDecision = await this.evaluateFilters(
 			lookups,
@@ -1310,21 +1309,6 @@ export class BodySyncService {
 			"Message no longer on the mail server (expunged or moved by another client); stale row reconciled",
 		);
 		throw new MessageGoneFromServerError(messageId);
-	}
-
-	/**
-	 * Header classification, with the sender's `Address.flags.category`
-	 * override (issue #299, RFC 039 Decision 3) substituted for the
-	 * header-derived category when one is set. Shared with the classification
-	 * backfill (issue #1197) as {@link classifyParsedMessage}, so the one-time
-	 * pass and the body-store path can never classify the same bytes
-	 * differently.
-	 */
-	private async classifyMessage(
-		accountConfigId: string,
-		parsed: ParsedMail,
-	): Promise<ParsedMessageClassification> {
-		return classifyParsedMessage(this.addressService, accountConfigId, parsed);
 	}
 
 	private async senderPlacementOf(
