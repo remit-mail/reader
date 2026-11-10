@@ -95,12 +95,4 @@ A shared package exposes each tuning value (batch size, concurrency, pool size, 
 
 **Why not one repository implementation parameterized by dialect?** Because it cannot be typed. `PgDatabase` and `BaseSQLiteDatabase` are distinct types, `PgTable` and `SQLiteTable` are distinct types, and drizzle exposes no cross-dialect base with a working query builder. One body serving two engines needs a cast, and a cast means the types stop describing what executes.
 
-**Does reader support Postgres?** Reader does not ship a Postgres adapter. `@remit/drizzle-pg-schema` and `@remit/data-ports` are published, so a Postgres adapter is a first-class implementation of the same contract, built and deployed where it runs.
-
-**Can two adapters run in one process?** Nothing prevents it — no module-global fixes a dialect, and every adapter's tables come from its own imports. `setClient` holds one client because one client is what any current process needs; a name-keyed registry over it is additive.
-
-**Why is `SQLITE_APP_DB_PATH` read in the composition root at all?** To tell a missing database apart from a missing registration, so the second one says `setClient`. It never chooses between adapters.
-
-**What does a caller do about C10?** Nothing, unless it needs folding guaranteed, in which case it is choosing a backend and should say so. Search behaviour that must be identical everywhere cannot be built on substring matching in the first place.
-
 **How does an out-of-tree adapter learn the contract changed?** `@remit/data-ports` is published, so a new port or a changed signature is a version bump, and the new port's suite fails against an adapter that has not implemented it. A rule with no suite is not enforced anywhere — which is the argument for adding the suite with the rule.

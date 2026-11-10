@@ -66,7 +66,7 @@ since its last `<name>@<version>` tag, then publishes and tags the next version.
 
 ```
 npm ci
-npx tsp compile ./typespec
+make
 npm run build --workspaces --if-present
 npm test --workspaces --if-present
 ```

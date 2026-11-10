@@ -118,20 +118,7 @@ least these" — the mailbox held nothing else.
 ## How a spec gets data
 
 There is no seeding. `global-setup.ts` performs the whole first-run path against
-the live deployment:
-
-1. sign up over `/api/auth/sign-up/email` and exchange the session for a bearer
-   token,
-2. claim a fresh IMAP mailbox and verify it is empty,
-3. APPEND the fixture messages to `INBOX` over IMAP,
-4. `POST /accounts` pointed at Dovecot — the compose service name on the image
-   stack, the published loopback port on the source stack, since there the app
-   is a host process,
-5. `POST /accounts/{id}/sync` and wait for the mailbox list to appear,
-6. `POST /calendars` and `POST /calendar-events` for three calendars (Work,
-   Personal, Team) and four weeks of events around the current one
-   (`src/calendar.ts`), so a calendar spec opens on a week that holds things.
-
-It writes the account id, the IMAP username, the user's credentials, and the
-browser's signed-in storage state to `.state/`, which the specs read. A spec
-that needs its own message APPENDs it to the run's own mailbox.
+the live deployment — sign-up, an empty IMAP mailbox, fixture mail APPENDed over
+IMAP, the account created and synced through the API — and writes what the
+specs need to `.state/`. A spec that needs its own message APPENDs it to the
+run's own mailbox.

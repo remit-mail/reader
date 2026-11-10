@@ -10,7 +10,7 @@ import type { ThreadMessageItem } from "@remit/data-ports";
  * page. Two copies of those numbers can drift apart, and the one that drifts
  * stops being the argument.
  *
- * Measured on the live instance (docs/architecture/mail-list-boundary.md).
+ * Measured on the live instance.
  */
 
 export type Category =
