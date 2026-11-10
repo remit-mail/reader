@@ -3574,7 +3574,7 @@ cmd_config() {
 			k = substr(line, 1, eq - 1)
 			v = substr(line, eq + 1)
 			if (v == "") { print k "="; next }
-			if (k ~ /SECRET|PASSWORD|TOKEN|DATAKEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL/) {
+			if (k ~ /SECRET|PASSWORD|TOKEN|DATAKEY|ACCESS_KEY|API_KEY|PRIVATE_KEY|CREDENTIAL/) {
 				v = "<redacted>"
 			} else if (v ~ /:\/\/[^\/@]*@/) {
 				# Greedy to the last @: a password may contain one, and
