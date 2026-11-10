@@ -8,34 +8,7 @@ const NODE_HOST_ONLY =
 
 // imapflow and pino still reach these through nodejs_compat; the
 // set is pinned so a new one is a deliberate change.
-const ALLOWED_BUILTINS = [
-	"assert",
-	"buffer",
-	"events",
-	"fs",
-	"module",
-	"net",
-	"node:buffer",
-	"node:crypto",
-	"node:diagnostics_channel",
-	"node:dns",
-	"node:events",
-	"node:fs",
-	"node:net",
-	"node:os",
-	"node:path",
-	"node:stream",
-	"node:string_decoder",
-	"node:tls",
-	"node:url",
-	"node:zlib",
-	"path",
-	"stream",
-	"string_decoder",
-	"url",
-	"util",
-	"worker_threads",
-];
+const ALLOWED_BUILTINS = ["node:buffer", "node:crypto"];
 
 const bundle = async (): Promise<Metafile> => {
 	const result = await build({

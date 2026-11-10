@@ -9,16 +9,10 @@ const LAMBDA_ONLY =
 // imapflow, nodemailer, mailparser and pino still reach these through
 // nodejs_compat; the set is pinned so a new one is a deliberate change.
 const ALLOWED_BUILTINS = [
-	"assert",
 	"buffer",
-	"events",
-	"fs",
-	"module",
-	"net",
 	"node:buffer",
 	"node:child_process",
 	"node:crypto",
-	"node:diagnostics_channel",
 	"node:dns",
 	"node:events",
 	"node:fs",
@@ -36,9 +30,6 @@ const ALLOWED_BUILTINS = [
 	"path",
 	"stream",
 	"string_decoder",
-	"url",
-	"util",
-	"worker_threads",
 ];
 
 const bundle = async (): Promise<Metafile> => {
