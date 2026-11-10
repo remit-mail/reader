@@ -370,7 +370,6 @@ export {
 	extractSearchText,
 	extractSnippetFromEmail,
 	generateSnippet,
-	normalizeSubject,
 	removeQuotedContent,
 } from "./snippet.js";
 export {

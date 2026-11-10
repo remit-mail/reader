@@ -6,7 +6,6 @@
  */
 
 import type { ParsedMail } from "mailparser";
-import type { SupportedLanguage, TextNormalizer } from "./text/normalizer.js";
 
 /**
  * Remove quoted reply content from email body.
@@ -33,59 +32,6 @@ export const removeQuotedContent = (text: string): string => {
 	}
 
 	return result.join("\n");
-};
-
-let normalizer: Promise<TextNormalizer> | undefined;
-
-const loadNormalizer = (): Promise<TextNormalizer> => {
-	normalizer ??= import("./text/normalizer.js").then((module) =>
-		module.createTextNormalizer(),
-	);
-	return normalizer;
-};
-
-/**
- * Normalize subject for thread grouping and search.
- *
- * Processing steps:
- * 1. Remove Re:/Fwd:/etc prefixes (multi-language support)
- * 2. Auto-detect language or use provided language
- * 3. Normalize with stemming and stopword removal
- * 4. Deduplicate consecutive words
- *
- * Handles common prefixes across languages:
- * - Re, Fwd, Fw (English)
- * - Aw, Sv, Vs (German, Swedish, Danish)
- * - Ref, Rif (Italian, Spanish)
- * - Odp (Polish)
- * - Ynt (Turkish)
- * - Antw (Dutch)
- * - Res (Portuguese)
- *
- * @param subject - The email subject line
- * @param language - Optional language override (auto-detected if not provided)
- */
-export const normalizeSubject = async (
-	subject: string,
-	language?: SupportedLanguage,
-): Promise<string> => {
-	const normalizer = await loadNormalizer();
-
-	const SUBJECT_PREFIX_PATTERN =
-		/^(\s*(Re|Fwd|Fw|Aw|Sv|Vs|Ref|Rif|Odp|Ynt|Antw|Res)(\[\d+\])?:\s*)+/i;
-
-	// Step 1: Remove prefixes
-	const withoutPrefix = subject.replace(SUBJECT_PREFIX_PATTERN, "").trim();
-
-	// Step 2: Auto-detect language if not provided
-	const detectedLanguage = language ?? normalizer.detectLanguage(withoutPrefix);
-
-	// Step 3: Normalize with stemming and stopword removal
-	return normalizer.normalize(withoutPrefix, {
-		language: detectedLanguage,
-		stem: true,
-		removeStopwords: true,
-	});
 };
 
 const flattenBody = (text: string): string =>
