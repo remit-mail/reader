@@ -4,7 +4,7 @@ import type {
 	CreateThreadMessageInput,
 	IMessageRepository,
 } from "@remit/data-ports";
-import shortUuid from "short-uuid";
+import { base36uuid } from "@remit/data-ports/id";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
@@ -20,8 +20,7 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
-const uuid = () => translator.generate();
+const uuid = () => base36uuid();
 
 function makeInput(
 	accountConfigId: string,

@@ -32,7 +32,6 @@
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "drizzle-orm": "^0.45.2",
-    "short-uuid": "^6.0.3",
     "uuid": "^13.0.2",
     "@remit/drizzle-sqlite-schema": "*",
     "better-sqlite3": "^12.11.1",

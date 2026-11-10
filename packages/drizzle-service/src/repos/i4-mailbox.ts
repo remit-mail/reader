@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type {
 	CreateMailboxInput,
 	CreateMailboxResult,
@@ -11,6 +10,7 @@ import type {
 	ResultList,
 	UpdateMailboxInput,
 } from "@remit/data-ports";
+import { base36uuid } from "@remit/data-ports/id";
 import { MailboxCursorState } from "@remit/domain-enums";
 import {
 	and,
@@ -26,7 +26,6 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import shortUuid from "short-uuid";
 import type { WriteBatch } from "../batch.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import { NotFoundError } from "../error.js";
@@ -45,10 +44,7 @@ import { syncWarningTable } from "../schema/sync-warning.js";
 import { inList } from "./in-list.js";
 import type { DrizzleMessageRepository } from "./message.js";
 
-const base36Translator = shortUuid.createTranslator(
-	shortUuid.constants.uuid25Base36,
-);
-const generateMailboxId = () => base36Translator.fromUUID(randomUUID());
+const generateMailboxId = () => base36uuid();
 
 type DB = RepositoryDb<Record<string, unknown>>;
 
