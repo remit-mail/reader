@@ -95,7 +95,7 @@ import {
 	resolveFolderRoleMailboxes,
 } from "./folder-placement.js";
 import {
-	classifyPlacement,
+	decidePlacement,
 	type FolderPlacement,
 	type PlacementVerdict,
 	resolveSenderPlacement,
@@ -217,10 +217,8 @@ const hasStoredBody = (bodyStorageKey: string | undefined): boolean =>
  *   re-deciding a settled placement, and auto-archive is a re-decision. It
  *   fires on messages Remit itself placed, or that a user moved back
  *   afterwards.
- * - A message already in Junk gets an unsure `leave` whatever the sender's
- *   `blocked` flag says, since the demote branch only fires outside Junk.
- *   Moving mail out of Junk is a rescue, which this file reserves for a
- *   confident signal plus sender trust.
+ * - A message in Junk reaches `leave` only when somebody already placed it
+ *   there, and that placement is not re-decided.
  */
 const autoArchiveApplies = (
 	verdict: PlacementVerdict,
@@ -1751,19 +1749,27 @@ export class BodySyncService {
 	/**
 	 * Resolve the placement decision for a message, BEFORE the single Message
 	 * update — so both the `movedByRemit` flag and the audit verdict join that
-	 * one UpdateItem instead of a second mutation. Drives both directions (junk → inbox rescue,
-	 * inbox → junk demote) off the pure {@link classifyPlacement} verdict.
+	 * one UpdateItem instead of a second mutation. Drives both directions off the
+	 * pure {@link decidePlacement}, which judges a Junk arrival as an Inbox
+	 * arrival (issue #1553).
 	 *
 	 * Returns a {@link PlacementOutcome}: a `verdict` to persist whenever Remit
 	 * decided to act (action != leave), confident and unsure alike, so the
-	 * distribution is queryable on the message; a `move` to enqueue only for a
-	 * confident verdict; and `placementDecidedAt` whenever a verdict — including
+	 * distribution is queryable on the message; a `move` to enqueue when the
+	 * decision moves; and `placementDecidedAt` whenever a verdict — including
 	 * "leave" — was genuinely computed (issue #383), so a re-entrant call short-
 	 * circuits instead of re-deciding a placement the user may have since
 	 * overridden by hand.
 	 *
-	 * Always logs a structured verdict line for confident, actionable verdicts so
-	 * the real distribution is observable on a live mailbox.
+	 * The move out of Junk is an IMAP mutation that depends on the row's current
+	 * placement, and it WAITS (imap-mutations R2): `PlacementMoveService`
+	 * blocks until an in-flight move settles and binds to the confirmed row,
+	 * and its transition predicates on the placement read here, so a user move
+	 * that lands first wins and the Remit move is skipped, never reconciled
+	 * over it.
+	 *
+	 * Always logs a structured verdict line for every move so the real
+	 * distribution is observable on a live mailbox.
 	 *
 	 * The verdict reads the just-computed classification rather than a persisted
 	 * row, since those fields are not written until the single update. Placement
@@ -1840,7 +1846,7 @@ export class BodySyncService {
 		// authResult, authenticity) that this body-sync pass just derived; the
 		// stored row does not carry them yet, so overlay them onto the message.
 		const candidate = { ...message, ...classification };
-		const verdict = classifyPlacement(
+		const { verdict, move } = decidePlacement(
 			candidate,
 			placement,
 			senderTrust,
@@ -1884,9 +1890,7 @@ export class BodySyncService {
 			decidedAt: Date.now(),
 		};
 
-		// Only a confident verdict moves mail. An unsure verdict is recorded
-		// but never enqueues a move.
-		if (verdict.confidence !== "confident") {
+		if (!move) {
 			return { verdict: audit, placementDecidedAt: audit.decidedAt };
 		}
 
@@ -1894,8 +1898,8 @@ export class BodySyncService {
 			verdict.action === "move-to-inbox" ? inboxMailbox : junkMailbox;
 		if (!target) return { verdict: audit, placementDecidedAt: audit.decidedAt };
 
-		// Structured verdict line — emitted for confident, actionable verdicts
-		// so the real verdict distribution is observable on a live mailbox.
+		// Structured verdict line — emitted for every move so the real verdict
+		// distribution is observable on a live mailbox.
 		this.log.info(
 			{
 				messageId,

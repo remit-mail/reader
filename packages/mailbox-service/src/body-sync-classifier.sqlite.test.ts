@@ -14,6 +14,8 @@ import {
 	ClassificationPresetId,
 	DisplayNameCorrespondence,
 	MessageClassificationState,
+	PlacementAction,
+	PlacementConfidence,
 } from "@remit/domain-enums";
 import {
 	createSecretsService,
@@ -527,6 +529,160 @@ describe("body sync sender mismatch", () => {
 			assert.equal(row.mailboxId, world.inbox.mailboxId);
 			assert.notEqual(row.movedByRemit, true);
 		}
+	});
+});
+
+const PROVIDER_SPAM_HEADERS = {
+	"X-Spam-Status": "Yes, score=7.1",
+	"X-Spam-Flag": "YES",
+	"X-SpamExperts-Class": "spam",
+	"X-HalOne-Spam-Probability": "0.98",
+};
+
+const JUNK_NEWSLETTER = eml(
+	{
+		From: "Dutch Cycling Weekly <news@dutchcyclingweekly.nl>",
+		Subject: "This week in cycling",
+		"List-Unsubscribe": "<https://dutchcyclingweekly.nl/unsub>",
+		"Authentication-Results": "mx.example.com; dmarc=pass",
+		...PROVIDER_SPAM_HEADERS,
+	},
+	"Read about the spring classics.",
+);
+
+const JUNK_SPOOF = eml(
+	{
+		From: "Support <support@evil-mimic.example>",
+		Subject: "Verify your account",
+		"Authentication-Results": "mx.example.com; dmarc=fail",
+		"DKIM-Signature": "v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
+		...PROVIDER_SPAM_HEADERS,
+	},
+	"Your account is locked.",
+);
+
+const NEWSLETTER_SENDER = "news@dutchcyclingweekly.nl";
+
+const flagNewsletterSender = async (
+	flags: Parameters<Store["address"]["updateAddress"]>[2]["flags"],
+): Promise<void> => {
+	const addressId = deriveAddressId(
+		world.account.accountConfigId,
+		NEWSLETTER_SENDER,
+	);
+	await world.store.address.upsertAddress({
+		addressId,
+		accountConfigId: world.account.accountConfigId,
+		localPart: "news",
+		domain: "dutchcyclingweekly.nl",
+		normalizedEmail: NEWSLETTER_SENDER,
+		normalizedCompound: NEWSLETTER_SENDER,
+	});
+	await world.store.address.updateAddress(
+		world.account.accountConfigId,
+		addressId,
+		{ flags },
+	);
+};
+
+const syncJunk = async (raw: Buffer, classifier = true): Promise<string> => {
+	await world.store.mailbox.update(
+		world.account.accountId,
+		world.junk.mailboxId,
+		{ initialSyncCompletedAt: 1 },
+	);
+	const uid = world.imap.deliver(world.junk.fullPath, raw, {
+		internalDate: new Date(Date.now() + 60_000),
+	});
+	await syncFolder(world.store, world.account, world.junk, world.imap);
+	const { messageId } = await messageAtUid(world.store, world.junk, uid);
+	await bodySync(classifier).syncBodies(
+		[messageId],
+		world.account.accountId,
+		world.account.accountConfigId,
+		{
+			mailboxId: world.junk.mailboxId,
+			fullPath: world.junk.fullPath,
+			placement: "junk",
+			uidValidity: world.junk.uidValidity,
+			initialSyncCompletedAt: 1,
+		},
+		async () => world.imap.connection(),
+		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
+	);
+	return messageId;
+};
+
+const assertMovedToInbox = async (messageId: string): Promise<void> => {
+	const row = await world.store.message.get(messageId);
+	assert.equal(row.mailboxId, world.inbox.mailboxId);
+	assert.equal(row.movedByRemit, true);
+	assert.equal(row.placementVerdict?.action, PlacementAction.MoveToInbox);
+	assert.equal(row.placementVerdict?.fromPlacement, "junk");
+};
+
+const assertKeptInJunk = async (messageId: string): Promise<void> => {
+	const row = await world.store.message.get(messageId);
+	assert.equal(row.mailboxId, world.junk.mailboxId);
+	assert.notEqual(row.movedByRemit, true);
+	assert.equal(row.placementVerdict?.action, PlacementAction.MoveToJunk);
+	assert.equal(row.placementVerdict?.fromPlacement, "junk");
+};
+
+describe("body sync judges a Junk arrival as an Inbox arrival", () => {
+	it("moves an unknown newsletter the provider called spam to the Inbox", async () => {
+		const messageId = await syncJunk(JUNK_NEWSLETTER, false);
+
+		await assertMovedToInbox(messageId);
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.placementVerdict?.confidence, PlacementConfidence.Unsure);
+	});
+
+	it("moves to the Inbox when the classifier times out", async () => {
+		await saveProvider();
+		world.reply = "Silent";
+
+		const messageId = await syncJunk(JUNK_NEWSLETTER);
+
+		assert.equal(world.provider.requests.length, 1);
+		await assertMovedToInbox(messageId);
+	});
+
+	for (const trust of ["vip", "wellknown"] as const) {
+		it(`moves a ${trust} sender to the Inbox over a classifier Junk answer`, async () => {
+			await saveProvider();
+			await flagNewsletterSender({ [trust]: { value: true, setAt: 1 } });
+			world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
+
+			const messageId = await syncJunk(JUNK_NEWSLETTER);
+
+			assert.equal(world.provider.requests.length, 1);
+			await assertMovedToInbox(messageId);
+		});
+	}
+
+	it("keeps a blocked sender in Junk", async () => {
+		await flagNewsletterSender({ blocked: { value: true, setAt: 1 } });
+
+		await assertKeptInJunk(await syncJunk(JUNK_NEWSLETTER, false));
+	});
+
+	it("keeps a DKIM mismatch with a DMARC fail in Junk", async () => {
+		await assertKeptInJunk(await syncJunk(JUNK_SPOOF, false));
+	});
+
+	it("keeps a classifier Phishing answer in Junk and never shows it the provider's verdict", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Phishing, 0.95]]);
+
+		const messageId = await syncJunk(JUNK_NEWSLETTER);
+
+		await assertKeptInJunk(messageId);
+		assert.equal(world.provider.requests.length, 1);
+		assert.doesNotMatch(
+			world.provider.requests[0].body,
+			/x-spam|spamexperts|halone/i,
+		);
 	});
 });
 

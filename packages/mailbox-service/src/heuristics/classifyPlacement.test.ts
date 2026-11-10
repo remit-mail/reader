@@ -79,7 +79,7 @@ describe("classifyPlacement", () => {
 			assert.deepEqual(verdict, {
 				action: "leave",
 				confidence: "unsure",
-				reasons: ["missing-signals"],
+				reasons: ["no-confident-signal"],
 			});
 		});
 
@@ -116,7 +116,7 @@ describe("classifyPlacement", () => {
 			});
 		});
 
-		it("rescues before the missing-signals return, so a message with no parsed signals still comes out of junk", () => {
+		it("rescues a message with no parsed signals out of junk", () => {
 			const verdict = classifyPlacement(
 				baseMessage({ providerSpam: undefined, authResult: undefined }),
 				"junk",
@@ -306,29 +306,7 @@ describe("classifyPlacement", () => {
 		});
 	});
 
-	describe("existing DKIM/DMARC paths (unaffected by SenderOverride.None)", () => {
-		it("rescues a trusted sender's mail from junk on provider-spam + dmarc-pass", () => {
-			const verdict = classifyPlacement(
-				baseMessage({ providerSpam: { classified: true } }),
-				"junk",
-				SenderTrust.Vip,
-				SenderOverride.None,
-			);
-			assert.equal(verdict.action, "move-to-inbox");
-			assert.equal(verdict.confidence, "confident");
-		});
-
-		it("does not rescue an untrusted sender's mail from junk", () => {
-			const verdict = classifyPlacement(
-				baseMessage({ providerSpam: { classified: true } }),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.None,
-			);
-			assert.equal(verdict.action, "leave");
-			assert.equal(verdict.confidence, "unsure");
-		});
-
+	describe("DKIM/DMARC paths (unaffected by SenderOverride.None)", () => {
 		it("demotes an untrusted sender's inbox mail on dkim-mismatch + dmarc-fail", () => {
 			const verdict = classifyPlacement(
 				baseMessage({

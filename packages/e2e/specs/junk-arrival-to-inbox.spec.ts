@@ -4,28 +4,26 @@ import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const SHOW_INFO = "Show intelligence sidebar";
 
-test.describe("Sender mismatch in Junk", () => {
+test.describe("A Junk arrival Remit does not judge junk", () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test("a Junk message the provider rated clean carries and shows the mismatch", async ({
+	test("moves to the Inbox and still shows its sender mismatch", async ({
 		api,
 		page,
 		run,
 	}) => {
-		const mailboxes = await waitFor(
-			() => api.listMailboxes(run.accountId),
-			(list) => list.some((mailbox) => mailbox.fullPath === "Junk"),
-			{ timeoutMs: 60_000, what: "the Junk mailbox to sync" },
-		);
-		const junk = mailboxes.find((mailbox) => mailbox.fullPath === "Junk");
-		if (!junk) throw new Error("unreachable: Junk was matched but not found");
-
 		const threads = await waitFor(
-			() => api.listThreads(junk.mailboxId),
-			(items) => items.some((thread) => thread.subject === run.spamSubject),
-			{ timeoutMs: 60_000, what: `"${run.spamSubject}" to sync into Junk` },
+			() => api.listThreads(run.inboxId),
+			(items) =>
+				items.some((thread) => thread.subject === run.junkArrivalSubject),
+			{
+				timeoutMs: 60_000,
+				what: `"${run.junkArrivalSubject}" to move from Junk to the Inbox`,
+			},
 		);
-		const thread = threads.find((item) => item.subject === run.spamSubject);
+		const thread = threads.find(
+			(item) => item.subject === run.junkArrivalSubject,
+		);
 		if (!thread) throw new Error("unreachable: matched but not found");
 
 		const messages = await waitFor(
@@ -38,28 +36,28 @@ test.describe("Sender mismatch in Junk", () => {
 				),
 			{
 				timeoutMs: 60_000,
-				what: `"${run.spamSubject}" to be compared against its sender`,
+				what: `"${run.junkArrivalSubject}" to be compared against its sender`,
 			},
 		);
 		const authenticity = messages.find(
 			(item) => item.messageId === thread.messageId,
 		)?.authenticity;
-		expect(authenticity?.fromDomain).toBe(run.spamSenderDomain);
+		expect(authenticity?.fromDomain).toBe(run.junkArrivalSenderDomain);
 		expect(authenticity?.dkimMismatch).toBe(false);
 		expect(authenticity?.displayNameCorrespondence).toBe("Unrelated");
 		expect(authenticity?.offDomainLinkDomains).toEqual([
-			run.spamOffDomainLinkDomain,
+			run.junkArrivalOffDomainLinkDomain,
 		]);
 
-		await page.goto(`/mail/${junk.mailboxId}`);
-		const row = page.getByText(run.spamSubject, { exact: true }).first();
+		await page.goto(`/mail/${run.inboxId}`);
+		const row = page.getByText(run.junkArrivalSubject, { exact: true }).first();
 		await expect(row).toBeVisible({ timeout: 30_000 });
 		await row.click();
 		await page.waitForURL(MAILBOX_THREAD_URL);
 		await expect(
 			page
 				.getByRole("article")
-				.getByRole("heading", { name: run.spamSubject, exact: true }),
+				.getByRole("heading", { name: run.junkArrivalSubject, exact: true }),
 		).toBeVisible({ timeout: 15_000 });
 
 		const show = page.getByRole("button", { name: SHOW_INFO });
@@ -67,12 +65,12 @@ test.describe("Sender mismatch in Junk", () => {
 
 		await expect(
 			page.getByText(
-				`The name it shows, "${run.spamSenderName}", has nothing to do with ${run.spamSenderDomain}.`,
+				`The name it shows, "${run.junkArrivalSenderName}", has nothing to do with ${run.junkArrivalSenderDomain}.`,
 				{ exact: false },
 			),
 		).toBeVisible({ timeout: 15_000 });
 		await expect(
-			page.getByText(`Its links go to ${run.spamOffDomainLinkDomain}.`, {
+			page.getByText(`Its links go to ${run.junkArrivalOffDomainLinkDomain}.`, {
 				exact: false,
 			}),
 		).toBeVisible();

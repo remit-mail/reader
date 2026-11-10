@@ -605,7 +605,7 @@ describe("placement follows the sender's flags", () => {
 		assert.equal((await messageRow(messageId)).mailboxId, world.junk.mailboxId);
 	});
 
-	it("does not auto-archive mail out of Junk", async () => {
+	it("moves an autoArchive sender's Junk mail to the Inbox, not Archive", async () => {
 		await flagSender("someone@example.com", {
 			autoArchive: { value: true, setAt: 1_000 },
 		});
@@ -613,7 +613,10 @@ describe("placement follows the sender's flags", () => {
 
 		await read(bodySync({ placement: true }), messageId, world.junk);
 
-		assert.equal((await messageRow(messageId)).mailboxId, world.junk.mailboxId);
+		assert.equal(
+			(await messageRow(messageId)).mailboxId,
+			world.inbox.mailboxId,
+		);
 	});
 
 	it("does not re-file mail Remit already placed", async () => {

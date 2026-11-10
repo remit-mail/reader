@@ -1,6 +1,5 @@
 import type { AutoMovedInfo } from "@remit/api-openapi-types";
 import type { MessageItem } from "@remit/data-ports";
-import { PlacementConfidence } from "@remit/domain-enums";
 
 /**
  * Project a Message's internal auto-move state to the public `AutoMovedInfo`
@@ -19,7 +18,8 @@ import { PlacementConfidence } from "@remit/domain-enums";
  * 2. The Tier 0 classifier records a `placementVerdict`. Its `action`
  *    (MoveToInbox/MoveToJunk) and `fromPlacement` (inbox/junk/other) are the
  *    only fields that cross to the wire; confidence, dryRun, decidedAt and
- *    reasons stay internal.
+ *    reasons stay internal. An `unsure` verdict projects like a confident
+ *    one: a Junk arrival moves to the Inbox on either (issue #1553).
  *
  * The filter marker outranks the verdict check: a matched filter's move is
  * exclusive and outranks the classifier's placement move at index time (RFC 034
@@ -46,7 +46,6 @@ export const deriveAutoMoved = (
 
 	const verdict = message.placementVerdict;
 	if (!verdict) return undefined;
-	if (verdict.confidence !== PlacementConfidence.Confident) return undefined;
 	if (verdict.dryRun === true) return undefined;
 
 	return {

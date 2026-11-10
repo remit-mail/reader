@@ -75,7 +75,7 @@ describe("deriveAutoMoved", () => {
 		});
 	});
 
-	it("drops an unsure classifier verdict", () => {
+	it("projects an unsure classifier move out of Junk", () => {
 		const message: AutoMovedInput = {
 			movedByRemit: true,
 			placementVerdict: {
@@ -83,7 +83,10 @@ describe("deriveAutoMoved", () => {
 				confidence: PlacementConfidence.Unsure,
 			},
 		};
-		assert.equal(deriveAutoMoved(message), undefined);
+		assert.deepEqual(deriveAutoMoved(message), {
+			action: PlacementAction.MoveToInbox,
+			fromPlacement: "junk",
+		});
 	});
 
 	it("drops a dry-run classifier verdict", () => {

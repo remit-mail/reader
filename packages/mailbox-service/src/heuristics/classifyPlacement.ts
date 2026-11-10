@@ -93,30 +93,23 @@ export const resolveSenderPlacement = (
  *
  * Pure: the caller resolves the message's current folder placement and the
  * sender trust; this function does no DB lookups and produces no side effects.
- * It generalizes `shouldRescueFromJunk` into a two-directional verdict and is
- * recall-biased — a confident move only fires when cheap, deterministic signals
- * agree; everything else is left in place for a later LLM tier.
+ * The provider's spam verdict is not an input (issue #1553): only
+ * authentication, the sender's flags and trust, and the classifier decide.
  *
  * `senderOverride` (RFC 039 Decision 3, issue #605) is the user's standing
- * instruction about this sender's placement, and it outranks every
- * DKIM/DMARC/provider signal below — an explicit block or never-spam grant is
- * not a heuristic. Already-tie-broken against `vip`/`wellknown` by
+ * instruction about this sender's placement, and it outranks every DKIM/DMARC
+ * signal below — an explicit block or never-spam grant is not a heuristic.
+ * Already-tie-broken against `vip`/`wellknown` by
  * {@link resolveSenderPlacement} in the caller; this function itself does not
  * compare `setAt`.
  *
- * `NeverSpam` is checked above the `missing-signals` return and above the
- * `providerSpam.classified` gate on purpose: the senders who need the grant are
- * the ones the provider rated clean and whose domain publishes no DMARC record,
- * so a check inside the rescue branch below would never fire for them. It
- * rescues only from `junk` — a message a standing filter put in a user folder
- * is not a spam question.
+ * `NeverSpam` refuses outright on a `dmarc === "Fail"` or a DKIM mismatch, the
+ * two signals that identify someone impersonating the address the user
+ * granted. It rescues only from `junk` — a message a standing filter put in a
+ * user folder is not a spam question.
  *
- * It refuses outright on a `dmarc === "Fail"` or a DKIM mismatch. The demote
- * branch below is reached only from `inbox`, so a spoof already sitting in Junk
- * would never meet it: without this guard the grant would launder mail out of
- * Junk on exactly the two signals that identify someone impersonating the
- * address the user granted. A domain that publishes no DMARC record never
- * scores `Fail`, so the case the grant exists for is untouched.
+ * A classifier junk answer yields to Vip and Wellknown (issue #1553): the user
+ * set the one and replied to the other.
  */
 export const classifyPlacement = (
 	message: MessageItem,
@@ -141,11 +134,14 @@ export const classifyPlacement = (
 		};
 	}
 
+	const dmarc = message.authResult?.dmarc;
+	const dkimMismatch = message.authenticity?.dkimMismatch === true;
+
 	if (
 		senderOverride === SenderOverride.NeverSpam &&
 		placement === "junk" &&
-		message.authResult?.dmarc !== "Fail" &&
-		message.authenticity?.dkimMismatch !== true
+		dmarc !== "Fail" &&
+		!dkimMismatch
 	) {
 		return {
 			action: "move-to-inbox",
@@ -154,7 +150,9 @@ export const classifyPlacement = (
 		};
 	}
 
-	if (classifierJunk && senderOverride === SenderOverride.None) {
+	const trusted = isTrusted(senderTrust);
+
+	if (classifierJunk && senderOverride === SenderOverride.None && !trusted) {
 		return placement === "inbox"
 			? {
 					action: "move-to-junk",
@@ -166,36 +164,6 @@ export const classifyPlacement = (
 					confidence: "confident",
 					reasons: ["classifier=spam"],
 				};
-	}
-
-	if (!message.providerSpam || !message.authResult) {
-		return {
-			action: "leave",
-			confidence: "unsure",
-			reasons: ["missing-signals"],
-		};
-	}
-
-	const providerSpam = message.providerSpam.classified === true;
-	const dmarc = message.authResult.dmarc;
-	const dkimMismatch = message.authenticity?.dkimMismatch === true;
-	const trusted = isTrusted(senderTrust);
-
-	// Rescue (junk → inbox), LOW bar. Mirrors shouldRescueFromJunk's gate.
-	if (placement === "junk" && providerSpam && dmarc === "Pass") {
-		if (trusted) {
-			return {
-				action: "move-to-inbox",
-				confidence: "confident",
-				reasons: ["provider=spam", "dmarc=pass", `sender=${senderTrust}`],
-			};
-		}
-		// Anti-spoof guard: an unknown sender is never auto-rescued.
-		return {
-			action: "leave",
-			confidence: "unsure",
-			reasons: ["provider=spam", "dmarc=pass", "sender=untrusted"],
-		};
 	}
 
 	// Demote (inbox → junk), HIGH bar.
@@ -222,5 +190,86 @@ export const classifyPlacement = (
 		action: "leave",
 		confidence: "unsure",
 		reasons: ["no-confident-signal"],
+	};
+};
+
+/**
+ * What body sync does with a message's placement. `verdict.action` is relative
+ * to the folder the message sits in; `move` says whether it is carried out, and
+ * an actionable verdict with `move: false` is recorded only.
+ */
+export interface PlacementDecision {
+	verdict: PlacementVerdict;
+	move: boolean;
+}
+
+/**
+ * Decide a message's placement (issue #1553). Pure.
+ *
+ * A message in Junk is judged as if it had arrived in the Inbox: the
+ * provider's spam folder is not a signal. One that verdict would demote stays
+ * in Junk, recorded as `move-to-junk`. Every other one moves to the Inbox
+ * whatever the confidence, since `unsure` is not junk.
+ *
+ * A Junk message somebody already placed is never touched (issue #383): a spam
+ * report, a user move (`originalMailboxId`) and `movedByRemit` each mean the
+ * folder is a decision, not the provider's arrival.
+ *
+ * Outside Junk only a confident actionable verdict moves; an unsure one is
+ * recorded.
+ */
+export const decidePlacement = (
+	message: MessageItem,
+	placement: FolderPlacement,
+	senderTrust: SenderTrustValue,
+	senderOverride: SenderOverrideValue,
+	classifierJunk: boolean,
+): PlacementDecision => {
+	if (placement !== "junk") {
+		const verdict = classifyPlacement(
+			message,
+			placement,
+			senderTrust,
+			senderOverride,
+			classifierJunk,
+		);
+		return {
+			verdict,
+			move: verdict.action !== "leave" && verdict.confidence === "confident",
+		};
+	}
+
+	if (
+		message.movedByRemit === true ||
+		message.spamReport ||
+		message.originalMailboxId
+	) {
+		return {
+			verdict: {
+				action: "leave",
+				confidence: "confident",
+				reasons: ["placed-in-junk"],
+			},
+			move: false,
+		};
+	}
+
+	const asInbox = classifyPlacement(
+		message,
+		"inbox",
+		senderTrust,
+		senderOverride,
+		classifierJunk,
+	);
+	if (asInbox.action === "move-to-junk") {
+		return { verdict: asInbox, move: false };
+	}
+	return {
+		verdict: {
+			action: "move-to-inbox",
+			confidence: asInbox.confidence,
+			reasons: asInbox.reasons,
+		},
+		move: true,
 	};
 };
