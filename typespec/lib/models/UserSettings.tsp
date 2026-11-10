@@ -20,7 +20,7 @@ model UserSettingsResponse {
   @doc("Every classification provider the reader can pick.")
   classificationPresets: ClassificationPreset[];
 
-  @doc("The saved classification provider, or `NotConfigured`.")
+  @doc("The classification provider in effect, `Unrunnable` when one is chosen but cannot run, or `NotConfigured`.")
   classification: ClassificationSettings;
 }
 
@@ -29,22 +29,22 @@ model UpdateUserSettingsInput {
   @doc("The account invitations go out from by default. Refused with 400 `unknown_sender` when it is not an account of the caller's account config that sends mail. Cleared with `clearDefaultInvitationSender`.")
   defaultInvitationSenderAccountId?: UUID;
 
-  @doc("Save a classification provider. Saving another preset deletes the stored key. Without it, the classification fields below apply to the saved provider.")
+  @doc("Save a classification provider. Saving another preset deletes the stored key, model and base URL. Without it, the classification fields below apply to the provider in effect, saved or inherited from the deployment.")
   classificationPresetId?: ClassificationPresetId;
 
-  @doc("The model to ask for. Empty means the preset's default model.")
+  @doc("The model to ask for. Empty deletes the saved model, so it is inherited again.")
   classificationModel?: string;
 
-  @doc("The http or https base URL to call. Empty means the preset's default base URL. Refused with 400 `invalid_classification_base_url` when it is not a URL, or when the preset has no default base URL and none is given.")
+  @doc("The http or https base URL to call. Empty deletes the saved base URL, so it is inherited again. Refused with 400 `invalid_classification_base_url` when it is not a URL, or when no base URL is saved, inherited or given by the preset.")
   classificationBaseUrl?: string;
 
-  @doc("The provider's API key. Write-only: stored encrypted and never returned. Refused with 400 `classification_api_key_required` when the preset needs a key and none is stored for it.")
+  @doc("The provider's API key. Write-only: stored encrypted and never returned. Refused with 400 `classification_api_key_required` when the preset needs a key and none is saved, or inherited from the deployment for the same preset and base URL.")
   classificationApiKey?: string;
 
-  @doc("Switch classification on or off. Switching on with no saved provider is refused with 400 `classification_not_configured`; switching off keeps the provider and key.")
+  @doc("Switch classification on or off. Switching on with no provider in effect is refused with 400 `classification_not_configured`; switching off keeps the provider and key.")
   classificationEnabled?: boolean;
 
-  @doc("The most classification calls per mail account per UTC day. Needs a saved provider.")
+  @doc("The most classification calls per mail account per UTC day. Needs a provider in effect, saved or inherited.")
   @minValue(1)
   classificationDailyLimit?: int32;
 }
@@ -94,14 +94,27 @@ model ClassificationNotConfigured {
   state: "NotConfigured";
 }
 
-@doc("The saved classification provider. The API key itself is never returned.")
+@doc("Where each classification setting's value comes from.")
+model ClassificationSources {
+  presetId: ClassificationValueSource;
+  `model`: ClassificationValueSource;
+  baseUrl: ClassificationValueSource;
+
+  @doc("`Saved` for a key the reader saved, `Deployment` for the deployment's key, `Default` for no key.")
+  apiKey: ClassificationValueSource;
+
+  enabled: ClassificationValueSource;
+  dailyLimit: ClassificationValueSource;
+}
+
+@doc("The classification provider in effect, saved or inherited from the deployment. No API key is ever returned.")
 model ClassificationConfigured {
   state: "Configured";
   presetId: ClassificationPresetId;
   `model`: string;
   baseUrl: string;
 
-  @doc("Whether an API key is stored for this provider.")
+  @doc("Deprecated: read `sources.apiKey` instead. Whether an API key is saved or inherited from the deployment. Removed once reader-ui reads `sources`.")
   apiKeySaved: boolean;
 
   @doc("Whether classification runs.")
@@ -110,11 +123,18 @@ model ClassificationConfigured {
   @doc("The most classification calls per mail account per UTC day.")
   dailyLimit: int32;
 
-  @doc("When the provider, model, base URL or key was last saved, in epoch milliseconds (UTC).")
-  savedAt: int64;
+  @doc("Where each value comes from. A reader overrides one field by saving it, and inherits it again by saving it empty.")
+  sources: ClassificationSources;
 
   @doc("Today's provider calls, one row per mail account of the account config.")
   usage: ClassificationUsage[];
+}
+
+@doc("A classification provider is chosen but cannot run, so classification is off.")
+model ClassificationUnrunnable {
+  state: "Unrunnable";
+  presetId: ClassificationPresetId;
+  reason: ClassificationUnrunnableReason;
 }
 
 @doc("The cost of today's calls, counting each call as 1,500 input tokens at the preset's price.")
@@ -151,19 +171,20 @@ model ClassificationUsage {
 union ClassificationSettings {
   notConfigured: ClassificationNotConfigured,
   configured: ClassificationConfigured,
+  unrunnable: ClassificationUnrunnable,
 }
 
 @doc("The classification provider form as it stands, saved or not.")
 model ClassificationTestInput {
   presetId: ClassificationPresetId;
 
-  @doc("The model to ask for. Empty means the preset's default model.")
+  @doc("The model to ask for. Empty means the inherited model.")
   `model`: string;
 
-  @doc("The http or https base URL to call. Empty means the preset's default base URL.")
+  @doc("The http or https base URL to call. Empty means the inherited base URL.")
   baseUrl: string;
 
-  @doc("The provider's API key. Empty means the key saved for this preset.")
+  @doc("The provider's API key. Empty means the key saved for this preset, or the deployment's key when the preset and base URL match the deployment's.")
   apiKey: string;
 }
 

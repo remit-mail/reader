@@ -14,6 +14,7 @@ import type {
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
+import { readClassificationInput } from "@remit/data-ports/classification-resolver";
 import { AccountSettingName } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import type { ClassificationLabelDeps } from "@remit/mailbox-service";
@@ -75,11 +76,6 @@ export const readUserSettings = async (
 	const accounts = await deps.accounts.listAllByAccountConfig(accountConfigId);
 	const inEffect = invitationSenderInEffect(accounts, chosen);
 	const resolved = await readKnownClassification(deps, accountConfigId);
-	if (resolved.state === "Unrunnable") {
-		throw new Error(
-			`Classification provider ${resolved.presetId} cannot run: ${resolved.reason}`,
-		);
-	}
 	const usage =
 		resolved.state === "Configured"
 			? await readClassificationUsage(
@@ -112,8 +108,8 @@ export const updateUserSettingsFor = async (
 	input: UpdateUserSettingsInput,
 ): Promise<UserSettingsOutcome> => {
 	const classification = decideClassificationChange(
+		await readClassificationInput(deps, accountConfigId),
 		input,
-		await readKnownClassification(deps, accountConfigId),
 	);
 	if (!classification.ok) return classification;
 	const sender = input.defaultInvitationSenderAccountId;
