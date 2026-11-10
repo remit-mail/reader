@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import {
+	type ClassificationDeploymentDefault,
 	classificationUsageName,
 	utcDateOf,
 } from "@remit/data-ports/classification-presets";
@@ -103,6 +104,7 @@ interface World {
 	provider: StubHttpServer;
 	reply: StubReply;
 	warnings: string[];
+	classificationDefault: ClassificationDeploymentDefault;
 }
 
 let world: World;
@@ -148,6 +150,7 @@ beforeEach(async () => {
 		provider: await startStubHttpServer(() => world.reply),
 		reply: { status: 500, body: "{}" },
 		warnings: [],
+		classificationDefault: { state: "None" },
 	};
 });
 
@@ -221,6 +224,8 @@ const bodySync = (classifier = true): BodySyncService => {
 		classifier
 			? {
 					accountSetting: store.accountSetting,
+					accountConfig: store.accountConfig,
+					classificationDefault: world.classificationDefault,
 					secrets,
 					labelService: store.label,
 					messageLabelService: store.messageLabel,
@@ -579,5 +584,110 @@ describe("body sync under the daily classification limit", () => {
 			kind: "DailyCount",
 			value: { date: today(), calls: 1 },
 		});
+	});
+});
+
+const DEPLOYMENT_KEY = "sk-deployment-key";
+
+const deployJev = (): void => {
+	world.classificationDefault = {
+		state: "Configured",
+		presetId: ClassificationPresetId.Jev,
+		model: "jev-deployment",
+		baseUrl: world.provider.baseUrl,
+		apiKey: DEPLOYMENT_KEY,
+		enabled: true,
+		dailyLimit: 500,
+	};
+};
+
+const sentModel = (index = 0): unknown =>
+	JSON.parse(world.provider.requests[index].body).model;
+
+describe("body sync on the deployment classification default", () => {
+	it("classifies new mail for an account config with no rows", async () => {
+		deployJev();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+
+		const messageId = await syncOne(COLLEAGUE);
+
+		assert.equal(world.provider.requests.length, 1);
+		assert.equal(
+			world.provider.requests[0].headers.authorization,
+			`Bearer ${DEPLOYMENT_KEY}`,
+		);
+		assert.equal(sentModel(), "jev-deployment");
+		assert.equal(
+			(await world.store.message.get(messageId)).category,
+			"newsletter",
+		);
+	});
+
+	it("skips mail that arrived before the account config was created", async () => {
+		deployJev();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		const messageId = await arrive(COLLEAGUE, new Date(Date.now() - 60_000));
+
+		await sync(bodySync(), [messageId]);
+
+		assert.equal(world.provider.requests.length, 0);
+	});
+
+	it("sends a saved key over the deployment key", async () => {
+		deployJev();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await upsert(AccountSettingName.ClassificationApiKey, {
+			kind: "Map",
+			value: {
+				...serializeEncryptedPayload(await secrets.encrypt("sk-saved-key")),
+			},
+		});
+
+		await syncOne(COLLEAGUE);
+
+		assert.equal(
+			world.provider.requests[0].headers.authorization,
+			"Bearer sk-saved-key",
+		);
+	});
+
+	it("sends a saved model over the deployment model", async () => {
+		deployJev();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await upsert(AccountSettingName.ClassificationModel, {
+			kind: "String",
+			value: "jev-saved",
+		});
+
+		await syncOne(COLLEAGUE);
+
+		assert.equal(sentModel(), "jev-saved");
+	});
+
+	it("stops at a saved daily limit below the deployment limit", async () => {
+		deployJev();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await upsert(AccountSettingName.ClassificationDailyLimit, {
+			kind: "Number",
+			value: 1,
+		});
+		await storeCalls(world.account.accountId, today(), 1);
+
+		await syncOne(COLLEAGUE);
+
+		assert.equal(world.provider.requests.length, 0);
+	});
+
+	it("makes no call when the saved switch is off", async () => {
+		deployJev();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await upsert(AccountSettingName.ClassificationEnabled, {
+			kind: "Boolean",
+			value: false,
+		});
+
+		await syncOne(COLLEAGUE);
+
+		assert.equal(world.provider.requests.length, 0);
 	});
 });

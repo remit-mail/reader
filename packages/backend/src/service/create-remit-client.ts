@@ -469,6 +469,8 @@ export const composeReadPathServices = (
 		},
 		{
 			accountSetting: core.accountSetting,
+			accountConfig: core.accountConfig,
+			classificationDefault: core.classificationDefault,
 			secrets: core.secrets,
 			labelService: core.label,
 			messageLabelService: core.messageLabel,

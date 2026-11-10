@@ -5,6 +5,7 @@ import type {
 	ClassificationConfigured,
 	UserSettingsResponse,
 } from "@remit/api-openapi-types";
+import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	AccountSettingName,
@@ -50,9 +51,14 @@ const secrets: SecretsService = createSecretsService({
 
 let repos: SqliteRepositories;
 let close: () => void;
+let classificationDefault: ClassificationDeploymentDefault;
 
 const caller = (): HandlerContext<QueueName> => ({
-	client: { ...repos, secrets } as unknown as RemitClient,
+	client: {
+		...repos,
+		secrets,
+		classificationDefault,
+	} as unknown as RemitClient,
 	config: testApiConfig(),
 	identity: {
 		kind: "user",
@@ -124,6 +130,7 @@ const saveJev = (): Promise<Answer> =>
 beforeEach(async () => {
 	const store = createShippedSqliteDb();
 	close = store.close;
+	classificationDefault = { state: "None" };
 	repos = createSqliteRepositories(
 		{ app: store.db, mail: store.db, search: store.db },
 		BETTER_SQLITE3_LIMITS,
@@ -240,6 +247,65 @@ describe("a saved classification provider", () => {
 		assert.equal(cleared.statusCode, 200);
 		assert.deepEqual(await classificationRows(), []);
 		assert.equal((await read()).classification.state, "NotConfigured");
+	});
+});
+
+describe("a deployment classification default", () => {
+	const DEPLOYMENT_KEY = "sk-deployment-0123456789";
+
+	beforeEach(() => {
+		classificationDefault = {
+			state: "Configured",
+			presetId: ClassificationPresetId.Mistral,
+			model: "mistral-small-latest",
+			baseUrl: "https://mistral.example/v1",
+			apiKey: DEPLOYMENT_KEY,
+			enabled: true,
+			dailyLimit: 40,
+		};
+	});
+
+	it("reads back for an account config with no rows, without its key", async () => {
+		const { createdAt } = await repos.accountConfig.get(ACCOUNT_CONFIG_ID);
+
+		const settings = await read();
+
+		assert.deepEqual(settings.classification, {
+			state: "Configured",
+			presetId: ClassificationPresetId.Mistral,
+			model: "mistral-small-latest",
+			baseUrl: "https://mistral.example/v1",
+			apiKeySaved: false,
+			enabled: true,
+			dailyLimit: 40,
+			savedAt: createdAt,
+			usage: [],
+		});
+		assert.doesNotMatch(JSON.stringify(settings), new RegExp(DEPLOYMENT_KEY));
+	});
+
+	it("turns the inherited switch off and changes the inherited limit", async () => {
+		const switchedOff = await patch({ classificationEnabled: false });
+		const limited = await patch({ classificationDailyLimit: 9 });
+
+		assert.equal(switchedOff.statusCode, 200);
+		assert.equal(limited.statusCode, 200);
+		const now = await configured();
+		assert.equal(now.presetId, ClassificationPresetId.Mistral);
+		assert.equal(now.enabled, false);
+		assert.equal(now.dailyLimit, 9);
+	});
+
+	it("gives way to a saved limit and switch", async () => {
+		await saveJev();
+		await patch({ classificationEnabled: false, classificationDailyLimit: 7 });
+
+		const now = await configured();
+
+		assert.equal(now.presetId, ClassificationPresetId.Jev);
+		assert.equal(now.baseUrl, "https://api.typesafe.ai");
+		assert.equal(now.enabled, false);
+		assert.equal(now.dailyLimit, 7);
 	});
 });
 

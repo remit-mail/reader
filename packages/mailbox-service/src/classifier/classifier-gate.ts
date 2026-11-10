@@ -1,12 +1,16 @@
 import type {
+	IAccountConfigRepository,
 	IAccountSettingRepository,
 	IMessageLabelRepository,
 } from "@remit/data-ports";
 import {
 	CLASSIFICATION_PRESETS,
-	type ClassificationApiKeyCiphertext,
-	readSavedClassification,
+	type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
+import {
+	type ResolvedClassificationApiKey,
+	readResolvedClassification,
+} from "@remit/data-ports/classification-resolver";
 import {
 	deserializeEncryptedPayload,
 	type SecretsService,
@@ -28,6 +32,8 @@ export interface ClassifierConfig {
 		IAccountSettingRepository,
 		"getMany" | "claimDailyCount"
 	>;
+	accountConfig: Pick<IAccountConfigRepository, "get">;
+	classificationDefault: ClassificationDeploymentDefault;
 	secrets: Pick<SecretsService, "decrypt">;
 	labelService: ClassificationLabelDeps;
 	messageLabelService: Pick<IMessageLabelRepository, "apply">;
@@ -39,7 +45,7 @@ export type ClassifierGate =
 	| {
 			state: "On";
 			provider: ClassifierProvider;
-			savedAt: number;
+			classifiesAfter: number;
 			dailyLimit: number;
 			labels: ClassificationLabels;
 	  };
@@ -50,10 +56,16 @@ type KeyRead = { ok: true; apiKey: string } | { ok: false };
 
 const readKey = (
 	config: ClassifierConfig,
-	ciphertext: ClassificationApiKeyCiphertext | undefined,
+	apiKey: ResolvedClassificationApiKey,
 ): Promise<KeyRead> => {
-	if (!ciphertext) return Promise.resolve({ ok: true, apiKey: "" });
-	return config.secrets.decrypt(deserializeEncryptedPayload(ciphertext)).then(
+	if (apiKey.source === "Default") {
+		return Promise.resolve({ ok: true, apiKey: "" });
+	}
+	if (apiKey.source === "Deployment") {
+		return Promise.resolve({ ok: true, apiKey: apiKey.apiKey });
+	}
+	const ciphertext = deserializeEncryptedPayload(apiKey.ciphertext);
+	return config.secrets.decrypt(ciphertext).then(
 		(apiKey): KeyRead => ({ ok: true, apiKey }),
 		(): KeyRead => ({ ok: false }),
 	);
@@ -63,22 +75,29 @@ export const readClassifierGate = async (
 	config: ClassifierConfig,
 	accountConfigId: string,
 ): Promise<ClassifierGate> => {
-	const saved = await readSavedClassification(
-		config.accountSetting,
-		accountConfigId,
-	);
-	if (saved.state === "UnknownPreset") {
+	const resolved = await readResolvedClassification(config, accountConfigId);
+	if (resolved.state === "UnknownPreset") {
 		config.logger.warn(
-			{ accountConfigId, presetId: saved.presetId },
+			{ accountConfigId, presetId: resolved.presetId },
 			"Stored classification preset is unknown; using the built-in rules",
 		);
 		return CLASSIFIER_OFF;
 	}
-	if (saved.state === "NotConfigured" || !saved.enabled) return CLASSIFIER_OFF;
-	const key = await readKey(config, saved.apiKeyCiphertext);
+	if (resolved.state === "Unrunnable") {
+		config.logger.warn(
+			{ accountConfigId, presetId: resolved.presetId, reason: resolved.reason },
+			"Classification provider cannot run; using the built-in rules",
+		);
+		return CLASSIFIER_OFF;
+	}
+	if (resolved.state === "NotConfigured" || !resolved.enabled.value) {
+		return CLASSIFIER_OFF;
+	}
+	const presetId = resolved.presetId.value;
+	const key = await readKey(config, resolved.apiKey);
 	if (!key.ok) {
 		config.logger.warn(
-			{ accountConfigId, presetId: saved.presetId },
+			{ accountConfigId, presetId },
 			"Classification api key does not decrypt; using the built-in rules",
 		);
 		return CLASSIFIER_OFF;
@@ -86,13 +105,13 @@ export const readClassifierGate = async (
 	return {
 		state: "On",
 		provider: {
-			adapterShape: CLASSIFICATION_PRESETS[saved.presetId].adapterShape,
-			baseUrl: saved.baseUrl,
-			model: saved.model,
+			adapterShape: CLASSIFICATION_PRESETS[presetId].adapterShape,
+			baseUrl: resolved.baseUrl.value,
+			model: resolved.model.value,
 			apiKey: key.apiKey,
 		},
-		savedAt: saved.savedAt,
-		dailyLimit: saved.dailyLimit,
+		classifiesAfter: resolved.classifiesAfter,
+		dailyLimit: resolved.dailyLimit.value,
 		labels: await ensureClassificationLabels(
 			config.labelService,
 			accountConfigId,

@@ -2,6 +2,7 @@ import type {
 	ClassificationConfigured,
 	ClassificationNotConfigured,
 	ClassificationPreset,
+	ClassificationPresetId,
 	ClassificationUsage,
 	UpdateUserSettingsInput,
 } from "@remit/api-openapi-types";
@@ -11,10 +12,15 @@ import {
 	CLASSIFICATION_PRESETS,
 	CLASSIFICATION_SETTING_NAMES,
 	classificationUsageName,
-	type SavedClassificationProvider,
-	type StoredClassification,
 	utcDateOf,
 } from "@remit/data-ports/classification-presets";
+import {
+	type ClassificationResolverDeps,
+	ClassificationSource,
+	type ResolvedClassification,
+	type ResolvedClassificationProvider,
+	readResolvedClassification,
+} from "@remit/data-ports/classification-resolver";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
 	type ClassificationLabelDeps,
@@ -60,6 +66,24 @@ type ClassificationInput = Pick<
 	| "classificationEnabled"
 	| "classificationDailyLimit"
 >;
+
+export type KnownClassification = Exclude<
+	ResolvedClassification,
+	{ state: "UnknownPreset" }
+>;
+
+export const readKnownClassification = async (
+	deps: ClassificationResolverDeps,
+	accountConfigId: string,
+): Promise<KnownClassification> => {
+	const resolved = await readResolvedClassification(deps, accountConfigId);
+	if (resolved.state === "UnknownPreset") {
+		throw new Error(
+			`Stored classification preset is unknown: ${resolved.presetId}`,
+		);
+	}
+	return resolved;
+};
 
 const refuse = (code: string, message: string): Refusal => ({
 	ok: false,
@@ -118,12 +142,19 @@ const apiKeyFor = (
 	);
 };
 
+const presetIdOf = (
+	known: KnownClassification,
+): ClassificationPresetId | undefined => {
+	if (known.state === "NotConfigured") return undefined;
+	if (known.state === "Unrunnable") return known.presetId;
+	return known.presetId.value;
+};
+
 export const decideClassificationProvider = (
 	input: ClassificationInput,
-	stored: StoredClassification,
+	known: KnownClassification,
 ): Decision<ClassificationProviderSave> => {
-	const saved = stored.state === "Configured" ? stored : undefined;
-	const presetId = input.classificationPresetId ?? saved?.presetId;
+	const presetId = input.classificationPresetId ?? presetIdOf(known);
 	if (presetId === undefined) {
 		return refuse(
 			"ClassificationNotConfigured",
@@ -131,22 +162,27 @@ export const decideClassificationProvider = (
 		);
 	}
 	const preset = CLASSIFICATION_PRESETS[presetId];
-	const kept = saved?.presetId === presetId ? saved : undefined;
+	const kept =
+		known.state === "Configured" && known.presetId.value === presetId
+			? known
+			: undefined;
 
 	const baseUrl = baseUrlFor(
 		preset,
-		(input.classificationBaseUrl ?? kept?.baseUrl ?? "").trim(),
+		(input.classificationBaseUrl ?? kept?.baseUrl.value ?? "").trim(),
 	);
 	if (!baseUrl.ok) return baseUrl;
 
 	const apiKey = apiKeyFor(
 		preset,
 		(input.classificationApiKey ?? "").trim(),
-		kept?.apiKeyCiphertext,
+		kept?.apiKey.source === ClassificationSource.Saved
+			? kept.apiKey.ciphertext
+			: undefined,
 	);
 	if (!apiKey.ok) return apiKey;
 
-	const model = (input.classificationModel ?? kept?.model ?? "").trim();
+	const model = (input.classificationModel ?? kept?.model.value ?? "").trim();
 	return {
 		ok: true,
 		value: {
@@ -159,12 +195,21 @@ export const decideClassificationProvider = (
 };
 
 export const publicClassification = (
-	stored: StoredClassification,
+	resolved: ResolvedClassificationProvider | { state: "NotConfigured" },
 	usage: ClassificationUsage[],
 ): ClassificationNotConfigured | ClassificationConfigured => {
-	if (stored.state === "NotConfigured") return stored;
-	const { apiKeyCiphertext: _ciphertext, ...configured } = stored;
-	return { ...configured, usage };
+	if (resolved.state === "NotConfigured") return resolved;
+	return {
+		state: "Configured",
+		presetId: resolved.presetId.value,
+		model: resolved.model.value,
+		baseUrl: resolved.baseUrl.value,
+		apiKeySaved: resolved.apiKey.source === ClassificationSource.Saved,
+		enabled: resolved.enabled.value,
+		dailyLimit: resolved.dailyLimit.value,
+		savedAt: resolved.classifiesAfter,
+		usage,
+	};
 };
 
 const CLASSIFICATION_INPUT_TOKENS_PER_CALL = 1_500;
@@ -199,7 +244,7 @@ export const readClassificationUsage = async (
 	accountSetting: Pick<IAccountSettingRepository, "getMany">,
 	accountConfigId: string,
 	accountIds: readonly string[],
-	saved: Pick<SavedClassificationProvider, "presetId" | "dailyLimit">,
+	saved: { presetId: ClassificationPresetId; dailyLimit: number },
 	now: number,
 ): Promise<ClassificationUsage[]> => {
 	const rows = await accountSetting.getMany(
@@ -243,15 +288,15 @@ interface ClassificationChange {
 
 export const decideClassificationChange = (
 	input: ClassificationInput,
-	stored: StoredClassification,
+	known: KnownClassification,
 ): Decision<ClassificationChange> => {
 	let provider: ClassificationProviderSave | undefined;
 	if (savesClassificationProvider(input)) {
-		const decided = decideClassificationProvider(input, stored);
+		const decided = decideClassificationProvider(input, known);
 		if (!decided.ok) return decided;
 		provider = decided.value;
 	}
-	const configured = provider !== undefined || stored.state === "Configured";
+	const configured = provider !== undefined || known.state === "Configured";
 	if (input.classificationEnabled === true && !configured) {
 		return refuse(
 			"ClassificationNotConfigured",

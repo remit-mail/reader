@@ -46,7 +46,11 @@ let repos: SqliteRepositories;
 let close: () => void;
 
 const caller = (): HandlerContext<QueueName> => ({
-	client: { ...repos, secrets } as unknown as RemitClient,
+	client: {
+		...repos,
+		secrets,
+		classificationDefault: { state: "None" },
+	} as unknown as RemitClient,
 	config: testApiConfig(),
 	identity: {
 		kind: "user",
