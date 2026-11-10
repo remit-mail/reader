@@ -1,0 +1,438 @@
+import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import type { AccountItem, MailboxItem } from "@remit/data-ports";
+import { deriveAddressId } from "@remit/data-ports/id";
+import {
+	AccountSettingName,
+	ClassificationLabel,
+	ClassificationPresetId,
+	MessageClassificationState,
+} from "@remit/domain-enums";
+import {
+	createSecretsService,
+	serializeEncryptedPayload,
+} from "@remit/secrets-service";
+import { BodySyncService } from "./body-sync.js";
+import { CLASSIFIER_LABELS } from "./classifier/index.js";
+import { PlacementMoveService } from "./placement-move.js";
+import { SyncWarningService } from "./sync-warning.js";
+import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
+import {
+	closedPortBaseUrl,
+	type StubHttpServer,
+	type StubReply,
+	startStubHttpServer,
+} from "./test-helpers/stub-http-server.js";
+import {
+	messageAtUid,
+	openStore,
+	type RecordingQueue,
+	recordingQueue,
+	type Store,
+	seedAccount,
+	seedMailbox,
+	silentLog,
+	syncFolder,
+} from "./test-helpers/test-store.js";
+
+const dataKey = randomBytes(32);
+const secrets = createSecretsService({
+	generateDataKey: async () => ({ plaintext: dataKey, encrypted: dataKey }),
+	decryptDataKey: async () => dataKey,
+});
+
+const SHOP = eml(
+	{
+		From: "Shop <deals@shop.example>",
+		Subject: "Half price this weekend",
+		"List-Unsubscribe": "<https://shop.example/unsub>",
+	},
+	"Everything must go.",
+);
+
+const COLLEAGUE = eml(
+	{ From: "Alex <alex@example.com>", Subject: "Contract due today" },
+	"Can you sign the contract before five?",
+);
+
+interface World {
+	store: Store;
+	imap: FakeImapServer;
+	queue: RecordingQueue;
+	account: AccountItem;
+	inbox: MailboxItem;
+	junk: MailboxItem;
+	provider: StubHttpServer;
+	reply: StubReply;
+	warnings: string[];
+}
+
+let world: World;
+
+const decision = (scores: Array<[string, number]>): StubReply => {
+	const probabilities = Object.fromEntries(
+		CLASSIFIER_LABELS.map((label) => [label, 0]),
+	);
+	for (const [label, probability] of scores) probabilities[label] = probability;
+	const [top] = [...scores].sort((a, b) => b[1] - a[1]);
+	return {
+		status: 200,
+		body: JSON.stringify({
+			model: "jev-test",
+			answers: {
+				label: {
+					type: "choice",
+					choice: top[0],
+					confidence: top[1],
+					probabilities,
+				},
+			},
+		}),
+	};
+};
+
+beforeEach(async () => {
+	const store = await openStore();
+	const account = await seedAccount(store);
+	const imap = new FakeImapServer();
+	for (const path of ["INBOX", "Junk"]) imap.addFolder(path);
+	const inbox = await seedMailbox(store, account, "INBOX");
+	await store.mailbox.update(account.accountId, inbox.mailboxId, {
+		initialSyncCompletedAt: 1,
+	});
+	world = {
+		store,
+		imap,
+		queue: recordingQueue(),
+		account,
+		inbox,
+		junk: await seedMailbox(store, account, "Junk", { specialUse: "Junk" }),
+		provider: await startStubHttpServer(() => world.reply),
+		reply: { status: 500, body: "{}" },
+		warnings: [],
+	};
+});
+
+afterEach(async () => {
+	await world.provider.close();
+	await world.store.close();
+});
+
+const saveProvider = async (
+	baseUrl: string = world.provider.baseUrl,
+	enabled = true,
+): Promise<void> => {
+	const { store, account } = world;
+	const upsert = (
+		name: string,
+		value: Parameters<Store["accountSetting"]["upsert"]>[0]["value"],
+	) =>
+		store.accountSetting.upsert({
+			accountConfigId: account.accountConfigId,
+			name,
+			value,
+		});
+	await upsert(AccountSettingName.ClassificationApiKey, {
+		kind: "Map",
+		value: {
+			...serializeEncryptedPayload(await secrets.encrypt("sk-test-key")),
+		},
+	});
+	await upsert(AccountSettingName.ClassificationModel, {
+		kind: "String",
+		value: "jev-test",
+	});
+	await upsert(AccountSettingName.ClassificationBaseUrl, {
+		kind: "String",
+		value: baseUrl,
+	});
+	await upsert(AccountSettingName.ClassificationPresetId, {
+		kind: "String",
+		value: ClassificationPresetId.Jev,
+	});
+	await upsert(AccountSettingName.ClassificationEnabled, {
+		kind: "Boolean",
+		value: enabled,
+	});
+};
+
+const bodySync = (classifier = true): BodySyncService => {
+	const { store } = world;
+	const placementMoveService = new PlacementMoveService({
+		messageService: store.message,
+		threadMessageService: store.threadMessage,
+		markerService: store.placementMove,
+		addressService: store.address,
+		mailboxSpecialUseService: store.mailboxSpecialUse,
+		mailboxService: store.mailbox,
+		queue: world.queue,
+	});
+	return new BodySyncService(
+		store.message,
+		store.storage(),
+		store.threadMessage,
+		store.address,
+		store.envelope,
+		new SyncWarningService(store.syncWarning),
+		silentLog,
+		{ mailboxSpecialUseService: store.mailboxSpecialUse, placementMoveService },
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		classifier
+			? {
+					accountSetting: store.accountSetting,
+					secrets,
+					mailboxSpecialUseService: store.mailboxSpecialUse,
+					mailboxService: store.mailbox,
+					labelService: store.label,
+					messageLabelService: store.messageLabel,
+					logger: { warn: (_obj, msg) => world.warnings.push(msg) },
+				}
+			: undefined,
+	);
+};
+
+const arrive = async (
+	raw: Buffer,
+	internalDate: Date = new Date(Date.now() + 60_000),
+): Promise<string> => {
+	const uid = world.imap.deliver(world.inbox.fullPath, raw, { internalDate });
+	await syncFolder(world.store, world.account, world.inbox, world.imap);
+	return (await messageAtUid(world.store, world.inbox, uid)).messageId;
+};
+
+const sync = (service: BodySyncService, messageIds: string[]) =>
+	service.syncBodies(
+		messageIds,
+		world.account.accountId,
+		world.account.accountConfigId,
+		{
+			mailboxId: world.inbox.mailboxId,
+			fullPath: world.inbox.fullPath,
+			placement: "inbox",
+			uidValidity: world.inbox.uidValidity,
+		},
+		async () => world.imap.connection(),
+		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
+	);
+
+const builtInCategory = async (raw: Buffer) => {
+	const messageId = await arrive(raw);
+	await sync(bodySync(false), [messageId]);
+	return (await world.store.message.get(messageId)).category;
+};
+
+const labelNames = async (messageId: string): Promise<string[]> => {
+	const applied = await world.store.messageLabel.listByMessageId(messageId);
+	const names: string[] = [];
+	for (const row of applied) {
+		const label = await world.store.label.get(
+			world.account.accountConfigId,
+			row.labelId,
+		);
+		names.push(label.name);
+	}
+	return names.sort();
+};
+
+describe("body sync with a saved classification provider", () => {
+	it("writes what the built-in rules write when no provider is saved", async () => {
+		const expected = await builtInCategory(SHOP);
+		const messageId = await arrive(SHOP);
+
+		await sync(bodySync(), [messageId]);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(world.provider.requests.length, 0);
+		assert.equal(row.category, expected);
+		assert.equal(row.classificationState, MessageClassificationState.Examined);
+	});
+
+	it("makes no call while classification is switched off", async () => {
+		await saveProvider(world.provider.baseUrl, false);
+		const messageId = await arrive(SHOP);
+
+		await sync(bodySync(), [messageId]);
+
+		assert.equal(world.provider.requests.length, 0);
+	});
+
+	it("makes one call and sets the category in the one write", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		const messageId = await arrive(COLLEAGUE);
+
+		const result = await sync(bodySync(), [messageId]);
+
+		assert.equal(result.syncedCount, 1);
+		assert.equal(world.provider.requests.length, 1);
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.category, "newsletter");
+		assert.equal(row.classificationState, MessageClassificationState.Examined);
+		const threads = await world.store.threadMessage.findAllByMessageId(
+			world.account.accountConfigId,
+			messageId,
+		);
+		assert.equal(threads[0].category, "newsletter");
+		const sent = world.provider.requests[0].body;
+		assert.match(sent, /Contract due today/);
+		assert.match(sent, /sign the contract/);
+	});
+
+	it("skips mail that arrived before the provider was saved", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		const messageId = await arrive(COLLEAGUE, new Date(Date.now() - 60_000));
+
+		await sync(bodySync(), [messageId]);
+
+		assert.equal(world.provider.requests.length, 0);
+	});
+
+	it("skips mail from an account that has not finished its first sync", async () => {
+		await world.store.mailbox.update(
+			world.account.accountId,
+			world.inbox.mailboxId,
+			{ initialSyncCompletedAt: 0 },
+		);
+		await saveProvider();
+		const messageId = await arrive(COLLEAGUE);
+
+		await sync(bodySync(), [messageId]);
+
+		assert.equal(world.provider.requests.length, 0);
+	});
+
+	it("skips a message already examined", async () => {
+		await saveProvider();
+		const messageId = await arrive(COLLEAGUE);
+		await world.store.message.update(messageId, {
+			classificationState: MessageClassificationState.Examined,
+		});
+
+		await sync(bodySync(), [messageId]);
+
+		assert.equal(world.provider.requests.length, 0);
+	});
+
+	it("stores the message with the built-in result while the provider is down", async () => {
+		const expected = await builtInCategory(SHOP);
+		await saveProvider(await closedPortBaseUrl());
+		const messageId = await arrive(SHOP);
+
+		const result = await sync(bodySync(), [messageId]);
+
+		assert.equal(result.syncedCount, 1);
+		assert.equal(result.failedCount, 0);
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.category, expected);
+		assert.equal(row.classificationState, MessageClassificationState.Examined);
+		assert.ok(row.bodyStorageKey);
+		assert.deepEqual(world.warnings, ["classification provider call failed"]);
+	});
+
+	it("makes no call for a message handled during a failure once the provider recovers", async () => {
+		world.reply = { status: 503, body: "{}" };
+		await saveProvider();
+		const messageId = await arrive(SHOP);
+		await sync(bodySync(), [messageId]);
+		world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
+
+		const second = await sync(bodySync(), [messageId]);
+
+		assert.equal(second.skippedCount, 1);
+		assert.equal(world.provider.requests.length, 1);
+	});
+
+	it("moves a spam answer to Junk with the built-in category over marketing", async () => {
+		const expected = await builtInCategory(SHOP);
+		await saveProvider();
+		world.reply = decision([
+			[ClassificationLabel.Spam, 0.75],
+			[ClassificationLabel.Marketing, 0.25],
+		]);
+		const messageId = await arrive(SHOP);
+
+		await sync(bodySync(), [messageId]);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.mailboxId, world.junk.mailboxId);
+		assert.equal(row.movedByRemit, true);
+		assert.equal(row.category, expected);
+	});
+
+	it("keeps a never-spam sender out of Junk", async () => {
+		await saveProvider();
+		const email = "deals@shop.example";
+		const addressId = deriveAddressId(world.account.accountConfigId, email);
+		await world.store.address.upsertAddress({
+			addressId,
+			accountConfigId: world.account.accountConfigId,
+			localPart: "deals",
+			domain: "shop.example",
+			normalizedEmail: email,
+			normalizedCompound: email,
+		});
+		await world.store.address.updateAddress(
+			world.account.accountConfigId,
+			addressId,
+			{ flags: { neverSpam: { value: true, setAt: 1 } } },
+		);
+		world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
+		const messageId = await arrive(SHOP);
+
+		await sync(bodySync(), [messageId]);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.mailboxId, world.inbox.mailboxId);
+	});
+
+	it("applies the Priority label over a personal answer", async () => {
+		await saveProvider();
+		world.reply = decision([
+			[ClassificationLabel.Priority, 0.72],
+			[ClassificationLabel.Personal, 0.28],
+		]);
+		const messageId = await arrive(COLLEAGUE);
+
+		await sync(bodySync(), [messageId]);
+
+		assert.deepEqual(await labelNames(messageId), ["Priority"]);
+	});
+
+	it("keeps the Personal label after classification is switched off", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Personal, 0.9]]);
+		const messageId = await arrive(COLLEAGUE);
+		await sync(bodySync(), [messageId]);
+
+		await saveProvider(world.provider.baseUrl, false);
+
+		assert.deepEqual(await labelNames(messageId), ["Personal"]);
+		assert.equal(
+			(await world.store.message.get(messageId)).category,
+			"personal",
+		);
+	});
+
+	it("lets the built-in result stand on a low-confidence answer", async () => {
+		const expected = await builtInCategory(SHOP);
+		await saveProvider();
+		world.reply = decision([
+			[ClassificationLabel.Spam, 0.6],
+			[ClassificationLabel.Priority, 0.4],
+		]);
+		const messageId = await arrive(SHOP);
+
+		await sync(bodySync(), [messageId]);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(world.provider.requests.length, 1);
+		assert.equal(row.mailboxId, world.inbox.mailboxId);
+		assert.equal(row.category, expected);
+		assert.deepEqual(await labelNames(messageId), []);
+	});
+});

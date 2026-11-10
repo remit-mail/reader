@@ -77,7 +77,27 @@ export const classifyParsedMessage = async (
 	accountConfigId: string,
 	parsed: ParsedMail,
 	placement: FolderPlacement,
-): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> => {
+): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> =>
+	(
+		await classifyParsedMessageWithOverride(
+			addressService,
+			accountConfigId,
+			parsed,
+			placement,
+		)
+	).fields;
+
+export interface ParsedMessageClassification {
+	fields: UpdateMessageInput & { category: ThreadMessageCategory };
+	categoryOverridden: boolean;
+}
+
+export const classifyParsedMessageWithOverride = async (
+	addressService: Pick<IAddressRepository, "getAddress">,
+	accountConfigId: string,
+	parsed: ParsedMail,
+	placement: FolderPlacement,
+): Promise<ParsedMessageClassification> => {
 	const headerCategory = classifyByHeaders(parsed);
 	const authenticity = extractAuthenticity(parsed);
 	const authResult = extractAuthResult(parsed);
@@ -105,12 +125,15 @@ export const classifyParsedMessage = async (
 		: undefined;
 
 	return {
-		category: categoryOverride ?? headerCategory,
-		hasListUnsubscribe,
-		...(authenticity !== null
-			? { authenticity: { ...authenticity, ...senderMismatch } }
-			: {}),
-		...(authResult !== null ? { authResult } : {}),
-		...(providerSpam !== null ? { providerSpam } : {}),
+		fields: {
+			category: categoryOverride ?? headerCategory,
+			hasListUnsubscribe,
+			...(authenticity !== null
+				? { authenticity: { ...authenticity, ...senderMismatch } }
+				: {}),
+			...(authResult !== null ? { authResult } : {}),
+			...(providerSpam !== null ? { providerSpam } : {}),
+		},
+		categoryOverridden: categoryOverride !== undefined,
 	};
 };

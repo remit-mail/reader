@@ -18,7 +18,6 @@ import {
 	type IThreadMessageRepository,
 	isSenderMuted,
 	type MessageItem,
-	type ThreadMessageItem,
 	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
@@ -31,10 +30,12 @@ import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
+	MessageCategory,
 	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
 	QuarantineFailureStage,
+	SenderOverride,
 	SenderTrust,
 	SyncWarningStage,
 } from "@remit/domain-enums";
@@ -54,9 +55,25 @@ import {
 	parsePartSource,
 } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
+import { ensureClassificationLabels } from "./classification-labels.js";
 import {
-	classifyParsedMessage,
+	type ClassifierAnswer,
+	type ClassifierVerdict,
+	classifierVerdict,
+	placementWithClassifier,
+} from "./classifier/classifier-precedence.js";
+import {
+	type ClassifierConfig,
+	type ClassifierGate,
+	classifierMessageOf,
+	classifyArrival,
+	readClassifierGate,
+} from "./classifier/classify-arrival.js";
+import { CLASSIFIER_LABELS } from "./classifier/index.js";
+import {
+	classifyParsedMessageWithOverride,
 	extractPrimaryFromEmail,
+	type ParsedMessageClassification,
 } from "./classify-message.js";
 
 import { extractListId } from "./filters/list-id.js";
@@ -99,8 +116,6 @@ type MessagePlacementVerdict = NonNullable<
 >;
 
 type MessageFilterMove = NonNullable<UpdateMessageInput["filterMove"]>;
-
-type ThreadMessageCategory = ThreadMessageItem["category"];
 
 /**
  * Outcome of {@link BodySyncService.resolvePlacement}: the audit `verdict` to
@@ -352,6 +367,7 @@ interface BatchLookups {
 	roleMailboxes: () => Promise<FolderRoleMailboxes>;
 	activeFilters: () => Promise<FilterItem[]>;
 	usableFilters: () => Promise<PreparedFilters>;
+	classifierGate: () => Promise<ClassifierGate>;
 }
 
 // A failed load is forgotten, so the next message retries it rather than the
@@ -391,6 +407,7 @@ export class BodySyncService {
 		private readonly quarantineConfig?: QuarantineConfig,
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
 		private readonly calendarConfig?: CalendarSuggestionConfig,
+		private readonly classifierConfig?: ClassifierConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.filterPipeline = filterConfig
@@ -857,10 +874,25 @@ export class BodySyncService {
 		// `flags.category` override when one applies (issue #299). The derived
 		// fields are folded into the single Message update below — they are NOT
 		// written here.
-		const classification = await this.classifyMessage(
+		const { fields: classification, categoryOverridden } =
+			await this.classifyMessage(accountConfigId, parsed, arrival.placement);
+
+		const filterDecision = await this.evaluateFilters(
+			lookups,
+			messageId,
+			parsed,
+			arrival,
+		);
+
+		const verdict = await this.decideClassifierVerdict(
+			lookups,
+			messageId,
 			accountConfigId,
 			parsed,
-			arrival.placement,
+			arrival,
+			filterDecision.labels.length > 0 ||
+				filterDecision.move !== undefined ||
+				categoryOverridden,
 		);
 
 		// Decide the placement move from the in-memory classification before the
@@ -875,13 +907,7 @@ export class BodySyncService {
 			accountConfigId,
 			parsed,
 			classification,
-		);
-
-		const filterDecision = await this.evaluateFilters(
-			lookups,
-			messageId,
-			parsed,
-			arrival,
+			verdict.kind === "Junk",
 		);
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
@@ -977,6 +1003,8 @@ export class BodySyncService {
 			});
 		}
 
+		await this.applyClassifierLabel(messageId, accountConfigId, verdict);
+
 		// Read once for the two write-once guards below — the auto-read decision
 		// and the category carry-forward. Taken here rather than earlier because
 		// nothing between this point and the Message update writes either field;
@@ -1030,7 +1058,9 @@ export class BodySyncService {
 		// first store.
 		const finalCategory = hasDecidedCategory(existingMessage.category)
 			? existingMessage.category
-			: classification.category;
+			: verdict.kind === "Category"
+				? verdict.category
+				: classification.category;
 
 		// Thread-list denormalization, using the same write-once category as the
 		// Message update below — the two rows must never disagree on category.
@@ -1263,13 +1293,96 @@ export class BodySyncService {
 		accountConfigId: string,
 		parsed: ParsedMail,
 		placement: FolderPlacement,
-	): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> {
-		return classifyParsedMessage(
+	): Promise<ParsedMessageClassification> {
+		return classifyParsedMessageWithOverride(
 			this.addressService,
 			accountConfigId,
 			parsed,
 			placement,
 		);
+	}
+
+	private async consultClassifier(
+		lookups: BatchLookups,
+		messageId: string,
+		parsed: ParsedMail,
+		arrival: Arrival,
+	): Promise<ClassifierAnswer | undefined> {
+		const { classifierConfig } = this;
+		if (!classifierConfig) return undefined;
+		const gate = await lookups.classifierGate();
+		if (gate.state === "Off" || arrival.internalDate <= gate.savedAt) {
+			return undefined;
+		}
+		const message = await this.messageService.get(messageId);
+		if (message.classificationState === MessageClassificationState.Examined) {
+			return undefined;
+		}
+		const result = await classifyArrival(classifierConfig, {
+			provider: gate.provider,
+			labels: CLASSIFIER_LABELS,
+			message: classifierMessageOf(parsed),
+		});
+		if (!result.ok) return undefined;
+		return { scores: result.scores, confidenceKind: result.confidenceKind };
+	}
+
+	private async decideClassifierVerdict(
+		lookups: BatchLookups,
+		messageId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+		arrival: Arrival,
+		userRuleApplies: boolean,
+	): Promise<ClassifierVerdict> {
+		const answer = await this.consultClassifier(
+			lookups,
+			messageId,
+			parsed,
+			arrival,
+		);
+		if (!answer) return { kind: "None" };
+		if (userRuleApplies) return classifierVerdict(answer, true);
+		const fromEmail = extractPrimaryFromEmail(parsed);
+		const signals = fromEmail
+			? await this.deriveSenderPlacementSignals(accountConfigId, fromEmail)
+			: undefined;
+		const senderOverride = signals
+			? resolveSenderPlacement(
+					{ trust: signals.trust, setAt: signals.trustSetAt },
+					{ blocked: signals.blocked, setAt: signals.blockedSetAt },
+					signals.neverSpam,
+				).senderOverride
+			: SenderOverride.None;
+		return classifierVerdict(answer, senderOverride !== SenderOverride.None);
+	}
+
+	private async applyClassifierLabel(
+		messageId: string,
+		accountConfigId: string,
+		verdict: ClassifierVerdict,
+	): Promise<void> {
+		const { classifierConfig } = this;
+		if (!classifierConfig) return;
+		const name =
+			verdict.kind === "Priority"
+				? "Priority"
+				: verdict.kind === "Category" &&
+						verdict.category === MessageCategory.personal
+					? "Personal"
+					: undefined;
+		if (name === undefined) return;
+		const labels = await ensureClassificationLabels(
+			classifierConfig.labelService,
+			accountConfigId,
+		);
+		const label = labels.find((candidate) => candidate.name === name);
+		if (!label) throw new Error(`Built-in label ${name} was not ensured`);
+		await classifierConfig.messageLabelService.apply({
+			messageId,
+			labelId: label.labelId,
+			accountConfigId,
+		});
 	}
 
 	private async incrementInboundCount(
@@ -1579,7 +1692,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		accountId: string,
 	): BatchLookups {
-		const { placementConfig, filterPipeline } = this;
+		const { placementConfig, filterPipeline, classifierConfig } = this;
 		const filterService =
 			this.filterConfig?.filterService ?? this.calendarConfig?.filterService;
 		const activeFilters = once(async () =>
@@ -1608,6 +1721,11 @@ export class BodySyncService {
 							await activeFilters(),
 						)
 					: [],
+			),
+			classifierGate: once(async () =>
+				classifierConfig
+					? readClassifierGate(classifierConfig, accountConfigId, accountId)
+					: { state: "Off" },
 			),
 		};
 	}
@@ -1646,6 +1764,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
+		classifierJunk: boolean,
 	): Promise<PlacementOutcome> {
 		if (!this.placementConfig) return {};
 		return this.computePlacement(
@@ -1656,6 +1775,7 @@ export class BodySyncService {
 			accountConfigId,
 			parsed,
 			classification,
+			classifierJunk,
 		).catch((error: unknown) => {
 			this.log.error?.(
 				{
@@ -1680,6 +1800,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
+		classifierJunk: boolean,
 	): Promise<PlacementOutcome> {
 		const { mailboxSpecialUseService } = placementConfig;
 
@@ -1716,10 +1837,10 @@ export class BodySyncService {
 		// authResult, authenticity) that this body-sync pass just derived; the
 		// stored row does not carry them yet, so overlay them onto the message.
 		const candidate = { ...message, ...classification };
-		const verdict = classifyPlacement(
-			candidate,
+		const verdict = placementWithClassifier(
+			classifyPlacement(candidate, placement, senderTrust, senderOverride),
+			classifierJunk,
 			placement,
-			senderTrust,
 			senderOverride,
 		);
 

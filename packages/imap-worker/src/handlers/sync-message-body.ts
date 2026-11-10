@@ -105,6 +105,8 @@ export const syncMessageBody = async (
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
 		calendarStore,
+		accountSetting: accountSettingService,
+		label: labelService,
 	} = ctx.client;
 
 	const account = await accountService.get(accountId);
@@ -218,6 +220,15 @@ export const syncMessageBody = async (
 					calendarStore,
 					filterService,
 					accountService,
+				},
+				{
+					accountSetting: accountSettingService,
+					secrets,
+					mailboxSpecialUseService,
+					mailboxService,
+					labelService,
+					messageLabelService,
+					logger: log,
 				},
 			);
 
