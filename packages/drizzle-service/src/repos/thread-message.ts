@@ -327,6 +327,57 @@ function sentDateCursorCond(
 	);
 }
 
+const tenantFilter = (accountConfigId: string): SQL =>
+	sql`+${threadMessageTable.accountConfigId} = ${accountConfigId}`;
+
+export const selectThreadMessagesByMessageId = (
+	db: DB,
+	accountConfigId: string,
+	messageId: string,
+) =>
+	db
+		.select()
+		.from(threadMessageTable)
+		.where(
+			and(
+				tenantFilter(accountConfigId),
+				eq(threadMessageTable.messageId, messageId),
+			),
+		);
+
+export const selectThreadMembers = (
+	db: DB,
+	accountConfigId: string,
+	threadId: string,
+) =>
+	db
+		.select({
+			threadMessageId: threadMessageTable.threadMessageId,
+			messageId: threadMessageTable.messageId,
+		})
+		.from(threadMessageTable)
+		.where(
+			and(
+				tenantFilter(accountConfigId),
+				eq(threadMessageTable.threadId, threadId),
+			),
+		);
+
+export const countThreadMembers = (
+	db: DB,
+	accountConfigId: string,
+	threadId: string,
+) =>
+	db
+		.select({ count: sql<number>`cast(count(*) as int)` })
+		.from(threadMessageTable)
+		.where(
+			and(
+				tenantFilter(accountConfigId),
+				eq(threadMessageTable.threadId, threadId),
+			),
+		);
+
 // ─── Repository ──────────────────────────────────────────────────────────────
 
 export class DrizzleThreadMessageRepository
@@ -1053,18 +1104,11 @@ export class DrizzleThreadMessageRepository
 		toThreadId: string,
 	): Promise<{ moved: number; dropped: number }> {
 		if (fromThreadId === toThreadId) return { moved: 0, dropped: 0 };
-		const rows = await this.db
-			.select({
-				threadMessageId: threadMessageTable.threadMessageId,
-				messageId: threadMessageTable.messageId,
-			})
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.threadId, fromThreadId),
-				),
-			);
+		const rows = await selectThreadMembers(
+			this.db,
+			accountConfigId,
+			fromThreadId,
+		);
 		if (rows.length === 0) return { moved: 0, dropped: 0 };
 
 		// Per row: drop it when the target row already exists, otherwise move it
@@ -1116,16 +1160,11 @@ export class DrizzleThreadMessageRepository
 		accountConfigId: string,
 		messageId: string,
 	): Promise<ThreadMessageItem | null> {
-		const [row] = await this.db
-			.select()
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.messageId, messageId),
-				),
-			)
-			.limit(1);
+		const [row] = await selectThreadMessagesByMessageId(
+			this.db,
+			accountConfigId,
+			messageId,
+		).limit(1);
 		return row ? toItem(row) : null;
 	}
 
@@ -1133,15 +1172,11 @@ export class DrizzleThreadMessageRepository
 		accountConfigId: string,
 		messageId: string,
 	): Promise<ThreadMessageItem[]> {
-		const rows = await this.db
-			.select()
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.messageId, messageId),
-				),
-			);
+		const rows = await selectThreadMessagesByMessageId(
+			this.db,
+			accountConfigId,
+			messageId,
+		);
 		return rows.map(toItem);
 	}
 
@@ -1207,15 +1242,11 @@ export class DrizzleThreadMessageRepository
 		accountConfigId: string,
 		threadId: string,
 	): Promise<number> {
-		const [{ count }] = await this.db
-			.select({ count: sql<number>`cast(count(*) as int)` })
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.threadId, threadId),
-				),
-			);
+		const [{ count }] = await countThreadMembers(
+			this.db,
+			accountConfigId,
+			threadId,
+		);
 		return count;
 	}
 
