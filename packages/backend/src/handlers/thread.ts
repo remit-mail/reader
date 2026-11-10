@@ -11,7 +11,6 @@ import {
 	type EnrichClient,
 	enrichThreadRows,
 } from "../derive/enrichThreadRows.js";
-import { hasOffRowCriteria } from "../derive/filterThreadCriteria.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -159,10 +158,6 @@ export type ThreadSearchParams = {
  *
  * `count` names the whole match, never the page: a page size bounds the rows a
  * response carries and has no bearing on how many messages match (#509).
- *
- * `senderTrust` and `dkimMismatch` filter in the query, before the page size
- * applies (#1555). The API still answers `count` as absent under either
- * (#305), so a count-only request under one reads nothing at all.
  */
 export const executeThreadSearch = async (
 	client: ThreadSearchClient,
@@ -181,8 +176,7 @@ export const executeThreadSearch = async (
 		senderTrust: params.senderTrust,
 		dkimMismatch: params.dkimMismatch,
 	};
-	const offRow = hasOffRowCriteria(search);
-	const wantCount = params.count === true && !offRow;
+	const wantCount = params.count === true;
 	const wantResults = params.results !== false;
 	const options = buildSearchThreadsOptions({
 		continuationToken: params.continuationToken,

@@ -311,12 +311,6 @@ model ThreadSearchResponse {
     folder and a virtual copy of it — because that is what the cross-account
     listing renders after collapsing by `threadId`. A count that disagreed with
     the rows beneath it would be a third number for the same set.
-    
-    Absent when the query carries `senderTrust` or `dkimMismatch`, even with
-    `count=true`. Those are resolved by enriching rows rather than by a
-    predicate, so no exact count exists short of enriching the whole mailbox.
-    Absence says so; a page's post-filter length labelled `count` would be a
-    page length presented as a total. A client with no number renders none.
     """)
   count?: int32;
 }

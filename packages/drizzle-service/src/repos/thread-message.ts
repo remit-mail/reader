@@ -175,25 +175,36 @@ function toItem(row: Row): ThreadMessageItem {
 // RFC 036 D4).
 
 /**
- * Whether the row's From address is muted, as a correlated subquery over the
- * Address table.
+ * Whether the row's From address meets `condition`, as a correlated subquery
+ * over the Address table.
  *
- * Muting is a flag on the address rather than a column on the row, so this is
- * the one criterion that reaches outside `thread_message` — the read path
- * denormalizes it onto the response afterwards, which is too late to count by.
+ * Muting and trust are flags on the address rather than columns on the row —
+ * the read path denormalizes them onto the response afterwards, which is too
+ * late to count or page by.
  * `normalized_email` is written folded, on the same rule the fold here applies,
  * so the two meet. Both sides are already scoped to one account config, and
  * correlating on that rather than binding it keeps the predicate usable from
  * every caller without threading the id through.
  */
-const mutedSender = (): SQL =>
-	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
+const senderAddressWith = (condition: SQL): SQL =>
+	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and ${condition})`;
 
-const senderFlag = (name: "vip" | "wellknown"): SQL =>
-	sql`json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), ${`$.${name}.value`}) = 1`;
+const senderFlag = (name: "muted" | "vip" | "wellknown"): SQL =>
+	sql`(coalesce(json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), ${`$.${name}.value`}), 0) = 1)`;
 
-const senderTrustIn = (trust: readonly string[]): SQL =>
-	sql`coalesce((select case when ${senderFlag("vip")} then ${SenderTrust.Vip} when ${senderFlag("wellknown")} then ${SenderTrust.Wellknown} end from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) limit 1), ${SenderTrust.Unknown}) in (select value from json_each(${JSON.stringify(trust)}))`;
+const mutedSender = (): SQL => senderAddressWith(senderFlag("muted"));
+
+const senderTrustIs = (
+	trust: NonNullable<SearchOptions["senderTrust"]>[number],
+): SQL => {
+	if (trust === SenderTrust.Vip) return senderAddressWith(senderFlag("vip"));
+	if (trust === SenderTrust.Wellknown) {
+		return senderAddressWith(
+			sql`${senderFlag("wellknown")} and not ${senderFlag("vip")}`,
+		);
+	}
+	return sql`not ${senderAddressWith(sql`(${senderFlag("vip")} or ${senderFlag("wellknown")})`)}`;
+};
 
 const dkimMismatchIs = (mismatch: boolean): SQL =>
 	sql`exists (select 1 from ${messageTable} where ${messageTable.messageId} = ${threadMessageTable.messageId} and json_extract(${messageTable.authenticity}, '$.dkimMismatch') = ${mismatch ? 1 : 0})`;
@@ -256,7 +267,9 @@ function buildSearchConditions(search: SearchOptions): SearchConditions {
 		row.push(inArray(threadMessageTable.category, search.category));
 	}
 	if (search.senderTrust?.length) {
-		row.push(senderTrustIn(search.senderTrust));
+		row.push(
+			sql`(${sql.join(search.senderTrust.map(senderTrustIs), sql` or `)})`,
+		);
 	}
 	if (search.dkimMismatch !== undefined) {
 		row.push(dkimMismatchIs(search.dkimMismatch));
