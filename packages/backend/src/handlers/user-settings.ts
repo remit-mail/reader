@@ -8,11 +8,19 @@ import {
 	sendingAccountFor,
 } from "@remit/calendar-service";
 import type {
+	IAccountConfigRepository,
 	IAccountRepository,
 	IAccountSettingRepository,
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
-import { readStoredClassification } from "@remit/data-ports/classification-presets";
+import {
+	type ClassificationDeploymentDefault,
+	readStoredClassification,
+} from "@remit/data-ports/classification-presets";
+import {
+	type ResolvedClassification,
+	readResolvedClassification,
+} from "@remit/data-ports/classification-resolver";
 import { AccountSettingName } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import type { ClassificationLabelDeps } from "@remit/mailbox-service";
@@ -38,10 +46,32 @@ export interface UserSettingsDeps {
 		IAccountSettingRepository,
 		"get" | "getMany" | "upsert" | "delete"
 	>;
+	accountConfig: Pick<IAccountConfigRepository, "get">;
+	classificationDefault: ClassificationDeploymentDefault;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 	secrets: Pick<SecretsService, "encrypt">;
 	label: ClassificationLabelDeps;
 }
+
+const readEffectiveClassification = async (
+	deps: UserSettingsDeps,
+	accountConfigId: string,
+): Promise<
+	Extract<ResolvedClassification, { state: "NotConfigured" | "Configured" }>
+> => {
+	const resolved = await readResolvedClassification(deps, accountConfigId);
+	if (resolved.state === "UnknownPreset") {
+		throw new Error(
+			`Stored classification preset is unknown: ${resolved.presetId}`,
+		);
+	}
+	if (resolved.state === "NoBaseUrl") {
+		throw new Error(
+			`Classification base URL is missing for preset ${resolved.presetId}`,
+		);
+	}
+	return resolved;
+};
 
 /** The account the reader chose to send invitations from, if they chose one. */
 export const chosenInvitationSender = async (
@@ -70,17 +100,17 @@ export const readUserSettings = async (
 	);
 	const accounts = await deps.accounts.listAllByAccountConfig(accountConfigId);
 	const inEffect = invitationSenderInEffect(accounts, chosen);
-	const stored = await readStoredClassification(
-		deps.accountSetting,
-		accountConfigId,
-	);
+	const resolved = await readEffectiveClassification(deps, accountConfigId);
 	const usage =
-		stored.state === "Configured"
+		resolved.state === "Configured"
 			? await readClassificationUsage(
 					deps.accountSetting,
 					accountConfigId,
 					accounts.map((account) => account.accountId),
-					stored,
+					{
+						presetId: resolved.presetId.value,
+						dailyLimit: resolved.dailyLimit.value,
+					},
 					Date.now(),
 				)
 			: [];
@@ -89,7 +119,7 @@ export const readUserSettings = async (
 		defaultInvitationSenderChosen:
 			inEffect !== undefined && inEffect.accountId === chosen,
 		classificationPresets: classificationPresetsResponse(),
-		classification: publicClassification(stored, usage),
+		classification: publicClassification(resolved, usage),
 	};
 };
 
@@ -133,6 +163,8 @@ export const updateUserSettingsFor = async (
 
 const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
 	accountSetting: ctx.client.accountSetting,
+	accountConfig: ctx.client.accountConfig,
+	classificationDefault: ctx.client.classificationDefault,
 	accounts: ctx.client.account,
 	secrets: ctx.client.secrets,
 	label: ctx.client.label,

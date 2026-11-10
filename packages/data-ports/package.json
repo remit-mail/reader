@@ -33,6 +33,10 @@
 			"types": "./src/classification-presets.ts",
 			"default": "./src/classification-presets.ts"
 		},
+		"./classification-resolver": {
+			"types": "./src/classification-resolver.ts",
+			"default": "./src/classification-resolver.ts"
+		},
 		"./account-settings": {
 			"types": "./src/account-settings.ts",
 			"default": "./src/account-settings.ts"

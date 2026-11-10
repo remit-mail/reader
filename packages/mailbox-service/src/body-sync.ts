@@ -1394,7 +1394,7 @@ export class BodySyncService {
 			return NO_CLASSIFIER_VERDICT;
 		}
 		const gate = await lookups.classifierGate();
-		if (gate.state === "Off" || arrival.internalDate <= gate.savedAt) {
+		if (gate.state === "Off" || arrival.internalDate <= gate.classifiesAfter) {
 			return NO_CLASSIFIER_VERDICT;
 		}
 		const { senderOverride } = await senderPlacement();

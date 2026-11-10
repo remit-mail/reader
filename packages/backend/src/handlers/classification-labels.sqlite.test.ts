@@ -31,6 +31,8 @@ const enable = async (): Promise<void> => {
 	const updated = await updateUserSettingsFor(
 		{
 			accountSetting: repos.accountSetting,
+			accountConfig: repos.accountConfig,
+			classificationDefault: { state: "None" },
 			accounts: repos.account,
 			secrets,
 			label: repos.label,

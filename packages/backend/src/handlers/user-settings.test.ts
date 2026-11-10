@@ -20,6 +20,8 @@ describe("the default invitation sender", () => {
 		const refused = await updateUserSettingsFor(
 			{
 				accountSetting: client.accountSetting,
+				accountConfig: client.accountConfig,
+				classificationDefault: client.classificationDefault,
 				accounts: client.account,
 				secrets: client.secrets,
 				label: client.label,

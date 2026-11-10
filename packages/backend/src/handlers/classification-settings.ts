@@ -15,6 +15,10 @@ import {
 	type StoredClassification,
 	utcDateOf,
 } from "@remit/data-ports/classification-presets";
+import {
+	ClassificationSource,
+	type ResolvedClassificationProvider,
+} from "@remit/data-ports/classification-resolver";
 import { AccountSettingName } from "@remit/domain-enums";
 import {
 	type ClassificationLabelDeps,
@@ -159,12 +163,21 @@ export const decideClassificationProvider = (
 };
 
 export const publicClassification = (
-	stored: StoredClassification,
+	resolved: ResolvedClassificationProvider | { state: "NotConfigured" },
 	usage: ClassificationUsage[],
 ): ClassificationNotConfigured | ClassificationConfigured => {
-	if (stored.state === "NotConfigured") return stored;
-	const { apiKeyCiphertext: _ciphertext, ...configured } = stored;
-	return { ...configured, usage };
+	if (resolved.state === "NotConfigured") return resolved;
+	return {
+		state: "Configured",
+		presetId: resolved.presetId.value,
+		model: resolved.model.value,
+		baseUrl: resolved.baseUrl.value,
+		apiKeySaved: resolved.apiKey.source === ClassificationSource.Saved,
+		enabled: resolved.enabled.value,
+		dailyLimit: resolved.dailyLimit.value,
+		savedAt: resolved.classifiesAfter,
+		usage,
+	};
 };
 
 const CLASSIFICATION_INPUT_TOKENS_PER_CALL = 1_500;
