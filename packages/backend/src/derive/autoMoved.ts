@@ -18,8 +18,7 @@ import type { MessageItem } from "@remit/data-ports";
  * 2. The Tier 0 classifier records a `placementVerdict`. Its `action`
  *    (MoveToInbox/MoveToJunk) and `fromPlacement` (inbox/junk/other) are the
  *    only fields that cross to the wire; confidence, dryRun, decidedAt and
- *    reasons stay internal. An `unsure` verdict projects like a confident
- *    one: a Junk arrival moves to the Inbox on either (issue #1553).
+ *    reasons stay internal.
  *
  * The filter marker outranks the verdict check: a matched filter's move is
  * exclusive and outranks the classifier's placement move at index time (RFC 034

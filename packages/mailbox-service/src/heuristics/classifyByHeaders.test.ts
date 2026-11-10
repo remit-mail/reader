@@ -613,6 +613,7 @@ const inboxVerdict = (parsed: ParsedMail) =>
 		"inbox",
 		SenderTrust.Unknown,
 		SenderOverride.None,
+		false,
 	);
 
 const withBody = (lines: string[]): string[] => [...lines, "", "body"];

@@ -15,6 +15,7 @@ import type { MessageItem } from "@remit/data-ports";
 import { SenderOverride, SenderTrust } from "@remit/domain-enums";
 import {
 	classifyPlacement,
+	decidePlacement,
 	resolveSenderPlacement,
 } from "./classifyPlacement.js";
 
@@ -40,6 +41,7 @@ describe("classifyPlacement", () => {
 				"inbox",
 				SenderTrust.Unknown,
 				SenderOverride.Blocked,
+				false,
 			);
 			assert.deepEqual(verdict, {
 				action: "move-to-junk",
@@ -54,19 +56,10 @@ describe("classifyPlacement", () => {
 				"other",
 				SenderTrust.Unknown,
 				SenderOverride.Blocked,
+				false,
 			);
 			assert.equal(verdict.action, "move-to-junk");
 			assert.equal(verdict.confidence, "confident");
-		});
-
-		it("does not re-move a blocked sender's message already in junk", () => {
-			const verdict = classifyPlacement(
-				baseMessage(),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.Blocked,
-			);
-			assert.notEqual(verdict.action, "move-to-junk");
 		});
 
 		it("does not demote when the sender carries no instruction, all else equal", () => {
@@ -75,6 +68,7 @@ describe("classifyPlacement", () => {
 				"inbox",
 				SenderTrust.Unknown,
 				SenderOverride.None,
+				false,
 			);
 			assert.deepEqual(verdict, {
 				action: "leave",
@@ -82,103 +76,18 @@ describe("classifyPlacement", () => {
 				reasons: ["no-confident-signal"],
 			});
 		});
-
-		it("still leaves an already-Remit-moved message alone even when blocked", () => {
-			const verdict = classifyPlacement(
-				baseMessage({ movedByRemit: true }),
-				"inbox",
-				SenderTrust.Unknown,
-				SenderOverride.Blocked,
-			);
-			assert.deepEqual(verdict, {
-				action: "leave",
-				confidence: "confident",
-				reasons: ["already-moved-by-remit"],
-			});
-		});
 	});
 
 	describe("SenderOverride.NeverSpam (issue #605)", () => {
-		it("rescues mail the provider rated clean from a domain that publishes no DMARC", () => {
-			const verdict = classifyPlacement(
-				baseMessage({
-					providerSpam: { classified: false },
-					authResult: { dmarc: "None" },
-				}),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.NeverSpam,
-			);
-			assert.deepEqual(verdict, {
-				action: "move-to-inbox",
-				confidence: "confident",
-				reasons: ["sender=never-spam"],
-			});
-		});
-
-		it("rescues a message with no parsed signals out of junk", () => {
-			const verdict = classifyPlacement(
-				baseMessage({ providerSpam: undefined, authResult: undefined }),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.NeverSpam,
-			);
-			assert.equal(verdict.action, "move-to-inbox");
-			assert.equal(verdict.confidence, "confident");
-		});
-
 		it("leaves a never-spam sender's mail filed in a user folder where it is", () => {
 			const verdict = classifyPlacement(
 				baseMessage(),
 				"other",
 				SenderTrust.Unknown,
 				SenderOverride.NeverSpam,
+				false,
 			);
 			assert.equal(verdict.action, "leave");
-		});
-
-		// The demote branch is reached only from `inbox`, so a spoof already in
-		// Junk never meets it. Without the guard on the rescue, the grant would
-		// carry mail impersonating the granted address out of Junk.
-		it("refuses to rescue a dkim-mismatch + dmarc-fail spoof sitting in junk", () => {
-			const verdict = classifyPlacement(
-				baseMessage({
-					providerSpam: { classified: true },
-					authResult: { dmarc: "Fail" },
-					authenticity: { fromDomain: "example.com", dkimMismatch: true },
-				}),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.NeverSpam,
-			);
-			assert.notEqual(verdict.action, "move-to-inbox");
-		});
-
-		it("refuses to rescue on a hard DMARC failure even with DKIM aligned", () => {
-			const verdict = classifyPlacement(
-				baseMessage({
-					providerSpam: { classified: true },
-					authResult: { dmarc: "Fail" },
-				}),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.NeverSpam,
-			);
-			assert.notEqual(verdict.action, "move-to-inbox");
-		});
-
-		it("refuses to rescue on a DKIM mismatch even where DMARC did not fail", () => {
-			const verdict = classifyPlacement(
-				baseMessage({
-					providerSpam: { classified: true },
-					authResult: { dmarc: "None" },
-					authenticity: { fromDomain: "example.com", dkimMismatch: true },
-				}),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.NeverSpam,
-			);
-			assert.notEqual(verdict.action, "move-to-inbox");
 		});
 
 		it("still demotes a never-spam sender's inbox mail on dkim-mismatch + dmarc-fail", () => {
@@ -190,25 +99,12 @@ describe("classifyPlacement", () => {
 				"inbox",
 				SenderTrust.Unknown,
 				SenderOverride.NeverSpam,
+				false,
 			);
 			assert.deepEqual(verdict, {
 				action: "move-to-junk",
 				confidence: "confident",
 				reasons: ["dkim-mismatch", "dmarc=fail", "sender=untrusted"],
-			});
-		});
-
-		it("still leaves an already-Remit-moved message alone", () => {
-			const verdict = classifyPlacement(
-				baseMessage({ movedByRemit: true }),
-				"junk",
-				SenderTrust.Unknown,
-				SenderOverride.NeverSpam,
-			);
-			assert.deepEqual(verdict, {
-				action: "leave",
-				confidence: "confident",
-				reasons: ["already-moved-by-remit"],
 			});
 		});
 	});
@@ -316,6 +212,7 @@ describe("classifyPlacement", () => {
 				"inbox",
 				SenderTrust.Unknown,
 				SenderOverride.None,
+				false,
 			);
 			assert.deepEqual(verdict, {
 				action: "move-to-junk",
@@ -333,12 +230,119 @@ describe("classifyPlacement", () => {
 				"inbox",
 				SenderTrust.Unknown,
 				SenderOverride.None,
+				false,
 			);
 			assert.deepEqual(verdict, {
 				action: "leave",
 				confidence: "unsure",
 				reasons: ["dkim-mismatch", "dmarc=pass", "deferred-to-llm"],
 			});
+		});
+	});
+});
+
+describe("decidePlacement", () => {
+	it("keeps a blocked sender's Junk arrival in Junk", () => {
+		const decision = decidePlacement(
+			baseMessage(),
+			"junk",
+			SenderTrust.Unknown,
+			SenderOverride.Blocked,
+			false,
+			false,
+		);
+		assert.equal(decision.verdict.action, "move-to-junk");
+		assert.equal(decision.destination, undefined);
+	});
+
+	it("keeps a spoofed Junk arrival in Junk", () => {
+		const decision = decidePlacement(
+			baseMessage({
+				authResult: { dmarc: "Fail" },
+				authenticity: { fromDomain: "example.com", dkimMismatch: true },
+			}),
+			"junk",
+			SenderTrust.Unknown,
+			SenderOverride.None,
+			false,
+			false,
+		);
+		assert.equal(decision.verdict.action, "move-to-junk");
+		assert.equal(decision.destination, undefined);
+	});
+
+	for (const trust of [SenderTrust.Vip, SenderTrust.Wellknown]) {
+		it(`moves a ${trust} sender's Junk arrival to the Inbox over a classifier junk answer`, () => {
+			const decision = decidePlacement(
+				baseMessage(),
+				"junk",
+				trust,
+				SenderOverride.None,
+				true,
+				false,
+			);
+			assert.equal(decision.verdict.action, "move-to-inbox");
+			assert.equal(decision.destination, "inbox");
+		});
+	}
+
+	it("keeps a spoof of a never-spam sender in Junk", () => {
+		const decision = decidePlacement(
+			baseMessage({
+				authResult: { dmarc: "Fail" },
+				authenticity: { fromDomain: "example.com", dkimMismatch: true },
+			}),
+			"junk",
+			SenderTrust.Unknown,
+			SenderOverride.NeverSpam,
+			false,
+			false,
+		);
+		assert.equal(decision.verdict.action, "move-to-junk");
+		assert.equal(decision.destination, undefined);
+	});
+
+	it("files an autoArchive sender's Junk arrival in the Archive", () => {
+		const decision = decidePlacement(
+			baseMessage(),
+			"junk",
+			SenderTrust.Unknown,
+			SenderOverride.None,
+			false,
+			true,
+		);
+		assert.equal(decision.verdict.action, "move-to-inbox");
+		assert.equal(decision.destination, "archive");
+	});
+
+	it("files an autoArchive sender's Inbox arrival in the Archive", () => {
+		const decision = decidePlacement(
+			baseMessage(),
+			"inbox",
+			SenderTrust.Unknown,
+			SenderOverride.None,
+			false,
+			true,
+		);
+		assert.equal(decision.destination, "archive");
+	});
+
+	it("leaves a message Remit already moved where it is, even when blocked", () => {
+		const decision = decidePlacement(
+			baseMessage({ movedByRemit: true }),
+			"inbox",
+			SenderTrust.Unknown,
+			SenderOverride.Blocked,
+			false,
+			true,
+		);
+		assert.deepEqual(decision, {
+			verdict: {
+				action: "leave",
+				confidence: "confident",
+				reasons: ["already-moved-by-remit"],
+			},
+			destination: undefined,
 		});
 	});
 });

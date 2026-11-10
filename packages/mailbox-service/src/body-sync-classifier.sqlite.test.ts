@@ -159,16 +159,21 @@ beforeEach(async () => {
 	const imap = new FakeImapServer();
 	for (const path of ["INBOX", "Junk"]) imap.addFolder(path);
 	const inbox = await seedMailbox(store, account, "INBOX");
-	await store.mailbox.update(account.accountId, inbox.mailboxId, {
-		initialSyncCompletedAt: 1,
+	const junk = await seedMailbox(store, account, "Junk", {
+		specialUse: "Junk",
 	});
+	for (const mailbox of [inbox, junk]) {
+		await store.mailbox.update(account.accountId, mailbox.mailboxId, {
+			initialSyncCompletedAt: 1,
+		});
+	}
 	world = {
 		store,
 		imap,
 		queue: recordingQueue(),
 		account,
 		inbox,
-		junk: await seedMailbox(store, account, "Junk", { specialUse: "Junk" }),
+		junk,
 		provider: await startStubHttpServer(() => world.reply),
 		reply: { status: 500, body: "{}" },
 		warnings: [],
@@ -219,10 +224,7 @@ const saveProvider = async (
 	});
 };
 
-const bodySync = (
-	classifier = true,
-	classifierTimeoutMs?: number,
-): BodySyncService => {
+const bodySync = (classifier = true): BodySyncService => {
 	const { store } = world;
 	const placementMoveService = new PlacementMoveService({
 		messageService: store.message,
@@ -255,7 +257,6 @@ const bodySync = (
 					labelService: store.label,
 					messageLabelService: store.messageLabel,
 					logger: { warn: (_obj, msg) => world.warnings.push(msg) },
-					timeoutMs: classifierTimeoutMs,
 				}
 			: undefined,
 	);
@@ -264,33 +265,59 @@ const bodySync = (
 const arrive = async (
 	raw: Buffer,
 	internalDate: Date = new Date(Date.now() + 60_000),
+	mailbox: MailboxItem = world.inbox,
 ): Promise<string> => {
-	const uid = world.imap.deliver(world.inbox.fullPath, raw, { internalDate });
-	await syncFolder(world.store, world.account, world.inbox, world.imap);
-	return (await messageAtUid(world.store, world.inbox, uid)).messageId;
+	const uid = world.imap.deliver(mailbox.fullPath, raw, { internalDate });
+	await syncFolder(world.store, world.account, mailbox, world.imap);
+	return (await messageAtUid(world.store, mailbox, uid)).messageId;
 };
 
-const sync = async (service: BodySyncService, messageIds: string[]) =>
+const sync = async (
+	service: BodySyncService,
+	messageIds: string[],
+	mailbox: MailboxItem = world.inbox,
+) =>
 	service.syncBodies(
 		messageIds,
 		world.account.accountId,
 		world.account.accountConfigId,
 		{
-			mailboxId: world.inbox.mailboxId,
-			fullPath: world.inbox.fullPath,
-			placement: "inbox",
-			uidValidity: world.inbox.uidValidity,
-			createdAt: world.inbox.createdAt,
+			mailboxId: mailbox.mailboxId,
+			fullPath: mailbox.fullPath,
+			placement: mailbox.mailboxId === world.junk.mailboxId ? "junk" : "inbox",
+			uidValidity: mailbox.uidValidity,
+			createdAt: mailbox.createdAt,
 			initialSyncCompletedAt: (
 				await world.store.mailbox.get(
 					world.account.accountId,
-					world.inbox.mailboxId,
+					mailbox.mailboxId,
 				)
 			).initialSyncCompletedAt,
 		},
 		async () => world.imap.connection(),
 		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
 	);
+
+const flagSender = async (
+	email: string,
+	flags: Parameters<Store["address"]["updateAddress"]>[2]["flags"],
+): Promise<void> => {
+	const [localPart, domain] = email.split("@");
+	const addressId = deriveAddressId(world.account.accountConfigId, email);
+	await world.store.address.upsertAddress({
+		addressId,
+		accountConfigId: world.account.accountConfigId,
+		localPart,
+		domain,
+		normalizedEmail: email,
+		normalizedCompound: email,
+	});
+	await world.store.address.updateAddress(
+		world.account.accountConfigId,
+		addressId,
+		{ flags },
+	);
+};
 
 const builtInCategory = async (raw: Buffer) => {
 	const messageId = await arrive(raw);
@@ -453,21 +480,9 @@ describe("body sync with a saved classification provider", () => {
 
 	it("keeps a never-spam sender out of Junk", async () => {
 		await saveProvider();
-		const email = "deals@shop.example";
-		const addressId = deriveAddressId(world.account.accountConfigId, email);
-		await world.store.address.upsertAddress({
-			addressId,
-			accountConfigId: world.account.accountConfigId,
-			localPart: "deals",
-			domain: "shop.example",
-			normalizedEmail: email,
-			normalizedCompound: email,
+		await flagSender("deals@shop.example", {
+			neverSpam: { value: true, setAt: 1 },
 		});
-		await world.store.address.updateAddress(
-			world.account.accountConfigId,
-			addressId,
-			{ flags: { neverSpam: { value: true, setAt: 1 } } },
-		);
 		world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
 		const messageId = await arrive(SHOP);
 
@@ -568,71 +583,6 @@ const JUNK_SPOOF = eml(
 
 const NEWSLETTER_SENDER = "news@dutchcyclingweekly.nl";
 
-const flagNewsletterSender = async (
-	flags: Parameters<Store["address"]["updateAddress"]>[2]["flags"],
-): Promise<void> => {
-	const addressId = deriveAddressId(
-		world.account.accountConfigId,
-		NEWSLETTER_SENDER,
-	);
-	await world.store.address.upsertAddress({
-		addressId,
-		accountConfigId: world.account.accountConfigId,
-		localPart: "news",
-		domain: "dutchcyclingweekly.nl",
-		normalizedEmail: NEWSLETTER_SENDER,
-		normalizedCompound: NEWSLETTER_SENDER,
-	});
-	await world.store.address.updateAddress(
-		world.account.accountConfigId,
-		addressId,
-		{ flags },
-	);
-};
-
-interface JunkSync {
-	classifier?: boolean;
-	classifierTimeoutMs?: number;
-	internalDate?: Date;
-	before?: (messageId: string) => Promise<void>;
-}
-
-const syncJunk = async (
-	raw: Buffer,
-	{
-		classifier = true,
-		classifierTimeoutMs,
-		internalDate = new Date(Date.now() + 60_000),
-		before,
-	}: JunkSync = {},
-): Promise<string> => {
-	await world.store.mailbox.update(
-		world.account.accountId,
-		world.junk.mailboxId,
-		{ initialSyncCompletedAt: 1 },
-	);
-	const uid = world.imap.deliver(world.junk.fullPath, raw, { internalDate });
-	await syncFolder(world.store, world.account, world.junk, world.imap);
-	const { messageId } = await messageAtUid(world.store, world.junk, uid);
-	await before?.(messageId);
-	await bodySync(classifier, classifierTimeoutMs).syncBodies(
-		[messageId],
-		world.account.accountId,
-		world.account.accountConfigId,
-		{
-			mailboxId: world.junk.mailboxId,
-			fullPath: world.junk.fullPath,
-			placement: "junk",
-			uidValidity: world.junk.uidValidity,
-			createdAt: world.junk.createdAt,
-			initialSyncCompletedAt: 1,
-		},
-		async () => world.imap.connection(),
-		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
-	);
-	return messageId;
-};
-
 const assertMovedToInbox = async (messageId: string): Promise<void> => {
 	const row = await world.store.message.get(messageId);
 	assert.equal(row.mailboxId, world.inbox.mailboxId);
@@ -651,20 +601,21 @@ const assertKeptInJunk = async (messageId: string): Promise<void> => {
 
 describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 	it("moves an unknown newsletter the provider called spam to the Inbox", async () => {
-		const messageId = await syncJunk(JUNK_NEWSLETTER, { classifier: false });
+		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+
+		await sync(bodySync(false), [messageId], world.junk);
 
 		await assertMovedToInbox(messageId);
 		const row = await world.store.message.get(messageId);
 		assert.equal(row.placementVerdict?.confidence, PlacementConfidence.Unsure);
 	});
 
-	it("moves to the Inbox when the classifier times out", async () => {
+	it("moves to the Inbox when the classifier gives no answer", async () => {
 		await saveProvider();
-		world.reply = "Silent";
+		world.reply = { status: 503, body: "{}" };
+		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
 
-		const messageId = await syncJunk(JUNK_NEWSLETTER, {
-			classifierTimeoutMs: 5,
-		});
+		await sync(bodySync(), [messageId], world.junk);
 
 		assert.equal(world.provider.requests.length, 1);
 		await assertMovedToInbox(messageId);
@@ -673,10 +624,13 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 	for (const trust of ["vip", "wellknown"] as const) {
 		it(`moves a ${trust} sender to the Inbox over a classifier Junk answer`, async () => {
 			await saveProvider();
-			await flagNewsletterSender({ [trust]: { value: true, setAt: 1 } });
+			await flagSender(NEWSLETTER_SENDER, {
+				[trust]: { value: true, setAt: 1 },
+			});
 			world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
+			const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
 
-			const messageId = await syncJunk(JUNK_NEWSLETTER);
+			await sync(bodySync(), [messageId], world.junk);
 
 			assert.equal(world.provider.requests.length, 1);
 			await assertMovedToInbox(messageId);
@@ -684,19 +638,20 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 	}
 
 	it("leaves mail that sat in Junk before the first sync undecided and judges the next arrival", async () => {
-		const backlog = await syncJunk(JUNK_NEWSLETTER, {
-			classifier: false,
-			internalDate: new Date(world.junk.createdAt - 60_000),
-		});
+		const backlog = await arrive(
+			JUNK_NEWSLETTER,
+			new Date(world.junk.createdAt - 60_000),
+			world.junk,
+		);
+		const arrival = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+
+		await sync(bodySync(false), [backlog, arrival], world.junk);
 
 		const row = await world.store.message.get(backlog);
 		assert.equal(row.mailboxId, world.junk.mailboxId);
 		assert.equal(row.placementVerdict, undefined);
 		assert.equal(row.placementDecidedAt, undefined);
-
-		await assertMovedToInbox(
-			await syncJunk(JUNK_NEWSLETTER, { classifier: false }),
-		);
+		await assertMovedToInbox(arrival);
 	});
 
 	const placedInJunk = [
@@ -724,12 +679,10 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 	];
 	for (const placed of placedInJunk) {
 		it(`leaves a Junk message with ${placed.name} in Junk`, async () => {
-			const messageId = await syncJunk(JUNK_NEWSLETTER, {
-				classifier: false,
-				before: async (id) => {
-					await placed.mark(id);
-				},
-			});
+			const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+			await placed.mark(messageId);
+
+			await sync(bodySync(false), [messageId], world.junk);
 
 			const row = await world.store.message.get(messageId);
 			assert.equal(row.mailboxId, world.junk.mailboxId);
@@ -738,22 +691,30 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 	}
 
 	it("keeps a blocked sender in Junk", async () => {
-		await flagNewsletterSender({ blocked: { value: true, setAt: 1 } });
+		await flagSender(NEWSLETTER_SENDER, {
+			blocked: { value: true, setAt: 1 },
+		});
+		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
 
-		await assertKeptInJunk(
-			await syncJunk(JUNK_NEWSLETTER, { classifier: false }),
-		);
+		await sync(bodySync(false), [messageId], world.junk);
+
+		await assertKeptInJunk(messageId);
 	});
 
 	it("keeps a DKIM mismatch with a DMARC fail in Junk", async () => {
-		await assertKeptInJunk(await syncJunk(JUNK_SPOOF, { classifier: false }));
+		const messageId = await arrive(JUNK_SPOOF, undefined, world.junk);
+
+		await sync(bodySync(false), [messageId], world.junk);
+
+		await assertKeptInJunk(messageId);
 	});
 
 	it("keeps a classifier Phishing answer in Junk and never shows it the provider's verdict", async () => {
 		await saveProvider();
 		world.reply = decision([[ClassificationLabel.Phishing, 0.95]]);
+		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
 
-		const messageId = await syncJunk(JUNK_NEWSLETTER);
+		await sync(bodySync(), [messageId], world.junk);
 
 		await assertKeptInJunk(messageId);
 		assert.equal(world.provider.requests.length, 1);

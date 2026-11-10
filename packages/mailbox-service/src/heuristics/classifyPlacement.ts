@@ -103,11 +103,6 @@ export const resolveSenderPlacement = (
  * {@link resolveSenderPlacement} in the caller; this function itself does not
  * compare `setAt`.
  *
- * `NeverSpam` refuses outright on a `dmarc === "Fail"` or a DKIM mismatch, the
- * two signals that identify someone impersonating the address the user
- * granted. It rescues only from `junk` — a message a standing filter put in a
- * user folder is not a spam question.
- *
  * A classifier junk answer yields to Vip and Wellknown (issue #1553): the user
  * set the one and replied to the other.
  */
@@ -116,17 +111,9 @@ export const classifyPlacement = (
 	placement: FolderPlacement,
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
-	classifierJunk = false,
+	classifierJunk: boolean,
 ): PlacementVerdict => {
-	if (message.movedByRemit === true) {
-		return {
-			action: "leave",
-			confidence: "confident",
-			reasons: ["already-moved-by-remit"],
-		};
-	}
-
-	if (senderOverride === SenderOverride.Blocked && placement !== "junk") {
+	if (senderOverride === SenderOverride.Blocked) {
 		return {
 			action: "move-to-junk",
 			confidence: "confident",
@@ -136,19 +123,6 @@ export const classifyPlacement = (
 
 	const dmarc = message.authResult?.dmarc;
 	const dkimMismatch = message.authenticity?.dkimMismatch === true;
-
-	if (
-		senderOverride === SenderOverride.NeverSpam &&
-		placement === "junk" &&
-		dmarc !== "Fail" &&
-		!dkimMismatch
-	) {
-		return {
-			action: "move-to-inbox",
-			confidence: "confident",
-			reasons: ["sender=never-spam"],
-		};
-	}
 
 	const trusted = isTrusted(senderTrust);
 
@@ -193,30 +167,37 @@ export const classifyPlacement = (
 	};
 };
 
+export type PlacementDestination = "inbox" | "archive" | "junk";
+
 /**
  * What body sync does with a message's placement. `verdict.action` is relative
- * to the folder the message sits in; `move` says whether it is carried out, and
- * an actionable verdict with `move: false` is recorded only.
+ * to the folder the message sits in; `destination` is where it moves, and an
+ * actionable verdict with no destination is recorded only.
  */
 export interface PlacementDecision {
 	verdict: PlacementVerdict;
-	move: boolean;
+	destination: PlacementDestination | undefined;
 }
 
 /**
  * Decide a message's placement (issue #1553). Pure.
  *
+ * A message Remit already moved is never re-decided, whatever the user did
+ * with it since.
+ *
  * A message in Junk is judged as if it had arrived in the Inbox: the
  * provider's spam folder is not a signal. One that verdict would demote stays
- * in Junk, recorded as `move-to-junk`. Every other one moves to the Inbox
- * whatever the confidence, since `unsure` is not junk.
- *
- * A Junk message somebody already placed is never touched (issue #383): a spam
- * report, a user move (`originalMailboxId`) and `movedByRemit` each mean the
- * folder is a decision, not the provider's arrival.
+ * in Junk, recorded as `move-to-junk`. Every other one leaves Junk whatever
+ * the confidence, since `unsure` is not junk. A Junk message somebody already
+ * placed is never touched (issue #383): a spam report and a user move
+ * (`originalMailboxId`) each mean the folder is a decision, not the
+ * provider's arrival.
  *
  * Outside Junk only a confident actionable verdict moves; an unsure one is
  * recorded.
+ *
+ * `autoArchive` (issue #300) files mail that would otherwise stay put or go to
+ * the Inbox in the Archive; it never overrides a junk verdict.
  */
 export const decidePlacement = (
 	message: MessageItem,
@@ -224,7 +205,19 @@ export const decidePlacement = (
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
 	classifierJunk: boolean,
+	autoArchive: boolean,
 ): PlacementDecision => {
+	if (message.movedByRemit === true) {
+		return {
+			verdict: {
+				action: "leave",
+				confidence: "confident",
+				reasons: ["already-moved-by-remit"],
+			},
+			destination: undefined,
+		};
+	}
+
 	if (placement !== "junk") {
 		const verdict = classifyPlacement(
 			message,
@@ -233,24 +226,23 @@ export const decidePlacement = (
 			senderOverride,
 			classifierJunk,
 		);
+		if (verdict.action === "leave") {
+			return { verdict, destination: autoArchive ? "archive" : undefined };
+		}
 		return {
 			verdict,
-			move: verdict.action !== "leave" && verdict.confidence === "confident",
+			destination: verdict.confidence === "confident" ? "junk" : undefined,
 		};
 	}
 
-	if (
-		message.movedByRemit === true ||
-		message.spamReport ||
-		message.originalMailboxId
-	) {
+	if (message.spamReport || message.originalMailboxId) {
 		return {
 			verdict: {
 				action: "leave",
 				confidence: "confident",
 				reasons: ["placed-in-junk"],
 			},
-			move: false,
+			destination: undefined,
 		};
 	}
 
@@ -262,7 +254,7 @@ export const decidePlacement = (
 		classifierJunk,
 	);
 	if (asInbox.action === "move-to-junk") {
-		return { verdict: asInbox, move: false };
+		return { verdict: asInbox, destination: undefined };
 	}
 	return {
 		verdict: {
@@ -270,6 +262,6 @@ export const decidePlacement = (
 			confidence: asInbox.confidence,
 			reasons: asInbox.reasons,
 		},
-		move: true,
+		destination: autoArchive ? "archive" : "inbox",
 	};
 };

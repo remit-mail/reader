@@ -97,7 +97,6 @@ import {
 import {
 	decidePlacement,
 	type FolderPlacement,
-	type PlacementVerdict,
 	resolveSenderPlacement,
 } from "./heuristics/classifyPlacement.js";
 import {
@@ -207,24 +206,6 @@ export const extractSnippet = (parsed: ParsedMail): string =>
  */
 const hasStoredBody = (bodyStorageKey: string | undefined): boolean =>
 	Boolean(bodyStorageKey);
-
-/**
- * Issue #398: `flags.autoArchive` is a filing preference relative to the Inbox.
- * A `leave` verdict reaches it for two unrelated reasons and only one of them
- * means "nothing confident to say":
- *
- * - `already-moved-by-remit` is {@link classifyPlacement}'s guard against
- *   re-deciding a settled placement, and auto-archive is a re-decision. It
- *   fires on messages Remit itself placed, or that a user moved back
- *   afterwards.
- * - A message in Junk reaches `leave` only when somebody already placed it
- *   there, and that placement is not re-decided.
- */
-const autoArchiveApplies = (
-	verdict: PlacementVerdict,
-	placement: FolderPlacement,
-): boolean =>
-	placement !== "junk" && !verdict.reasons.includes("already-moved-by-remit");
 
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
@@ -1355,7 +1336,7 @@ export class BodySyncService {
 				labels: CLASSIFIER_LABELS,
 				message: classifierMessageOf(parsed),
 			},
-			{ logger: config.logger, timeoutMs: config.timeoutMs },
+			{ logger: config.logger },
 		);
 		if (!result.ok) return undefined;
 		return { scores: result.scores, confidenceKind: result.confidenceKind };
@@ -1765,13 +1746,6 @@ export class BodySyncService {
 	 * circuits instead of re-deciding a placement the user may have since
 	 * overridden by hand.
 	 *
-	 * The move out of Junk is an IMAP mutation that depends on the row's current
-	 * placement, and it WAITS (imap-mutations R2): `PlacementMoveService`
-	 * blocks until an in-flight move settles and binds to the confirmed row,
-	 * and its transition predicates on the placement read here, so a user move
-	 * that lands first wins and the Remit move is skipped, never reconciled
-	 * over it.
-	 *
 	 * Always logs a structured verdict line for every move so the real
 	 * distribution is observable on a live mailbox.
 	 *
@@ -1855,76 +1829,57 @@ export class BodySyncService {
 
 		const { senderTrust, senderOverride, autoArchive } =
 			await senderPlacement();
+		const archiveMailbox = autoArchive
+			? await mailboxSpecialUseService.findArchiveMailbox(accountId)
+			: null;
 
 		// The verdict needs the classification signals (providerSpam,
 		// authResult, authenticity) that this body-sync pass just derived; the
 		// stored row does not carry them yet, so overlay them onto the message.
 		const candidate = { ...message, ...classification };
-		const { verdict, move } = decidePlacement(
+		const { verdict, destination } = decidePlacement(
 			candidate,
 			placement,
 			senderTrust,
 			senderOverride,
 			classifierJunk,
+			archiveMailbox !== null,
 		);
 
-		// A `leave` verdict — including "nothing confident to say" — carries no
-		// audit record of its own. `flags.autoArchive` (issue #300) is a distinct,
-		// lower-priority filing preference: it only files a message away when
-		// `blocked`/DKIM/DMARC had nothing to say, never overriding a confident
-		// junk/inbox verdict computed above. Still marked decided (issue #383):
-		// "leave" is itself a verdict, not "not yet evaluated".
-		if (verdict.action === "leave") {
-			const outcome = autoArchiveApplies(verdict, placement)
-				? await this.resolveAutoArchive(
-						mailboxSpecialUseService,
-						message,
-						accountId,
-						autoArchive,
-					)
-				: {};
-			return { ...outcome, placementDecidedAt: Date.now() };
-		}
-
-		// `flags.autoArchive` wins the destination of a Junk arrival Remit judged
-		// not junk, the way a filter's exclusive move wins over placement.
-		if (placement === "junk" && move && autoArchive) {
-			const archived = await this.resolveAutoArchive(
-				mailboxSpecialUseService,
-				message,
-				accountId,
-				autoArchive,
-			);
-			if (archived.move) {
-				return { ...archived, placementDecidedAt: Date.now() };
-			}
-		}
-
-		// Audit verdict — recorded for every actionable verdict (both
-		// confidences), so the distribution is queryable on the message.
-		// Independent of whether a move is enqueued.
-		const audit: MessagePlacementVerdict = {
-			action:
-				verdict.action === "move-to-inbox"
-					? PlacementAction.MoveToInbox
-					: PlacementAction.MoveToJunk,
-			confidence:
-				verdict.confidence === "confident"
-					? PlacementConfidence.Confident
-					: PlacementConfidence.Unsure,
-			fromPlacement: placement,
-			reasons: verdict.reasons,
-			dryRun: false,
-			decidedAt: Date.now(),
-		};
-
-		if (!move) {
-			return { verdict: audit, placementDecidedAt: audit.decidedAt };
-		}
+		// Issue #383: "leave" is itself a verdict, not "not yet evaluated". An
+		// Archive move carries no audit verdict: `PlacementAction` has only
+		// `MoveToInbox`/`MoveToJunk` (issue #300).
+		const decidedAt = Date.now();
+		const outcome: PlacementOutcome =
+			verdict.action === "leave" || destination === "archive"
+				? { placementDecidedAt: decidedAt }
+				: {
+						verdict: {
+							action:
+								verdict.action === "move-to-inbox"
+									? PlacementAction.MoveToInbox
+									: PlacementAction.MoveToJunk,
+							confidence:
+								verdict.confidence === "confident"
+									? PlacementConfidence.Confident
+									: PlacementConfidence.Unsure,
+							fromPlacement: placement,
+							reasons: verdict.reasons,
+							dryRun: false,
+							decidedAt,
+						},
+						placementDecidedAt: decidedAt,
+					};
 
 		const target =
-			verdict.action === "move-to-inbox" ? inboxMailbox : junkMailbox;
-		if (!target) return { verdict: audit, placementDecidedAt: audit.decidedAt };
+			destination === undefined
+				? null
+				: {
+						inbox: inboxMailbox,
+						junk: junkMailbox,
+						archive: archiveMailbox,
+					}[destination];
+		if (!target || target.mailboxId === message.mailboxId) return outcome;
 
 		// Structured verdict line — emitted for every move so the real verdict
 		// distribution is observable on a live mailbox.
@@ -1936,65 +1891,17 @@ export class BodySyncService {
 				action: verdict.action,
 				confidence: verdict.confidence,
 				reasons: verdict.reasons,
+				destination,
 				destinationMailboxId: target.mailboxId,
 			},
 			"Placement verdict",
 		);
 
 		return {
-			verdict: audit,
+			...outcome,
 			move: {
 				destinationMailboxId: target.mailboxId,
 				destinationPath: target.fullPath,
-			},
-			placementDecidedAt: audit.decidedAt,
-		};
-	}
-
-	/**
-	 * `flags.autoArchive` (issue #300, RFC 039 Decision 3): file a message
-	 * straight to Archive, skipping Inbox. Only reached from
-	 * {@link computePlacement} when {@link classifyPlacement} had no confident
-	 * junk/inbox verdict of its own — `blocked`/DKIM/DMARC always take priority
-	 * over this filing preference — and only for the `leave` verdicts
-	 * {@link autoArchiveApplies} admits.
-	 *
-	 * No {@link MessagePlacementVerdict} is recorded: `PlacementAction` (the
-	 * audit enum) has only `MoveToInbox`/`MoveToJunk` — issue #300 is scoped to
-	 * no TypeSpec change, so an archive move carries no audit verdict, same as
-	 * a matched filter's move. The move itself reuses the same
-	 * `placementMoveService.moveMessage` path as every other confident move.
-	 *
-	 * Idempotent the same way {@link classifyPlacement}'s own branches are: a
-	 * message already sitting in Archive is left alone, not moved again.
-	 */
-	private async resolveAutoArchive(
-		mailboxSpecialUseService: IMailboxSpecialUseRepository,
-		message: MessageItem,
-		accountId: string,
-		autoArchive: boolean,
-	): Promise<PlacementOutcome> {
-		if (!autoArchive) return {};
-
-		const archiveMailbox =
-			await mailboxSpecialUseService.findArchiveMailbox(accountId);
-		if (!archiveMailbox || message.mailboxId === archiveMailbox.mailboxId) {
-			return {};
-		}
-
-		this.log.info(
-			{
-				messageId: message.messageId,
-				accountId,
-				destinationMailboxId: archiveMailbox.mailboxId,
-			},
-			"Auto-archive verdict",
-		);
-
-		return {
-			move: {
-				destinationMailboxId: archiveMailbox.mailboxId,
-				destinationPath: archiveMailbox.fullPath,
 			},
 		};
 	}

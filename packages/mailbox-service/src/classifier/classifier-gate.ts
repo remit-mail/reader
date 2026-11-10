@@ -38,7 +38,6 @@ export interface ClassifierConfig {
 	labelService: ClassificationLabelDeps;
 	messageLabelService: Pick<IMessageLabelRepository, "apply">;
 	logger: ClassifierLogger;
-	timeoutMs?: number;
 }
 
 export type ClassifierGate =
