@@ -51,7 +51,7 @@ import {
 	type StorageService,
 } from "@remit/storage-service";
 import { Semaphore } from "async-mutex";
-import { type ParsedMail, simpleParser } from "mailparser";
+import type { ParsedMail } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import {
@@ -1229,6 +1229,7 @@ export class BodySyncService {
 				this.batchLookups(accountConfigId, accountId),
 			);
 		} else {
+			const { simpleParser } = await import("mailparser");
 			parsed = await simpleParser(body);
 		}
 
@@ -1731,15 +1732,16 @@ export class BodySyncService {
 					: { junkMailbox: null, inboxMailbox: null },
 			),
 			activeFilters,
-			usableFilters: once(async () =>
-				filterPipeline
-					? filterPipeline.prepare(
-							accountConfigId,
-							accountId,
-							await activeFilters(),
-						)
-					: [],
-			),
+			usableFilters: once(async () => {
+				if (!filterPipeline) {
+					throw new Error("usableFilters needs a filter pipeline");
+				}
+				return filterPipeline.prepare(
+					accountConfigId,
+					accountId,
+					await activeFilters(),
+				);
+			}),
 			classifierGate: once(async () =>
 				classifierConfig
 					? readClassifierGate(classifierConfig, accountConfigId)

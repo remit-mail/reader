@@ -183,7 +183,12 @@ const matchLiteral = async (
 	scope: OrganizeMatchScope,
 ): Promise<string[]> => {
 	const clauses = predicate.literalClauses;
-	const narrowing = literalClauseTerms(clauses, predicate.matchOperator);
+	const { getDomain } = await import("tldts");
+	const narrowing = literalClauseTerms(
+		clauses,
+		predicate.matchOperator,
+		getDomain,
+	);
 	if (!narrowing) return [];
 
 	const matched: string[] = [];
@@ -199,7 +204,14 @@ const matchLiteral = async (
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
 			seen.add(messageId);
-			if (!literalClausesMatch(clauses, predicate.matchOperator, message)) {
+			if (
+				!literalClausesMatch(
+					clauses,
+					predicate.matchOperator,
+					message,
+					getDomain,
+				)
+			) {
 				continue;
 			}
 			matched.push(messageId);

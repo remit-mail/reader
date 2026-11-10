@@ -9,6 +9,7 @@ import type { FolderPlacement } from "../heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
 	type FilterMessage,
+	type GetDomain,
 	literalClausesMatch,
 	NO_ACTION,
 	selectMoveWinner,
@@ -46,7 +47,10 @@ export interface FilterDecision {
 
 const EMPTY_DECISION: FilterDecision = { labels: [] };
 
-export type PreparedFilters = readonly FilterItem[];
+export interface PreparedFilters {
+	filters: readonly FilterItem[];
+	getDomain: GetDomain;
+}
 
 /**
  * Evaluates a synced message against the account's active filters and resolves
@@ -66,7 +70,14 @@ export class FilterPipeline {
 	) {}
 
 	decide(prepared: PreparedFilters, msg: FilterMessage): FilterDecision {
-		const matched = prepared.filter((filter) => filterMatches(filter, msg));
+		const matched = prepared.filters.filter((filter) =>
+			literalClausesMatch(
+				filter.literalClauses,
+				filter.matchOperator,
+				msg,
+				prepared.getDomain,
+			),
+		);
 		if (matched.length === 0) return EMPTY_DECISION;
 
 		const labels: FilterDecision["labels"] = [];
@@ -127,6 +138,7 @@ export class FilterPipeline {
 		accountId: string,
 		active: readonly FilterItem[],
 	): Promise<PreparedFilters> {
+		const { getDomain } = await import("tldts");
 		const filters: FilterItem[] = [];
 		for (const filter of active) {
 			// Lazy expiry (RFC 034 Decision 1.2): reading a Temporary filter past
@@ -137,7 +149,7 @@ export class FilterPipeline {
 			if (!(await this.appliesTo(accountConfigId, accountId, usable))) continue;
 			filters.push(usable);
 		}
-		return filters;
+		return { filters, getDomain };
 	}
 }
 
@@ -153,11 +165,11 @@ export const filtersForArrival = (
 	prepared: PreparedFilters,
 	arrival: { placement: FolderPlacement; internalDate: number },
 ): PreparedFilters => {
-	if (arrival.placement === "other") return [];
-	return prepared.filter(
-		(filter) => arrival.internalDate >= filter.actionChangedAt * 1000,
-	);
+	if (arrival.placement === "other") return { ...prepared, filters: [] };
+	return {
+		...prepared,
+		filters: prepared.filters.filter(
+			(filter) => arrival.internalDate >= filter.actionChangedAt * 1000,
+		),
+	};
 };
-
-const filterMatches = (filter: FilterItem, msg: FilterMessage): boolean =>
-	literalClausesMatch(filter.literalClauses, filter.matchOperator, msg);

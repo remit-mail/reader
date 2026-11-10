@@ -1,6 +1,5 @@
 import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
-import { getDomain, parse as parseHost } from "tldts";
 
 type CorrespondenceValue =
 	(typeof DisplayNameCorrespondence)[keyof typeof DisplayNameCorrespondence];
@@ -28,6 +27,8 @@ export interface SenderMismatchContext {
 	bulkSender: boolean;
 }
 
+type Tldts = typeof import("tldts");
+
 const MAX_LINK_DOMAINS = 10;
 
 const normalize = (value: string): string =>
@@ -39,8 +40,8 @@ const normalize = (value: string): string =>
  * registrable domain run together. The suffix itself is dropped — `net` and
  * `com` sit inside half the brand names in existence.
  */
-const correspondenceCandidates = (host: string): string[] => {
-	const parsed = parseHost(host);
+const correspondenceCandidates = (tldts: Tldts, host: string): string[] => {
+	const parsed = tldts.parse(host);
 	const labels = (parsed.subdomain ?? "").split(".");
 	if (parsed.domainWithoutSuffix !== null) {
 		labels.push(parsed.domainWithoutSuffix);
@@ -75,18 +76,21 @@ const editDistance = (a: string, b: string): number => {
 
 const ADDRESS_SHAPE = /[^\s<>@,;:"]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i;
 
-const registrableDomain = (host: string): string =>
-	getDomain(host) ?? host.toLowerCase();
+const registrableDomain = (tldts: Tldts, host: string): string =>
+	tldts.getDomain(host) ?? host.toLowerCase();
 
 /**
  * The registrable domain of the address a display name spells out, or
  * `undefined` when it holds an `@` without an address behind it — `Bob @ Acme`
  * asserts no address and is left to the ordinary comparison.
  */
-const claimedAddressDomain = (displayName: string): string | undefined => {
+const claimedAddressDomain = (
+	tldts: Tldts,
+	displayName: string,
+): string | undefined => {
 	const host = ADDRESS_SHAPE.exec(displayName)?.[1];
 	if (host === undefined) return undefined;
-	return registrableDomain(host);
+	return registrableDomain(tldts, host);
 };
 
 /**
@@ -133,13 +137,14 @@ const lookalikeThreshold = (length: number): number => {
 export const classifyDisplayNameCorrespondence = (
 	displayName: string | undefined,
 	fromDomain: string,
+	tldts: Tldts,
 ): CorrespondenceValue => {
 	const raw = (displayName ?? "").trim();
 	if (raw === "") return DisplayNameCorrespondence.NoClaim;
 
-	const claimed = claimedAddressDomain(raw);
+	const claimed = claimedAddressDomain(tldts, raw);
 	if (claimed !== undefined) {
-		if (claimed === registrableDomain(fromDomain)) {
+		if (claimed === registrableDomain(tldts, fromDomain)) {
 			return DisplayNameCorrespondence.NoClaim;
 		}
 		return DisplayNameCorrespondence.ForeignAddress;
@@ -148,7 +153,7 @@ export const classifyDisplayNameCorrespondence = (
 	const name = normalize(raw);
 	if (name.length < 3) return DisplayNameCorrespondence.NoClaim;
 
-	const candidates = correspondenceCandidates(fromDomain);
+	const candidates = correspondenceCandidates(tldts, fromDomain);
 	if (candidates.length === 0) return DisplayNameCorrespondence.NoClaim;
 
 	const terms = [name, ...words(raw)];
@@ -199,8 +204,9 @@ const urlsFromText = (text: string): string[] =>
 export const extractOffDomainLinkDomains = (
 	parsed: ParsedMail,
 	fromDomain: string,
+	tldts: Tldts,
 ): string[] => {
-	const senderDomain = getDomain(fromDomain);
+	const senderDomain = tldts.getDomain(fromDomain);
 	const html = typeof parsed.html === "string" ? parsed.html : "";
 	const text = typeof parsed.text === "string" ? parsed.text : "";
 
@@ -209,7 +215,7 @@ export const extractOffDomainLinkDomains = (
 	for (const href of [...hrefsFromHtml(html), ...urlsFromText(text)]) {
 		const value = href.trim();
 		if (value === "" || !/^https?:\/\//i.test(value)) continue;
-		const domain = getDomain(value);
+		const domain = tldts.getDomain(value);
 		if (domain === null || domain === senderDomain) continue;
 		if (seen.has(domain)) continue;
 		seen.add(domain);
@@ -224,13 +230,15 @@ export const extractOffDomainLinkDomains = (
  * gets only the link comparison: a brand name over an ESP domain is normal
  * there, so the display-name comparison is not made and stays absent.
  */
-export const extractSenderMismatch = (
+export const extractSenderMismatch = async (
 	parsed: ParsedMail,
 	context: SenderMismatchContext,
-): SenderMismatchSignals => {
+): Promise<SenderMismatchSignals> => {
+	const tldts = await import("tldts");
 	const offDomainLinkDomains = extractOffDomainLinkDomains(
 		parsed,
 		context.fromDomain,
+		tldts,
 	);
 
 	if (context.bulkSender) return { offDomainLinkDomains };
@@ -239,6 +247,7 @@ export const extractSenderMismatch = (
 		displayNameCorrespondence: classifyDisplayNameCorrespondence(
 			parsed.from?.value?.[0]?.name,
 			context.fromDomain,
+			tldts,
 		),
 		offDomainLinkDomains,
 	};

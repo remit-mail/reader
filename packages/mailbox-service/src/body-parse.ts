@@ -1,6 +1,6 @@
 import type { QuarantineItem } from "@remit/data-ports";
 import { QuarantineFailureCode } from "@remit/domain-enums";
-import { type ParsedMail, simpleParser } from "mailparser";
+import type { ParsedMail } from "mailparser";
 
 type FailureCode = QuarantineItem["failureCode"];
 
@@ -53,6 +53,7 @@ const classifyBodyParseFailure = (message: string): FailureCode =>
  * the queue or the database may be moved inside it.
  */
 export const parseMessageBody = async (body: Buffer): Promise<ParsedMail> => {
+	const { simpleParser } = await import("mailparser");
 	try {
 		return await simpleParser(body);
 	} catch (error) {

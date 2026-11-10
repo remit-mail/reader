@@ -6,7 +6,6 @@
  */
 
 import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
 import type {
 	FlatMailboxInfo,
 	ImapAddress,
@@ -839,6 +838,7 @@ export class ImapFlowConnection {
 		// throw on sufficiently broken input; a throw here would abort the whole
 		// fetch batch. Missing references just means "no thread parent", so on any
 		// parse failure treat the message as a thread root rather than crashing.
+		const { simpleParser } = await import("mailparser");
 		const parsed = await simpleParser(headers).catch(() => null);
 
 		if (!parsed?.references) return undefined;
