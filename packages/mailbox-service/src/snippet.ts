@@ -6,10 +6,7 @@
  */
 
 import type { ParsedMail } from "mailparser";
-import {
-	createTextNormalizer,
-	type SupportedLanguage,
-} from "./text/normalizer.js";
+import type { SupportedLanguage, TextNormalizer } from "./text/normalizer.js";
 
 /**
  * Remove quoted reply content from email body.
@@ -38,7 +35,14 @@ export const removeQuotedContent = (text: string): string => {
 	return result.join("\n");
 };
 
-const normalizer = createTextNormalizer();
+let normalizer: Promise<TextNormalizer> | undefined;
+
+const loadNormalizer = (): Promise<TextNormalizer> => {
+	normalizer ??= import("./text/normalizer.js").then((module) =>
+		module.createTextNormalizer(),
+	);
+	return normalizer;
+};
 
 /**
  * Normalize subject for thread grouping and search.
@@ -61,10 +65,12 @@ const normalizer = createTextNormalizer();
  * @param subject - The email subject line
  * @param language - Optional language override (auto-detected if not provided)
  */
-export const normalizeSubject = (
+export const normalizeSubject = async (
 	subject: string,
 	language?: SupportedLanguage,
-): string => {
+): Promise<string> => {
+	const normalizer = await loadNormalizer();
+
 	const SUBJECT_PREFIX_PATTERN =
 		/^(\s*(Re|Fwd|Fw|Aw|Sv|Vs|Ref|Rif|Odp|Ynt|Antw|Res)(\[\d+\])?:\s*)+/i;
 

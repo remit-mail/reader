@@ -42,86 +42,86 @@ describe("removeQuotedContent", () => {
 
 describe("normalizeSubject", () => {
 	describe("prefix removal", () => {
-		it("removes Re: prefix", () => {
-			const result = normalizeSubject("Re: Meeting tomorrow");
+		it("removes Re: prefix", async () => {
+			const result = await normalizeSubject("Re: Meeting tomorrow");
 			assert.ok(!result.includes("re"));
 			assert.ok(result.includes("meet"));
 		});
 
-		it("removes Fwd: prefix", () => {
-			const result = normalizeSubject("Fwd: Important document");
+		it("removes Fwd: prefix", async () => {
+			const result = await normalizeSubject("Fwd: Important document");
 			assert.ok(!result.includes("fwd"));
 		});
 
-		it("removes numbered Re: prefix", () => {
-			const result = normalizeSubject("Re[3]: Meeting tomorrow");
+		it("removes numbered Re: prefix", async () => {
+			const result = await normalizeSubject("Re[3]: Meeting tomorrow");
 			assert.ok(!result.includes("re"));
 		});
 
-		it("removes multiple prefixes", () => {
-			const result = normalizeSubject("Re: Fwd: Re: Original subject");
+		it("removes multiple prefixes", async () => {
+			const result = await normalizeSubject("Re: Fwd: Re: Original subject");
 			assert.ok(!result.includes("re"));
 			assert.ok(!result.includes("fwd"));
 		});
 
-		it("removes German Aw: prefix", () => {
-			const result = normalizeSubject("Aw: Besprechung morgen");
+		it("removes German Aw: prefix", async () => {
+			const result = await normalizeSubject("Aw: Besprechung morgen");
 			assert.ok(!result.includes("aw"));
 		});
 
-		it("removes Portuguese Res: prefix", () => {
-			const result = normalizeSubject("Res: Reunião amanhã");
+		it("removes Portuguese Res: prefix", async () => {
+			const result = await normalizeSubject("Res: Reunião amanhã");
 			assert.ok(!result.includes("res"));
 		});
 	});
 
 	describe("language detection", () => {
-		it("auto-detects English and uses English stemming", () => {
-			const result = normalizeSubject(
+		it("auto-detects English and uses English stemming", async () => {
+			const result = await normalizeSubject(
 				"Meeting tomorrow about running the project quickly",
 			);
 			// Should stem "running" to "run", "quickly" to "quick"
 			assert.ok(result.includes("run") || result.includes("quick"));
 		});
 
-		it("auto-detects German and uses German processing", () => {
-			const result = normalizeSubject(
+		it("auto-detects German and uses German processing", async () => {
+			const result = await normalizeSubject(
 				"Besprechung über die Verbindung und den Projektstand morgen",
 			);
 			// Should process with German stemmer
 			assert.ok(result.length > 0);
 		});
 
-		it("auto-detects French and uses French processing", () => {
-			const result = normalizeSubject(
+		it("auto-detects French and uses French processing", async () => {
+			const result = await normalizeSubject(
 				"Réunion demain matin pour discuter du projet",
 			);
 			// Should preserve French accented characters and process
 			assert.ok(result.includes("réunion") || result.includes("reunion"));
 		});
 
-		it("uses provided language override", () => {
-			const result = normalizeSubject("Meeting tomorrow", "en");
+		it("uses provided language override", async () => {
+			const result = await normalizeSubject("Meeting tomorrow", "en");
 			assert.ok(result.includes("meet"));
 		});
 	});
 
 	describe("normalization", () => {
-		it("removes stopwords", () => {
-			const result = normalizeSubject("The meeting is about the project");
+		it("removes stopwords", async () => {
+			const result = await normalizeSubject("The meeting is about the project");
 			// "the" and "is" should be removed
 			assert.ok(!result.split(" ").includes("the"));
 		});
 
-		it("handles Unicode characters", () => {
-			const result = normalizeSubject("Réunion à Paris");
+		it("handles Unicode characters", async () => {
+			const result = await normalizeSubject("Réunion à Paris");
 			// Should not strip accented characters
 			assert.ok(result.includes("réunion") || result.includes("reunion"));
 			assert.ok(result.includes("pari"));
 		});
 
-		it("deduplicates consecutive words", () => {
-			const result = normalizeSubject("Meeting meeting meeting update");
+		it("deduplicates consecutive words", async () => {
+			const result = await normalizeSubject("Meeting meeting meeting update");
 			// After stemming, should dedupe
 			const words = result.split(" ");
 			for (let i = 1; i < words.length; i++) {
