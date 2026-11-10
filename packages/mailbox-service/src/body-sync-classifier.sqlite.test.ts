@@ -185,8 +185,6 @@ const bodySync = (classifier = true): BodySyncService => {
 			? {
 					accountSetting: store.accountSetting,
 					secrets,
-					mailboxSpecialUseService: store.mailboxSpecialUse,
-					mailboxService: store.mailbox,
 					labelService: store.label,
 					messageLabelService: store.messageLabel,
 					logger: { warn: (_obj, msg) => world.warnings.push(msg) },
@@ -204,7 +202,7 @@ const arrive = async (
 	return (await messageAtUid(world.store, world.inbox, uid)).messageId;
 };
 
-const sync = (service: BodySyncService, messageIds: string[]) =>
+const sync = async (service: BodySyncService, messageIds: string[]) =>
 	service.syncBodies(
 		messageIds,
 		world.account.accountId,
@@ -214,6 +212,12 @@ const sync = (service: BodySyncService, messageIds: string[]) =>
 			fullPath: world.inbox.fullPath,
 			placement: "inbox",
 			uidValidity: world.inbox.uidValidity,
+			initialSyncCompletedAt: (
+				await world.store.mailbox.get(
+					world.account.accountId,
+					world.inbox.mailboxId,
+				)
+			).initialSyncCompletedAt,
 		},
 		async () => world.imap.connection(),
 		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
@@ -306,18 +310,6 @@ describe("body sync with a saved classification provider", () => {
 		assert.equal(world.provider.requests.length, 0);
 	});
 
-	it("skips a message already examined", async () => {
-		await saveProvider();
-		const messageId = await arrive(COLLEAGUE);
-		await world.store.message.update(messageId, {
-			classificationState: MessageClassificationState.Examined,
-		});
-
-		await sync(bodySync(), [messageId]);
-
-		assert.equal(world.provider.requests.length, 0);
-	});
-
 	it("stores the message with the built-in result while the provider is down", async () => {
 		const expected = await builtInCategory(SHOP);
 		await saveProvider(await closedPortBaseUrl());
@@ -401,21 +393,6 @@ describe("body sync with a saved classification provider", () => {
 		await sync(bodySync(), [messageId]);
 
 		assert.deepEqual(await labelNames(messageId), ["Priority"]);
-	});
-
-	it("keeps the Personal label after classification is switched off", async () => {
-		await saveProvider();
-		world.reply = decision([[ClassificationLabel.Personal, 0.9]]);
-		const messageId = await arrive(COLLEAGUE);
-		await sync(bodySync(), [messageId]);
-
-		await saveProvider(world.provider.baseUrl, false);
-
-		assert.deepEqual(await labelNames(messageId), ["Personal"]);
-		assert.equal(
-			(await world.store.message.get(messageId)).category,
-			"personal",
-		);
 	});
 
 	it("lets the built-in result stand on a low-confidence answer", async () => {

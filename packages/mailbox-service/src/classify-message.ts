@@ -56,6 +56,11 @@ const resolveCategoryOverride = async (
 	}
 };
 
+export interface ParsedMessageClassification {
+	fields: UpdateMessageInput & { category: ThreadMessageCategory };
+	categoryOverridden: boolean;
+}
+
 /**
  * Header classification, with the sender's `Address.flags.category` override
  * (issue #299, RFC 039 Decision 3) substituted for the header-derived
@@ -73,26 +78,6 @@ const resolveCategoryOverride = async (
  * this returns.
  */
 export const classifyParsedMessage = async (
-	addressService: Pick<IAddressRepository, "getAddress">,
-	accountConfigId: string,
-	parsed: ParsedMail,
-	placement: FolderPlacement,
-): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> =>
-	(
-		await classifyParsedMessageWithOverride(
-			addressService,
-			accountConfigId,
-			parsed,
-			placement,
-		)
-	).fields;
-
-export interface ParsedMessageClassification {
-	fields: UpdateMessageInput & { category: ThreadMessageCategory };
-	categoryOverridden: boolean;
-}
-
-export const classifyParsedMessageWithOverride = async (
 	addressService: Pick<IAddressRepository, "getAddress">,
 	accountConfigId: string,
 	parsed: ParsedMail,

@@ -456,6 +456,13 @@ export const composeReadPathServices = (
 			filterService: core.filter,
 			accountService: core.account,
 		},
+		{
+			accountSetting: core.accountSetting,
+			secrets: core.secrets,
+			labelService: core.label,
+			messageLabelService: core.messageLabel,
+			logger,
+		},
 	),
 });
 

@@ -1,12 +1,5 @@
-import {
-	ClassificationLabel,
-	MessageCategory,
-	SenderOverride,
-} from "@remit/domain-enums";
-import type {
-	FolderPlacement,
-	PlacementVerdict,
-} from "../heuristics/classifyPlacement.js";
+import { ClassificationLabel, MessageCategory } from "@remit/domain-enums";
+import type { ClassificationLabelName } from "../classification-labels.js";
 import type {
 	ClassificationLabelValue,
 	ClassifierConfidenceKind,
@@ -15,8 +8,6 @@ import type {
 
 type MessageCategoryValue =
 	(typeof MessageCategory)[keyof typeof MessageCategory];
-
-type SenderOverrideValue = (typeof SenderOverride)[keyof typeof SenderOverride];
 
 export const CONFIDENCE_THRESHOLD: Record<ClassifierConfidenceKind, number> = {
 	Calibrated: 0.7,
@@ -54,9 +45,7 @@ const NO_VERDICT: ClassifierVerdict = { kind: "None" };
 
 export const classifierVerdict = (
 	answer: ClassifierAnswer,
-	userRuleApplies: boolean,
 ): ClassifierVerdict => {
-	if (userRuleApplies) return NO_VERDICT;
 	const threshold = CONFIDENCE_THRESHOLD[answer.confidenceKind];
 	const confident = answer.scores.filter(
 		(score) => score.confidence >= threshold,
@@ -79,29 +68,15 @@ export const classifierVerdict = (
 	return { kind: "Category", category };
 };
 
-export const placementWithClassifier = (
-	verdict: PlacementVerdict,
-	classifierJunk: boolean,
-	placement: FolderPlacement,
-	senderOverride: SenderOverrideValue,
-): PlacementVerdict => {
-	if (!classifierJunk || senderOverride !== SenderOverride.None) {
-		return verdict;
+export const classificationLabelOf = (
+	verdict: ClassifierVerdict,
+): ClassificationLabelName | undefined => {
+	if (verdict.kind === "Priority") return "Priority";
+	if (
+		verdict.kind === "Category" &&
+		verdict.category === MessageCategory.personal
+	) {
+		return "Personal";
 	}
-	if (verdict.reasons.includes("already-moved-by-remit")) return verdict;
-	if (placement === "inbox") {
-		return {
-			action: "move-to-junk",
-			confidence: "confident",
-			reasons: ["classifier=spam"],
-		};
-	}
-	if (verdict.action === "move-to-inbox") {
-		return {
-			action: "leave",
-			confidence: "confident",
-			reasons: ["classifier=spam"],
-		};
-	}
-	return verdict;
+	return undefined;
 };

@@ -123,6 +123,7 @@ export const classifyPlacement = (
 	placement: FolderPlacement,
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
+	classifierJunk = false,
 ): PlacementVerdict => {
 	if (message.movedByRemit === true) {
 		return {
@@ -151,6 +152,20 @@ export const classifyPlacement = (
 			confidence: "confident",
 			reasons: ["sender=never-spam"],
 		};
+	}
+
+	if (classifierJunk && senderOverride === SenderOverride.None) {
+		return placement === "inbox"
+			? {
+					action: "move-to-junk",
+					confidence: "confident",
+					reasons: ["classifier=spam"],
+				}
+			: {
+					action: "leave",
+					confidence: "confident",
+					reasons: ["classifier=spam"],
+				};
 	}
 
 	if (!message.providerSpam || !message.authResult) {
