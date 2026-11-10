@@ -4,7 +4,6 @@ import {
 	extractSearchText,
 	extractSnippetFromEmail,
 	generateSnippet,
-	normalizeSubject,
 	removeQuotedContent,
 } from "./snippet.js";
 
@@ -37,101 +36,6 @@ describe("removeQuotedContent", () => {
 	it("returns full text when no quote markers", () => {
 		const text = "Hello\nWorld\nNo quotes here";
 		assert.strictEqual(removeQuotedContent(text), text);
-	});
-});
-
-describe("normalizeSubject", () => {
-	describe("prefix removal", () => {
-		it("removes Re: prefix", () => {
-			const result = normalizeSubject("Re: Meeting tomorrow");
-			assert.ok(!result.includes("re"));
-			assert.ok(result.includes("meet"));
-		});
-
-		it("removes Fwd: prefix", () => {
-			const result = normalizeSubject("Fwd: Important document");
-			assert.ok(!result.includes("fwd"));
-		});
-
-		it("removes numbered Re: prefix", () => {
-			const result = normalizeSubject("Re[3]: Meeting tomorrow");
-			assert.ok(!result.includes("re"));
-		});
-
-		it("removes multiple prefixes", () => {
-			const result = normalizeSubject("Re: Fwd: Re: Original subject");
-			assert.ok(!result.includes("re"));
-			assert.ok(!result.includes("fwd"));
-		});
-
-		it("removes German Aw: prefix", () => {
-			const result = normalizeSubject("Aw: Besprechung morgen");
-			assert.ok(!result.includes("aw"));
-		});
-
-		it("removes Portuguese Res: prefix", () => {
-			const result = normalizeSubject("Res: Reunião amanhã");
-			assert.ok(!result.includes("res"));
-		});
-	});
-
-	describe("language detection", () => {
-		it("auto-detects English and uses English stemming", () => {
-			const result = normalizeSubject(
-				"Meeting tomorrow about running the project quickly",
-			);
-			// Should stem "running" to "run", "quickly" to "quick"
-			assert.ok(result.includes("run") || result.includes("quick"));
-		});
-
-		it("auto-detects German and uses German processing", () => {
-			const result = normalizeSubject(
-				"Besprechung über die Verbindung und den Projektstand morgen",
-			);
-			// Should process with German stemmer
-			assert.ok(result.length > 0);
-		});
-
-		it("auto-detects French and uses French processing", () => {
-			const result = normalizeSubject(
-				"Réunion demain matin pour discuter du projet",
-			);
-			// Should preserve French accented characters and process
-			assert.ok(result.includes("réunion") || result.includes("reunion"));
-		});
-
-		it("uses provided language override", () => {
-			const result = normalizeSubject("Meeting tomorrow", "en");
-			assert.ok(result.includes("meet"));
-		});
-	});
-
-	describe("normalization", () => {
-		it("removes stopwords", () => {
-			const result = normalizeSubject("The meeting is about the project");
-			// "the" and "is" should be removed
-			assert.ok(!result.split(" ").includes("the"));
-		});
-
-		it("handles Unicode characters", () => {
-			const result = normalizeSubject("Réunion à Paris");
-			// Should not strip accented characters
-			assert.ok(result.includes("réunion") || result.includes("reunion"));
-			assert.ok(result.includes("pari"));
-		});
-
-		it("deduplicates consecutive words", () => {
-			const result = normalizeSubject("Meeting meeting meeting update");
-			// After stemming, should dedupe
-			const words = result.split(" ");
-			for (let i = 1; i < words.length; i++) {
-				assert.notStrictEqual(
-					words[i],
-					words[i - 1],
-					"Should not have consecutive duplicates",
-				);
-			}
-		});
 	});
 });
 

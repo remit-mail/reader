@@ -256,10 +256,6 @@ export {
 	StaleTrashAppointmentError,
 	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
-export {
-	type ParsedMessageContent,
-	parseMessageContent,
-} from "./message-parser.js";
 export { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 export {
 	type BodyPartMaterializer,
@@ -369,7 +365,6 @@ export {
 	extractSearchText,
 	extractSnippetFromEmail,
 	generateSnippet,
-	normalizeSubject,
 	removeQuotedContent,
 } from "./snippet.js";
 export {
