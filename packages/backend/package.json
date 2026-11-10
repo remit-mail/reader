@@ -71,6 +71,10 @@
       "types": "./src/config/msoauth.ts",
       "default": "./src/config/msoauth.ts"
     },
+    "./classification-default": {
+      "types": "./src/config/classification-default.ts",
+      "default": "./src/config/classification-default.ts"
+    },
     "./content-handler": {
       "types": "./dev-server/content-handler.ts",
       "default": "./dev-server/content-handler.ts"
@@ -143,6 +147,10 @@
       "./msoauth": {
         "types": "./dist/src/config/msoauth.d.ts",
         "default": "./dist/src/config/msoauth.js"
+      },
+      "./classification-default": {
+        "types": "./dist/src/config/classification-default.d.ts",
+        "default": "./dist/src/config/classification-default.js"
       },
       "./content-handler": {
         "types": "./dist/dev-server/content-handler.d.ts",
