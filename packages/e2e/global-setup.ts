@@ -79,30 +79,15 @@ const STARRED_ELSEWHERE_SUBJECT = "Filed away, and starred";
  * shape, and the one the address lookup used to miss. The spam-rescue spec
  * works from this.
  *
- * A DKIM mismatch with a DMARC fail, so Remit judges it junk too and it stays
- * in Junk, out of `seededSubjects` and the exact-count inbox assertions.
+ * Junk, not INBOX, so it stays out of `seededSubjects` and the exact-count
+ * inbox assertions keep counting only what is in the inbox.
  */
 const SPAM_SEED = {
 	subject: "Reminder: please verify your account",
 	senderName: "npm support",
 	senderDomain: "npmjs.com",
 	senderEmail: "support@npmjs.com",
-	signingDomain: "bulk-relay.test",
-};
-
-/**
- * A message the provider filed in Junk that Remit judges an ordinary arrival:
- * an aligned DKIM signature and no DMARC fail, from a sender nobody flagged.
- * Body sync moves it to the Inbox (issue #1553), so it is one of
- * `seededSubjects`. Its display name has nothing to do with its domain and
- * its link leaves that domain, so it carries both display-only signals.
- */
-const JUNK_ARRIVAL = {
-	subject: "Your parcel is waiting for collection",
-	senderName: "Parcel Desk",
-	senderDomain: "harbour-logistics.test",
-	senderEmail: "notices@harbour-logistics.test",
-	offDomainLinkDomain: "parcel-collect.test",
+	offDomainLinkDomain: "npm-account-verify.test",
 };
 
 const cookiesToStorageState = (cookie: string): string =>
@@ -161,26 +146,11 @@ const globalSetup = async (): Promise<void> => {
 			{
 				subject: SPAM_SEED.subject,
 				from: `${SPAM_SEED.senderName} <${SPAM_SEED.senderEmail}>`,
-				body: "Verify your account before it is closed.",
-				headers: [
-					[
-						"Authentication-Results",
-						`dovecot.test; dmarc=fail header.from=${SPAM_SEED.senderDomain}`,
-					],
-					[
-						"DKIM-Signature",
-						`v=1; a=rsa-sha256; d=${SPAM_SEED.signingDomain}; s=s1; h=from:to; b=xxx`,
-					],
-				],
-			},
-			{
-				subject: JUNK_ARRIVAL.subject,
-				from: `${JUNK_ARRIVAL.senderName} <${JUNK_ARRIVAL.senderEmail}>`,
-				body: `This one does not belong in Spam. Collect it at https://${JUNK_ARRIVAL.offDomainLinkDomain}/track`,
+				body: `This one does not belong in Spam. Verify at https://${SPAM_SEED.offDomainLinkDomain}/login`,
 				headers: [
 					[
 						"DKIM-Signature",
-						`v=1; a=rsa-sha256; d=${JUNK_ARRIVAL.senderDomain}; s=s1; h=from:to; b=xxx`,
+						`v=1; a=rsa-sha256; d=${SPAM_SEED.senderDomain}; s=s1; h=from:to; b=xxx`,
 					],
 				],
 			},
@@ -250,7 +220,6 @@ const globalSetup = async (): Promise<void> => {
 		seededSubjects: [
 			...SEEDED_SUBJECTS,
 			...classificationFixtures.map((fixture) => fixture.subject),
-			JUNK_ARRIVAL.subject,
 		],
 		classificationExpectations: classificationFixtures.map((fixture) => ({
 			subject: fixture.subject,
@@ -260,11 +229,10 @@ const globalSetup = async (): Promise<void> => {
 		dkimMismatchFromDomain: DKIM_MISMATCH.fromDomain,
 		dkimMismatchSigningDomain: DKIM_MISMATCH.signingDomain,
 		spamSubject: SPAM_SEED.subject,
+		spamSenderName: SPAM_SEED.senderName,
 		spamSenderEmail: SPAM_SEED.senderEmail,
-		junkArrivalSubject: JUNK_ARRIVAL.subject,
-		junkArrivalSenderName: JUNK_ARRIVAL.senderName,
-		junkArrivalSenderDomain: JUNK_ARRIVAL.senderDomain,
-		junkArrivalOffDomainLinkDomain: JUNK_ARRIVAL.offDomainLinkDomain,
+		spamSenderDomain: SPAM_SEED.senderDomain,
+		spamOffDomainLinkDomain: SPAM_SEED.offDomainLinkDomain,
 		preFlaggedSubject: PRE_FLAGGED_SUBJECT,
 		starredElsewhereSubject: STARRED_ELSEWHERE_SUBJECT,
 	});

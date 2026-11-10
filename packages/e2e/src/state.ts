@@ -48,15 +48,10 @@ export interface RunState {
 	dkimMismatchFromDomain: string;
 	dkimMismatchSigningDomain: string;
 	spamSubject: string;
+	spamSenderName: string;
 	spamSenderEmail: string;
-	/**
-	 * The message seeded into Junk that body sync moves to the Inbox. One of
-	 * `seededSubjects`, named separately so its spec can tell it apart.
-	 */
-	junkArrivalSubject: string;
-	junkArrivalSenderName: string;
-	junkArrivalSenderDomain: string;
-	junkArrivalOffDomainLinkDomain: string;
+	spamSenderDomain: string;
+	spamOffDomainLinkDomain: string;
 	/**
 	 * The INBOX message appended with `\Flagged` already set, before the account
 	 * existed. It is part of `seededSubjects` — ordinary INBOX mail in every

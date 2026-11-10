@@ -924,6 +924,7 @@ export class BodySyncService {
 			messageId,
 			accountId,
 			accountConfigId,
+			arrival,
 			classification,
 			verdict.kind === "Junk",
 			senderPlacement,
@@ -1351,7 +1352,7 @@ export class BodySyncService {
 				labels: CLASSIFIER_LABELS,
 				message: classifierMessageOf(parsed),
 			},
-			{ logger: config.logger },
+			{ logger: config.logger, timeoutMs: config.timeoutMs },
 		);
 		if (!result.ok) return undefined;
 		return { scores: result.scores, confidenceKind: result.confidenceKind };
@@ -1786,6 +1787,7 @@ export class BodySyncService {
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
+		arrival: Arrival,
 		classification: UpdateMessageInput,
 		classifierJunk: boolean,
 		senderPlacement: () => Promise<SenderPlacement>,
@@ -1796,6 +1798,7 @@ export class BodySyncService {
 			lookups,
 			messageId,
 			accountId,
+			arrival,
 			classification,
 			classifierJunk,
 			senderPlacement,
@@ -1820,6 +1823,7 @@ export class BodySyncService {
 		lookups: BatchLookups,
 		messageId: string,
 		accountId: string,
+		arrival: Arrival,
 		classification: UpdateMessageInput,
 		classifierJunk: boolean,
 		senderPlacement: () => Promise<SenderPlacement>,
@@ -1838,6 +1842,11 @@ export class BodySyncService {
 		const roleMailboxes = await lookups.roleMailboxes();
 		const { junkMailbox, inboxMailbox } = roleMailboxes;
 		const placement = placementOf(message.mailboxId, roleMailboxes);
+
+		// Only a Junk arrival is judged here. Mail already in Junk when the
+		// folder first synced is the backlog, which the re-evaluation job judges
+		// on the classifier's daily budget (issue #1553), so it stays undecided.
+		if (placement === "junk" && !arrival.folderSynced) return {};
 
 		const { senderTrust, senderOverride, autoArchive } =
 			await senderPlacement();
@@ -1870,6 +1879,20 @@ export class BodySyncService {
 					)
 				: {};
 			return { ...outcome, placementDecidedAt: Date.now() };
+		}
+
+		// `flags.autoArchive` wins the destination of a Junk arrival Remit judged
+		// not junk, the way a filter's exclusive move wins over placement.
+		if (placement === "junk" && move && autoArchive) {
+			const archived = await this.resolveAutoArchive(
+				mailboxSpecialUseService,
+				message,
+				accountId,
+				autoArchive,
+			);
+			if (archived.move) {
+				return { ...archived, placementDecidedAt: Date.now() };
+			}
 		}
 
 		// Audit verdict — recorded for every actionable verdict (both

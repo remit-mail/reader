@@ -219,7 +219,10 @@ const saveProvider = async (
 	});
 };
 
-const bodySync = (classifier = true): BodySyncService => {
+const bodySync = (
+	classifier = true,
+	classifierTimeoutMs?: number,
+): BodySyncService => {
 	const { store } = world;
 	const placementMoveService = new PlacementMoveService({
 		messageService: store.message,
@@ -252,6 +255,7 @@ const bodySync = (classifier = true): BodySyncService => {
 					labelService: store.label,
 					messageLabelService: store.messageLabel,
 					logger: { warn: (_obj, msg) => world.warnings.push(msg) },
+					timeoutMs: classifierTimeoutMs,
 				}
 			: undefined,
 	);
@@ -585,18 +589,34 @@ const flagNewsletterSender = async (
 	);
 };
 
-const syncJunk = async (raw: Buffer, classifier = true): Promise<string> => {
+interface JunkSync {
+	classifier?: boolean;
+	classifierTimeoutMs?: number;
+	initialSyncCompletedAt?: number;
+	before?: (messageId: string) => Promise<void>;
+}
+
+const syncJunk = async (
+	raw: Buffer,
+	{
+		classifier = true,
+		classifierTimeoutMs,
+		initialSyncCompletedAt = 1,
+		before,
+	}: JunkSync = {},
+): Promise<string> => {
 	await world.store.mailbox.update(
 		world.account.accountId,
 		world.junk.mailboxId,
-		{ initialSyncCompletedAt: 1 },
+		{ initialSyncCompletedAt },
 	);
 	const uid = world.imap.deliver(world.junk.fullPath, raw, {
 		internalDate: new Date(Date.now() + 60_000),
 	});
 	await syncFolder(world.store, world.account, world.junk, world.imap);
 	const { messageId } = await messageAtUid(world.store, world.junk, uid);
-	await bodySync(classifier).syncBodies(
+	await before?.(messageId);
+	await bodySync(classifier, classifierTimeoutMs).syncBodies(
 		[messageId],
 		world.account.accountId,
 		world.account.accountConfigId,
@@ -605,7 +625,7 @@ const syncJunk = async (raw: Buffer, classifier = true): Promise<string> => {
 			fullPath: world.junk.fullPath,
 			placement: "junk",
 			uidValidity: world.junk.uidValidity,
-			initialSyncCompletedAt: 1,
+			initialSyncCompletedAt,
 		},
 		async () => world.imap.connection(),
 		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
@@ -631,7 +651,7 @@ const assertKeptInJunk = async (messageId: string): Promise<void> => {
 
 describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 	it("moves an unknown newsletter the provider called spam to the Inbox", async () => {
-		const messageId = await syncJunk(JUNK_NEWSLETTER, false);
+		const messageId = await syncJunk(JUNK_NEWSLETTER, { classifier: false });
 
 		await assertMovedToInbox(messageId);
 		const row = await world.store.message.get(messageId);
@@ -642,7 +662,9 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		await saveProvider();
 		world.reply = "Silent";
 
-		const messageId = await syncJunk(JUNK_NEWSLETTER);
+		const messageId = await syncJunk(JUNK_NEWSLETTER, {
+			classifierTimeoutMs: 5,
+		});
 
 		assert.equal(world.provider.requests.length, 1);
 		await assertMovedToInbox(messageId);
@@ -661,14 +683,66 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		});
 	}
 
+	it("leaves mail that sat in Junk before the first sync undecided", async () => {
+		const messageId = await syncJunk(JUNK_NEWSLETTER, {
+			classifier: false,
+			initialSyncCompletedAt: 0,
+		});
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.mailboxId, world.junk.mailboxId);
+		assert.equal(row.placementVerdict, undefined);
+		assert.equal(row.placementDecidedAt, undefined);
+	});
+
+	const placedInJunk = [
+		{
+			name: "a spam report",
+			mark: (messageId: string) =>
+				world.store.message.update(messageId, {
+					spamReport: { reportedAt: 1 },
+				}),
+		},
+		{
+			name: "an earlier user move",
+			mark: (messageId: string) =>
+				world.store.message.transitionPlacement(
+					messageId,
+					{ mailboxId: world.junk.mailboxId },
+					{ originalMailboxId: world.inbox.mailboxId },
+				),
+		},
+		{
+			name: "movedByRemit",
+			mark: (messageId: string) =>
+				world.store.message.update(messageId, { movedByRemit: true }),
+		},
+	];
+	for (const placed of placedInJunk) {
+		it(`leaves a Junk message with ${placed.name} in Junk`, async () => {
+			const messageId = await syncJunk(JUNK_NEWSLETTER, {
+				classifier: false,
+				before: async (id) => {
+					await placed.mark(id);
+				},
+			});
+
+			const row = await world.store.message.get(messageId);
+			assert.equal(row.mailboxId, world.junk.mailboxId);
+			assert.equal(row.placementVerdict, undefined);
+		});
+	}
+
 	it("keeps a blocked sender in Junk", async () => {
 		await flagNewsletterSender({ blocked: { value: true, setAt: 1 } });
 
-		await assertKeptInJunk(await syncJunk(JUNK_NEWSLETTER, false));
+		await assertKeptInJunk(
+			await syncJunk(JUNK_NEWSLETTER, { classifier: false }),
+		);
 	});
 
 	it("keeps a DKIM mismatch with a DMARC fail in Junk", async () => {
-		await assertKeptInJunk(await syncJunk(JUNK_SPOOF, false));
+		await assertKeptInJunk(await syncJunk(JUNK_SPOOF, { classifier: false }));
 	});
 
 	it("keeps a classifier Phishing answer in Junk and never shows it the provider's verdict", async () => {
