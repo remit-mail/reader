@@ -12,11 +12,12 @@ import { messageObjectsInMemory } from "./message-objects.js";
 describe("thread-message lookups without sqlite_stat1", () => {
 	const { db, sqlite, close } = createShippedSqliteDb();
 	after(close);
-	const repo = createSqliteRepositories(
+	const repos = createSqliteRepositories(
 		{ app: db, mail: db, search: db },
 		BETTER_SQLITE3_LIMITS,
 		messageObjectsInMemory(),
-	).threadMessage;
+	);
+	const repo = repos.threadMessage;
 
 	const planDuring = async (run: () => Promise<unknown>): Promise<string[]> =>
 		queryPlan(sqlite, await selectsIssuedDuring(sqlite, run));
@@ -35,6 +36,15 @@ describe("thread-message lookups without sqlite_stat1", () => {
 		);
 	});
 
+	test("message syncSearch reads listings through thread_message_by_message_id without the tenant", async () => {
+		assertPlanSearches(
+			(
+				await planDuring(() => repos.message.syncSearch(["msg-1", "msg-2"]))
+			).filter((detail) => !detail.includes("json_each")),
+			"thread_message_by_message_id",
+		);
+	});
+
 	test("rekeyThread reads the thread through thread_message_by_thread_id", async () => {
 		assertPlanSearches(
 			await planDuring(() => repo.rekeyThread("acct", "from", "to")),
@@ -48,4 +58,18 @@ describe("thread-message lookups without sqlite_stat1", () => {
 			"thread_message_by_thread_id",
 		);
 	});
+
+	for (const order of ["asc", "desc"] as const) {
+		test(`listByThread ${order} searches thread_message_by_thread_id`, async () => {
+			assertPlanSearches(
+				await planDuring(() =>
+					repo.listByThread("thread", "acct", {
+						order,
+						excludeDeleted: true,
+					}),
+				),
+				"thread_message_by_thread_id",
+			);
+		});
+	}
 });

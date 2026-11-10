@@ -50,6 +50,13 @@
       "when": 1793708341744,
       "tag": "0006_outbox_scheduling_part",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794343435583,
+      "tag": "0007_thread_message_tenant_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -28,8 +28,8 @@ namespace RemitImap;
   {
     collection: "threadDetails",
     index: "gsi0",
-    pk: [ThreadMessage.threadId],
-    sk: [ThreadMessage.sentDate],
+    pk: [ThreadMessage.accountConfigId, ThreadMessage.threadId],
+    sk: [ThreadMessage.sentDate, ThreadMessage.threadMessageId],
   }
 )
 @index(
@@ -37,7 +37,7 @@ namespace RemitImap;
   {
     index: "gsi1",
     pk: [ThreadMessage.messageId],
-    sk: [],
+    sk: [ThreadMessage.accountConfigId],
   }
 )
 // GSI2: Filter/count unread messages (moved from LSI for independent scaling)
