@@ -5,7 +5,7 @@
  * Provides the same interface but uses ImapFlow under the hood.
  */
 
-import { ImapFlow } from "imapflow";
+import type { ImapFlow } from "imapflow";
 import type {
 	FlatMailboxInfo,
 	ImapAddress,
@@ -266,6 +266,7 @@ export class ImapFlowConnection {
 
 		const auth = buildImapAuth(this.config.user, this.config.credentials);
 
+		const { ImapFlow } = await import("imapflow");
 		this.client = new ImapFlow({
 			host: this.config.host,
 			port: this.config.port,
