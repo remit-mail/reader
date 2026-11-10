@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import { simpleParser } from "mailparser";
+import * as tldts from "tldts";
 import {
 	classifyDisplayNameCorrespondence,
 	extractOffDomainLinkDomains,
@@ -14,7 +15,11 @@ const parse = async (lines: string[]) =>
 describe("classifyDisplayNameCorrespondence", () => {
 	it("corresponds when the name is a label of the From domain", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("GitHub", "notifications.github.com"),
+			classifyDisplayNameCorrespondence(
+				"GitHub",
+				"notifications.github.com",
+				tldts,
+			),
 			DisplayNameCorrespondence.Corresponds,
 		);
 	});
@@ -24,6 +29,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"GitHub Actions",
 				"notifications.github.com",
+				tldts,
 			),
 			DisplayNameCorrespondence.Corresponds,
 		);
@@ -31,7 +37,11 @@ describe("classifyDisplayNameCorrespondence", () => {
 
 	it("corresponds across a multi-part public suffix", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("Sainsbury's", "mail.sainsburys.co.uk"),
+			classifyDisplayNameCorrespondence(
+				"Sainsbury's",
+				"mail.sainsburys.co.uk",
+				tldts,
+			),
 			DisplayNameCorrespondence.Corresponds,
 		);
 	});
@@ -41,6 +51,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"InfoMedics",
 				"serviceupdatebank.atlassian.net",
+				tldts,
 			),
 			DisplayNameCorrespondence.Unrelated,
 		);
@@ -48,25 +59,25 @@ describe("classifyDisplayNameCorrespondence", () => {
 
 	it("is a lookalike when a digit stands in for a letter of the domain", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("InfoMedics", "1nfomedics.nl"),
+			classifyDisplayNameCorrespondence("InfoMedics", "1nfomedics.nl", tldts),
 			DisplayNameCorrespondence.Lookalike,
 		);
 	});
 
 	it("is a lookalike for a short brand one character off", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("PayPal", "paypa1.com"),
+			classifyDisplayNameCorrespondence("PayPal", "paypa1.com", tldts),
 			DisplayNameCorrespondence.Lookalike,
 		);
 	});
 
 	it("claims nothing when the display name is empty", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("", "example.com"),
+			classifyDisplayNameCorrespondence("", "example.com", tldts),
 			DisplayNameCorrespondence.NoClaim,
 		);
 		assert.equal(
-			classifyDisplayNameCorrespondence(undefined, "example.com"),
+			classifyDisplayNameCorrespondence(undefined, "example.com", tldts),
 			DisplayNameCorrespondence.NoClaim,
 		);
 	});
@@ -76,6 +87,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"billing@serviceupdatebank.atlassian.net",
 				"serviceupdatebank.atlassian.net",
+				tldts,
 			),
 			DisplayNameCorrespondence.NoClaim,
 		);
@@ -83,7 +95,11 @@ describe("classifyDisplayNameCorrespondence", () => {
 
 	it("claims nothing when the display name spells the envelope address itself", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("matthijs@ischen.nl", "ischen.nl"),
+			classifyDisplayNameCorrespondence(
+				"matthijs@ischen.nl",
+				"ischen.nl",
+				tldts,
+			),
 			DisplayNameCorrespondence.NoClaim,
 		);
 	});
@@ -93,6 +109,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"noreply@example.co.uk",
 				"mail.example.co.uk",
+				tldts,
 			),
 			DisplayNameCorrespondence.NoClaim,
 		);
@@ -103,6 +120,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"matthijs@ischen.nl",
 				"secresaludguaviare.gov.co",
+				tldts,
 			),
 			DisplayNameCorrespondence.ForeignAddress,
 		);
@@ -113,6 +131,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"Matthijs (matthijs@ischen.nl)",
 				"secresaludguaviare.gov.co",
+				tldts,
 			),
 			DisplayNameCorrespondence.ForeignAddress,
 		);
@@ -123,6 +142,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"Support @ InfoMedics",
 				"infomedics.nl",
+				tldts,
 			),
 			DisplayNameCorrespondence.Corresponds,
 		);
@@ -130,6 +150,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"Support @ InfoMedics",
 				"serviceupdatebank.atlassian.net",
+				tldts,
 			),
 			DisplayNameCorrespondence.Unrelated,
 		);
@@ -137,7 +158,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 
 	it("does not read the public suffix as a match for a brand containing it", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("Netflix", "mailer.example.net"),
+			classifyDisplayNameCorrespondence("Netflix", "mailer.example.net", tldts),
 			DisplayNameCorrespondence.Unrelated,
 		);
 	});
@@ -152,6 +173,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 			classifyDisplayNameCorrespondence(
 				"ING Fraudedesk",
 				"secure-ing-verify.tk",
+				tldts,
 			),
 			DisplayNameCorrespondence.Unrelated,
 		);
@@ -159,7 +181,7 @@ describe("classifyDisplayNameCorrespondence", () => {
 
 	it("still matches a short brand name against its own real domain", () => {
 		assert.equal(
-			classifyDisplayNameCorrespondence("ING", "ing.nl"),
+			classifyDisplayNameCorrespondence("ING", "ing.nl", tldts),
 			DisplayNameCorrespondence.Corresponds,
 		);
 	});
@@ -178,7 +200,11 @@ describe("extractOffDomainLinkDomains", () => {
 			'<a href="https://cdn.betaal-vordering.example.org/logo.png">logo</a>',
 		]);
 		assert.deepEqual(
-			extractOffDomainLinkDomains(parsed, "serviceupdatebank.atlassian.net"),
+			extractOffDomainLinkDomains(
+				parsed,
+				"serviceupdatebank.atlassian.net",
+				tldts,
+			),
 			["example.org"],
 		);
 	});
@@ -193,7 +219,7 @@ describe("extractOffDomainLinkDomains", () => {
 			'<a href="https://www.example.co.uk/orders">orders</a>',
 		]);
 		assert.deepEqual(
-			extractOffDomainLinkDomains(parsed, "mail.example.co.uk"),
+			extractOffDomainLinkDomains(parsed, "mail.example.co.uk", tldts),
 			[],
 		);
 	});
@@ -210,7 +236,10 @@ describe("extractOffDomainLinkDomains", () => {
 			'<a href="/orders">orders</a>',
 			'<a href="tel:+31201234567">call</a>',
 		]);
-		assert.deepEqual(extractOffDomainLinkDomains(parsed, "example.com"), []);
+		assert.deepEqual(
+			extractOffDomainLinkDomains(parsed, "example.com", tldts),
+			[],
+		);
 	});
 
 	it("reads bare URLs out of a plain-text body", async () => {
@@ -221,9 +250,10 @@ describe("extractOffDomainLinkDomains", () => {
 			"",
 			"Betaal hier: https://betaal.elsewhere.example/pay?id=1",
 		]);
-		assert.deepEqual(extractOffDomainLinkDomains(parsed, "example.com"), [
-			"elsewhere.example",
-		]);
+		assert.deepEqual(
+			extractOffDomainLinkDomains(parsed, "example.com", tldts),
+			["elsewhere.example"],
+		);
 	});
 });
 
@@ -243,7 +273,7 @@ describe("extractSenderMismatch", () => {
 	it("flags an unrelated display name and an off-domain link", async () => {
 		const parsed = await parse(infoMedicsPhish);
 		assert.deepEqual(
-			extractSenderMismatch(parsed, {
+			await extractSenderMismatch(parsed, {
 				fromDomain: "serviceupdatebank.atlassian.net",
 				bulkSender: false,
 			}),
@@ -264,10 +294,12 @@ describe("extractSenderMismatch", () => {
 			"hola",
 		]);
 		assert.equal(
-			extractSenderMismatch(parsed, {
-				fromDomain: "secresaludguaviare.gov.co",
-				bulkSender: false,
-			}).displayNameCorrespondence,
+			(
+				await extractSenderMismatch(parsed, {
+					fromDomain: "secresaludguaviare.gov.co",
+					bulkSender: false,
+				})
+			).displayNameCorrespondence,
 			DisplayNameCorrespondence.ForeignAddress,
 		);
 	});
@@ -283,7 +315,7 @@ describe("extractSenderMismatch", () => {
 			"",
 			'<a href="https://dutchcyclingweekly.example.org/issue/12">read</a>',
 		]);
-		const signals = extractSenderMismatch(parsed, {
+		const signals = await extractSenderMismatch(parsed, {
 			fromDomain: "mailer.esp.example",
 			bulkSender: true,
 		});

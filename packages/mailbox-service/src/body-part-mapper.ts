@@ -51,7 +51,7 @@ import {
 	outermostMessages,
 	ownParts,
 } from "@remit/data-ports/message-parts";
-import { type Attachment, type ParsedMail, simpleParser } from "mailparser";
+import type { Attachment, ParsedMail } from "mailparser";
 
 export interface BodyPartContentPair {
 	partPath: string;
@@ -369,8 +369,10 @@ export const mapBodyPartsToContent = (
  * one leaf holding the raw forwarded message whatever its disposition, so the
  * forwarded message's own parts come only from parsing it in turn.
  */
-export const parsePartSource = (source: Buffer): Promise<ParsedMail> =>
-	simpleParser(source, { ignoreEmbedded: true });
+export const parsePartSource = async (source: Buffer): Promise<ParsedMail> => {
+	const { simpleParser } = await import("mailparser");
+	return simpleParser(source, { ignoreEmbedded: true });
+};
 
 /**
  * `mapBodyPartsToContent`, extended to forwarded messages. mailparser hands a

@@ -4,10 +4,11 @@ import {
 	type ThreadMessageFieldTerm,
 } from "@remit/data-ports";
 import { FilterClauseField, FilterMatchOperator } from "@remit/domain-enums";
-import { getDomain } from "tldts";
 import { normalizeListId } from "./list-id.js";
 
 type FilterClause = FilterItem["literalClauses"][number];
+
+export type GetDomain = typeof import("tldts")["getDomain"];
 
 /**
  * The `"None"` sentinel a filter's action fields carry when that action is
@@ -58,8 +59,10 @@ const hostOf = (address: string): string => {
  * suffix list, so `github.com.evil.example` yields `evil.example`, never
  * `github.com` — a `FromDomain` clause cannot be spoofed by a crafted subdomain.
  */
-const registrableDomain = (addressOrHost: string): string | null =>
-	getDomain(hostOf(addressOrHost.trim()));
+const registrableDomain = (
+	getDomain: GetDomain,
+	addressOrHost: string,
+): string | null => getDomain(hostOf(addressOrHost.trim()));
 
 /**
  * Whether one literal clause matches the message. From matches against the
@@ -70,6 +73,7 @@ const registrableDomain = (addressOrHost: string): string | null =>
 export const clauseMatches = (
 	clause: FilterClause,
 	msg: FilterMessage,
+	getDomain: GetDomain,
 ): boolean => {
 	const value = clause.value.trim();
 	if (value === "") return false;
@@ -85,9 +89,9 @@ export const clauseMatches = (
 			return target !== "" && normalizeListId(msg.listId) === target;
 		}
 		case FilterClauseField.FromDomain: {
-			const target = registrableDomain(value);
+			const target = registrableDomain(getDomain, value);
 			if (target === null) return false;
-			return registrableDomain(msg.from) === target;
+			return registrableDomain(getDomain, msg.from) === target;
 		}
 		default:
 			return false;
@@ -103,11 +107,12 @@ export const literalClausesMatch = (
 	clauses: readonly FilterClause[],
 	operator: FilterItem["matchOperator"],
 	msg: FilterMessage,
+	getDomain: GetDomain,
 ): boolean => {
 	if (clauses.length === 0) return false;
 	return operator === FilterMatchOperator.Or
-		? clauses.some((clause) => clauseMatches(clause, msg))
-		: clauses.every((clause) => clauseMatches(clause, msg));
+		? clauses.some((clause) => clauseMatches(clause, msg, getDomain))
+		: clauses.every((clause) => clauseMatches(clause, msg, getDomain));
 };
 
 /**
@@ -120,7 +125,10 @@ type ClauseNarrowing =
 	| { kind: "NeverMatches" }
 	| { kind: "Unnarrowable" };
 
-const clauseNarrowing = (clause: FilterClause): ClauseNarrowing => {
+const clauseNarrowing = (
+	clause: FilterClause,
+	getDomain: GetDomain,
+): ClauseNarrowing => {
 	const value = clause.value.trim();
 	if (value === "") return { kind: "NeverMatches" };
 	switch (clause.field) {
@@ -134,7 +142,7 @@ const clauseNarrowing = (clause: FilterClause): ClauseNarrowing => {
 			return { kind: "Term", term: { field: "listId", contains: target } };
 		}
 		case FilterClauseField.FromDomain: {
-			const target = registrableDomain(value);
+			const target = registrableDomain(getDomain, value);
 			if (target === null) return { kind: "NeverMatches" };
 			return { kind: "Term", term: { field: "sender", contains: target } };
 		}
@@ -169,10 +177,13 @@ export interface LiteralClauseNarrowing {
 export const literalClauseTerms = (
 	clauses: readonly FilterClause[],
 	operator: FilterItem["matchOperator"],
+	getDomain: GetDomain,
 ): LiteralClauseNarrowing | null => {
 	const combine = operator === FilterMatchOperator.Or ? "or" : "and";
 	if (clauses.length === 0) return null;
-	const narrowings = clauses.map(clauseNarrowing);
+	const narrowings = clauses.map((clause) =>
+		clauseNarrowing(clause, getDomain),
+	);
 	const terms = narrowings.flatMap((narrowing) =>
 		narrowing.kind === "Term" ? [narrowing.term] : [],
 	);

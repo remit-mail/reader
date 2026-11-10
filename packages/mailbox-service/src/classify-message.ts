@@ -90,7 +90,7 @@ export const classifyParsedMessage = async (
 	const senderMismatch =
 		authenticity === null
 			? {}
-			: extractSenderMismatch(parsed, {
+			: await extractSenderMismatch(parsed, {
 					fromDomain: authenticity.fromDomain,
 					bulkSender: hasListUnsubscribe,
 				});

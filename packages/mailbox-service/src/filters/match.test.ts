@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { FilterItem } from "@remit/data-ports";
 import { FilterClauseField, FilterMatchOperator } from "@remit/domain-enums";
+import { getDomain } from "tldts";
 import {
 	clauseMatches,
 	type FilterMessage,
@@ -29,36 +30,60 @@ const clause = (field: FilterClause["field"], value: string): FilterClause => ({
 describe("clauseMatches", () => {
 	it("matches From against the sender address, case-insensitively", () => {
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.From, "ACME.example"), message()),
+			clauseMatches(
+				clause(FilterClauseField.From, "ACME.example"),
+				message(),
+				getDomain,
+			),
 			true,
 		);
 	});
 
 	it("matches From against the sender display name", () => {
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.From, "alice example"), message()),
+			clauseMatches(
+				clause(FilterClauseField.From, "alice example"),
+				message(),
+				getDomain,
+			),
 			true,
 		);
 	});
 
 	it("matches Subject as a substring", () => {
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.Subject, "invoice"), message()),
+			clauseMatches(
+				clause(FilterClauseField.Subject, "invoice"),
+				message(),
+				getDomain,
+			),
 			true,
 		);
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.Subject, "receipt"), message()),
+			clauseMatches(
+				clause(FilterClauseField.Subject, "receipt"),
+				message(),
+				getDomain,
+			),
 			false,
 		);
 	});
 
 	it("matches HasWords against subject or body", () => {
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.HasWords, "quarter"), message()),
+			clauseMatches(
+				clause(FilterClauseField.HasWords, "quarter"),
+				message(),
+				getDomain,
+			),
 			true,
 		);
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.HasWords, "Q3"), message()),
+			clauseMatches(
+				clause(FilterClauseField.HasWords, "Q3"),
+				message(),
+				getDomain,
+			),
 			true,
 		);
 	});
@@ -74,6 +99,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.HasWords, "Austrian airlines"),
 				msg,
+				getDomain,
 			),
 			true,
 		);
@@ -84,6 +110,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.HasWords, "ALICE invoice"),
 				message(),
+				getDomain,
 			),
 			true,
 		);
@@ -94,6 +121,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.HasWords, "invoice receipt"),
 				message(),
+				getDomain,
 			),
 			false,
 		);
@@ -101,7 +129,11 @@ describe("clauseMatches", () => {
 
 	it("never matches an empty clause value", () => {
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.HasWords, "   "), message()),
+			clauseMatches(
+				clause(FilterClauseField.HasWords, "   "),
+				message(),
+				getDomain,
+			),
 			false,
 		);
 	});
@@ -112,17 +144,23 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.ListId, "weekly.news.example.com"),
 				msg,
+				getDomain,
 			),
 			true,
 		);
 		assert.equal(
-			clauseMatches(clause(FilterClauseField.ListId, "news.example.com"), msg),
+			clauseMatches(
+				clause(FilterClauseField.ListId, "news.example.com"),
+				msg,
+				getDomain,
+			),
 			false,
 		);
 		assert.equal(
 			clauseMatches(
 				clause(FilterClauseField.ListId, "weekly.news.example.com.other"),
 				msg,
+				getDomain,
 			),
 			false,
 		);
@@ -134,6 +172,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.ListId, "<Weekly.News.Example.COM>"),
 				msg,
+				getDomain,
 			),
 			true,
 		);
@@ -144,6 +183,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.ListId, "weekly.news.example.com"),
 				message({ listId: "" }),
+				getDomain,
 			),
 			false,
 		);
@@ -154,6 +194,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.FromDomain, "github.com"),
 				message({ from: "notifications@github.com" }),
+				getDomain,
 			),
 			true,
 		);
@@ -161,6 +202,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.FromDomain, "github.com"),
 				message({ from: "notifications@sub.github.com" }),
+				getDomain,
 			),
 			true,
 		);
@@ -171,6 +213,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.FromDomain, "github.com"),
 				message({ from: "attacker@github.com.evil.example" }),
+				getDomain,
 			),
 			false,
 		);
@@ -181,6 +224,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.FromDomain, "example.co.uk"),
 				message({ from: "hr@mail.example.co.uk" }),
+				getDomain,
 			),
 			true,
 		);
@@ -188,6 +232,7 @@ describe("clauseMatches", () => {
 			clauseMatches(
 				clause(FilterClauseField.FromDomain, "example.co.uk"),
 				message({ from: "hr@example.co.uk.evil.example" }),
+				getDomain,
 			),
 			false,
 		);
@@ -197,7 +242,10 @@ describe("clauseMatches", () => {
 describe("literalClausesMatch", () => {
 	it("matches nothing with no clauses, under either operator", () => {
 		for (const operator of [FilterMatchOperator.And, FilterMatchOperator.Or]) {
-			assert.equal(literalClausesMatch([], operator, message()), false);
+			assert.equal(
+				literalClausesMatch([], operator, message(), getDomain),
+				false,
+			);
 		}
 	});
 
@@ -207,7 +255,12 @@ describe("literalClausesMatch", () => {
 			clause(FilterClauseField.Subject, "invoice"),
 		];
 		assert.equal(
-			literalClausesMatch(clauses, FilterMatchOperator.And, message()),
+			literalClausesMatch(
+				clauses,
+				FilterMatchOperator.And,
+				message(),
+				getDomain,
+			),
 			true,
 		);
 		assert.equal(
@@ -215,6 +268,7 @@ describe("literalClausesMatch", () => {
 				[...clauses, clause(FilterClauseField.Subject, "nope")],
 				FilterMatchOperator.And,
 				message(),
+				getDomain,
 			),
 			false,
 		);
@@ -226,7 +280,12 @@ describe("literalClausesMatch", () => {
 			clause(FilterClauseField.Subject, "invoice"),
 		];
 		assert.equal(
-			literalClausesMatch(clauses, FilterMatchOperator.Or, message()),
+			literalClausesMatch(
+				clauses,
+				FilterMatchOperator.Or,
+				message(),
+				getDomain,
+			),
 			true,
 		);
 		assert.equal(
@@ -234,6 +293,7 @@ describe("literalClausesMatch", () => {
 				[clause(FilterClauseField.Subject, "nope")],
 				FilterMatchOperator.Or,
 				message(),
+				getDomain,
 			),
 			false,
 		);
@@ -296,6 +356,7 @@ describe("literalClauseTerms (reader #459)", () => {
 					clause(FilterClauseField.Subject, "invoice"),
 				],
 				FilterMatchOperator.And,
+				getDomain,
 			),
 			{
 				terms: [
@@ -311,6 +372,7 @@ describe("literalClauseTerms (reader #459)", () => {
 		const narrowing = literalClauseTerms(
 			[clause(FilterClauseField.FromDomain, "billing@mail.acme.example")],
 			FilterMatchOperator.And,
+			getDomain,
 		);
 
 		assert.deepEqual(narrowing?.terms, [
@@ -320,6 +382,7 @@ describe("literalClauseTerms (reader #459)", () => {
 			clauseMatches(
 				clause(FilterClauseField.FromDomain, "billing@mail.acme.example"),
 				message(),
+				getDomain,
 			),
 			true,
 		);
@@ -330,6 +393,7 @@ describe("literalClauseTerms (reader #459)", () => {
 			literalClauseTerms(
 				[clause(FilterClauseField.ListId, "News <Weekly.News.Example.com>")],
 				FilterMatchOperator.And,
+				getDomain,
 			)?.terms,
 			[{ field: "listId", contains: "weekly.news.example.com" }],
 		);
@@ -340,6 +404,7 @@ describe("literalClauseTerms (reader #459)", () => {
 			literalClauseTerms(
 				[clause(FilterClauseField.From, "   ")],
 				FilterMatchOperator.And,
+				getDomain,
 			),
 			null,
 		);
@@ -347,6 +412,7 @@ describe("literalClauseTerms (reader #459)", () => {
 			literalClauseTerms(
 				[clause(FilterClauseField.FromDomain, "not a domain")],
 				FilterMatchOperator.Or,
+				getDomain,
 			),
 			null,
 		);
@@ -360,6 +426,7 @@ describe("literalClauseTerms (reader #459)", () => {
 					clause(FilterClauseField.Subject, "invoice"),
 				],
 				FilterMatchOperator.Or,
+				getDomain,
 			),
 			{ terms: [{ field: "subject", contains: "invoice" }], operator: "or" },
 		);
@@ -373,13 +440,20 @@ describe("literalClauseTerms (reader #459)", () => {
 					clause(FilterClauseField.Subject, "invoice"),
 				],
 				FilterMatchOperator.Or,
+				getDomain,
 			),
 			{ terms: [], operator: "or" },
 		);
 	});
 
 	it("asks the store for nothing with no clauses, since they match nothing", () => {
-		assert.equal(literalClauseTerms([], FilterMatchOperator.And), null);
-		assert.equal(literalClauseTerms([], FilterMatchOperator.Or), null);
+		assert.equal(
+			literalClauseTerms([], FilterMatchOperator.And, getDomain),
+			null,
+		);
+		assert.equal(
+			literalClauseTerms([], FilterMatchOperator.Or, getDomain),
+			null,
+		);
 	});
 });
