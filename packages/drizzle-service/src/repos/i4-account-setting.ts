@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import type {
 	AccountSettingItem,
 	AccountSettingValue,
+	ClaimDailyCountInput,
+	DailyCountClaim,
 	IAccountSettingRepository,
 	UpsertAccountSettingInput,
 } from "@remit/data-ports";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
 import { inList } from "./in-list.js";
@@ -111,5 +113,42 @@ export class AccountSettingRepo implements IAccountSettingRepository {
 		await this.db
 			.delete(accountSettingTable)
 			.where(eq(accountSettingTable.accountSettingId, accountSettingId));
+	}
+
+	async claimDailyCount(input: ClaimDailyCountInput): Promise<DailyCountClaim> {
+		const now = Date.now();
+		const fresh: AccountSettingValue = {
+			kind: "DailyCount",
+			value: { date: input.date, calls: 1 },
+		};
+		const value = accountSettingTable.value;
+		const storedDate = sql`json_extract(${value}, '$.value.date')`;
+		const storedCalls = sql`json_extract(${value}, '$.value.calls')`;
+		const rows = await this.db
+			.insert(accountSettingTable)
+			.values({
+				accountSettingId: deriveId(input.accountConfigId, input.name),
+				accountConfigId: input.accountConfigId,
+				name: input.name,
+				value: fresh as never,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoUpdate({
+				target: accountSettingTable.accountSettingId,
+				set: {
+					value: sql`case when ${storedDate} = ${input.date} then json_set(${value}, '$.value.calls', ${storedCalls} + 1) else ${JSON.stringify(fresh)} end`,
+					updatedAt: now,
+				},
+				setWhere: sql`${storedDate} is not ${input.date} or ${storedCalls} < ${input.limit}`,
+			})
+			.returning();
+		const [row] = rows;
+		if (!row) return { state: "AtLimit" };
+		const claimed = rowToAccountSetting(row).value;
+		if (claimed.kind !== "DailyCount") {
+			throw new Error(`Setting ${input.name} does not hold a daily count`);
+		}
+		return { state: "Claimed", calls: claimed.value.calls };
 	}
 }

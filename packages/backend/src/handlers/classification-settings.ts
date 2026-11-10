@@ -2,6 +2,7 @@ import type {
 	ClassificationConfigured,
 	ClassificationNotConfigured,
 	ClassificationPreset,
+	ClassificationUsage,
 	UpdateUserSettingsInput,
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository } from "@remit/data-ports";
@@ -155,11 +156,15 @@ export const decideClassificationProvider = (
 
 export const publicClassification = (
 	stored: StoredClassification,
+	usage: ClassificationUsage[],
 ): ClassificationNotConfigured | ClassificationConfigured => {
 	if (stored.state === "NotConfigured") return stored;
 	const { apiKeyCiphertext: _ciphertext, ...configured } = stored;
-	return configured;
+	return { ...configured, usage };
 };
+
+const isDailyLimit = (value: number): boolean =>
+	Number.isInteger(value) && value >= 1;
 
 export const classificationPresetsResponse = (): ClassificationPreset[] =>
 	Object.values(CLASSIFICATION_PRESETS);
@@ -174,6 +179,15 @@ export const decideClassificationChange = (
 	input: ClassificationInput,
 	stored: StoredClassification,
 ): Decision<ClassificationChange> => {
+	if (
+		input.classificationDailyLimit !== undefined &&
+		!isDailyLimit(input.classificationDailyLimit)
+	) {
+		return refuse(
+			"InvalidClassificationDailyLimit",
+			"Enter a whole number of 1 or more.",
+		);
+	}
 	let provider: ClassificationProviderSave | undefined;
 	if (savesClassificationProvider(input)) {
 		const decided = decideClassificationProvider(input, stored);

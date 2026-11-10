@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
+import {
+	classificationUsageName,
+	utcDateOf,
+} from "@remit/data-ports/classification-presets";
 import { deriveAddressId } from "@remit/data-ports/id";
 import {
 	AccountSettingName,
@@ -470,5 +474,129 @@ describe("body sync with a saved classification provider", () => {
 		assert.equal(row.mailboxId, world.inbox.mailboxId);
 		assert.equal(row.category, expected);
 		assert.deepEqual(await labelNames(messageId), []);
+	});
+});
+
+const today = (): string => utcDateOf(Date.now());
+
+const yesterday = (): string => utcDateOf(Date.now() - 86_400_000);
+
+const storeCalls = (accountId: string, date: string, calls: number) =>
+	upsert(classificationUsageName(accountId), {
+		kind: "DailyCount",
+		value: { date, calls },
+	});
+
+const storedCalls = async (accountId: string) =>
+	(
+		await world.store.accountSetting.get(
+			world.account.accountConfigId,
+			classificationUsageName(accountId),
+		)
+	)?.value;
+
+const syncOne = async (raw: Buffer): Promise<string> => {
+	const messageId = await arrive(raw);
+	await sync(bodySync(), [messageId]);
+	return messageId;
+};
+
+describe("body sync under the daily classification limit", () => {
+	it("classifies call 500 and gives call 501 the built-in result", async () => {
+		const expected = await builtInCategory(COLLEAGUE);
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await storeCalls(world.account.accountId, today(), 499);
+
+		const atLimit = await syncOne(COLLEAGUE);
+		const overLimit = await syncOne(COLLEAGUE);
+
+		assert.equal(world.provider.requests.length, 1);
+		assert.equal(
+			(await world.store.message.get(atLimit)).category,
+			"newsletter",
+		);
+		const row = await world.store.message.get(overLimit);
+		assert.equal(row.category, expected);
+		assert.equal(row.classificationState, MessageClassificationState.Examined);
+		assert.deepEqual(await storedCalls(world.account.accountId), {
+			kind: "DailyCount",
+			value: { date: today(), calls: 500 },
+		});
+	});
+
+	it("keeps calling for an account while another sits at its limit", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await storeCalls("1".repeat(25), today(), 500);
+
+		const messageId = await syncOne(COLLEAGUE);
+
+		assert.equal(world.provider.requests.length, 1);
+		assert.equal(
+			(await world.store.message.get(messageId)).category,
+			"newsletter",
+		);
+	});
+
+	it("resumes calls for new mail once the limit is raised, and leaves capped mail as it was", async () => {
+		const expected = await builtInCategory(COLLEAGUE);
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await storeCalls(world.account.accountId, today(), 500);
+		const capped = await syncOne(COLLEAGUE);
+		assert.equal(world.provider.requests.length, 0);
+
+		await upsert(AccountSettingName.ClassificationDailyLimit, {
+			kind: "Number",
+			value: 501,
+		});
+		const resumed = await syncOne(COLLEAGUE);
+		const again = await sync(bodySync(), [capped]);
+
+		assert.equal(world.provider.requests.length, 1);
+		assert.equal(
+			(await world.store.message.get(resumed)).category,
+			"newsletter",
+		);
+		assert.equal(again.skippedCount, 1);
+		assert.equal((await world.store.message.get(capped)).category, expected);
+	});
+
+	it("starts a new day at zero calls", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.Newsletter, 0.9]]);
+		await storeCalls(world.account.accountId, yesterday(), 500);
+
+		const messageId = await syncOne(COLLEAGUE);
+
+		assert.equal(world.provider.requests.length, 1);
+		assert.equal(
+			(await world.store.message.get(messageId)).category,
+			"newsletter",
+		);
+		assert.deepEqual(await storedCalls(world.account.accountId), {
+			kind: "DailyCount",
+			value: { date: today(), calls: 1 },
+		});
+	});
+
+	it("never counts past the limit when claims race", async () => {
+		const claims = await Promise.all(
+			Array.from({ length: 20 }, () =>
+				world.store.accountSetting.claimDailyCount({
+					accountConfigId: world.account.accountConfigId,
+					name: classificationUsageName(world.account.accountId),
+					date: today(),
+					limit: 5,
+				}),
+			),
+		);
+
+		assert.equal(claims.filter((claim) => claim.state === "Claimed").length, 5);
+		assert.deepEqual(await storedCalls(world.account.accountId), {
+			kind: "DailyCount",
+			value: { date: today(), calls: 5 },
+		});
 	});
 });

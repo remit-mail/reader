@@ -84,6 +84,40 @@ export const accountSettingRepoSuite = (open: OpenTestStores): void => {
 			await repo.delete(accountConfigId, "Density");
 		});
 
+		test("claimDailyCount stops at the limit and restarts on a new date", async () => {
+			const accountConfigId = randomId();
+			const claim = (date: string) =>
+				repo.claimDailyCount({
+					accountConfigId,
+					name: "ClassificationUsage#account",
+					date,
+					limit: 2,
+				});
+
+			assert.deepEqual(await claim("2026-11-09"), {
+				state: "Claimed",
+				calls: 1,
+			});
+			assert.deepEqual(await claim("2026-11-09"), {
+				state: "Claimed",
+				calls: 2,
+			});
+			assert.deepEqual(await claim("2026-11-09"), { state: "AtLimit" });
+			assert.deepEqual(await claim("2026-11-10"), {
+				state: "Claimed",
+				calls: 1,
+			});
+
+			const stored = await repo.get(
+				accountConfigId,
+				"ClassificationUsage#account",
+			);
+			assert.deepEqual(stored?.value, {
+				kind: "DailyCount",
+				value: { date: "2026-11-10", calls: 1 },
+			});
+		});
+
 		test("delete removes the setting", async () => {
 			const accountConfigId = randomId();
 			await repo.upsert({

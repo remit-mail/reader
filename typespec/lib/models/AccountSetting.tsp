@@ -47,6 +47,20 @@ model MutedFlagSetting extends AccountSettingValue {
   value: MutedFlag;
 }
 
+@doc("A count that restarts every UTC day.")
+model DailyCount {
+  @doc("The UTC date the count belongs to, as `YYYY-MM-DD`.")
+  date: string;
+
+  calls: int32;
+}
+
+@doc("DailyCount-valued setting: a count for one UTC date.")
+model DailyCountSetting extends AccountSettingValue {
+  kind: "DailyCount";
+  value: DailyCount;
+}
+
 @doc("Concrete setting values, one variant per `kind`. Persisted as an opaque map (the registry validates the shape per setting name); the discriminator above types it on the wire.")
 union AccountSettingValueUnion {
   boolean: BooleanSetting,
@@ -55,6 +69,7 @@ union AccountSettingValueUnion {
   stringList: StringListSetting,
   map: MapSetting,
   mutedFlag: MutedFlagSetting,
+  dailyCount: DailyCountSetting,
 }
 
 @doc("A single user setting for an account configuration. One row per (accountConfigId, name); the primary key is a deterministic UUID v5 of that pair, so writes are idempotent upserts.")

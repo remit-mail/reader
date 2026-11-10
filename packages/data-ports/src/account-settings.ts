@@ -39,6 +39,13 @@ export const CiphertextSettingSchema = z.object({
 		authTag: z.string(),
 	}),
 });
+export const DailyCountSettingSchema = z.object({
+	kind: z.literal("DailyCount"),
+	value: z.object({
+		date: z.string(),
+		calls: z.number().int(),
+	}),
+});
 /**
  * MutedFlag-valued setting. The value is a rich mute object (`MutedFlag` in
  * TypeSpec / `@remit/api-openapi-types`): a boolean plus audit metadata. The
@@ -98,6 +105,7 @@ export const accountSettingRegistry = {
 	[AccountSettingName.ClassificationApiKey]: CiphertextSettingSchema,
 	[AccountSettingName.ClassificationEnabled]: BooleanSettingSchema,
 	[AccountSettingName.ClassificationDailyLimit]: NumberSettingSchema,
+	[AccountSettingName.ClassificationUsage]: DailyCountSettingSchema,
 } as const satisfies Record<AccountSettingNameValue, z.ZodTypeAny>;
 
 export type AccountSettingRegistry = typeof accountSettingRegistry;
@@ -162,6 +170,7 @@ export type AnyAccountSettingValue = z.infer<
 	| typeof StringListSettingSchema
 	| typeof MapSettingSchema
 	| typeof MutedFlagSettingSchema
+	| typeof DailyCountSettingSchema
 >;
 
 /**

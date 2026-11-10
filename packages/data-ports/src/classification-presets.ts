@@ -3,6 +3,7 @@ import type {
 	ClassificationNotConfigured,
 	ClassificationPreset,
 	ClassificationPresetId as ClassificationPresetIdValue,
+	ClassificationUsage,
 } from "@remit/api-openapi-types";
 import {
 	AccountSettingName,
@@ -12,10 +13,13 @@ import {
 } from "@remit/domain-enums";
 import {
 	type AccountSettingValueFor,
+	composeSettingName,
 	parseAccountSettingValue,
 } from "./account-settings.js";
 import type { IAccountSettingRepository } from "./interfaces/account-setting.js";
-import type { AccountSettingItem } from "./types.js";
+import type { AccountSettingItem, DailyCount } from "./types.js";
+
+type ClassificationCost = ClassificationUsage["cost"];
 
 const NO_PRICE: ClassificationPreset["price"] = { state: "NoPrice" };
 
@@ -104,9 +108,14 @@ export type ClassificationApiKeyCiphertext = AccountSettingValueFor<
 	typeof AccountSettingName.ClassificationApiKey
 >["value"];
 
+export type SavedClassificationProvider = Omit<
+	ClassificationConfigured,
+	"usage"
+>;
+
 export type StoredClassification =
 	| ClassificationNotConfigured
-	| (ClassificationConfigured & {
+	| (SavedClassificationProvider & {
 			apiKeyCiphertext: ClassificationApiKeyCiphertext | undefined;
 	  });
 
@@ -187,4 +196,73 @@ export const readStoredClassification = async (
 		);
 	}
 	return saved;
+};
+
+export const CLASSIFICATION_INPUT_TOKENS_PER_CALL = 1_500;
+
+export const classificationUsageName = (accountId: string): string =>
+	composeSettingName(AccountSettingName.ClassificationUsage, accountId);
+
+export const utcDateOf = (epochMs: number): string =>
+	new Date(epochMs).toISOString().slice(0, 10);
+
+export const nextUtcMidnight = (epochMs: number): string => {
+	const now = new Date(epochMs);
+	return new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+	).toISOString();
+};
+
+export const callsOn = (usage: DailyCount | undefined, date: string): number =>
+	usage?.date === date ? usage.calls : 0;
+
+export const classificationCost = (
+	preset: ClassificationPreset,
+	calls: number,
+): ClassificationCost => {
+	if (preset.price.state === "NoPrice") return { state: "NoPrice" };
+	return {
+		state: "Priced",
+		currency: preset.price.currency,
+		amount:
+			(calls *
+				CLASSIFICATION_INPUT_TOKENS_PER_CALL *
+				preset.price.perMillionInputTokens) /
+			1_000_000,
+	};
+};
+
+export const readClassificationUsage = async (
+	accountSetting: Pick<IAccountSettingRepository, "getMany">,
+	accountConfigId: string,
+	accountIds: readonly string[],
+	saved: Pick<SavedClassificationProvider, "presetId" | "dailyLimit">,
+	now: number,
+): Promise<ClassificationUsage[]> => {
+	const rows = await accountSetting.getMany(
+		[accountConfigId],
+		accountIds.map(classificationUsageName),
+	);
+	const today = utcDateOf(now);
+	const resetsAt = nextUtcMidnight(now);
+	const preset = CLASSIFICATION_PRESETS[saved.presetId];
+	return accountIds.map((accountId) => {
+		const row = settingOf(rows, classificationUsageName(accountId));
+		const calls = callsOn(
+			row
+				? parseAccountSettingValue(
+						AccountSettingName.ClassificationUsage,
+						row.value,
+					).value
+				: undefined,
+			today,
+		);
+		return {
+			accountId,
+			calls,
+			dailyLimit: saved.dailyLimit,
+			resetsAt,
+			cost: classificationCost(preset, calls),
+		};
+	});
 };
