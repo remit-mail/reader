@@ -8,6 +8,14 @@ import {
 	sqliteDatabasePathsFromEnv,
 	syncStores,
 } from "@remit/drizzle-service";
+import {
+	mcp_device_code,
+	mcp_oauth_access_token,
+	mcp_oauth_client,
+	mcp_oauth_consent,
+	mcp_oauth_refresh_token,
+	mcp_session,
+} from "@remit/drizzle-service/schema-sets/mcp";
 import type { Logger } from "@remit/logger";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { eq } from "drizzle-orm";
@@ -39,9 +47,26 @@ export const buildRelationalDeletionCapabilities =
 	(): DeletionCapabilities => ({
 		assertReady: async () => {},
 		signOut: async (userId, log) => {
-			await (await getStores()).app.db
-				.delete(auth_user)
-				.where(eq(auth_user.id, userId));
+			const { app } = await getStores();
+			await app.batch([
+				app.db.delete(mcp_session).where(eq(mcp_session.userId, userId)),
+				app.db
+					.delete(mcp_oauth_client)
+					.where(eq(mcp_oauth_client.userId, userId)),
+				app.db
+					.delete(mcp_oauth_refresh_token)
+					.where(eq(mcp_oauth_refresh_token.userId, userId)),
+				app.db
+					.delete(mcp_oauth_access_token)
+					.where(eq(mcp_oauth_access_token.userId, userId)),
+				app.db
+					.delete(mcp_oauth_consent)
+					.where(eq(mcp_oauth_consent.userId, userId)),
+				app.db
+					.delete(mcp_device_code)
+					.where(eq(mcp_device_code.userId, userId)),
+				app.db.delete(auth_user).where(eq(auth_user.id, userId)),
+			]);
 			log.info({ userId }, "Auth user erased");
 		},
 		invalidateContent: async (contentPrefix, log) => {

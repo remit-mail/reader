@@ -696,10 +696,10 @@ describe("a v0.9.27 remit.db migrated in place", async () => {
 		assert.equal(rows(path, "SELECT * FROM message_flag_push").length, 1);
 	});
 
-	test("applies mcp 0002 on top of the 0001 it already held", () => {
+	test("applies the later mcp migrations on top of the 0001 it already held", () => {
 		assert.equal(
 			rows(path, "SELECT * FROM __drizzle_migrations_mcp").length,
-			3,
+			4,
 		);
 	});
 });

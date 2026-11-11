@@ -22,6 +22,13 @@
       "when": 1793256177202,
       "tag": "0002_mcp_device_code_user_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794433794877,
+      "tag": "0003_mcp_opaque_user_id",
+      "breakpoints": true
     }
   ]
 }

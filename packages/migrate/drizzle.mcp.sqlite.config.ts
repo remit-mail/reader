@@ -8,7 +8,7 @@ import type { Config } from "drizzle-kit";
  */
 export default {
 	dialect: "sqlite",
-	schema: ["packages/mcp-server/src/auth/schema.ts"],
+	schema: ["packages/drizzle-service/src/schema-sets/mcp.ts"],
 	out: "deploy/vps/migrations-sqlite/mcp",
 	tablesFilter: ["mcp_*"],
 } satisfies Config;
