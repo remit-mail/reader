@@ -15,6 +15,7 @@ import {
 	writeAudit,
 } from "@remit/auth-service";
 import { auth_account, auth_user } from "@remit/auth-service/schema";
+import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
 import {
 	type BetterAuthOptions,
 	type BetterAuthPlugin,
@@ -36,7 +37,6 @@ import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import { refuseSharedTableWrites } from "./database.js";
 import { checkRemitPassword } from "./remit-password.js";
-import * as mcpTables from "./schema.js";
 import { MCP_SCOPES, OFFLINE_ACCESS_SCOPE } from "./scopes.js";
 import type { TokenVerifier } from "./token-verifier.js";
 

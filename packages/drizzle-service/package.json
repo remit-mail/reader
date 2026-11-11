@@ -13,6 +13,10 @@
     "./test-sqlite": {
       "types": "./src/test-sqlite.ts",
       "default": "./src/test-sqlite.ts"
+    },
+    "./schema-sets/mcp": {
+      "types": "./src/schema-sets/mcp.ts",
+      "default": "./src/schema-sets/mcp.ts"
     }
   },
   "scripts": {
