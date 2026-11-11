@@ -8,21 +8,11 @@ import {
 	type Scope,
 } from "@better-auth/oauth-provider";
 import {
-	ACCOUNT_DISABLED,
-	CLIENT_IP_HEADER,
-	isUserDisabled,
-	SIGN_IN_DISABLED,
-	writeAudit,
-} from "@remit/auth-service";
-import { auth_account, auth_user } from "@remit/auth-service/schema";
-import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
-import {
 	type BetterAuthOptions,
 	type BetterAuthPlugin,
 	betterAuth,
 	type GenericEndpointContext,
 } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
 	APIError,
 	createAuthEndpoint,
@@ -33,10 +23,7 @@ import {
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { jwt } from "better-auth/plugins";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
-import { refuseSharedTableWrites } from "./database.js";
-import { checkRemitPassword } from "./remit-password.js";
 import { MCP_SCOPES, OFFLINE_ACCESS_SCOPE } from "./scopes.js";
 import type { TokenVerifier } from "./token-verifier.js";
 
@@ -78,11 +65,39 @@ export const isAllowedRedirectUri = (uri: string): boolean => {
 	);
 };
 
+const CLIENT_IP_HEADER = "x-remit-client-ip";
+
+const SIGN_IN_DISABLED = {
+	code: "SIGN_IN_DISABLED",
+	message: "Sign-in is turned off on this server.",
+} as const;
+
+const ACCOUNT_DISABLED = {
+	code: "ACCOUNT_DISABLED",
+	message: "This account is disabled.",
+} as const;
+
 export interface McpAuthConfig {
 	origin: string;
 	secret: string;
-	db: BetterSQLite3Database;
 	signInEnabled: boolean;
+}
+
+export interface McpAuditRecord {
+	actor: string;
+	target: string;
+	action: "SignInRefusedDisabled";
+	outcome: "RefusedDisabled";
+	clientIp: string;
+}
+
+export type McpSignInResult = { ok: true; userId: string } | { ok: false };
+
+export interface McpIdentity {
+	isDisabled(userId: string): Promise<boolean>;
+	audit(record: McpAuditRecord): Promise<void>;
+	signIn?(email: string, password: string): Promise<McpSignInResult>;
+	subjectOf?(headers: Headers): Promise<string | undefined>;
 }
 
 export const mcpResource = (origin: string): string => `${origin}${MCP_PATH}`;
@@ -201,8 +216,89 @@ const grantOf = (userId: string, clientId: string) => [
 	{ field: "clientId", value: clientId },
 ];
 
+const refuseDisabled = async (
+	identity: McpIdentity,
+	userId: string,
+	headers: Headers | undefined,
+): Promise<void> => {
+	if (!(await identity.isDisabled(userId))) return;
+	await identity.audit({
+		actor: userId,
+		target: userId,
+		action: "SignInRefusedDisabled",
+		outcome: "RefusedDisabled",
+		clientIp: headers?.get(CLIENT_IP_HEADER) ?? "unknown",
+	});
+	throw new APIError("FORBIDDEN", { ...ACCOUNT_DISABLED });
+};
+
+const signInEndpoint = (
+	signIn: NonNullable<McpIdentity["signIn"]>,
+	identity: McpIdentity,
+) =>
+	createAuthEndpoint(
+		SIGN_IN_PATH,
+		{
+			method: "POST",
+			body: z.object({
+				email: z.string(),
+				password: z.string(),
+				oauth_query: z.string(),
+			}),
+		},
+		async (ctx) => {
+			const result = await signIn(ctx.body.email, ctx.body.password);
+			if (!result.ok) {
+				throw new APIError("UNAUTHORIZED", {
+					message: "Invalid email or password",
+				});
+			}
+			await refuseDisabled(identity, result.userId, ctx.request?.headers);
+			const user = await ctx.context.internalAdapter.findUserById(
+				result.userId,
+			);
+			if (!user) {
+				throw new APIError("UNAUTHORIZED", {
+					message: "Invalid email or password",
+				});
+			}
+			const session = await ctx.context.internalAdapter.createSession(user.id);
+			await setSessionCookie(ctx, { session, user });
+			return ctx.json({ redirect: false });
+		},
+	);
+
+const isAlwaysServed = (path: string): boolean =>
+	path === JWKS_PATH || path.startsWith("/.well-known/");
+
+/**
+ * A host that authenticates the browser itself names the user through
+ * `subjectOf`; the request then runs on that user's live session, opened once.
+ */
+const subjectSession = (
+	subjectOf: NonNullable<McpIdentity["subjectOf"]>,
+	identity: McpIdentity,
+) => ({
+	matcher: (ctx: { path?: string }) => !isAlwaysServed(ctx.path ?? ""),
+	handler: createAuthMiddleware(async (ctx) => {
+		if (await getSessionFromCtx(ctx)) return;
+		const userId = await subjectOf(ctx.headers ?? new Headers());
+		if (!userId) return;
+		await refuseDisabled(identity, userId, ctx.headers);
+		const user = await ctx.context.internalAdapter.findUserById(userId);
+		if (!user) return;
+		const now = new Date();
+		const live = (await ctx.context.internalAdapter.listSessions(userId)).find(
+			(session) => session.expiresAt > now,
+		);
+		const session =
+			live ?? (await ctx.context.internalAdapter.createSession(userId));
+		ctx.context.session = { session, user };
+	}),
+});
+
 const remitMcpBridge = (
-	db: BetterSQLite3Database,
+	identity: McpIdentity,
 	resource: string,
 	oauthOptions: OAuthOptions<Scope[]>,
 	signInEnabled: boolean,
@@ -210,52 +306,9 @@ const remitMcpBridge = (
 	({
 		id: "remit-mcp",
 		endpoints: {
-			remitMcpSignIn: createAuthEndpoint(
-				SIGN_IN_PATH,
-				{
-					method: "POST",
-					body: z.object({
-						email: z.string(),
-						password: z.string(),
-						oauth_query: z.string(),
-					}),
-				},
-				async (ctx) => {
-					const result = await checkRemitPassword(
-						db,
-						ctx.body.email,
-						ctx.body.password,
-					);
-					if (!result.ok) {
-						throw new APIError("UNAUTHORIZED", {
-							message: "Invalid email or password",
-						});
-					}
-					if (isUserDisabled(db, result.userId)) {
-						writeAudit(db, {
-							actor: result.userId,
-							target: result.userId,
-							action: "SignInRefusedDisabled",
-							outcome: "RefusedDisabled",
-							clientIp: ctx.request?.headers.get(CLIENT_IP_HEADER) ?? "unknown",
-						});
-						throw new APIError("FORBIDDEN", { ...ACCOUNT_DISABLED });
-					}
-					const user = await ctx.context.internalAdapter.findUserById(
-						result.userId,
-					);
-					if (!user) {
-						throw new APIError("UNAUTHORIZED", {
-							message: "Invalid email or password",
-						});
-					}
-					const session = await ctx.context.internalAdapter.createSession(
-						user.id,
-					);
-					await setSessionCookie(ctx, { session, user });
-					return ctx.json({ redirect: false });
-				},
-			),
+			...(identity.signIn
+				? { remitMcpSignIn: signInEndpoint(identity.signIn, identity) }
+				: {}),
 			remitMcpVerifyAccessToken: createAuthEndpoint(
 				"/mcp/verify-access-token",
 				{
@@ -285,7 +338,7 @@ const remitMcpBridge = (
 							error_description: "The user disconnected this client",
 						});
 					}
-					if (isUserDisabled(db, payload.sub)) {
+					if (await identity.isDisabled(payload.sub)) {
 						throw new APIError("UNAUTHORIZED", {
 							error: "invalid_token",
 							error_description: "The account is disabled",
@@ -356,6 +409,9 @@ const remitMcpBridge = (
 		},
 		hooks: {
 			before: [
+				...(identity.subjectOf
+					? [subjectSession(identity.subjectOf, identity)]
+					: []),
 				{
 					matcher: (ctx) => ctx.path === "/oauth2/authorize",
 					handler: createAuthMiddleware(async (ctx) => {
@@ -461,9 +517,6 @@ const remitMcpBridge = (
 		},
 	}) satisfies BetterAuthPlugin;
 
-const isAlwaysServed = (path: string): boolean =>
-	path === JWKS_PATH || path.startsWith("/.well-known/");
-
 /**
  * The kill switch on the connector's own better-auth instance: with
  * `SIGN_IN_ENABLED` off every path but the JWKS and the server metadata is
@@ -478,6 +531,7 @@ const signInGate = (signInEnabled: boolean) =>
 export const buildMcpAuthOptions = (
 	config: McpAuthConfig,
 	database: BetterAuthOptions["database"],
+	identity: McpIdentity,
 ) => {
 	const oauthOptions = buildOAuthOptions(config.origin);
 	return {
@@ -512,7 +566,7 @@ export const buildMcpAuthOptions = (
 				verificationUri: `${config.origin}${DEVICE_PATH}`,
 			}),
 			remitMcpBridge(
-				config.db,
+				identity,
 				mcpResource(config.origin),
 				oauthOptions,
 				config.signInEnabled,
@@ -521,16 +575,11 @@ export const buildMcpAuthOptions = (
 	} satisfies BetterAuthOptions;
 };
 
-export const createMcpAuth = (config: McpAuthConfig) =>
-	betterAuth(
-		buildMcpAuthOptions(
-			config,
-			drizzleAdapter(refuseSharedTableWrites(config.db), {
-				provider: "sqlite",
-				schema: { ...mcpTables, auth_user, auth_account },
-			}),
-		),
-	);
+export const createMcpAuth = (
+	config: McpAuthConfig,
+	database: BetterAuthOptions["database"],
+	identity: McpIdentity,
+) => betterAuth(buildMcpAuthOptions(config, database, identity));
 
 export type McpAuth = ReturnType<typeof createMcpAuth>;
 
@@ -544,7 +593,7 @@ export interface McpAuthRoutes {
 	handle(request: Request): Promise<Response>;
 	serverMetadata(request: Request): Promise<Response>;
 	hasSession(headers: Headers): Promise<boolean>;
-	signIn(headers: Headers, body: SignIn): Promise<Response>;
+	signIn?(headers: Headers, body: SignIn): Promise<Response>;
 	consent(
 		headers: Headers,
 		body: { accept: boolean; oauth_query: string },
@@ -601,7 +650,10 @@ const isServedAuthPath = (path: string): boolean =>
 	path === REVOKE_CLIENT_API_PATH ||
 	path === JWKS_PATH;
 
-export const createMcpAuthRoutes = (auth: McpAuth): McpAuthRoutes => ({
+export const createMcpAuthRoutes = (
+	auth: McpAuth,
+	identity: McpIdentity,
+): McpAuthRoutes => ({
 	handle: async (request) => {
 		const { pathname } = new URL(request.url);
 		if (!pathname.startsWith(AUTH_BASE_PATH)) {
@@ -613,12 +665,20 @@ export const createMcpAuthRoutes = (auth: McpAuth): McpAuthRoutes => ({
 		return auth.handler(request);
 	},
 	serverMetadata: oauthProviderAuthServerMetadata(auth),
-	hasSession: async (headers) =>
-		(await auth.api.getSession({ headers })) !== null,
+	hasSession: async (headers) => {
+		if ((await auth.api.getSession({ headers })) !== null) return true;
+		if (!identity.subjectOf) return false;
+		return (await identity.subjectOf(headers)) !== undefined;
+	},
 	// These two go through the router rather than auth.api: only the router
 	// applies the sign-in rate limit, and the authorization they resume needs
 	// a request.
-	signIn: (headers, body) => postToRouter(auth, headers, SIGN_IN_PATH, body),
+	...(identity.signIn
+		? {
+				signIn: (headers: Headers, body: SignIn) =>
+					postToRouter(auth, headers, SIGN_IN_PATH, body),
+			}
+		: {}),
 	consent: (headers, body) =>
 		postToRouter(auth, headers, "/oauth2/consent", body),
 	clientName: async (headers, clientId) => {

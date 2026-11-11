@@ -7,10 +7,10 @@ import { installNodeLogger } from "@remit/logger-lambda/node";
 import { createMcpApp } from "./app.js";
 import {
 	createBetterAuthTokenVerifier,
-	createMcpAuth,
 	createMcpAuthRoutes,
 } from "./auth/authorization-server.js";
 import { openMcpAuthDatabase } from "./auth/database.js";
+import { createSqliteMcpAuth, sqliteMcpIdentity } from "./auth/node-auth.js";
 import { resolveMcpServerConfig } from "./config.js";
 import { mcpDepsOf } from "./deps.js";
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
@@ -33,15 +33,20 @@ const deps = mcpDepsOf(client, {
 	},
 });
 
-const auth = createMcpAuth({
-	origin: config.origin,
-	secret: config.secret,
-	db: openMcpAuthDatabase(config.databases.app).db,
-	signInEnabled: resolveSignInEnabled(),
-});
+const authDb = openMcpAuthDatabase(config.databases.app).db;
+const identity = sqliteMcpIdentity(authDb);
+const auth = createSqliteMcpAuth(
+	{
+		origin: config.origin,
+		secret: config.secret,
+		signInEnabled: resolveSignInEnabled(),
+	},
+	authDb,
+	identity,
+);
 const app = createMcpApp({
 	origin: config.origin,
-	authRoutes: createMcpAuthRoutes(auth),
+	authRoutes: createMcpAuthRoutes(auth, identity),
 	verifier: createBetterAuthTokenVerifier(auth, config.origin),
 	deps,
 });

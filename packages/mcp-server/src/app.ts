@@ -131,7 +131,10 @@ export const createMcpApp = ({
 		return `${url.pathname}${url.search}`;
 	};
 
-	const login = async (request: Request): Promise<Response> => {
+	const login = async (
+		request: Request,
+		signIn: NonNullable<McpAuthRoutes["signIn"]>,
+	): Promise<Response> => {
 		if (request.method === "GET") {
 			const url = new URL(request.url);
 			if (url.search === "" || url.searchParams.has("return_to")) {
@@ -148,7 +151,7 @@ export const createMcpApp = ({
 			? { oauth_query: oauthQuery }
 			: { return_to: returnTo };
 		const email = formString(form, "email");
-		const response = await authRoutes.signIn(request.headers, {
+		const response = await signIn(request.headers, {
 			email,
 			password: formString(form, "password"),
 			oauth_query: oauthQuery,
@@ -342,7 +345,9 @@ export const createMcpApp = ({
 			});
 		}
 		if (pathname === MCP_PATH) return serveMcp(request);
-		if (pathname === LOGIN_PATH) return login(request);
+		if (pathname === LOGIN_PATH && authRoutes.signIn) {
+			return login(request, authRoutes.signIn);
+		}
 		if (pathname === CONSENT_PATH) return consent(request);
 		if (pathname === DEVICE_PATH) return device(request);
 		if (pathname === CONNECTED_APPS_PATH) return connectedApps(request);

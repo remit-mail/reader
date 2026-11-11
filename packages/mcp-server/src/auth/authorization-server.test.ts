@@ -40,12 +40,13 @@ import { ruleDeps } from "../test-rule-deps.js";
 import {
 	BROWSER_TOKEN_TTL_SECONDS,
 	createBetterAuthTokenVerifier,
-	createMcpAuth,
 	createMcpAuthRoutes,
 	DEVICE_TOKEN_TTL_SECONDS,
 	type McpAuth,
+	type McpIdentity,
 } from "./authorization-server.js";
 import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
+import { createSqliteMcpAuth, sqliteMcpIdentity } from "./node-auth.js";
 
 const MCP_ORIGIN = "https://mcp.remit.test";
 const MAIN_ORIGIN = "https://reader.remit.test";
@@ -78,6 +79,7 @@ const app = (request: Request, clientIp: string): Promise<Response> => {
 	return handler(new Request(request, { headers }));
 };
 let mainSessionToken: string;
+let ownerId: string;
 let mainJwt: string;
 
 const sharedRows = (): unknown[] => {
@@ -90,18 +92,23 @@ const sharedRows = (): unknown[] => {
 	return rows;
 };
 
-const buildApp = (): { auth: McpAuth; handler: McpRequestHandler } => {
-	const instance = createMcpAuth({
-		origin: MCP_ORIGIN,
-		secret: "mcp-instance-secret-0123456789abcdef",
-		db: database.db,
-		signInEnabled: true,
-	});
+const buildApp = (
+	identity: McpIdentity = sqliteMcpIdentity(database.db),
+): { auth: McpAuth; handler: McpRequestHandler } => {
+	const instance = createSqliteMcpAuth(
+		{
+			origin: MCP_ORIGIN,
+			secret: "mcp-instance-secret-0123456789abcdef",
+			signInEnabled: true,
+		},
+		database.db,
+		identity,
+	);
 	return {
 		auth: instance,
 		handler: createMcpApp({
 			origin: MCP_ORIGIN,
-			authRoutes: createMcpAuthRoutes(instance),
+			authRoutes: createMcpAuthRoutes(instance, identity),
 			verifier: createBetterAuthTokenVerifier(instance, MCP_ORIGIN),
 			deps,
 		}),
@@ -138,7 +145,12 @@ before(async () => {
 		asResponse: true,
 	});
 	assert.equal(signUp.status, 200);
-	mainSessionToken = ((await signUp.json()) as { token: string }).token;
+	const signedUp = (await signUp.json()) as {
+		token: string;
+		user: { id: string };
+	};
+	mainSessionToken = signedUp.token;
+	ownerId = signedUp.user.id;
 	const cookie = signUp.headers
 		.getSetCookie()
 		.map((value) => value.split(";")[0])
@@ -686,6 +698,33 @@ describe("the MCP authorization server", () => {
 		assert.equal(refreshed.body.access_token, undefined);
 
 		assert.equal((await listTools(spared.access)).status, 200);
+	});
+});
+
+describe("a host that authenticates the browser itself", () => {
+	const SUBJECT_HEADER = "x-test-subject";
+	const hosted = () =>
+		buildApp({
+			isDisabled: async () => false,
+			audit: async () => {},
+			subjectOf: async (headers) => headers.get(SUBJECT_HEADER) ?? undefined,
+		}).handler;
+
+	it("serves no sign-in page", async () => {
+		const response = await hosted()(new Request(`${MCP_ORIGIN}/login`));
+		assert.equal(response.status, 404);
+	});
+
+	it("opens a session for the subject the host names", async () => {
+		const handle = hosted();
+		const signedIn = await handle(
+			new Request(`${MCP_ORIGIN}/apps`, {
+				headers: { [SUBJECT_HEADER]: ownerId },
+			}),
+		);
+		assert.equal(signedIn.status, 200);
+		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
+		assert.equal(locationOf(anonymous).pathname, "/login");
 	});
 });
 
