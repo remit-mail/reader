@@ -247,6 +247,7 @@ describe("a user mutation writes only against the placement it read", () => {
 				messageId,
 				junk.mailboxId,
 				account.accountId,
+				inbox.mailboxId,
 			),
 			MessagePlacementUnsettledError,
 		);

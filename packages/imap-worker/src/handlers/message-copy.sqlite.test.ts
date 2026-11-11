@@ -256,6 +256,7 @@ describe("a fresh copy acted on before the server confirms it", () => {
 			a.copyId,
 			a.inboxId,
 			a.w.account.accountId,
+			a.projectsId,
 		);
 		await run(a);
 		await moving;

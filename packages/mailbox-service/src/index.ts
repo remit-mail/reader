@@ -376,7 +376,6 @@ export {
 	removeQuotedContent,
 } from "./snippet.js";
 export {
-	MoveNotSettledError,
 	NoJunkMailboxError,
 	type SpamReportConfig,
 	type SpamReportLogger,

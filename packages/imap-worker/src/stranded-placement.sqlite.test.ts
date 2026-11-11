@@ -248,6 +248,7 @@ describe("a move whose event dies leaves no row moving", () => {
 				a.message.messageId,
 				a.notifications.mailboxId,
 				a.w.account.accountId,
+				a.inbox.mailboxId,
 			),
 			/queue unreachable/,
 		);
@@ -390,6 +391,7 @@ describe("a move whose event dies leaves no row moving", () => {
 					a.message.messageId,
 					a.notifications.mailboxId,
 					a.w.account.accountId,
+					a.inbox.mailboxId,
 				),
 				(error: unknown) => {
 					assert.ok(error instanceof AggregateError);
@@ -442,6 +444,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 			a.message.messageId,
 			a.notifications.mailboxId,
 			a.w.account.accountId,
+			a.inbox.mailboxId,
 		);
 
 		const [move] = await redriveLater(a);
@@ -579,6 +582,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 			a.message.messageId,
 			a.notifications.mailboxId,
 			a.w.account.accountId,
+			a.inbox.mailboxId,
 		);
 		await a.w.client.mailbox.update(a.w.account.accountId, a.inbox.mailboxId, {
 			cursorState: MailboxCursorState.rebuilding,
@@ -603,6 +607,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 			a.message.messageId,
 			a.notifications.mailboxId,
 			a.w.account.accountId,
+			a.inbox.mailboxId,
 		);
 
 		assert.deepEqual(await redriveLater(a, 0), [], "inside the budget");

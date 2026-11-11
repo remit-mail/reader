@@ -23,7 +23,6 @@ import {
 	isCursorRebuildNeeded,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
-	MoveNotSettledError,
 	materializeBodyParts,
 	NoJunkMailboxError,
 	ownedMessages,
@@ -210,11 +209,7 @@ export const GENERIC_FAILURE_REASON =
  * each names what happened and what the user can do about it, which the
  * generic text cannot.
  */
-const DESIGNED_FAILURES = [
-	MoveNotSettledError,
-	NoJunkMailboxError,
-	MessagePlacementUnsettledError,
-];
+const DESIGNED_FAILURES = [NoJunkMailboxError, MessagePlacementUnsettledError];
 
 const isDesignedFailure = (reason: unknown): reason is Error =>
 	DESIGNED_FAILURES.some((designed) => reason instanceof designed);

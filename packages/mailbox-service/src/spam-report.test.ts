@@ -10,11 +10,7 @@ import {
 } from "@remit/domain-enums";
 import { FlagPushService } from "./flag-push.js";
 import { MessageMoveService } from "./message-move.js";
-import {
-	MoveNotSettledError,
-	NoJunkMailboxError,
-	SpamReportService,
-} from "./spam-report.js";
+import { NoJunkMailboxError, SpamReportService } from "./spam-report.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
 	arriveAt,
@@ -89,8 +85,6 @@ const spam = () =>
 			markerService: store.flagPush,
 			queue: capture.fifo,
 		}),
-		moveSettleTimeoutMs: 30,
-		moveSettlePollMs: 5,
 	});
 
 const arrive = (mailbox: MailboxItem = inbox, from = `Sender <${SENDER}>`) =>
@@ -289,6 +283,7 @@ describe("SpamReportService.notSpam", () => {
 			messageId,
 			junk?.mailboxId as string,
 			account.accountId,
+			other.mailboxId,
 		);
 		await settle(messageId);
 		queue.length = 0;
@@ -319,11 +314,7 @@ describe("SpamReportService.notSpam", () => {
 		const messageId = await arrive();
 		await report(messageId);
 
-		await assert.rejects(undo(messageId), (error: unknown) => {
-			assert.ok(error instanceof MoveNotSettledError);
-			assert.match(error.message, /has not settled yet/);
-			return true;
-		});
+		await assert.rejects(undo(messageId), MessagePlacementUnsettledError);
 
 		assert.equal((await sender()).flags.blocked, undefined);
 		const unmoved = await row(messageId);
@@ -349,6 +340,40 @@ describe("SpamReportService.notSpam", () => {
 		assert.equal(flags.blocked, undefined);
 	});
 
+	it("leaves the message in the Inbox on a second press", async () => {
+		const messageId = await arrive(junk);
+
+		await undo(messageId);
+		await settle(messageId);
+		await undo(messageId);
+
+		const restored = await row(messageId);
+		assert.equal(restored.mailboxId, inbox.mailboxId);
+		assert.equal(restored.originalMailboxId, undefined);
+		assert.equal(moves().length, 1);
+	});
+
+	it("restores an unreported Junk message to the folder it was moved from and grants neverSpam", async () => {
+		const messageId = await arrive();
+		await userMoves().moveMessage(
+			account.accountConfigId,
+			messageId,
+			junk?.mailboxId as string,
+			account.accountId,
+			inbox.mailboxId,
+		);
+		await settle(messageId);
+		queue.length = 0;
+
+		await undo(messageId);
+
+		const restored = await row(messageId);
+		assert.equal(restored.mailboxId, inbox.mailboxId);
+		assert.equal(restored.originalMailboxId, undefined);
+		assert.equal(moves().length, 1);
+		assert.equal((await sender()).flags.neverSpam?.value, true);
+	});
+
 	it("waits on an in-flight mutation of an unreported Junk arrival, then refuses", async () => {
 		const messageId = await arrive(junk);
 		const before = await row(messageId);
@@ -362,7 +387,7 @@ describe("SpamReportService.notSpam", () => {
 			{ status: MessageStatus.moving },
 		);
 
-		await assert.rejects(undo(messageId), MoveNotSettledError);
+		await assert.rejects(undo(messageId), MessagePlacementUnsettledError);
 
 		assert.equal((await row(messageId)).mailboxId, junk?.mailboxId);
 		assert.equal(moves().length, 0);
