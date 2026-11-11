@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { importGraph } from "./import-graph.mjs";
+import { isForbiddenPackage } from "./mcp-app-entry.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MANIFEST = JSON.parse(
@@ -21,29 +22,8 @@ const FORBIDDEN_BUILTINS = builtinModules
 	.filter((name) => NODE_ONLY_BUILTINS.has(name.split("/")[0]))
 	.flatMap((name) => [name, `node:${name}`]);
 
-const FORBIDDEN_PACKAGES = [
-	"@hono/node-server",
-	"@remit/auth-service",
-	"@remit/drizzle-service",
-	"@remit/logger-lambda",
-	"@remit/sqs-client",
-	"@remit/storage-service/s3",
-	"better-auth/node",
-	"better-sqlite3",
-];
-
-const ALLOWED = new Set([
-	"@remit/auth-service/constants",
-	"@remit/auth-service/verifier",
-	"@remit/drizzle-service/schema-sets/mcp",
-]);
-
 const isForbidden = (spec) =>
-	!ALLOWED.has(spec) &&
-	(FORBIDDEN_BUILTINS.includes(spec) ||
-		FORBIDDEN_PACKAGES.some(
-			(name) => spec === name || spec.startsWith(`${name}/`),
-		));
+	FORBIDDEN_BUILTINS.includes(spec) || isForbiddenPackage(spec);
 
 describe("the @remit/mcp-server/app entry", () => {
 	const entry = MANIFEST.exports["./app"].default;

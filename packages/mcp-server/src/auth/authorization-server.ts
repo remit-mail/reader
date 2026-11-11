@@ -7,9 +7,9 @@ import {
 	oauthProviderAuthServerMetadata,
 	type Scope,
 } from "@better-auth/oauth-provider";
-import type { AuditRecord } from "@remit/auth-service";
 import {
 	ACCOUNT_DISABLED,
+	type AuditRecord,
 	CLIENT_IP_HEADER,
 	SIGN_IN_DISABLED,
 } from "@remit/auth-service/constants";

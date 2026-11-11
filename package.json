@@ -25,6 +25,7 @@
     "release:dry-run": "node npm-scripts/publish-packages.mjs --dry-run",
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
     "check:consumer-typecheck": "node npm-scripts/check-consumer-typecheck.mjs",
+    "check:mcp-app-declarations": "node npm-scripts/check-mcp-app-declarations.mjs",
     "check:clean-install": "node npm-scripts/check-clean-install.mjs",
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
     "check:typecheck-coverage": "node npm-scripts/check-typecheck-coverage.mjs",
