@@ -111,7 +111,7 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 /**
  * Enrich a page of ThreadMessage rows with `senderTrust` and `muted` (both
  * derived from the From Address's flags map), `authenticity`, `autoMoved` and
- * `spamReport`, and the `status`/`syncStatus` pair an IMAP mutation leaves
+ * `spamReport` and `placementVerdict`, and the `status`/`syncStatus` pair an IMAP mutation leaves
  * behind together with the mutation an abandoned one names (all projected
  * straight from the Message row — no ThreadMessage
  * column of their own, see `deriveAutoMoved`). `toResponse` seeds that pair
@@ -189,6 +189,9 @@ export const enrichThreadRows = async (
 	const spamReportByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.spamReport]),
 	);
+	const placementVerdictByMessageId = new Map(
+		messages.map((m) => [m.messageId, m.placementVerdict]),
+	);
 	const settlementByMessageId = new Map(
 		messages.map((m) => [
 			m.messageId,
@@ -211,6 +214,7 @@ export const enrichThreadRows = async (
 		const authenticity = authenticityByMessageId.get(row.messageId);
 		const autoMoved = autoMovedByMessageId.get(row.messageId);
 		const spamReport = spamReportByMessageId.get(row.messageId);
+		const placementVerdict = placementVerdictByMessageId.get(row.messageId);
 		const addressId = plan.addressIdByRow.get(row.threadMessageId);
 		const senderTrust = addressId
 			? (trustByAddressId.get(addressId) ?? SenderTrust.Unknown)
@@ -227,6 +231,7 @@ export const enrichThreadRows = async (
 			...(autoMoved !== undefined ? { autoMoved } : {}),
 			...(labels !== undefined ? { labels } : {}),
 			...(spamReport !== undefined ? { spamReport } : {}),
+			...(placementVerdict !== undefined ? { placementVerdict } : {}),
 			senderTrust,
 			muted,
 		};

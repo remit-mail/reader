@@ -8,6 +8,8 @@ import {
 	AccountService,
 	ConnectionState,
 	MailboxCursorState,
+	PlacementAction,
+	PlacementConfidence,
 } from "@remit/domain-enums";
 import {
 	BETTER_SQLITE3_LIMITS,
@@ -63,7 +65,12 @@ afterEach(() => {
 
 const seedAccountWithInboxThread = async (
 	syncedServices: AccountItem["syncedServices"],
-): Promise<{ accountId: string; mailboxId: string; threadId: string }> => {
+): Promise<{
+	accountId: string;
+	mailboxId: string;
+	threadId: string;
+	messageId: string;
+}> => {
 	const label = syncedServices.join("-");
 	const account = await client.account.create({
 		accountConfigId: ACCOUNT_CONFIG_ID,
@@ -128,8 +135,26 @@ const seedAccountWithInboxThread = async (
 		accountId: account.accountId,
 		mailboxId: mailbox.mailboxId,
 		threadId,
+		messageId,
 	};
 };
+
+const listThreadsAsCaller = async (
+	mailboxId: string,
+): Promise<{ items: Record<string, unknown>[] }> =>
+	(await ThreadOperations.ThreadOperations_listThreads(
+		{ request: { params: { mailboxId }, query: {} } } as unknown as Context,
+		{
+			client,
+			config: testApiConfig(),
+			identity: {
+				kind: "user",
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				sub: SUB,
+				email: "caller@example.com",
+			},
+		},
+	)) as { items: Record<string, unknown>[] };
 
 const unifiedThreadIds = async (searchText?: string): Promise<string[]> => {
 	const response = await executeUnifiedThreadListing(
@@ -163,25 +188,37 @@ describe("a mail-off account in the unified surfaces (#1181)", () => {
 		const scope = await buildInboxMailboxMap(ACCOUNT_CONFIG_ID, client);
 		assert.equal(scope.starredMailboxIds.has(calendarOnly.mailboxId), false);
 
-		const listThreads = ThreadOperations.ThreadOperations_listThreads;
-		const opened = (await listThreads(
-			{
-				request: { params: { mailboxId: calendarOnly.mailboxId }, query: {} },
-			} as unknown as Context,
-			{
-				client,
-				config: testApiConfig(),
-				identity: {
-					kind: "user",
-					accountConfigId: ACCOUNT_CONFIG_ID,
-					sub: SUB,
-					email: "caller@example.com",
-				},
-			},
-		)) as { items: { threadId: string }[] };
+		const opened = await listThreadsAsCaller(calendarOnly.mailboxId);
 		assert.deepEqual(
 			opened.items.map((item) => item.threadId),
 			[calendarOnly.threadId],
 		);
+	});
+});
+
+describe("placementVerdict on a thread message", () => {
+	it("projects the stored verdict and omits it when none was recorded", async () => {
+		const judged = await seedAccountWithInboxThread([AccountService.Mail]);
+		const unjudged = await seedAccountWithInboxThread([
+			AccountService.Mail,
+			AccountService.Calendar,
+		]);
+		const placementVerdict = {
+			action: PlacementAction.MoveToInbox,
+			confidence: PlacementConfidence.Unsure,
+			fromPlacement: "junk",
+			reasons: ["classifier=unavailable"],
+			dryRun: false,
+			decidedAt: NOW,
+		};
+		await client.message.update(judged.messageId, { placementVerdict });
+
+		const [judgedItem] = (await listThreadsAsCaller(judged.mailboxId)).items;
+		assert.deepEqual(judgedItem?.placementVerdict, placementVerdict);
+
+		const [unjudgedItem] = (await listThreadsAsCaller(unjudged.mailboxId))
+			.items;
+		assert.ok(unjudgedItem);
+		assert.equal("placementVerdict" in unjudgedItem, false);
 	});
 });
