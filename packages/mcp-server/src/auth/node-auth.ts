@@ -4,6 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import {
 	createMcpAuth,
+	type McpAuth,
 	type McpAuthConfig,
 	type McpIdentity,
 } from "./authorization-server.js";
@@ -21,7 +22,7 @@ export const createSqliteMcpAuth = (
 	config: McpAuthConfig,
 	db: BetterSQLite3Database,
 	identity: McpIdentity = sqliteMcpIdentity(db),
-) =>
+): McpAuth =>
 	createMcpAuth(
 		config,
 		drizzleAdapter(refuseSharedTableWrites(db), {
