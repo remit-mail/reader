@@ -4,8 +4,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import {
 	createMcpAuth,
-	type McpAuth,
 	type McpAuthConfig,
+	type McpAuthServer,
 	type McpIdentity,
 } from "./authorization-server.js";
 import { refuseSharedTableWrites } from "./database.js";
@@ -15,14 +15,16 @@ import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
 export const sqliteMcpIdentity = (db: BetterSQLite3Database): McpIdentity => ({
 	isDisabled: async (userId) => isUserDisabled(db, userId),
 	audit: async (record) => writeAudit(db, record),
-	signIn: (email, password) => checkRemitPassword(db, email, password),
+	browser: {
+		signIn: (email, password) => checkRemitPassword(db, email, password),
+	},
 });
 
 export const createSqliteMcpAuth = (
 	config: McpAuthConfig,
 	db: BetterSQLite3Database,
-	identity: McpIdentity = sqliteMcpIdentity(db),
-): McpAuth =>
+	identity: McpIdentity,
+): McpAuthServer =>
 	createMcpAuth(
 		config,
 		drizzleAdapter(refuseSharedTableWrites(db), {

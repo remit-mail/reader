@@ -112,14 +112,23 @@ export const createMcpApp = ({
 		return redirectWithCookies(url, response);
 	};
 
-	const toLogin = (returnTo: string): Response =>
-		new Response(null, {
+	const toLogin = (returnTo: string): Response => {
+		if (!authRoutes.signIn) {
+			return errorPage(
+				"Not signed in",
+				"This server could not tell who you are.",
+				"Sign in to remit, then open this page again.",
+				401,
+			);
+		}
+		return new Response(null, {
 			status: 302,
 			headers: {
 				location: `${LOGIN_PATH}?${new URLSearchParams({ return_to: returnTo })}`,
 				"cache-control": "no-store",
 			},
 		});
+	};
 
 	const returnToOf = (raw: string): string => {
 		if (!raw.startsWith("/") || raw.startsWith("//"))

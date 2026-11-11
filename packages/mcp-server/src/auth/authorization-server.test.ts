@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+	type AuditRecord,
 	type Auth,
 	createAuth,
 	createPeopleDirectory,
@@ -13,6 +14,7 @@ import {
 	openIdentityStore,
 	type PeopleAdmin,
 } from "@remit/auth-service";
+import { auth_account, auth_user } from "@remit/auth-service/schema";
 import {
 	createJwtVerifier,
 	resolveVerifierConfig,
@@ -28,6 +30,7 @@ import {
 	type Store,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -40,13 +43,15 @@ import { ruleDeps } from "../test-rule-deps.js";
 import {
 	BROWSER_TOKEN_TTL_SECONDS,
 	createBetterAuthTokenVerifier,
-	createMcpAuthRoutes,
+	createMcpAuth,
 	DEVICE_TOKEN_TTL_SECONDS,
 	type McpAuth,
-	type McpIdentity,
+	type McpAuthConfig,
+	type McpAuthServer,
 } from "./authorization-server.js";
 import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
 import { createSqliteMcpAuth, sqliteMcpIdentity } from "./node-auth.js";
+import * as mcpTables from "./schema.js";
 
 const MCP_ORIGIN = "https://mcp.remit.test";
 const MAIN_ORIGIN = "https://reader.remit.test";
@@ -92,28 +97,27 @@ const sharedRows = (): unknown[] => {
 	return rows;
 };
 
-const buildApp = (
-	identity: McpIdentity = sqliteMcpIdentity(database.db),
-): { auth: McpAuth; handler: McpRequestHandler } => {
-	const instance = createSqliteMcpAuth(
-		{
-			origin: MCP_ORIGIN,
-			secret: "mcp-instance-secret-0123456789abcdef",
-			signInEnabled: true,
-		},
-		database.db,
-		identity,
-	);
-	return {
-		auth: instance,
-		handler: createMcpApp({
-			origin: MCP_ORIGIN,
-			authRoutes: createMcpAuthRoutes(instance, identity),
-			verifier: createBetterAuthTokenVerifier(instance, MCP_ORIGIN),
-			deps,
-		}),
-	};
+const MCP_CONFIG: McpAuthConfig = {
+	origin: MCP_ORIGIN,
+	secret: "mcp-instance-secret-0123456789abcdef",
+	signInEnabled: true,
 };
+
+const buildApp = (
+	server: McpAuthServer = createSqliteMcpAuth(
+		MCP_CONFIG,
+		database.db,
+		sqliteMcpIdentity(database.db),
+	),
+): { auth: McpAuth; handler: McpRequestHandler } => ({
+	auth: server.auth,
+	handler: createMcpApp({
+		origin: MCP_ORIGIN,
+		authRoutes: server.routes,
+		verifier: createBetterAuthTokenVerifier(server.auth, MCP_ORIGIN),
+		deps,
+	}),
+});
 
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "mcp-auth-"));
@@ -703,28 +707,60 @@ describe("the MCP authorization server", () => {
 
 describe("a host that authenticates the browser itself", () => {
 	const SUBJECT_HEADER = "x-test-subject";
-	const hosted = () =>
-		buildApp({
-			isDisabled: async () => false,
-			audit: async () => {},
-			subjectOf: async (headers) => headers.get(SUBJECT_HEADER) ?? undefined,
-		}).handler;
+	const hosted = (disabled = false) => {
+		const audits: AuditRecord[] = [];
+		const server = createMcpAuth(
+			MCP_CONFIG,
+			drizzleAdapter(database.db, {
+				provider: "sqlite",
+				schema: { ...mcpTables, auth_user, auth_account },
+			}),
+			{
+				isDisabled: async () => disabled,
+				audit: async (record) => {
+					audits.push(record);
+				},
+				browser: {
+					subjectOf: async (headers) => {
+						const id = headers.get(SUBJECT_HEADER);
+						return id ? { id, email: `${id}@remit.test` } : undefined;
+					},
+				},
+			},
+		);
+		return { server, audits, handle: buildApp(server).handler };
+	};
+	const asSubject = (id: string) => new Headers({ [SUBJECT_HEADER]: id });
 
 	it("serves no sign-in page", async () => {
-		const response = await hosted()(new Request(`${MCP_ORIGIN}/login`));
+		const response = await hosted().handle(new Request(`${MCP_ORIGIN}/login`));
 		assert.equal(response.status, 404);
 	});
 
-	it("opens a session for the subject the host names", async () => {
-		const handle = hosted();
+	it("provisions the subject the host names and opens its session", async () => {
+		const { handle } = hosted();
 		const signedIn = await handle(
-			new Request(`${MCP_ORIGIN}/apps`, {
-				headers: { [SUBJECT_HEADER]: ownerId },
-			}),
+			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject("host-user") }),
 		);
 		assert.equal(signedIn.status, 200);
+		const sqlite = new Database(filename, { readonly: true });
+		const row = sqlite
+			.prepare("SELECT email FROM auth_user WHERE id = ?")
+			.get("host-user");
+		sqlite.close();
+		assert.deepEqual(row, { email: "host-user@remit.test" });
 		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
-		assert.equal(locationOf(anonymous).pathname, "/login");
+		assert.equal(anonymous.status, 401);
+	});
+
+	it("refuses a disabled subject and audits the refusal", async () => {
+		const { server, audits } = hosted(true);
+		const response = await server.routes.connectedApps(asSubject(ownerId));
+		assert.equal(response.status, 403);
+		assert.deepEqual(
+			audits.map((record) => [record.actor, record.outcome]),
+			[[ownerId, "RefusedDisabled"]],
+		);
 	});
 });
 

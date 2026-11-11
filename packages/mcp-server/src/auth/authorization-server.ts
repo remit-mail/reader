@@ -7,11 +7,18 @@ import {
 	oauthProviderAuthServerMetadata,
 	type Scope,
 } from "@better-auth/oauth-provider";
+import type { AuditRecord } from "@remit/auth-service";
+import {
+	ACCOUNT_DISABLED,
+	CLIENT_IP_HEADER,
+	SIGN_IN_DISABLED,
+} from "@remit/auth-service/constants";
 import {
 	type BetterAuthOptions,
 	type BetterAuthPlugin,
 	betterAuth,
 	type GenericEndpointContext,
+	type User,
 } from "better-auth";
 import {
 	APIError,
@@ -65,39 +72,27 @@ export const isAllowedRedirectUri = (uri: string): boolean => {
 	);
 };
 
-const CLIENT_IP_HEADER = "x-remit-client-ip";
-
-const SIGN_IN_DISABLED = {
-	code: "SIGN_IN_DISABLED",
-	message: "Sign-in is turned off on this server.",
-} as const;
-
-const ACCOUNT_DISABLED = {
-	code: "ACCOUNT_DISABLED",
-	message: "This account is disabled.",
-} as const;
-
 export interface McpAuthConfig {
 	origin: string;
 	secret: string;
 	signInEnabled: boolean;
 }
 
-export interface McpAuditRecord {
-	actor: string;
-	target: string;
-	action: "SignInRefusedDisabled";
-	outcome: "RefusedDisabled";
-	clientIp: string;
+export type McpSignInResult = { ok: true; userId: string } | { ok: false };
+
+export interface McpSubject {
+	id: string;
+	email: string;
 }
 
-export type McpSignInResult = { ok: true; userId: string } | { ok: false };
+export type McpBrowserAuth =
+	| { signIn(email: string, password: string): Promise<McpSignInResult> }
+	| { subjectOf(headers: Headers): Promise<McpSubject | undefined> };
 
 export interface McpIdentity {
 	isDisabled(userId: string): Promise<boolean>;
-	audit(record: McpAuditRecord): Promise<void>;
-	signIn?(email: string, password: string): Promise<McpSignInResult>;
-	subjectOf?(headers: Headers): Promise<string | undefined>;
+	audit(record: AuditRecord): Promise<void>;
+	browser: McpBrowserAuth;
 }
 
 export const mcpResource = (origin: string): string => `${origin}${MCP_PATH}`;
@@ -233,7 +228,7 @@ const refuseDisabled = async (
 };
 
 const signInEndpoint = (
-	signIn: NonNullable<McpIdentity["signIn"]>,
+	signIn: (email: string, password: string) => Promise<McpSignInResult>,
 	identity: McpIdentity,
 ) =>
 	createAuthEndpoint(
@@ -271,28 +266,49 @@ const signInEndpoint = (
 const isAlwaysServed = (path: string): boolean =>
 	path === JWKS_PATH || path.startsWith("/.well-known/");
 
-/**
- * A host that authenticates the browser itself names the user through
- * `subjectOf`; the request then runs on that user's live session, opened once.
- */
+const BROWSER_PATHS: ReadonlySet<string> = new Set([
+	"/oauth2/authorize",
+	"/oauth2/consent",
+	"/oauth2/public-client",
+	DEVICE_APPROVE_PATH,
+	DEVICE_DENY_PATH,
+	CONNECTED_APPS_API_PATH,
+	REVOKE_CLIENT_API_PATH,
+]);
+
 const subjectSession = (
-	subjectOf: NonNullable<McpIdentity["subjectOf"]>,
+	subjectOf: (headers: Headers) => Promise<McpSubject | undefined>,
 	identity: McpIdentity,
 ) => ({
-	matcher: (ctx: { path?: string }) => !isAlwaysServed(ctx.path ?? ""),
+	matcher: (ctx: { path?: string }) => BROWSER_PATHS.has(ctx.path ?? ""),
 	handler: createAuthMiddleware(async (ctx) => {
-		if (await getSessionFromCtx(ctx)) return;
-		const userId = await subjectOf(ctx.headers ?? new Headers());
-		if (!userId) return;
-		await refuseDisabled(identity, userId, ctx.headers);
-		const user = await ctx.context.internalAdapter.findUserById(userId);
-		if (!user) return;
+		const subject = await subjectOf(ctx.headers ?? new Headers());
+		if (!subject) {
+			throw new APIError("UNAUTHORIZED", {
+				message: "The host named no signed-in user",
+			});
+		}
+		await refuseDisabled(identity, subject.id, ctx.headers);
+		const { adapter, internalAdapter } = ctx.context;
 		const now = new Date();
-		const live = (await ctx.context.internalAdapter.listSessions(userId)).find(
+		const user =
+			(await internalAdapter.findUserById(subject.id)) ??
+			(await adapter.create<Record<string, unknown>, User>({
+				model: "user",
+				data: {
+					id: subject.id,
+					email: subject.email,
+					name: subject.email,
+					emailVerified: true,
+					createdAt: now,
+					updatedAt: now,
+				},
+				forceAllowId: true,
+			}));
+		const live = (await internalAdapter.listSessions(user.id)).find(
 			(session) => session.expiresAt > now,
 		);
-		const session =
-			live ?? (await ctx.context.internalAdapter.createSession(userId));
+		const session = live ?? (await internalAdapter.createSession(user.id));
 		ctx.context.session = { session, user };
 	}),
 });
@@ -306,8 +322,8 @@ const remitMcpBridge = (
 	({
 		id: "remit-mcp",
 		endpoints: {
-			...(identity.signIn
-				? { remitMcpSignIn: signInEndpoint(identity.signIn, identity) }
+			...("signIn" in identity.browser
+				? { remitMcpSignIn: signInEndpoint(identity.browser.signIn, identity) }
 				: {}),
 			remitMcpVerifyAccessToken: createAuthEndpoint(
 				"/mcp/verify-access-token",
@@ -409,8 +425,8 @@ const remitMcpBridge = (
 		},
 		hooks: {
 			before: [
-				...(identity.subjectOf
-					? [subjectSession(identity.subjectOf, identity)]
+				...("subjectOf" in identity.browser
+					? [subjectSession(identity.browser.subjectOf, identity)]
 					: []),
 				{
 					matcher: (ctx) => ctx.path === "/oauth2/authorize",
@@ -575,13 +591,27 @@ export const buildMcpAuthOptions = (
 	} satisfies BetterAuthOptions;
 };
 
-export const createMcpAuth = (
+const createBetterAuth = (
 	config: McpAuthConfig,
 	database: BetterAuthOptions["database"],
 	identity: McpIdentity,
 ) => betterAuth(buildMcpAuthOptions(config, database, identity));
 
-export type McpAuth = ReturnType<typeof createMcpAuth>;
+export type McpAuth = ReturnType<typeof createBetterAuth>;
+
+export interface McpAuthServer {
+	auth: McpAuth;
+	routes: McpAuthRoutes;
+}
+
+export const createMcpAuth = (
+	config: McpAuthConfig,
+	database: BetterAuthOptions["database"],
+	identity: McpIdentity,
+): McpAuthServer => {
+	const auth = createBetterAuth(config, database, identity);
+	return { auth, routes: createMcpAuthRoutes(auth, identity.browser) };
+};
 
 export interface SignIn {
 	email: string;
@@ -642,6 +672,11 @@ const refusedWith = (error: unknown): undefined => {
 	throw error;
 };
 
+const refusalResponse = (error: unknown): Response => {
+	if (!isAPIError(error)) throw error;
+	return Response.json(error.body ?? {}, { status: error.statusCode });
+};
+
 const isServedAuthPath = (path: string): boolean =>
 	path.startsWith(OAUTH2_PATH_PREFIX) ||
 	DEVICE_AUTH_PATHS.has(path) ||
@@ -650,9 +685,9 @@ const isServedAuthPath = (path: string): boolean =>
 	path === REVOKE_CLIENT_API_PATH ||
 	path === JWKS_PATH;
 
-export const createMcpAuthRoutes = (
+const createMcpAuthRoutes = (
 	auth: McpAuth,
-	identity: McpIdentity,
+	browser: McpBrowserAuth,
 ): McpAuthRoutes => ({
 	handle: async (request) => {
 		const { pathname } = new URL(request.url);
@@ -665,20 +700,20 @@ export const createMcpAuthRoutes = (
 		return auth.handler(request);
 	},
 	serverMetadata: oauthProviderAuthServerMetadata(auth),
-	hasSession: async (headers) => {
-		if ((await auth.api.getSession({ headers })) !== null) return true;
-		if (!identity.subjectOf) return false;
-		return (await identity.subjectOf(headers)) !== undefined;
-	},
 	// These two go through the router rather than auth.api: only the router
 	// applies the sign-in rate limit, and the authorization they resume needs
 	// a request.
-	...(identity.signIn
+	...("subjectOf" in browser
 		? {
+				hasSession: async (headers: Headers) =>
+					(await browser.subjectOf(headers)) !== undefined,
+			}
+		: {
+				hasSession: async (headers: Headers) =>
+					(await auth.api.getSession({ headers })) !== null,
 				signIn: (headers: Headers, body: SignIn) =>
 					postToRouter(auth, headers, SIGN_IN_PATH, body),
-			}
-		: {}),
+			}),
 	consent: (headers, body) =>
 		postToRouter(auth, headers, "/oauth2/consent", body),
 	clientName: async (headers, clientId) => {
@@ -698,7 +733,7 @@ export const createMcpAuthRoutes = (
 		return response.ok;
 	},
 	decideDeviceCode: (headers, userCode, approve) =>
-		approve
+		(approve
 			? auth.api.deviceApprove({
 					body: { userCode },
 					headers: jsonHeaders(headers),
@@ -708,15 +743,20 @@ export const createMcpAuthRoutes = (
 					body: { userCode },
 					headers: jsonHeaders(headers),
 					asResponse: true,
-				}),
+				})
+		).catch(refusalResponse),
 	connectedApps: (headers) =>
-		auth.api.remitMcpConnectedApps({ headers, asResponse: true }),
+		auth.api
+			.remitMcpConnectedApps({ headers, asResponse: true })
+			.catch(refusalResponse),
 	revokeClient: (headers, clientId) =>
-		auth.api.remitMcpRevokeClient({
-			body: { client_id: clientId },
-			headers: jsonHeaders(headers),
-			asResponse: true,
-		}),
+		auth.api
+			.remitMcpRevokeClient({
+				body: { client_id: clientId },
+				headers: jsonHeaders(headers),
+				asResponse: true,
+			})
+			.catch(refusalResponse),
 });
 
 const audienceOf = (aud: unknown): string[] => {

@@ -5,10 +5,7 @@ import { getClient } from "@remit/backend/client";
 import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 import { createMcpApp } from "./app.js";
-import {
-	createBetterAuthTokenVerifier,
-	createMcpAuthRoutes,
-} from "./auth/authorization-server.js";
+import { createBetterAuthTokenVerifier } from "./auth/authorization-server.js";
 import { openMcpAuthDatabase } from "./auth/database.js";
 import { createSqliteMcpAuth, sqliteMcpIdentity } from "./auth/node-auth.js";
 import { resolveMcpServerConfig } from "./config.js";
@@ -34,19 +31,18 @@ const deps = mcpDepsOf(client, {
 });
 
 const authDb = openMcpAuthDatabase(config.databases.app).db;
-const identity = sqliteMcpIdentity(authDb);
-const auth = createSqliteMcpAuth(
+const { auth, routes } = createSqliteMcpAuth(
 	{
 		origin: config.origin,
 		secret: config.secret,
 		signInEnabled: resolveSignInEnabled(),
 	},
 	authDb,
-	identity,
+	sqliteMcpIdentity(authDb),
 );
 const app = createMcpApp({
 	origin: config.origin,
-	authRoutes: createMcpAuthRoutes(auth, identity),
+	authRoutes: routes,
 	verifier: createBetterAuthTokenVerifier(auth, config.origin),
 	deps,
 });

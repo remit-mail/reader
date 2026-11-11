@@ -14,6 +14,10 @@
       "types": "./src/edge-tls.ts",
       "default": "./src/edge-tls.ts"
     },
+    "./constants": {
+      "types": "./src/constants.ts",
+      "default": "./src/constants.ts"
+    },
     "./verifier": {
       "types": "./src/verifier.ts",
       "default": "./src/verifier.ts"
