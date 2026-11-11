@@ -17,6 +17,7 @@ export const runJunkBacklogReevaluation = (
 		{
 			mailboxSpecialUseService: client.mailboxSpecialUse,
 			mailboxService: client.mailbox,
+			mailboxLockService: client.mailboxLock,
 			messageService: client.message,
 			addressService: client.address,
 			storageService: client.storage,

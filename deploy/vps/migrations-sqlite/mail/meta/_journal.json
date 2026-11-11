@@ -57,6 +57,13 @@
       "when": 1794343435583,
       "tag": "0007_thread_message_tenant_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794369279839,
+      "tag": "0008_message_by_mailbox_internal_date",
+      "breakpoints": true
     }
   ]
 }

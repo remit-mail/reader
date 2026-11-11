@@ -17,8 +17,10 @@ import {
 	CLASSIFICATION_SETTING_NAMES,
 	type ClassificationApiKeyCiphertext,
 	type ClassificationDeploymentDefault,
+	classificationUsageName,
 	DEFAULT_CLASSIFICATION_DAILY_LIMIT,
 	isClassificationPresetId,
+	utcDateOf,
 } from "./classification-presets.js";
 import type { IAccountConfigRepository } from "./interfaces/account-config.js";
 import type { IAccountSettingRepository } from "./interfaces/account-setting.js";
@@ -246,3 +248,28 @@ export const readResolvedClassification = async (
 	accountConfigId: string,
 ): Promise<ResolvedClassification> =>
 	resolveClassification(await readClassificationInput(deps, accountConfigId));
+
+export const isClassificationBudgetSpent = async (
+	deps: ClassificationResolverDeps,
+	account: { accountId: string; accountConfigId: string },
+	now: number,
+): Promise<boolean> => {
+	const resolved = await readResolvedClassification(
+		deps,
+		account.accountConfigId,
+	);
+	if (resolved.state !== "Configured" || !resolved.enabled.value) return false;
+	const name = classificationUsageName(account.accountId);
+	const [usage] = await deps.accountSetting.getMany(
+		[account.accountConfigId],
+		[name],
+	);
+	if (!usage) return false;
+	const count = parseAccountSettingValue(
+		AccountSettingName.ClassificationUsage,
+		usage.value,
+	).value;
+	return (
+		count.date === utcDateOf(now) && count.calls >= resolved.dailyLimit.value
+	);
+};

@@ -153,6 +153,14 @@ model AutoMovedInfo {
   }
 )
 @index(
+  "byMailboxInternalDate",
+  {
+    index: "gsi1",
+    pk: [MessageRecord.mailboxId],
+    sk: [MessageRecord.internalDate],
+  }
+)
+@index(
   "byMessageId",
   {
     collection: "messageData",

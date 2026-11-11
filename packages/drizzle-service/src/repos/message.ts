@@ -957,7 +957,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					isNotNull(messageTable.bodyStorageKey),
 				),
 			)
-			.orderBy(desc(messageTable.uid))
+			.orderBy(desc(messageTable.internalDate))
 			.limit(limit);
 		return rows.map(toMessageItem).filter(hasStoredBody);
 	}

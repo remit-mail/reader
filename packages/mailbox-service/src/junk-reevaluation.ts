@@ -1,8 +1,10 @@
 import type {
 	IAddressRepository,
+	IMailboxLockRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
+	MailboxLease,
 	MessageItem,
 } from "@remit/data-ports";
 import { MessageStatus } from "@remit/domain-enums";
@@ -26,6 +28,7 @@ import { type PlaceMessageDeps, placeMessage } from "./place-message.js";
 import { readSenderPlacement } from "./sender-placement.js";
 
 const JUNK_BACKLOG_BATCH = 25;
+export const JUNK_REEVALUATION_LOCK = "JUNK_PLACEMENT_REEVALUATION";
 
 export interface JunkBacklogAccount {
 	accountId: string;
@@ -43,6 +46,7 @@ export interface JunkBacklogDeps extends PlaceMessageDeps {
 		"findJunkMailbox" | "findInboxMailbox" | "findArchiveMailbox"
 	>;
 	mailboxService: Pick<IMailboxRepository, "get">;
+	mailboxLockService: Pick<IMailboxLockRepository, "withMailboxLock">;
 	messageService: Pick<
 		IMessageRepository,
 		"listJunkBacklog" | "recordPlacementIf" | "update"
@@ -54,7 +58,7 @@ export interface JunkBacklogDeps extends PlaceMessageDeps {
 }
 
 export interface JunkBacklogResult {
-	outcome: "Done" | "AtLimit";
+	outcome: "Done" | "AtLimit" | "Busy";
 	examined: number;
 	moved: number;
 }
@@ -88,16 +92,33 @@ const UNREADABLE_BODY: PlacementDecision = {
 };
 
 // Wait, not reconcile (imap-mutations R2/R3): a move binds to the settled row and skips a message that left Junk.
+// One delivery per Junk folder at a time; one that finds the lease held leaves the backlog to the holder.
 const runJunkBacklog = async (
 	deps: JunkBacklogDeps,
 	account: JunkBacklogAccount,
 	now: number,
 ): Promise<JunkBacklogResult> => {
-	const result: JunkBacklogResult = { outcome: "Done", examined: 0, moved: 0 };
 	const junk = await deps.mailboxSpecialUseService.findJunkMailbox(
 		account.accountId,
 	);
-	if (!junk) return result;
+	if (!junk) return { outcome: "Done", examined: 0, moved: 0 };
+	const held = await deps.mailboxLockService.withMailboxLock(
+		junk.mailboxId,
+		JUNK_REEVALUATION_LOCK,
+		account.accountId,
+		(lease) => reevaluateHeld(deps, account, junk, lease, now),
+	);
+	return held.result ?? { outcome: "Busy", examined: 0, moved: 0 };
+};
+
+const reevaluateHeld = async (
+	deps: JunkBacklogDeps,
+	account: JunkBacklogAccount,
+	junk: { mailboxId: string; fullPath: string },
+	lease: MailboxLease,
+	now: number,
+): Promise<JunkBacklogResult> => {
+	const result: JunkBacklogResult = { outcome: "Done", examined: 0, moved: 0 };
 	const junkFolder = await deps.mailboxService.get(
 		account.accountId,
 		junk.mailboxId,
@@ -125,6 +146,7 @@ const runJunkBacklog = async (
 	});
 
 	for (const message of backlog) {
+		await lease.renew();
 		const parsed = await readBody(deps, message);
 		if (!parsed) {
 			await deps.messageService.recordPlacementIf(

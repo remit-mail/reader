@@ -1,0 +1,1 @@
+CREATE INDEX `message_by_mailbox_internal_date` ON `message` (`mailbox_id`,`internal_date`);

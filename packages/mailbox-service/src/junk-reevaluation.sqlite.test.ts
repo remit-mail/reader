@@ -14,6 +14,7 @@ import {
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import {
+	JUNK_REEVALUATION_LOCK,
 	type JunkBacklogDeps,
 	reevaluateJunkBacklog,
 } from "./junk-reevaluation.js";
@@ -137,6 +138,7 @@ const deps = (
 	return {
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		mailboxService: store.mailbox,
+		mailboxLockService: store.mailboxLock,
 		messageService: store.message,
 		addressService: store.address,
 		storageService: world.storage,
@@ -230,6 +232,25 @@ describe("the Junk backlog re-check (#1553)", () => {
 
 		assert.equal(await inInbox(), 2);
 		assert.equal(world.provider.requests.length, 2);
+	});
+
+	it("leaves the backlog alone while another delivery holds the lease", async () => {
+		const messageId = await inJunk(NEWSLETTER);
+		await world.store.mailboxLock.tryAcquireLock(
+			world.junk.mailboxId,
+			JUNK_REEVALUATION_LOCK,
+			world.account.accountId,
+			"first-delivery",
+			60,
+		);
+
+		const result = await reevaluateJunkBacklog(deps(), world.account, DAY_ONE);
+
+		assert.deepEqual(result, { outcome: "Busy", examined: 0, moved: 0 });
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.mailboxId, world.junk.mailboxId);
+		assert.equal(row.placementDecidedAt, undefined);
+		assert.equal(world.provider.requests.length, 0);
 	});
 
 	it("re-judges messages the pre-#1568 rules left in Junk", async () => {
