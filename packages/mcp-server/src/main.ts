@@ -1,24 +1,8 @@
 import { serve } from "@hono/node-server";
 import { resolveSignInEnabled } from "@remit/auth-service/verifier";
-import {
-	BETTER_SQLITE3_LIMITS,
-	createSqliteRepositories,
-	openSqliteDatabases,
-} from "@remit/drizzle-service";
+import { getClient } from "@remit/backend/client";
 import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
-import {
-	BodySyncQueueService,
-	BodySyncService,
-	fifoMailboxManagement,
-	MailboxQueueService,
-	SyncWarningService,
-} from "@remit/mailbox-service";
-import {
-	createFifoQueueProducer,
-	createStandardQueueProducer,
-} from "@remit/sqs-client/producer";
-import { createStorageService } from "@remit/storage-service/s3";
 import { createMcpApp } from "./app.js";
 import {
 	createBetterAuthTokenVerifier,
@@ -27,7 +11,7 @@ import {
 } from "./auth/authorization-server.js";
 import { openMcpAuthDatabase } from "./auth/database.js";
 import { resolveMcpServerConfig } from "./config.js";
-import type { McpDeps } from "./deps.js";
+import { mcpDepsOf } from "./deps.js";
 import { loadPageAssets } from "./pages/assets.js";
 
 installNodeLogger();
@@ -37,57 +21,14 @@ const FOLDER_POLL_INTERVAL_MS = 500;
 
 const config = resolveMcpServerConfig();
 
-const storage = createStorageService();
-const repositories = createSqliteRepositories(
-	await openSqliteDatabases(config.databases),
-	BETTER_SQLITE3_LIMITS,
-	{
-		storage,
-	},
-);
-
-const deps: McpDeps = {
-	account: repositories.account,
-	mailbox: repositories.mailbox,
-	message: repositories.message,
-	threadMessage: repositories.threadMessage,
-	filter: repositories.filter,
-	organizeJobRequest: repositories.organizeJobRequest,
-	storage,
-	bodySync: new BodySyncService(
-		repositories.message,
-		storage,
-		repositories.threadMessage,
-		repositories.address,
-		repositories.envelope,
-		new SyncWarningService(repositories.syncWarning),
-		logger,
-	),
-	bodySyncQueue: new BodySyncQueueService({
-		queue: createStandardQueueProducer({
-			queueUrl: config.bodySyncQueueUrl,
-		}),
-		logger,
-	}),
+const client = await getClient();
+const deps = mcpDepsOf(client, {
 	logger,
-	folders: {
-		mailboxQueue: new MailboxQueueService({
-			mailboxService: repositories.mailbox,
-			enqueue: fifoMailboxManagement(
-				createFifoQueueProducer({ queueUrl: config.mailboxQueueUrl }),
-			),
-			logger,
-		}),
+	settle: {
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
 		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,
 	},
-	filters: {
-		organizeQueue: createStandardQueueProducer({
-			queueUrl: config.organizeQueueUrl,
-		}),
-		logger,
-	},
-};
+});
 
 const auth = createMcpAuth({
 	origin: config.origin,

@@ -32,7 +32,7 @@
     "react": "^19",
     "react-dom": "^19",
     "zod": "^4.6.7",
-    "@remit/sqs-client": "*"
+    "@remit/backend": "*"
   },
   "devDependencies": {
     "@remit/imap-worker": "*",
