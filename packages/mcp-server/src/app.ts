@@ -7,6 +7,7 @@ import {
 	LOGIN_PATH,
 	MCP_PATH,
 	type McpAuthRoutes,
+	type McpBrowserRoutes,
 	mcpResource,
 } from "./auth/authorization-server.js";
 import { MCP_SCOPES } from "./auth/scopes.js";
@@ -112,8 +113,16 @@ export const createMcpApp = ({
 		return redirectWithCookies(url, response);
 	};
 
+	const disabledPage = (): Response =>
+		errorPage(
+			"Access refused",
+			"This account is disabled.",
+			"Ask the person who runs this remit server to restore your account.",
+			403,
+		);
+
 	const toLogin = (returnTo: string): Response => {
-		if (!authRoutes.signIn) {
+		if (authRoutes.browser.kind === "host") {
 			return errorPage(
 				"Not signed in",
 				"This server could not tell who you are.",
@@ -142,7 +151,7 @@ export const createMcpApp = ({
 
 	const login = async (
 		request: Request,
-		signIn: NonNullable<McpAuthRoutes["signIn"]>,
+		signIn: Extract<McpBrowserRoutes, { kind: "signIn" }>["signIn"],
 	): Promise<Response> => {
 		if (request.method === "GET") {
 			const url = new URL(request.url);
@@ -201,6 +210,9 @@ export const createMcpApp = ({
 			const scopes = (url.searchParams.get("scope") ?? "")
 				.split(" ")
 				.filter((scope) => scope.length > 0);
+			if ((await authRoutes.sessionOf(request.headers)) === "disabled") {
+				return disabledPage();
+			}
 			const clientName = await authRoutes.clientName(request.headers, clientId);
 			if (!clientName) {
 				return errorPage(
@@ -236,7 +248,9 @@ export const createMcpApp = ({
 
 	const device = async (request: Request): Promise<Response> => {
 		const url = new URL(request.url);
-		if (!(await authRoutes.hasSession(request.headers))) {
+		const session = await authRoutes.sessionOf(request.headers);
+		if (session === "disabled") return disabledPage();
+		if (session === "absent") {
 			return toLogin(`${url.pathname}${url.search}`);
 		}
 		if (request.method === "GET") {
@@ -289,12 +303,8 @@ export const createMcpApp = ({
 			return toLogin(CONNECTED_APPS_PATH);
 		}
 		if (response.status === 403) {
-			return errorPage(
-				"Access refused",
-				await failureOf(response),
-				"Ask the person who runs this remit server to restore your account.",
-				403,
-			);
+			await response.body?.cancel();
+			return disabledPage();
 		}
 		if (!response.ok) {
 			throw new Error(
@@ -362,8 +372,8 @@ export const createMcpApp = ({
 			});
 		}
 		if (pathname === MCP_PATH) return serveMcp(request);
-		if (pathname === LOGIN_PATH && authRoutes.signIn) {
-			return login(request, authRoutes.signIn);
+		if (pathname === LOGIN_PATH && authRoutes.browser.kind === "signIn") {
+			return login(request, authRoutes.browser.signIn);
 		}
 		if (pathname === CONSENT_PATH) return consent(request);
 		if (pathname === DEVICE_PATH) return device(request);

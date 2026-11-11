@@ -7,7 +7,7 @@ import { installNodeLogger } from "@remit/logger-lambda/node";
 import { createMcpApp } from "./app.js";
 import { createBetterAuthTokenVerifier } from "./auth/authorization-server.js";
 import { openMcpAuthDatabase } from "./auth/database.js";
-import { createSqliteMcpAuth, sqliteMcpIdentity } from "./auth/node-auth.js";
+import { createSqliteMcpAuth } from "./auth/node-auth.js";
 import { resolveMcpServerConfig } from "./config.js";
 import { mcpDepsOf } from "./deps.js";
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
@@ -38,7 +38,6 @@ const { auth, routes } = createSqliteMcpAuth(
 		signInEnabled: resolveSignInEnabled(),
 	},
 	authDb,
-	sqliteMcpIdentity(authDb),
 );
 const app = createMcpApp({
 	origin: config.origin,

@@ -20,6 +20,7 @@ import {
 	resolveVerifierConfig,
 } from "@remit/auth-service/verifier";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
+import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
 import {
 	BodySyncQueueService,
 	BodySyncService,
@@ -50,8 +51,7 @@ import {
 	type McpAuthServer,
 } from "./authorization-server.js";
 import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
-import { createSqliteMcpAuth, sqliteMcpIdentity } from "./node-auth.js";
-import * as mcpTables from "./schema.js";
+import { createSqliteMcpAuth } from "./node-auth.js";
 
 const MCP_ORIGIN = "https://mcp.remit.test";
 const MAIN_ORIGIN = "https://reader.remit.test";
@@ -104,11 +104,7 @@ const MCP_CONFIG: McpAuthConfig = {
 };
 
 const buildApp = (
-	server: McpAuthServer = createSqliteMcpAuth(
-		MCP_CONFIG,
-		database.db,
-		sqliteMcpIdentity(database.db),
-	),
+	server: McpAuthServer = createSqliteMcpAuth(MCP_CONFIG, database.db),
 ): { auth: McpAuth; handler: McpRequestHandler } => ({
 	auth: server.auth,
 	handler: createMcpApp({
@@ -723,7 +719,7 @@ describe("a host that authenticates the browser itself", () => {
 				browser: {
 					subjectOf: async (headers) => {
 						const id = headers.get(SUBJECT_HEADER);
-						return id ? { id, email: `${id}@remit.test` } : undefined;
+						return id ? { id } : undefined;
 					},
 				},
 			},
@@ -748,9 +744,21 @@ describe("a host that authenticates the browser itself", () => {
 			.prepare("SELECT email FROM auth_user WHERE id = ?")
 			.get("host-user");
 		sqlite.close();
-		assert.deepEqual(row, { email: "host-user@remit.test" });
+		assert.deepEqual(row, { email: "host-user@subject.invalid" });
 		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
 		assert.equal(anonymous.status, 401);
+	});
+
+	it("never hands one subject another subject's session", async () => {
+		const { server } = hosted();
+		const appsOf = async (id: string): Promise<unknown[]> => {
+			const response = await server.routes.connectedApps(asSubject(id));
+			assert.equal(response.status, 200);
+			return ((await response.json()) as { apps: unknown[] }).apps;
+		};
+		assert.ok((await appsOf(ownerId)).length > 0);
+		assert.deepEqual(await appsOf("host-user-b"), []);
+		assert.ok((await appsOf(ownerId)).length > 0);
 	});
 
 	it("refuses a disabled subject and audits the refusal", async () => {

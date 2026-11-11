@@ -82,7 +82,6 @@ export type McpSignInResult = { ok: true; userId: string } | { ok: false };
 
 export interface McpSubject {
 	id: string;
-	email: string;
 }
 
 export type McpBrowserAuth =
@@ -297,8 +296,8 @@ const subjectSession = (
 				model: "user",
 				data: {
 					id: subject.id,
-					email: subject.email,
-					name: subject.email,
+					email: `${subject.id}@subject.invalid`,
+					name: subject.id,
 					emailVerified: true,
 					createdAt: now,
 					updatedAt: now,
@@ -610,7 +609,7 @@ export const createMcpAuth = (
 	identity: McpIdentity,
 ): McpAuthServer => {
 	const auth = createBetterAuth(config, database, identity);
-	return { auth, routes: createMcpAuthRoutes(auth, identity.browser) };
+	return { auth, routes: createMcpAuthRoutes(auth, identity) };
 };
 
 export interface SignIn {
@@ -619,11 +618,20 @@ export interface SignIn {
 	oauth_query: string;
 }
 
+export type McpBrowserRoutes =
+	| {
+			kind: "signIn";
+			signIn(headers: Headers, body: SignIn): Promise<Response>;
+	  }
+	| { kind: "host" };
+
+export type McpSessionState = "active" | "absent" | "disabled";
+
 export interface McpAuthRoutes {
+	browser: McpBrowserRoutes;
 	handle(request: Request): Promise<Response>;
 	serverMetadata(request: Request): Promise<Response>;
-	hasSession(headers: Headers): Promise<boolean>;
-	signIn?(headers: Headers, body: SignIn): Promise<Response>;
+	sessionOf(headers: Headers): Promise<McpSessionState>;
 	consent(
 		headers: Headers,
 		body: { accept: boolean; oauth_query: string },
@@ -685,35 +693,64 @@ const isServedAuthPath = (path: string): boolean =>
 	path === REVOKE_CLIENT_API_PATH ||
 	path === JWKS_PATH;
 
-const createMcpAuthRoutes = (
+const SUBJECT_SERVED_PATHS: ReadonlySet<string> = new Set([
+	...BROWSER_PATHS,
+	...DEVICE_AUTH_PATHS,
+	"/oauth2/register",
+	"/oauth2/token",
+	"/oauth2/revoke",
+	JWKS_PATH,
+]);
+
+const browserRoutesOf = (
 	auth: McpAuth,
 	browser: McpBrowserAuth,
+): McpBrowserRoutes =>
+	"signIn" in browser
+		? {
+				kind: "signIn",
+				// Through the router rather than auth.api: only the router applies
+				// the sign-in rate limit.
+				signIn: (headers, body) =>
+					postToRouter(auth, headers, SIGN_IN_PATH, body),
+			}
+		: { kind: "host" };
+
+const subjectIdOf = async (
+	auth: McpAuth,
+	browser: McpBrowserAuth,
+	headers: Headers,
+): Promise<string | undefined> => {
+	if ("subjectOf" in browser) return (await browser.subjectOf(headers))?.id;
+	return (await auth.api.getSession({ headers }))?.user.id;
+};
+
+const createMcpAuthRoutes = (
+	auth: McpAuth,
+	identity: McpIdentity,
 ): McpAuthRoutes => ({
+	browser: browserRoutesOf(auth, identity.browser),
 	handle: async (request) => {
 		const { pathname } = new URL(request.url);
 		if (!pathname.startsWith(AUTH_BASE_PATH)) {
 			return new Response("Not found", { status: 404 });
 		}
-		if (!isServedAuthPath(pathname.slice(AUTH_BASE_PATH.length))) {
-			return new Response("Not found", { status: 404 });
-		}
+		const path = pathname.slice(AUTH_BASE_PATH.length);
+		const served =
+			"subjectOf" in identity.browser
+				? SUBJECT_SERVED_PATHS.has(path)
+				: isServedAuthPath(path);
+		if (!served) return new Response("Not found", { status: 404 });
 		return auth.handler(request);
 	},
 	serverMetadata: oauthProviderAuthServerMetadata(auth),
-	// These two go through the router rather than auth.api: only the router
-	// applies the sign-in rate limit, and the authorization they resume needs
-	// a request.
-	...("subjectOf" in browser
-		? {
-				hasSession: async (headers: Headers) =>
-					(await browser.subjectOf(headers)) !== undefined,
-			}
-		: {
-				hasSession: async (headers: Headers) =>
-					(await auth.api.getSession({ headers })) !== null,
-				signIn: (headers: Headers, body: SignIn) =>
-					postToRouter(auth, headers, SIGN_IN_PATH, body),
-			}),
+	sessionOf: async (headers) => {
+		const userId = await subjectIdOf(auth, identity.browser, headers);
+		if (userId === undefined) return "absent";
+		return (await identity.isDisabled(userId)) ? "disabled" : "active";
+	},
+	// Through the router rather than auth.api: the authorization it resumes
+	// needs a request.
 	consent: (headers, body) =>
 		postToRouter(auth, headers, "/oauth2/consent", body),
 	clientName: async (headers, clientId) => {
