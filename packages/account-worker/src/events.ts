@@ -3,6 +3,7 @@ export type {
 	AccountDeleteEvent,
 	AccountExportEvent,
 	AccountFanoutEvent,
+	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
 } from "@remit/data-ports";

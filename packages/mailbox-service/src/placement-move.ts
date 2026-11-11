@@ -75,10 +75,6 @@ const DEFAULT_MOVE_SETTLE_POLL_MS = 250;
  * staleness invariant (1) only applies to the NEW reconciler this class
  * feeds; generalizing it to every move type is out of scope here.
  *
- * `moveMessage` matches {@link MessageMoveService.moveMessage}'s signature so
- * `BodySyncService`'s existing rescue/demote call site and its tests need no
- * shape changes beyond the dependency's name.
- *
  * Ordering is the fix: every step below (marker, ThreadMessage, Message row,
  * SQS enqueue) completes — or the whole call rejects — BEFORE the caller
  * (`BodySyncService.storeStreamedBody`) writes `bodyStorageKey`. A rejection
@@ -128,6 +124,7 @@ export class PlacementMoveService {
 		messageId: string,
 		destinationMailboxId: string,
 		accountId: string,
+		expectedSourceMailboxId: string,
 	): Promise<PlacementMoveOutcome> => {
 		let message = await this.messageService.get(messageId);
 
@@ -196,6 +193,20 @@ export class PlacementMoveService {
 					`Placement move for ${messageId} to ${destinationMailboxId} not applied: an earlier move has not settled`,
 				);
 			}
+		}
+
+		if (message.mailboxId !== expectedSourceMailboxId) {
+			this.log.info(
+				{
+					messageId,
+					accountId,
+					expectedSourceMailboxId,
+					mailboxId: message.mailboxId,
+					destinationMailboxId,
+				},
+				"Placement move not applied: the message left the folder it was decided in",
+			);
+			return "skipped";
 		}
 
 		const sourceMailboxId = message.mailboxId;

@@ -100,12 +100,13 @@ const listing = async (messageId: string) =>
 		)
 	)[0];
 
-const file = (messageId: string, destination: MailboxItem) =>
+const file = async (messageId: string, destination: MailboxItem) =>
 	filing().moveMessage(
 		account.accountConfigId,
 		messageId,
 		destination.mailboxId,
 		account.accountId,
+		(await store.message.get(messageId)).mailboxId,
 	);
 
 const confirmMove = async (messageId: string, uid: number) => {

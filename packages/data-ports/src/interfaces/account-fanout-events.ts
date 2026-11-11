@@ -62,9 +62,16 @@ export type SenderCategoryBackApplyEvent = {
 	categorySetAt: number;
 };
 
+export type JunkPlacementReevaluationEvent = {
+	type: "JunkPlacementReevaluation";
+	accountConfigId: string;
+	accountId: string;
+};
+
 export type AccountFanoutEvent =
 	| AccountDeleteEvent
 	| AccountDataPurgeEvent
 	| AccountExportEvent
 	| OrganizeJobEvent
-	| SenderCategoryBackApplyEvent;
+	| SenderCategoryBackApplyEvent
+	| JunkPlacementReevaluationEvent;

@@ -22,9 +22,13 @@ import {
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { BodySyncService } from "./body-sync.js";
-import { CLASSIFIER_LABELS } from "./classifier/index.js";
 import { PlacementMoveService } from "./placement-move.js";
 import { SyncWarningService } from "./sync-warning.js";
+import {
+	classifierDecision as decision,
+	saveClassifierProvider,
+	classifierSecrets as secrets,
+} from "./test-helpers/classifier-stub.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
 	closedPortBaseUrl,
@@ -43,12 +47,6 @@ import {
 	silentLog,
 	syncFolder,
 } from "./test-helpers/test-store.js";
-
-const dataKey = randomBytes(32);
-const secrets = createSecretsService({
-	generateDataKey: async () => ({ plaintext: dataKey, encrypted: dataKey }),
-	decryptDataKey: async () => dataKey,
-});
 
 const otherSecrets = createSecretsService({
 	generateDataKey: async () => {
@@ -131,28 +129,6 @@ interface World {
 
 let world: World;
 
-const decision = (scores: Array<[string, number]>): StubReply => {
-	const probabilities = Object.fromEntries(
-		CLASSIFIER_LABELS.map((label) => [label, 0]),
-	);
-	for (const [label, probability] of scores) probabilities[label] = probability;
-	const [top] = [...scores].sort((a, b) => b[1] - a[1]);
-	return {
-		status: 200,
-		body: JSON.stringify({
-			model: "jev-test",
-			answers: {
-				label: {
-					type: "choice",
-					choice: top[0],
-					confidence: top[1],
-					probabilities,
-				},
-			},
-		}),
-	};
-};
-
 beforeEach(async () => {
 	const store = await openStore();
 	const account = await seedAccount(store);
@@ -196,33 +172,16 @@ const upsert = (
 		value,
 	});
 
-const saveProvider = async (
+const saveProvider = (
 	baseUrl: string = world.provider.baseUrl,
 	enabled = true,
-): Promise<void> => {
-	await upsert(AccountSettingName.ClassificationApiKey, {
-		kind: "Map",
-		value: {
-			...serializeEncryptedPayload(await secrets.encrypt("sk-test-key")),
-		},
-	});
-	await upsert(AccountSettingName.ClassificationModel, {
-		kind: "String",
-		value: "jev-test",
-	});
-	await upsert(AccountSettingName.ClassificationBaseUrl, {
-		kind: "String",
-		value: baseUrl,
-	});
-	await upsert(AccountSettingName.ClassificationPresetId, {
-		kind: "String",
-		value: ClassificationPresetId.Jev,
-	});
-	await upsert(AccountSettingName.ClassificationEnabled, {
-		kind: "Boolean",
-		value: enabled,
-	});
-};
+): Promise<void> =>
+	saveClassifierProvider(
+		world.store.accountSetting,
+		world.account.accountConfigId,
+		baseUrl,
+		enabled,
+	);
 
 const bodySync = (classifier = true): BodySyncService => {
 	const { store } = world;

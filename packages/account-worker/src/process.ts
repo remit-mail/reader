@@ -1,4 +1,5 @@
 import type { RemitClient } from "@remit/backend/client";
+import { runJunkBacklogReevaluation } from "@remit/backend/junk-backlog";
 import type { GroupedQueueProducer } from "@remit/data-ports";
 import { createLogger } from "@remit/logger";
 import { cascadeServicesOf } from "./cascade.js";
@@ -10,6 +11,7 @@ import type {
 	AccountDeleteFinalizeEvent,
 	AccountExportEvent,
 	AccountFinalizeEvent,
+	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
 } from "./events.js";
@@ -34,7 +36,10 @@ export type {
 	AccountFinalizeEvent,
 };
 
-export type ClientFanoutEvent = OrganizeJobEvent | SenderCategoryBackApplyEvent;
+export type ClientFanoutEvent =
+	| OrganizeJobEvent
+	| SenderCategoryBackApplyEvent
+	| JunkPlacementReevaluationEvent;
 
 export interface AccountFanoutContext {
 	client: RemitClient<"messageManagement">;
@@ -67,6 +72,22 @@ export const processAccountFanoutEvent = (
 			return processOrganizeJob(event, log, { client: ctx.client });
 		case "SenderCategoryBackApply":
 			return processSenderCategoryBackApply(event, log, { client: ctx.client });
+		case "JunkPlacementReevaluation":
+			return runJunkBacklogReevaluation(
+				ctx.client,
+				log,
+				event,
+				Date.now(),
+			).then((result) => {
+				log.info(
+					{
+						accountConfigId: event.accountConfigId,
+						accountId: event.accountId,
+						...result,
+					},
+					"Junk placement re-evaluation delivery finished",
+				);
+			});
 	}
 };
 

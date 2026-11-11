@@ -4,6 +4,7 @@ export {
 	DEFAULT_OFFLINE_INTERVAL_MS,
 	DEFAULT_TICK_INTERVAL_MS,
 } from "./config.js";
+export { buildJunkReevaluationEnqueue } from "./junk-reevaluation.js";
 export {
 	type CalendarSubscriptionTally,
 	type RunSchedulerTickDeps,
