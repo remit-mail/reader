@@ -4,12 +4,19 @@ import {
 	AccountSettingName,
 	ClassificationPresetId,
 } from "@remit/domain-enums";
-import type { ClassificationDeploymentDefault } from "./classification-presets.js";
 import {
+	type ClassificationDeploymentDefault,
+	classificationUsageName,
+	utcDateOf,
+} from "./classification-presets.js";
+import {
+	isClassificationBudgetSpent,
 	type ResolvedClassification,
 	type ResolvedClassificationProvider,
 	resolveClassification,
 } from "./classification-resolver.js";
+import type { IAccountConfigRepository } from "./interfaces/account-config.js";
+import type { IAccountSettingRepository } from "./interfaces/account-setting.js";
 import type { AccountSettingItem, AccountSettingValue } from "./types.js";
 
 const CREATED_AT = 1_000;
@@ -248,6 +255,70 @@ describe("resolveClassification", () => {
 				presetId: ClassificationPresetId.OpenAiCompatible,
 				reason: "NoBaseUrl",
 			},
+		);
+	});
+});
+
+describe("the classifier budget for the day", () => {
+	const DAY = Date.UTC(2026, 10, 11, 12);
+	const NEXT_DAY = Date.UTC(2026, 10, 12, 0, 0, 1);
+	const account = { accountId: "account-1", accountConfigId: "config-1" };
+
+	const budgetDeps = () => {
+		const rows = new Map<string, AccountSettingItem>();
+		const accountSetting: Pick<
+			IAccountSettingRepository,
+			"getMany" | "claimDailyCount"
+		> = {
+			getMany: async (_configIds, names) =>
+				names.flatMap((name) => rows.get(name) ?? []),
+			claimDailyCount: async (input) => {
+				const used = rows.get(input.name);
+				const calls =
+					used?.value.kind === "DailyCount" &&
+					used.value.value.date === input.date
+						? used.value.value.calls
+						: 0;
+				if (calls >= input.limit) return { state: "AtLimit" };
+				rows.set(
+					input.name,
+					row(input.name, {
+						kind: "DailyCount",
+						value: { date: input.date, calls: calls + 1 },
+					}),
+				);
+				return { state: "Claimed", calls: calls + 1 };
+			},
+		};
+		const getAccountConfig = async () => ({ createdAt: CREATED_AT });
+		const accountConfig: Pick<IAccountConfigRepository, "get"> = {
+			get: getAccountConfig as unknown as IAccountConfigRepository["get"],
+		};
+		return {
+			accountSetting,
+			accountConfig,
+			classificationDefault: { ...DEPLOYMENT, dailyLimit: 2 },
+		};
+	};
+
+	it("is spent once the day's calls reach the limit and open again the next UTC day", async () => {
+		const deps = budgetDeps();
+		const claim = () =>
+			deps.accountSetting.claimDailyCount({
+				accountConfigId: account.accountConfigId,
+				name: classificationUsageName(account.accountId),
+				date: utcDateOf(DAY),
+				limit: 2,
+			});
+
+		assert.equal(await isClassificationBudgetSpent(deps, account, DAY), false);
+		await claim();
+		assert.equal(await isClassificationBudgetSpent(deps, account, DAY), false);
+		await claim();
+		assert.equal(await isClassificationBudgetSpent(deps, account, DAY), true);
+		assert.equal(
+			await isClassificationBudgetSpent(deps, account, NEXT_DAY),
+			false,
 		);
 	});
 });

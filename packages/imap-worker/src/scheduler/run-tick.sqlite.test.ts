@@ -1,15 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem } from "@remit/data-ports";
-import {
-	classificationUsageName,
-	utcDateOf,
-} from "@remit/data-ports/classification-presets";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	AccountService,
-	ClassificationPresetId,
 	ConnectionState,
 } from "@remit/domain-enums";
 import {
@@ -20,21 +15,19 @@ import {
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { capturingLogger, type LogLine } from "../test-helpers/test-world.js";
-import { buildJunkReevaluationEnqueue } from "./junk-reevaluation.js";
 import { runSchedulerTick } from "./run-tick.js";
 
 const TICK_INTERVAL_MS = 60 * 60 * 1000;
 const OFFLINE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const NOW = 1_700_000_000_000;
 
-let repos: ReturnType<typeof createSqliteRepositories>;
 let accounts: AccountRepo;
 let close: () => void;
 
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	repos = createSqliteRepositories(
+	accounts = createSqliteRepositories(
 		{
 			app: store.db,
 			mail: store.db,
@@ -42,8 +35,7 @@ beforeEach(() => {
 		},
 		BETTER_SQLITE3_LIMITS,
 		messageObjectsInMemory(),
-	);
-	accounts = repos.account;
+	).account;
 });
 
 afterEach(() => close());
@@ -222,77 +214,5 @@ describe("a scheduler tick", () => {
 		assert.equal(result.junkReevaluations, 1);
 		assert.equal(result.junkReevaluationFailed, 1);
 		assert.ok(logs.some((line) => line.level === "error"));
-	});
-});
-
-describe("the Junk re-check enqueue", () => {
-	const withJunkBacklog = async (): Promise<AccountItem> => {
-		await repos.accountConfig.create({
-			accountConfigId: "cfg-junk",
-			userId: "user-1",
-			name: "Me",
-		});
-		const owner = await account("junk");
-		const created = await repos.mailbox.create({
-			accountId: owner.accountId,
-			namespacePrefix: "",
-			hierarchyDelimiter: "/",
-			fullPath: "Junk",
-			uidValidity: 7,
-			uidNext: 2,
-			highestModseq: "0",
-			messageCount: 1,
-			unseenCount: 1,
-			deletedCount: 0,
-			totalSize: 0,
-			lastSyncUid: 0,
-			highWaterMarkUid: 0,
-			lastMessageSyncAt: 0,
-			specialUse: ["Junk"],
-		});
-		if (created.outcome !== "Created") throw new Error("Junk exists");
-		await repos.mailboxSpecialUse.create(created.mailbox.mailboxId, "Junk");
-		await repos.message.create({
-			messageId: "junk-1",
-			mailboxId: created.mailbox.mailboxId,
-			uid: 1,
-			sequenceNumber: 1,
-			rfc822Size: 100,
-			internalDate: NOW - 60_000,
-			status: "active",
-			syncStatus: "synced",
-			bodyStorageKey: "body/1",
-		});
-		return owner;
-	};
-
-	it("enqueues nothing once the classifier budget for the day is spent", async () => {
-		const owner = await withJunkBacklog();
-		const queue = recordingQueue();
-		const enqueue = buildJunkReevaluationEnqueue({
-			...repos,
-			classificationDefault: {
-				state: "Configured",
-				presetId: ClassificationPresetId.Jev,
-				model: "jev-test",
-				baseUrl: "https://api.typesafe.ai",
-				apiKey: "sk-test",
-				enabled: true,
-				dailyLimit: 1,
-			},
-			queues: { accountFanout: queue },
-		});
-
-		assert.equal(await enqueue(owner, NOW), true);
-
-		await repos.accountSetting.claimDailyCount({
-			accountConfigId: owner.accountConfigId,
-			name: classificationUsageName(owner.accountId),
-			date: utcDateOf(NOW),
-			limit: 1,
-		});
-
-		assert.equal(await enqueue(owner, NOW), false);
-		assert.equal(queue.sent.length, 1);
 	});
 });

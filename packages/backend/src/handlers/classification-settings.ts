@@ -8,7 +8,6 @@ import type {
 	UpdateUserSettingsInput,
 } from "@remit/api-openapi-types";
 import type {
-	DailyCount,
 	IAccountSettingRepository,
 	UpsertAccountSettingInput,
 } from "@remit/data-ports";
@@ -16,6 +15,7 @@ import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import {
 	CLASSIFICATION_PRESETS,
 	CLASSIFICATION_SETTING_NAMES,
+	callsOn,
 	classificationUsageName,
 	utcDateOf,
 } from "@remit/data-ports/classification-presets";
@@ -369,9 +369,6 @@ const nextUtcMidnight = (epochMs: number): string => {
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
 	).toISOString();
 };
-
-const callsOn = (usage: DailyCount | undefined, date: string): number =>
-	usage?.date === date ? usage.calls : 0;
 
 const classificationCost = (
 	preset: ClassificationPreset,

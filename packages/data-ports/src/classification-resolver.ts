@@ -17,6 +17,7 @@ import {
 	CLASSIFICATION_SETTING_NAMES,
 	type ClassificationApiKeyCiphertext,
 	type ClassificationDeploymentDefault,
+	callsOn,
 	classificationUsageName,
 	DEFAULT_CLASSIFICATION_DAILY_LIMIT,
 	isClassificationPresetId,
@@ -264,12 +265,14 @@ export const isClassificationBudgetSpent = async (
 		[account.accountConfigId],
 		[name],
 	);
-	if (!usage) return false;
-	const count = parseAccountSettingValue(
-		AccountSettingName.ClassificationUsage,
-		usage.value,
-	).value;
-	return (
-		count.date === utcDateOf(now) && count.calls >= resolved.dailyLimit.value
+	const calls = callsOn(
+		usage
+			? parseAccountSettingValue(
+					AccountSettingName.ClassificationUsage,
+					usage.value,
+				).value
+			: undefined,
+		utcDateOf(now),
 	);
+	return calls >= resolved.dailyLimit.value;
 };
