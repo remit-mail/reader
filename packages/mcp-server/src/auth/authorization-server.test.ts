@@ -14,7 +14,6 @@ import {
 	openIdentityStore,
 	type PeopleAdmin,
 } from "@remit/auth-service";
-import { auth_account, auth_user } from "@remit/auth-service/schema";
 import {
 	createJwtVerifier,
 	resolveVerifierConfig,
@@ -31,7 +30,6 @@ import {
 	type Store,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -51,6 +49,7 @@ import {
 	type McpAuthServer,
 } from "./authorization-server.js";
 import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
+import { mcpDatabase } from "./mcp-database.js";
 import { createSqliteMcpAuth } from "./node-auth.js";
 
 const MCP_ORIGIN = "https://mcp.remit.test";
@@ -707,9 +706,9 @@ describe("a host that authenticates the browser itself", () => {
 		const audits: AuditRecord[] = [];
 		const server = createMcpAuth(
 			MCP_CONFIG,
-			drizzleAdapter(database.db, {
-				provider: "sqlite",
-				schema: { ...mcpTables, auth_user, auth_account },
+			mcpDatabase(database.db, {
+				user: mcpTables.mcp_user,
+				account: mcpTables.mcp_account,
 			}),
 			{
 				isDisabled: async () => disabled,
@@ -741,7 +740,7 @@ describe("a host that authenticates the browser itself", () => {
 		assert.equal(signedIn.status, 200);
 		const sqlite = new Database(filename, { readonly: true });
 		const row = sqlite
-			.prepare("SELECT email FROM auth_user WHERE id = ?")
+			.prepare("SELECT email FROM mcp_user WHERE id = ?")
 			.get("host-user");
 		sqlite.close();
 		assert.deepEqual(row, { email: "host-user@subject.invalid" });

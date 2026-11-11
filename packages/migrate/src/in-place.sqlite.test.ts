@@ -544,6 +544,8 @@ const NEW_TABLES: ReadonlyMap<string, string> = new Map([
 	["mcp_session", "mcp 0000"],
 	["mcp_verification", "mcp 0000"],
 	["mcp_device_code", "mcp 0001"],
+	["mcp_account", "mcp 0004"],
+	["mcp_user", "mcp 0004"],
 ]);
 const KEPT_UNREAD = new Set(["instance_owner"]);
 
@@ -699,7 +701,7 @@ describe("a v0.9.27 remit.db migrated in place", async () => {
 	test("applies the later mcp migrations on top of the 0001 it already held", () => {
 		assert.equal(
 			rows(path, "SELECT * FROM __drizzle_migrations_mcp").length,
-			4,
+			5,
 		);
 	});
 });

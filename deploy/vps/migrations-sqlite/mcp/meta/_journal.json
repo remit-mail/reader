@@ -29,6 +29,13 @@
       "when": 1794433794877,
       "tag": "0003_mcp_opaque_user_id",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794438597259,
+      "tag": "0004_mcp_standalone_user",
+      "breakpoints": true
     }
   ]
 }
