@@ -57,12 +57,21 @@ export interface IMessageRepository {
 		mailboxIds: readonly string[],
 		untouchedSince: number,
 	): Promise<MessageItem[]>;
-	/** Active rows of a Junk folder that arrived by `arrivedBy`, body stored, that nothing has placed or decided yet, newest first. */
-	listUndecidedJunkBacklog(
+	/** Active rows of a Junk folder that arrived by `arrivedBy`, body stored, that nothing has placed and that no Junk-rules verdict covers yet, highest uid first. */
+	listJunkBacklog(
 		junkMailboxId: string,
 		arrivedBy: number,
 		limit: number,
-	): Promise<MessageItem[]>;
+	): Promise<Array<MessageItem & { bodyStorageKey: string }>>;
+	/** Write a placement decision only while the row still matches `expected`. Resolves `false` when it did not and nothing was written. */
+	recordPlacementIf(
+		messageId: string,
+		expected: PlacementPredicate,
+		decided: Pick<
+			UpdateMessageInput,
+			"placementDecidedAt" | "placementVerdict"
+		>,
+	): Promise<boolean>;
 	describe(messageId: string): Promise<MessageDescription>;
 	updateUid(
 		messageId: string,

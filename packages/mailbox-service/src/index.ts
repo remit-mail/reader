@@ -177,13 +177,7 @@ export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
 export { ImapFlowConnection } from "./imapflow-connection.js";
 export {
-	isJunkBacklogDue,
 	type JunkBacklogAccount,
-	type JunkBacklogProbeDeps,
-} from "./junk-backlog-due.js";
-export {
-	JUNK_BACKLOG_BATCH,
-	type JunkBacklogDeps,
 	type JunkBacklogResult,
 	reevaluateJunkBacklog,
 } from "./junk-reevaluation.js";

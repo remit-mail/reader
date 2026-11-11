@@ -3,12 +3,6 @@ import type {
 	MessageItem,
 	UpdateMessageInput,
 } from "@remit/data-ports";
-import type { ParsedMail } from "mailparser";
-import { consultClassifier } from "./classifier/classifier-consult.js";
-import type {
-	ClassifierConfig,
-	ClassifierGate,
-} from "./classifier/classifier-gate.js";
 import type { FolderRoleMailboxes } from "./folder-placement.js";
 import {
 	decidePlacement,
@@ -27,22 +21,13 @@ export interface PlaceMessageDeps {
 	log: { info(obj: Record<string, unknown>, msg: string): void };
 }
 
-export type PlacementClassifier =
-	| { state: "Judged"; junk: boolean }
-	| {
-			state: "Ask";
-			config: ClassifierConfig;
-			gate: ClassifierGate;
-			parsed: ParsedMail;
-	  };
-
 export interface PlaceMessageInput {
 	account: { accountId: string; accountConfigId: string };
 	message: MessageItem;
 	placement: FolderPlacement;
 	roles: FolderRoleMailboxes;
-	sender: () => Promise<SenderPlacement>;
-	classifier: PlacementClassifier;
+	sender: SenderPlacement;
+	classifierJunk: boolean;
 	move: boolean;
 	now: number;
 }
@@ -53,45 +38,15 @@ export type PlacementUpdate = Pick<
 >;
 
 export type PlaceMessageResult =
-	| { state: "AtLimit" }
 	| { state: "Skipped" }
 	| { state: "Decided"; update: PlacementUpdate };
-
-type ClassifierJunk = boolean | "AtLimit";
-
-const classifierJunkOf = async (
-	classifier: PlacementClassifier,
-	account: PlaceMessageInput["account"],
-	sender: SenderPlacement,
-	now: number,
-): Promise<ClassifierJunk> => {
-	if (classifier.state === "Judged") return classifier.junk;
-	const consulted = await consultClassifier(
-		classifier.config,
-		classifier.gate,
-		account,
-		classifier.parsed,
-		sender.senderOverride,
-		now,
-	);
-	if (consulted.state === "AtLimit") return "AtLimit";
-	return consulted.state === "Answered" && consulted.verdict.kind === "Junk";
-};
 
 export const placeMessage = async (
 	deps: PlaceMessageDeps,
 	input: PlaceMessageInput,
 ): Promise<PlaceMessageResult> => {
-	const { account, message, placement, roles, now } = input;
-	const sender = await input.sender();
-	const classifierJunk = await classifierJunkOf(
-		input.classifier,
-		account,
-		sender,
-		now,
-	);
-	if (classifierJunk === "AtLimit") return { state: "AtLimit" };
-
+	const { account, message, placement, roles, sender, classifierJunk, now } =
+		input;
 	const archiveMailbox = sender.autoArchive
 		? await deps.mailboxSpecialUseService.findArchiveMailbox(account.accountId)
 		: null;

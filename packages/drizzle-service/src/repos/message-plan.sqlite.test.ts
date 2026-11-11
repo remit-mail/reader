@@ -18,12 +18,12 @@ describe("message lookups without sqlite_stat1", () => {
 		messageObjectsInMemory(),
 	);
 
-	test("listUndecidedJunkBacklog searches message_by_mailbox_id", async () => {
+	test("listJunkBacklog searches message_by_mailbox_id", async () => {
 		assertPlanSearches(
 			queryPlan(
 				sqlite,
 				await selectsIssuedDuring(sqlite, () =>
-					repos.message.listUndecidedJunkBacklog("junk", 1, 25),
+					repos.message.listJunkBacklog("junk", 1, 25),
 				),
 			),
 			"message_by_mailbox_id",

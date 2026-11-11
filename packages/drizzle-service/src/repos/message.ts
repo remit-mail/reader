@@ -266,6 +266,11 @@ const isList = <T>(value: T | readonly T[]): value is readonly T[] =>
 const oneOf = <T>(value: T | readonly T[]): T[] =>
 	isList(value) ? [...value] : [value];
 
+const hasStoredBody = (
+	message: MessageItem,
+): message is MessageItem & { bodyStorageKey: string } =>
+	message.bodyStorageKey !== undefined;
+
 const placementTerms = (expected: PlacementPredicate): SQL[] => {
 	const terms: SQL[] = [];
 	if (expected.status !== undefined) {
@@ -925,11 +930,11 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return rows.map(toMessageItem);
 	}
 
-	async listUndecidedJunkBacklog(
+	async listJunkBacklog(
 		junkMailboxId: string,
 		arrivedBy: number,
 		limit: number,
-	): ReturnType<IMessageRepository["listUndecidedJunkBacklog"]> {
+	): ReturnType<IMessageRepository["listJunkBacklog"]> {
 		const rows = await this.db
 			.select()
 			.from(messageTable)
@@ -938,16 +943,42 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					eq(messageTable.mailboxId, junkMailboxId),
 					lte(messageTable.internalDate, arrivedBy),
 					eq(messageTable.status, "active"),
-					isNull(messageTable.placementDecidedAt),
+					or(
+						isNull(messageTable.placementDecidedAt),
+						sql`coalesce(json_extract(${messageTable.placementVerdict}, '$.fromPlacement'), '') <> 'junk'`,
+					),
 					isNull(messageTable.spamReport),
 					isNull(messageTable.originalMailboxId),
 					eq(messageTable.movedByRemit, false),
 					isNotNull(messageTable.bodyStorageKey),
 				),
 			)
-			.orderBy(desc(messageTable.internalDate), asc(messageTable.messageId))
+			.orderBy(desc(messageTable.uid))
 			.limit(limit);
-		return rows.map(toMessageItem);
+		return rows.map(toMessageItem).filter(hasStoredBody);
+	}
+
+	async recordPlacementIf(
+		messageId: string,
+		expected: PlacementPredicate,
+		decided: Parameters<IMessageRepository["recordPlacementIf"]>[2],
+	): Promise<boolean> {
+		const rows = await this.db
+			.update(messageTable)
+			.set({
+				...(decided.placementDecidedAt !== undefined
+					? { placementDecidedAt: decided.placementDecidedAt }
+					: {}),
+				...(decided.placementVerdict !== undefined
+					? { placementVerdict: decided.placementVerdict }
+					: {}),
+				updatedAt: Date.now(),
+			})
+			.where(
+				and(eq(messageTable.messageId, messageId), ...placementTerms(expected)),
+			)
+			.returning({ messageId: messageTable.messageId });
+		return rows.length > 0;
 	}
 
 	async transitionPlacement(

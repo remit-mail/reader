@@ -10,9 +10,9 @@ import {
 	ClassificationLabel,
 	MessageStatus,
 	PlacementAction,
+	PlacementConfidence,
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
-import { isJunkBacklogDue } from "./junk-backlog-due.js";
 import {
 	type JunkBacklogDeps,
 	reevaluateJunkBacklog,
@@ -158,27 +158,12 @@ const deliver = async (now: number): Promise<void> => {
 	await reevaluateJunkBacklog(deps(), world.account, now);
 };
 
-const due = (now: number): Promise<boolean> =>
-	isJunkBacklogDue(
-		{
-			mailboxSpecialUseService: world.store.mailboxSpecialUse,
-			mailboxService: world.store.mailbox,
-			messageService: world.store.message,
-			accountSetting: world.store.accountSetting,
-			accountConfig: world.store.accountConfig,
-			classificationDefault: { state: "None" },
-		},
-		world.account,
-		now,
-	);
-
 const mailboxOf = async (messageId: string): Promise<string> =>
 	(await world.store.message.get(messageId)).mailboxId;
 
 describe("the Junk backlog re-check (#1553)", () => {
 	it("moves a newsletter to the Inbox and records the verdict", async () => {
 		const messageId = await inJunk(NEWSLETTER);
-		assert.equal(await due(DAY_ONE), true);
 
 		await deliver(DAY_ONE);
 
@@ -188,7 +173,6 @@ describe("the Junk backlog re-check (#1553)", () => {
 		assert.equal(row.placementVerdict?.action, PlacementAction.MoveToInbox);
 		assert.equal(row.placementVerdict?.fromPlacement, "junk");
 		assert.equal(row.placementDecidedAt, DAY_ONE);
-		assert.equal(await due(DAY_TWO), false, "an empty backlog is never due");
 	});
 
 	it("leaves classifier spam, reported, user-moved and Remit-moved mail in Junk", async () => {
@@ -236,18 +220,39 @@ describe("the Junk backlog re-check (#1553)", () => {
 		await deliver(DAY_ONE);
 
 		assert.equal(await inInbox(), 1);
-		assert.equal(await due(DAY_ONE), false);
 
 		await deliver(DAY_ONE);
 
 		assert.equal(await inInbox(), 1);
 		assert.equal(world.provider.requests.length, 1);
-		assert.equal(await due(DAY_TWO), true);
 
 		await deliver(DAY_TWO);
 
 		assert.equal(await inInbox(), 2);
 		assert.equal(world.provider.requests.length, 2);
+	});
+
+	it("re-judges messages the pre-#1568 rules left in Junk", async () => {
+		const left = await inJunk(NEWSLETTER, { placementDecidedAt: DAY_ONE - 1 });
+		const judgedAsInbox = await inJunk(NEWSLETTER, {
+			placementDecidedAt: DAY_ONE - 1,
+			placementVerdict: {
+				action: PlacementAction.MoveToJunk,
+				confidence: PlacementConfidence.Unsure,
+				fromPlacement: "inbox",
+				reasons: ["provider=spam"],
+				dryRun: false,
+				decidedAt: DAY_ONE - 1,
+			},
+		});
+
+		await deliver(DAY_ONE);
+
+		for (const messageId of [left, judgedAsInbox]) {
+			const row = await world.store.message.get(messageId);
+			assert.equal(row.mailboxId, world.inbox.mailboxId);
+			assert.equal(row.placementVerdict?.fromPlacement, "junk");
+		}
 	});
 
 	it("moves nothing on a second run", async () => {

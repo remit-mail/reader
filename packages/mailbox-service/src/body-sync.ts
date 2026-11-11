@@ -88,11 +88,7 @@ import {
 	hasDecidedCategory,
 } from "./message-category.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
-import {
-	type PlaceMessageResult,
-	type PlacementUpdate,
-	placeMessage,
-} from "./place-message.js";
+import { type PlacementUpdate, placeMessage } from "./place-message.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
@@ -246,13 +242,6 @@ export interface BodySyncRoundFolder extends BodySyncFolder {
 
 export interface PlacementConfig {
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
-	/**
-	 * Local-first mover for a confident placement verdict (issue #1271). Same
-	 * `moveMessage(accountConfigId, messageId, destinationMailboxId, accountId)`
-	 * signature as the general-purpose `MessageMoveService` it replaced here,
-	 * but backed by a pending-move marker + its own reconciler queue instead of
-	 * the general MESSAGE_MOVE event (see `placement-move.ts`).
-	 */
 	placementMoveService: PlacementMoveService;
 }
 
@@ -896,14 +885,6 @@ export class BodySyncService {
 			);
 		}
 
-		// Local-first move (issue #1271): local mailboxId change + pending marker +
-		// IMAP-push enqueue via PlacementMoveService, UNSWALLOWED — a throw here
-		// propagates before bodyStorageKey is written (see the method doc above),
-		// so a genuine SQS/DDB write failure requeues the message rather than being
-		// absorbed. A matched filter's move is exclusive and outranks the
-		// classifier's placement move (RFC 034 Decision 3.1) — an explicit user
-		// rule wins the single mailbox a message occupies — so at most one move is
-		// enqueued. A non-confident/leave verdict with no filter move is a no-op.
 		const decidedRow = await this.messageService.get(messageId);
 		let filterMove: MessageFilterMove | undefined;
 		let filterMoved = false;
@@ -941,7 +922,7 @@ export class BodySyncService {
 			}
 		}
 
-		const placed = await this.placeArrival(
+		const placementUpdate = await this.placeArrival(
 			lookups,
 			{ accountId, accountConfigId },
 			{ ...decidedRow, ...classification },
@@ -950,8 +931,6 @@ export class BodySyncService {
 			senderPlacement,
 			!filterDecision.move,
 		);
-		const placementUpdate: PlacementUpdate =
-			placed?.state === "Decided" ? placed.update : {};
 
 		// Additive label actions (RFC 034 Decision 3.1): every matching filter's
 		// label applies. The deterministic MessageLabel upsert is idempotent, so a
@@ -1587,30 +1566,31 @@ export class BodySyncService {
 		classifierJunk: boolean,
 		senderPlacement: () => Promise<SenderPlacement>,
 		move: boolean,
-	): Promise<PlaceMessageResult | undefined> {
+	): Promise<PlacementUpdate> {
 		const { placementConfig } = this;
-		if (!placementConfig) return undefined;
+		if (!placementConfig) return {};
 		const roles = await lookups.roleMailboxes();
 		const placement = placementOf(message.mailboxId, roles);
 		if (
 			placement === "junk" &&
 			arrival.internalDate <= arrival.folderCreatedAt
 		) {
-			return undefined;
+			return {};
 		}
-		return placeMessage(
+		const placed = await placeMessage(
 			{ ...placementConfig, log: this.log },
 			{
 				account,
 				message,
 				placement,
 				roles,
-				sender: senderPlacement,
-				classifier: { state: "Judged", junk: classifierJunk },
+				sender: await senderPlacement(),
+				classifierJunk,
 				move,
 				now: Date.now(),
 			},
 		);
+		return placed.state === "Decided" ? placed.update : {};
 	}
 
 	// The old `enqueuePlacementMove` (best-effort, catch-and-log) lived here.

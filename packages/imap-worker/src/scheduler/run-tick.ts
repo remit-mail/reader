@@ -65,10 +65,7 @@ export interface RunSchedulerTickDeps {
 		account: AccountItem,
 		now: number,
 	) => Promise<number>;
-	enqueueJunkReevaluation: (
-		account: AccountItem,
-		now: number,
-	) => Promise<boolean>;
+	enqueueJunkReevaluation: (account: AccountItem) => Promise<boolean>;
 }
 
 export interface SchedulerTickResult {
@@ -250,7 +247,7 @@ export const runSchedulerTick = async (
 		const junkOutcomes = await pMap(
 			page.items.filter(isEligible),
 			(account) =>
-				deps.enqueueJunkReevaluation(account, now).catch((error: unknown) => {
+				deps.enqueueJunkReevaluation(account).catch((error: unknown) => {
 					log.error(
 						{ accountId: account.accountId, error },
 						"Junk re-evaluation enqueue failed for account",

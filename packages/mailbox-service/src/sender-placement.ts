@@ -26,15 +26,7 @@ const UNKNOWN_SENDER: SenderPlacementSignals = {
 	autoArchive: false,
 };
 
-/**
- * The per-sender signals placement needs, from ONE `Address` fetch (RFC 039
- * Decision 3/3a, issue #300): the trust reads exactly as `deriveSenderTrust`
- * always did — `vip → wellknown → unknown`, untouched by `blocked` — plus
- * `blocked`/`autoArchive` off the same row. `trustSetAt` is the `setAt` of
- * whichever flag produced the trust value, needed by
- * {@link resolveSenderPlacement}'s tie-break; it stays local to placement and
- * never reaches `deriveSenderTrust`'s own contract (the trust badge).
- */
+/** The per-sender signals placement needs, from one `Address` fetch. */
 const readSenderPlacementSignals = async (
 	addressService: Pick<IAddressRepository, "getAddress">,
 	accountConfigId: string,
