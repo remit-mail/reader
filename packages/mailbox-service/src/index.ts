@@ -283,6 +283,11 @@ export {
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
+	backApplyNeverSpam,
+	type NeverSpamBackApplyDeps,
+	type NeverSpamBackApplyResult,
+} from "./never-spam-back-apply.js";
+export {
 	type OrganizeJobDeps,
 	type OrganizeJobLogger,
 	type OrganizeJobOwner,
@@ -376,6 +381,7 @@ export {
 	removeQuotedContent,
 } from "./snippet.js";
 export {
+	type NeverSpamGrant,
 	NoJunkMailboxError,
 	type SpamReportConfig,
 	type SpamReportLogger,

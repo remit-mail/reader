@@ -63,6 +63,12 @@ export interface IMessageRepository {
 		arrivedBy: number,
 		limit: number,
 	): Promise<Array<MessageItem & { bodyStorageKey: string }>>;
+	/** Active rows of a Junk folder from `fromEmail` that nothing has placed (no spam report, no user move, no Remit move), highest uid first. */
+	listSenderJunk(
+		junkMailboxId: string,
+		fromEmail: string,
+		limit: number,
+	): Promise<MessageItem[]>;
 	/** Write a placement decision only while the row still matches `expected`. Resolves `false` when it did not and nothing was written. */
 	recordPlacementIf(
 		messageId: string,

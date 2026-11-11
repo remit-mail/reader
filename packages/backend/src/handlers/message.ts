@@ -24,6 +24,7 @@ import {
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 	materializeBodyParts,
+	type NeverSpamGrant,
 	NoJunkMailboxError,
 	ownedMessages,
 	resolveFolderPlacement,
@@ -41,6 +42,7 @@ import {
 } from "../derive/contentSignature.js";
 import { buildContentUrl } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
+import { requestNeverSpamBackApply } from "../service/never-spam.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -944,7 +946,7 @@ export const MessageBulkOperations = {
 
 	MessageBulkOperations_notSpam: async (
 		context,
-		ctx: HandlerContext<"sync">,
+		ctx: HandlerContext<"sync" | "accountFanout">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
@@ -963,14 +965,23 @@ export const MessageBulkOperations = {
 
 		const setBy = ctx.identity.sub;
 
-		return settleSpamReportBulk(messageIds, (messageId) =>
-			client.spamReport.notSpam({
-				accountConfigId,
-				accountId,
-				messageId,
-				setBy,
-			}),
+		const grants = new Map<string, NeverSpamGrant>();
+		const outcome = await settleSpamReportBulk(
+			messageIds,
+			async (messageId) => {
+				const grant = await client.spamReport.notSpam({
+					accountConfigId,
+					accountId,
+					messageId,
+					setBy,
+				});
+				if (grant) grants.set(grant.addressId, grant);
+			},
 		);
+		for (const grant of grants.values()) {
+			await requestNeverSpamBackApply(client.queues.accountFanout, grant);
+		}
+		return outcome;
 	},
 } satisfies Record<
 	MessageBulkOperationIds,

@@ -6,6 +6,7 @@ export type {
 	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
+	SenderNeverSpamBackApplyEvent,
 } from "@remit/data-ports";
 
 export type AccountDeleteFinalizeEvent = {

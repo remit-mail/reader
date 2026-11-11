@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
@@ -28,5 +29,24 @@ describe("message lookups without sqlite_stat1", () => {
 			),
 			"message_by_mailbox_id",
 		);
+	});
+
+	test("listSenderJunk searches the Junk folder and probes each sender by message", async () => {
+		const plan = queryPlan(
+			sqlite,
+			await selectsIssuedDuring(sqlite, () =>
+				repos.message.listSenderJunk("junk", "news@example.com", 25),
+			),
+		);
+		const accesses = (table: string) =>
+			plan.filter(
+				(detail) =>
+					/^(SCAN|SEARCH) /.test(detail) && detail.split(" ")[1] === table,
+			);
+
+		assertPlanSearches(accesses("message"), "message_by_mailbox_id");
+		assert.deepEqual(accesses("envelope_address"), [
+			"SEARCH envelope_address EXISTS USING INDEX envelope_address_by_message_id (message_id=?)",
+		]);
 	});
 });

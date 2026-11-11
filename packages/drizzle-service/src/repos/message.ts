@@ -958,6 +958,40 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return rows.map(toMessageItem).filter(hasStoredBody);
 	}
 
+	async listSenderJunk(
+		junkMailboxId: string,
+		fromEmail: string,
+		limit: number,
+	): ReturnType<IMessageRepository["listSenderJunk"]> {
+		const rows = await this.db
+			.select()
+			.from(messageTable)
+			.where(
+				and(
+					eq(messageTable.mailboxId, junkMailboxId),
+					eq(messageTable.status, "active"),
+					isNull(messageTable.spamReport),
+					isNull(messageTable.originalMailboxId),
+					eq(messageTable.movedByRemit, false),
+					exists(
+						this.db
+							.select({ one: sql`1` })
+							.from(envelopeAddressTable)
+							.where(
+								and(
+									eq(envelopeAddressTable.messageId, messageTable.messageId),
+									eq(envelopeAddressTable.addressRole, "from"),
+									eq(envelopeAddressTable.normalizedEmail, fromEmail),
+								),
+							),
+					),
+				),
+			)
+			.orderBy(desc(messageTable.uid))
+			.limit(limit);
+		return rows.map(toMessageItem);
+	}
+
 	async recordPlacementIf(
 		messageId: string,
 		expected: PlacementPredicate,

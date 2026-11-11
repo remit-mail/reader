@@ -229,6 +229,48 @@ describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
 		assert.deepEqual(seen, [{ neverSpam: null }]);
 		assert.equal(response.flags.neverSpam, undefined);
 	});
+
+	it("enqueues the back-apply that clears the sender's Junk mail (#1553)", async () => {
+		const fanout = recordingQueue();
+		client = clientHolding(address({ flags: {} }), [], fanout);
+
+		await updateAddress(
+			updateContextFor({ flags: { neverSpam: { value: true, setAt: 20 } } }),
+			callerOf(SUB),
+		);
+
+		assert.deepEqual(
+			fanout.sent.map((message) => message.body),
+			[
+				{
+					type: "SenderNeverSpamBackApply",
+					accountConfigId: ACCOUNT_CONFIG_ID,
+					addressId: "addr-1",
+					normalizedEmail: "amsterdam@pocahondas.nl",
+				},
+			],
+		);
+	});
+
+	it("says never spam is saved and names the retry when the queue refuses", async () => {
+		client = clientHolding(
+			address({ flags: {} }),
+			[],
+			failingQueue(new Error("AWS.SimpleQueueService.NonExistentQueue")),
+		);
+
+		await assert.rejects(
+			updateAddress(
+				updateContextFor({ flags: { neverSpam: { value: true, setAt: 20 } } }),
+				callerOf(SUB),
+			),
+			(error: Error) => {
+				assert.match(error.message, /saved/);
+				assert.match(error.message, /Turning never spam on again/);
+				return true;
+			},
+		);
+	});
 });
 
 describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {

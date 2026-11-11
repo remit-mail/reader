@@ -51,6 +51,10 @@
       "types": "./src/service/junk-backlog.ts",
       "default": "./src/service/junk-backlog.ts"
     },
+    "./never-spam": {
+      "types": "./src/service/never-spam.ts",
+      "default": "./src/service/never-spam.ts"
+    },
     "./organize": {
       "types": "./src/service/organize.ts",
       "default": "./src/service/organize.ts"
@@ -131,6 +135,10 @@
       "./junk-backlog": {
         "types": "./dist/src/service/junk-backlog.d.ts",
         "default": "./dist/src/service/junk-backlog.js"
+      },
+      "./never-spam": {
+        "types": "./dist/src/service/never-spam.d.ts",
+        "default": "./dist/src/service/never-spam.js"
       },
       "./organize": {
         "types": "./dist/src/service/organize.d.ts",

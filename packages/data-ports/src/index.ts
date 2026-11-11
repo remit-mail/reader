@@ -11,6 +11,7 @@ export type {
 	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
+	SenderNeverSpamBackApplyEvent,
 } from "./interfaces/account-fanout-events.js";
 export type { IAccountSettingRepository } from "./interfaces/account-setting.js";
 export type { IAddressRepository } from "./interfaces/address.js";
