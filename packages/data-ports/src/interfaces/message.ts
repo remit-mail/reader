@@ -57,12 +57,6 @@ export interface IMessageRepository {
 		mailboxIds: readonly string[],
 		untouchedSince: number,
 	): Promise<MessageItem[]>;
-	/** Active rows of a Junk folder that arrived by `arrivedBy`, body stored, that nothing has placed and that no Junk-rules verdict covers yet, latest arrival first. */
-	listJunkBacklog(
-		junkMailboxId: string,
-		arrivedBy: number,
-		limit: number,
-	): Promise<Array<MessageItem & { bodyStorageKey: string }>>;
 	/** Active rows of a Junk folder from `fromEmail` that nothing has placed (no spam report, no user move, no Remit move), highest uid first. */
 	listSenderJunk(
 		junkMailboxId: string,

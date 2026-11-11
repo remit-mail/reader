@@ -13,8 +13,6 @@ const RESULT: SchedulerTickResult = {
 	subscriptionsFailed: 0,
 	redriven: 0,
 	redriveFailed: 0,
-	junkReevaluations: 0,
-	junkReevaluationFailed: 0,
 };
 
 // Only the loop's own two calls matter here; the tick is a stub, so what it is

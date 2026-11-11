@@ -77,7 +77,6 @@ const tick = async (
 		offlineIntervalMs: OFFLINE_INTERVAL_MS,
 		now: NOW,
 		redriveStrandedPlacements: async () => 0,
-		enqueueJunkReevaluation: async () => false,
 		...options,
 	});
 	const enqueued = sent.map((message) => String(message.body.accountId));
@@ -193,26 +192,6 @@ describe("a scheduler tick", () => {
 		assert.deepEqual(enqueued.sort(), [live.accountId, busy.accountId].sort());
 		assert.equal(result.redriven, 2);
 		assert.equal(result.redriveFailed, 1);
-		assert.ok(logs.some((line) => line.level === "error"));
-	});
-
-	it("counts the Junk re-checks it enqueued and keeps going past one that fails", async () => {
-		const backlog = await account("backlog");
-		const busy = await account("busy");
-		await account("clear");
-
-		const { enqueued, result, logs } = await tick({
-			enqueueJunkReevaluation: async (candidate) => {
-				if (candidate.accountId === busy.accountId) {
-					throw new Error("SQLITE_BUSY");
-				}
-				return candidate.accountId === backlog.accountId;
-			},
-		});
-
-		assert.equal(enqueued.length, 3);
-		assert.equal(result.junkReevaluations, 1);
-		assert.equal(result.junkReevaluationFailed, 1);
 		assert.ok(logs.some((line) => line.level === "error"));
 	});
 });

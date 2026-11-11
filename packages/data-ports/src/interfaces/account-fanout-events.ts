@@ -62,12 +62,6 @@ export type SenderCategoryBackApplyEvent = {
 	categorySetAt: number;
 };
 
-export type JunkPlacementReevaluationEvent = {
-	type: "JunkPlacementReevaluation";
-	accountConfigId: string;
-	accountId: string;
-};
-
 export type SenderNeverSpamBackApplyEvent = {
 	type: "SenderNeverSpamBackApply";
 	accountConfigId: string;
@@ -81,5 +75,4 @@ export type AccountFanoutEvent =
 	| AccountExportEvent
 	| OrganizeJobEvent
 	| SenderCategoryBackApplyEvent
-	| JunkPlacementReevaluationEvent
 	| SenderNeverSpamBackApplyEvent;

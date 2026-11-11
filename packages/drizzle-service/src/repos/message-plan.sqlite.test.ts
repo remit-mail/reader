@@ -19,18 +19,6 @@ describe("message lookups without sqlite_stat1", () => {
 		messageObjectsInMemory(),
 	);
 
-	test("listJunkBacklog searches message_by_mailbox_internal_date", async () => {
-		assertPlanSearches(
-			queryPlan(
-				sqlite,
-				await selectsIssuedDuring(sqlite, () =>
-					repos.message.listJunkBacklog("junk", 1, 25),
-				),
-			),
-			"message_by_mailbox_internal_date",
-		);
-	});
-
 	test("listSenderJunk searches the Junk folder and probes each sender by message", async () => {
 		const plan = queryPlan(
 			sqlite,

@@ -47,10 +47,6 @@
       "types": "./src/handlers/folder-role-labels.ts",
       "default": "./src/handlers/folder-role-labels.ts"
     },
-    "./junk-backlog": {
-      "types": "./src/service/junk-backlog.ts",
-      "default": "./src/service/junk-backlog.ts"
-    },
     "./never-spam": {
       "types": "./src/service/never-spam.ts",
       "default": "./src/service/never-spam.ts"
@@ -131,10 +127,6 @@
       "./folder-role-labels": {
         "types": "./dist/src/handlers/folder-role-labels.d.ts",
         "default": "./dist/src/handlers/folder-role-labels.js"
-      },
-      "./junk-backlog": {
-        "types": "./dist/src/service/junk-backlog.d.ts",
-        "default": "./dist/src/service/junk-backlog.js"
       },
       "./never-spam": {
         "types": "./dist/src/service/never-spam.d.ts",

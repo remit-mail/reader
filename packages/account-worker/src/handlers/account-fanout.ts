@@ -57,7 +57,6 @@ export const processAccountFanout = async (
 	if (
 		event.type === "OrganizeJob" ||
 		event.type === "SenderCategoryBackApply" ||
-		event.type === "JunkPlacementReevaluation" ||
 		event.type === "SenderNeverSpamBackApply"
 	) {
 		await processAccountFanoutEvent(event, { client: await getClient() });

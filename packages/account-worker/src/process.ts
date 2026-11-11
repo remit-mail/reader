@@ -1,5 +1,4 @@
 import type { RemitClient } from "@remit/backend/client";
-import { runJunkBacklogReevaluation } from "@remit/backend/junk-backlog";
 import { runNeverSpamBackApply } from "@remit/backend/never-spam";
 import type { GroupedQueueProducer } from "@remit/data-ports";
 import { createLogger } from "@remit/logger";
@@ -12,7 +11,6 @@ import type {
 	AccountDeleteFinalizeEvent,
 	AccountExportEvent,
 	AccountFinalizeEvent,
-	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
 	SenderNeverSpamBackApplyEvent,
@@ -41,7 +39,6 @@ export type {
 export type ClientFanoutEvent =
 	| OrganizeJobEvent
 	| SenderCategoryBackApplyEvent
-	| JunkPlacementReevaluationEvent
 	| SenderNeverSpamBackApplyEvent;
 
 export interface AccountFanoutContext {
@@ -75,22 +72,6 @@ export const processAccountFanoutEvent = (
 			return processOrganizeJob(event, log, { client: ctx.client });
 		case "SenderCategoryBackApply":
 			return processSenderCategoryBackApply(event, log, { client: ctx.client });
-		case "JunkPlacementReevaluation":
-			return runJunkBacklogReevaluation(
-				ctx.client,
-				log,
-				event,
-				Date.now(),
-			).then((result) => {
-				log.info(
-					{
-						accountConfigId: event.accountConfigId,
-						accountId: event.accountId,
-						...result,
-					},
-					"Junk placement re-evaluation delivery finished",
-				);
-			});
 		case "SenderNeverSpamBackApply":
 			return runNeverSpamBackApply(ctx.client, event, Date.now()).then(
 				(result) => {
