@@ -125,6 +125,7 @@ const midMove = async (uid = 42) => {
 		messageId,
 		archive.mailboxId,
 		account.accountId,
+		inbox.mailboxId,
 	);
 	queue.length = 0;
 	return messageId;
@@ -199,6 +200,7 @@ describe("moving a message", () => {
 			messageId,
 			inbox.mailboxId,
 			account.accountId,
+			archive.mailboxId,
 		);
 
 		assert.deepEqual(
@@ -218,6 +220,7 @@ describe("moving a message", () => {
 				messageId,
 				inbox.mailboxId,
 				account.accountId,
+				archive.mailboxId,
 			),
 			(error: unknown) =>
 				error instanceof MessagePlacementUnsettledError &&
@@ -239,6 +242,7 @@ describe("moving a message", () => {
 				messageId,
 				archive.mailboxId,
 				account.accountId,
+				archive.mailboxId,
 			),
 			MessagePlacementUnsettledError,
 		);
@@ -275,6 +279,7 @@ describe("moving a message", () => {
 				messageId,
 				inbox.mailboxId,
 				account.accountId,
+				trash?.mailboxId as string,
 			),
 			MessagePlacementUnsettledError,
 		);
@@ -306,6 +311,7 @@ describe("moving a message", () => {
 			stranded,
 			archive.mailboxId,
 			account.accountId,
+			inbox.mailboxId,
 		);
 
 		assert.ok(Date.now() - startedAt < 150);
@@ -339,6 +345,7 @@ describe("moving a message", () => {
 							copy,
 							inbox.mailboxId,
 							account.accountId,
+							archive.mailboxId,
 						),
 				(error: unknown) =>
 					error instanceof MessagePlacementUnsettledError &&
@@ -725,6 +732,7 @@ describe("emptying the Trash", () => {
 			arriving,
 			bin.mailboxId,
 			account.accountId,
+			inbox.mailboxId,
 		);
 		queue.length = 0;
 

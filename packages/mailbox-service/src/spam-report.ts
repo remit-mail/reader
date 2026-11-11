@@ -3,34 +3,16 @@ import type {
 	IAddressRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
+	MessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
 import { AddressRole, MessageKeywordFlag } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
 import type { MessageMoveService } from "./message-move.js";
-import {
-	isPlacementUnsettled,
-	waitForPlacementToSettle,
-} from "./placement-settled.js";
 
 export interface SpamReportLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
 	error(obj: Record<string, unknown>, msg: string): void;
-}
-
-/**
- * The one designed, user-facing outcome of `notSpam`'s R2 wait timing out —
- * distinct from any other failure so a caller surfacing failures to the user
- * (the bulk handlers in packages/backend) can allowlist this specific,
- * pre-written message instead of relaying an arbitrary thrown error's text.
- */
-export class MoveNotSettledError extends Error {
-	constructor(messageId: string) {
-		super(
-			`Message ${messageId}'s move to Junk has not settled yet; try again in a moment.`,
-		);
-		this.name = "MoveNotSettledError";
-	}
 }
 
 /**
@@ -54,9 +36,6 @@ const noopLogger: SpamReportLogger = {
 	error: () => {},
 };
 
-const DEFAULT_MOVE_SETTLE_TIMEOUT_MS = 5_000;
-const DEFAULT_MOVE_SETTLE_POLL_MS = 250;
-
 export interface SpamReportConfig {
 	messageService: IMessageRepository;
 	addressService: IAddressRepository;
@@ -65,16 +44,13 @@ export interface SpamReportConfig {
 	messageMoveService: MessageMoveService;
 	flagPushService: FlagPushService;
 	logger?: SpamReportLogger;
-	/** How long `notSpam` waits for a still-in-flight move before giving up. */
-	moveSettleTimeoutMs?: number;
-	moveSettlePollMs?: number;
 }
 
 export interface SpamReportParams {
 	accountConfigId: string;
 	accountId: string;
 	messageId: string;
-	setBy?: string;
+	setBy: string;
 }
 
 export class SpamReportService {
@@ -85,8 +61,6 @@ export class SpamReportService {
 	private messageMoveService: MessageMoveService;
 	private flagPushService: FlagPushService;
 	private log: SpamReportLogger;
-	private moveSettleTimeoutMs: number;
-	private moveSettlePollMs: number;
 
 	constructor(config: SpamReportConfig) {
 		this.messageService = config.messageService;
@@ -96,10 +70,6 @@ export class SpamReportService {
 		this.messageMoveService = config.messageMoveService;
 		this.flagPushService = config.flagPushService;
 		this.log = config.logger ?? noopLogger;
-		this.moveSettleTimeoutMs =
-			config.moveSettleTimeoutMs ?? DEFAULT_MOVE_SETTLE_TIMEOUT_MS;
-		this.moveSettlePollMs =
-			config.moveSettlePollMs ?? DEFAULT_MOVE_SETTLE_POLL_MS;
 	}
 
 	/**
@@ -232,6 +202,7 @@ export class SpamReportService {
 			messageId,
 			junkMailbox.mailboxId,
 			accountId,
+			before.mailboxId,
 		);
 
 		if (alreadyInJunk && before.originalMailboxId && !hadSpamReportAlready) {
@@ -276,11 +247,8 @@ export class SpamReportService {
 	};
 
 	notSpam = async (params: SpamReportParams): Promise<void> => {
-		const { accountConfigId, accountId, messageId } = params;
+		const { accountConfigId, accountId, messageId, setBy } = params;
 
-		// Unblocking a sender the account has no row for is already true, and
-		// minting one here would put an address nothing ever harvested into the
-		// address book — the withdrawal of a judgement is not a sighting.
 		const from = await this.resolveFromAddress(accountConfigId, messageId);
 		if (await this.senderIsKnown(accountConfigId, from.addressId)) {
 			await this.addressService.mergeFlags(accountConfigId, from.addressId, {
@@ -289,43 +257,41 @@ export class SpamReportService {
 		}
 
 		const message = await this.messageService.get(messageId);
+		const overrulesJunkVerdict =
+			!message.spamReport && (await this.isInJunk(message, accountId));
+		const destinationMailboxId = await this.notSpamDestination(
+			message,
+			overrulesJunkVerdict,
+			accountId,
+		);
 
-		if (message.originalMailboxId) {
-			// Only wait on the move's settlement when there is actually a
-			// dependent write to make (the restore below) — a move in flight for
-			// an unrelated reason is not this operation's concern.
-			const settled = await waitForPlacementToSettle(
-				this.messageService,
-				messageId,
-				{
-					timeoutMs: this.moveSettleTimeoutMs,
-					pollMs: this.moveSettlePollMs,
-				},
-			);
-			if (isPlacementUnsettled(settled)) {
-				throw new MoveNotSettledError(messageId);
-			}
-
-			await this.messageMoveService.restoreMessage(
+		if (destinationMailboxId) {
+			await this.messageMoveService.moveMessage(
 				accountConfigId,
 				messageId,
+				destinationMailboxId,
 				accountId,
+				message.mailboxId,
 			);
 
-			// Re-read, then clear against what was read. The restore just wrote a
+			// Re-read, then clear against what was read. The move just wrote a
 			// placement, so the row here is not the one above; predicating on it is
 			// what keeps this from erasing a pair some other lane is relying on
 			// (imap-mutations R3).
-			const restored = await this.messageService.get(messageId);
+			const moved = await this.messageService.get(messageId);
 			await this.messageService.transitionPlacement(
 				messageId,
 				{
-					status: restored.status,
-					mailboxId: restored.mailboxId,
-					uid: restored.uid,
+					status: moved.status,
+					mailboxId: moved.mailboxId,
+					uid: moved.uid,
 				},
 				{ originalMailboxId: null, originalUid: null },
 			);
+		}
+
+		if (overrulesJunkVerdict) {
+			await this.grantNeverSpam(accountConfigId, accountId, from, setBy);
 		}
 
 		const current = await this.messageService.get(messageId);
@@ -353,5 +319,47 @@ export class SpamReportService {
 			{ accountId, messageId, addressId: from.addressId },
 			"Undid spam report",
 		);
+	};
+
+	private isInJunk = async (
+		message: MessageItem,
+		accountId: string,
+	): Promise<boolean> => {
+		const junkMailbox =
+			await this.mailboxSpecialUseService.findJunkMailbox(accountId);
+		return junkMailbox?.mailboxId === message.mailboxId;
+	};
+
+	private notSpamDestination = async (
+		message: MessageItem,
+		overrulesJunkVerdict: boolean,
+		accountId: string,
+	): Promise<string | undefined> => {
+		if (message.originalMailboxId) return message.originalMailboxId;
+		if (!overrulesJunkVerdict) return undefined;
+		const inboxMailbox =
+			await this.mailboxSpecialUseService.findInboxMailbox(accountId);
+		if (!inboxMailbox) {
+			throw new Error(
+				`Account ${accountId} has no Inbox to move ${message.messageId}`,
+			);
+		}
+		return inboxMailbox.mailboxId;
+	};
+
+	private grantNeverSpam = async (
+		accountConfigId: string,
+		accountId: string,
+		from: { addressId: string; normalizedEmail: string; displayName: string },
+		setBy: string,
+	): Promise<void> => {
+		const account = await this.accountService.get(accountId);
+		if (from.normalizedEmail.toLowerCase() === account.email.toLowerCase()) {
+			return;
+		}
+		await this.ensureSenderAddress(accountConfigId, from);
+		await this.addressService.mergeFlags(accountConfigId, from.addressId, {
+			neverSpam: { value: true, setAt: Date.now(), setBy },
+		});
 	};
 }

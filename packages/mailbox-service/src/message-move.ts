@@ -667,19 +667,41 @@ export class MessageMoveService {
 	 * @param messageId - Message to move
 	 * @param destinationMailboxId - Destination mailbox ID
 	 * @param accountId - Account ID
+	 * @param expectedSourceMailboxId - The folder the caller decided the move in;
+	 *   a message that settled anywhere else is refused rather than moved
 	 */
 	moveMessage = async (
 		accountConfigId: string,
 		messageId: string,
 		destinationMailboxId: string,
 		accountId: string,
+		expectedSourceMailboxId: string,
 	): Promise<void> => {
+		const settled = await this.settledPlacement(
+			await this.messageService.get(messageId),
+			accountId,
+		);
+		if (settled.mailboxId !== expectedSourceMailboxId) {
+			this.log.error(
+				{
+					accountId,
+					messageId,
+					expectedSourceMailboxId,
+					mailboxId: settled.mailboxId,
+					destinationMailboxId,
+				},
+				"Refused: the message left the folder this move was decided in",
+			);
+			throw new MessagePlacementUnsettledError(
+				`Message ${messageId} was not moved: it left the folder this move was decided in`,
+				accountId,
+				messageId,
+				"in_flight",
+			);
+		}
 		await this.moveSettledMessage(
 			accountConfigId,
-			await this.settledPlacement(
-				await this.messageService.get(messageId),
-				accountId,
-			),
+			settled,
 			destinationMailboxId,
 			accountId,
 		);
@@ -1043,6 +1065,7 @@ export class MessageMoveService {
 			messageId,
 			message.originalMailboxId,
 			accountId,
+			message.mailboxId,
 		);
 	};
 

@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MessagePlacementUnsettledError } from "@remit/data-ports/errors";
-import {
-	MoveNotSettledError,
-	NoJunkMailboxError,
-} from "@remit/mailbox-service";
+import { NoJunkMailboxError } from "@remit/mailbox-service";
 import { GENERIC_FAILURE_REASON, settleSpamReportBulk } from "./message.js";
 
 describe("settleSpamReportBulk", () => {
@@ -13,7 +10,7 @@ describe("settleSpamReportBulk", () => {
 			["msg-1", "msg-2", "msg-3"],
 			async (messageId) => {
 				if (messageId === "msg-2") {
-					throw new MoveNotSettledError(messageId);
+					throw new NoJunkMailboxError();
 				}
 			},
 		);
@@ -23,8 +20,7 @@ describe("settleSpamReportBulk", () => {
 		assert.deepEqual(outcome.failures, [
 			{
 				messageId: "msg-2",
-				reason:
-					"Message msg-2's move to Junk has not settled yet; try again in a moment.",
+				reason: new NoJunkMailboxError().message,
 			},
 		]);
 	});

@@ -48,6 +48,7 @@ const arrange = async (
 		seeded.messageId,
 		archive.mailboxId,
 		w.account.accountId,
+		inbox.mailboxId,
 	);
 	const event = w
 		.queued()

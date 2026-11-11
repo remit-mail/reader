@@ -404,6 +404,7 @@ describe("a message the database already holds, sighted in another folder", () =
 			message.messageId,
 			receipts.mailboxId,
 			account.accountId,
+			inbox.mailboxId,
 		);
 		await serverMove(inbox, uid, junk);
 
