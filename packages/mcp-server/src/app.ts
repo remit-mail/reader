@@ -12,19 +12,8 @@ import {
 import { MCP_SCOPES } from "./auth/scopes.js";
 import type { TokenVerifier } from "./auth/token-verifier.js";
 import type { McpDeps } from "./deps.js";
-import {
-	ASSETS_PATH_PREFIX,
-	type PageAssets,
-	serveAsset,
-} from "./pages/assets.js";
-import { errorPage, pageError } from "./pages/render.js";
-import {
-	type ConnectedAppGrant,
-	connectedAppsView,
-	consentView,
-	deviceView,
-	loginView,
-} from "./pages/views.js";
+import { pageError } from "./pages/render.js";
+import { type ConnectedAppGrant, createPageViews } from "./pages/views.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
 
 export interface McpAppConfig {
@@ -32,7 +21,7 @@ export interface McpAppConfig {
 	authRoutes: McpAuthRoutes;
 	verifier: TokenVerifier;
 	deps: McpDeps;
-	pageAssets: PageAssets;
+	stylesheetHref: string;
 }
 
 const PROTECTED_RESOURCE_METADATA_PATH =
@@ -88,8 +77,10 @@ export const createMcpApp = ({
 	authRoutes,
 	verifier,
 	deps,
-	pageAssets,
+	stylesheetHref,
 }: McpAppConfig): McpRequestHandler => {
+	const { errorPage, loginView, consentView, deviceView, connectedAppsView } =
+		createPageViews(stylesheetHref);
 	const resource = mcpResource(origin);
 	const resourceMetadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${MCP_PATH}`;
 	const challenge = (error?: string): Response =>
@@ -353,9 +344,6 @@ export const createMcpApp = ({
 		if (pathname === CONSENT_PATH) return consent(request);
 		if (pathname === DEVICE_PATH) return device(request);
 		if (pathname === CONNECTED_APPS_PATH) return connectedApps(request);
-		if (pathname.startsWith(ASSETS_PATH_PREFIX)) {
-			return serveAsset(pageAssets, pathname);
-		}
 		return authRoutes.handle(request);
 	};
 };

@@ -25,6 +25,7 @@ export interface FolderToolDeps {
 	>;
 	settleTimeoutMs: number;
 	pollIntervalMs: number;
+	sleep: (ms: number) => Promise<void>;
 }
 
 export interface FilterToolDeps {

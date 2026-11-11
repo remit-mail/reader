@@ -1,7 +1,6 @@
 import { McpErrorPage, type McpPageError } from "@remit/ui/mcp-pages";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { STYLESHEET_PATH } from "./assets.js";
 
 const NEW_ISSUE_URL = "https://github.com/remit-mail/reader/issues/new";
 
@@ -28,6 +27,7 @@ export const pageError = (message: string, fix: string): McpPageError => ({
 });
 
 export const renderPage = (
+	stylesheetHref: string,
 	title: string,
 	page: ReactElement,
 	status = 200,
@@ -40,7 +40,7 @@ export const renderPage = (
 					<meta name="viewport" content="width=device-width, initial-scale=1" />
 					<meta name="referrer" content="no-referrer" />
 					<title>{title}</title>
-					<link rel="stylesheet" href={STYLESHEET_PATH} />
+					<link rel="stylesheet" href={stylesheetHref} />
 				</head>
 				<body>{page}</body>
 			</html>,
@@ -58,12 +58,14 @@ export const renderPage = (
 	);
 
 export const errorPage = (
+	stylesheetHref: string,
 	heading: string,
 	message: string,
 	fix: string,
 	status: number,
 ): Response =>
 	renderPage(
+		stylesheetHref,
 		heading,
 		<McpErrorPage heading={heading} error={pageError(message, fix)} />,
 		status,

@@ -1,4 +1,3 @@
-import { setTimeout as sleep } from "node:timers/promises";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { MailboxItem } from "@remit/data-ports";
@@ -45,7 +44,7 @@ const awaitSettled = async (
 		) {
 			return { state: "Present", folder };
 		}
-		await sleep(folders.pollIntervalMs);
+		await folders.sleep(folders.pollIntervalMs);
 	}
 };
 
