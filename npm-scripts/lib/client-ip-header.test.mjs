@@ -26,7 +26,7 @@ const MODE_FILES = readdirSync(CADDY_DIR).filter(
 
 const ROUTES = readFileSync(join(CADDY_DIR, "routes.caddy"), "utf8");
 const AUTH = readFileSync(
-	join(ROOT, "packages", "auth-service", "src", "auth.ts"),
+	join(ROOT, "packages", "auth-service", "src", "constants.ts"),
 	"utf8",
 );
 

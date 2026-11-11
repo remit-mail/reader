@@ -350,7 +350,7 @@ if (CR) {
 	const FORGED = ["203.0.113.9", "203.0.113.44"];
 	const EDGE_CLIENT = "198.51.100.77";
 	const CLIENT_IP_HEADER = "Cf-Connecting-Ip";
-	// What auth-service reads (packages/auth-service/src/auth.ts,
+	// What auth-service reads (packages/auth-service/src/constants.ts,
 	// CLIENT_IP_HEADER) and what routes.caddy sets from {client_ip}.
 	const HEADER = "X-Remit-Client-IP";
 
