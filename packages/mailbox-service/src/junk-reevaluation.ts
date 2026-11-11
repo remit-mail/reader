@@ -88,7 +88,7 @@ const UNREADABLE_BODY: PlacementDecision = {
 };
 
 // Wait, not reconcile (imap-mutations R2/R3): a move binds to the settled row and skips a message that left Junk.
-export const reevaluateJunkBacklog = async (
+const runJunkBacklog = async (
 	deps: JunkBacklogDeps,
 	account: JunkBacklogAccount,
 	now: number,
@@ -179,5 +179,23 @@ export const reevaluateJunkBacklog = async (
 		await deps.messageService.update(message.messageId, placed.update);
 		result.moved += 1;
 	}
+	return result;
+};
+
+export const reevaluateJunkBacklog = async (
+	deps: JunkBacklogDeps,
+	account: JunkBacklogAccount,
+	now: number,
+): Promise<JunkBacklogResult> => {
+	const result = await runJunkBacklog(deps, account, now);
+	deps.log.info(
+		{
+			accountId: account.accountId,
+			outcome: result.outcome,
+			examined: result.examined,
+			moved: result.moved,
+		},
+		"Junk re-evaluation delivery finished",
+	);
 	return result;
 };
