@@ -13,11 +13,7 @@ import {
 import { openMcpAuthDatabase } from "./auth/database.js";
 import { resolveMcpServerConfig } from "./config.js";
 import { mcpDepsOf } from "./deps.js";
-import {
-	ASSETS_PATH_PREFIX,
-	STYLESHEET_PATH,
-	serveAsset,
-} from "./pages/assets.js";
+import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
 import { loadPageAssets } from "./pages/load-assets.js";
 
 installNodeLogger();
@@ -48,7 +44,6 @@ const app = createMcpApp({
 	authRoutes: createMcpAuthRoutes(auth),
 	verifier: createBetterAuthTokenVerifier(auth, config.origin),
 	deps,
-	stylesheetHref: STYLESHEET_PATH,
 });
 const pageAssets = loadPageAssets(config.pageAssetsDir);
 

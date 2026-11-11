@@ -12,8 +12,14 @@ import {
 import { MCP_SCOPES } from "./auth/scopes.js";
 import type { TokenVerifier } from "./auth/token-verifier.js";
 import type { McpDeps } from "./deps.js";
-import { pageError } from "./pages/render.js";
-import { type ConnectedAppGrant, createPageViews } from "./pages/views.js";
+import { errorPage, pageError } from "./pages/render.js";
+import {
+	type ConnectedAppGrant,
+	connectedAppsView,
+	consentView,
+	deviceView,
+	loginView,
+} from "./pages/views.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
 
 export interface McpAppConfig {
@@ -21,7 +27,6 @@ export interface McpAppConfig {
 	authRoutes: McpAuthRoutes;
 	verifier: TokenVerifier;
 	deps: McpDeps;
-	stylesheetHref: string;
 }
 
 const PROTECTED_RESOURCE_METADATA_PATH =
@@ -77,10 +82,7 @@ export const createMcpApp = ({
 	authRoutes,
 	verifier,
 	deps,
-	stylesheetHref,
 }: McpAppConfig): McpRequestHandler => {
-	const { errorPage, loginView, consentView, deviceView, connectedAppsView } =
-		createPageViews(stylesheetHref);
 	const resource = mcpResource(origin);
 	const resourceMetadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${MCP_PATH}`;
 	const challenge = (error?: string): Response =>

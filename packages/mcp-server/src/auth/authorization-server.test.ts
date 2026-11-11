@@ -104,7 +104,6 @@ const buildApp = (): { auth: McpAuth; handler: McpRequestHandler } => {
 			authRoutes: createMcpAuthRoutes(instance),
 			verifier: createBetterAuthTokenVerifier(instance, MCP_ORIGIN),
 			deps,
-			stylesheetHref: "/assets/pages.css",
 		}),
 	};
 };
