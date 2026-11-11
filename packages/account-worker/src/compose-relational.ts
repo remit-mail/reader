@@ -8,10 +8,17 @@ import {
 	sqliteDatabasePathsFromEnv,
 	syncStores,
 } from "@remit/drizzle-service";
+import {
+	mcp_device_code,
+	mcp_oauth_access_token,
+	mcp_oauth_client,
+	mcp_oauth_consent,
+	mcp_oauth_refresh_token,
+	mcp_session,
+} from "@remit/drizzle-service/schema-sets/mcp";
 import type { Logger } from "@remit/logger";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { eq } from "drizzle-orm";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { DeletionCapabilities } from "./deletion-capabilities.js";
 
 const deleteStoragePrefix = async (
@@ -23,17 +30,6 @@ const deleteStoragePrefix = async (
 	).deletePrefix(keyPrefix);
 	log.info({ keyPrefix }, "Storage prefix cleanup complete");
 };
-
-// The MCP tables keep an opaque user id with no foreign key to auth_user, so
-// erasing a login user deletes their MCP rows by that id.
-const mcpUserTables = [
-	"mcp_session",
-	"mcp_oauth_client",
-	"mcp_oauth_refresh_token",
-	"mcp_oauth_access_token",
-	"mcp_oauth_consent",
-	"mcp_device_code",
-].map((name) => sqliteTable(name, { userId: text("user_id") }));
 
 // The app, mail and search databases are opened once, on first use, and
 // shared by every delete (the native binding loads there, hence async). Built
@@ -53,9 +49,22 @@ export const buildRelationalDeletionCapabilities =
 		signOut: async (userId, log) => {
 			const { app } = await getStores();
 			await app.batch([
-				...mcpUserTables.map((table) =>
-					app.db.delete(table).where(eq(table.userId, userId)),
-				),
+				app.db.delete(mcp_session).where(eq(mcp_session.userId, userId)),
+				app.db
+					.delete(mcp_oauth_client)
+					.where(eq(mcp_oauth_client.userId, userId)),
+				app.db
+					.delete(mcp_oauth_refresh_token)
+					.where(eq(mcp_oauth_refresh_token.userId, userId)),
+				app.db
+					.delete(mcp_oauth_access_token)
+					.where(eq(mcp_oauth_access_token.userId, userId)),
+				app.db
+					.delete(mcp_oauth_consent)
+					.where(eq(mcp_oauth_consent.userId, userId)),
+				app.db
+					.delete(mcp_device_code)
+					.where(eq(mcp_device_code.userId, userId)),
 				app.db.delete(auth_user).where(eq(auth_user.id, userId)),
 			]);
 			log.info({ userId }, "Auth user erased");

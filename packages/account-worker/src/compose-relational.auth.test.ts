@@ -6,11 +6,11 @@ import { before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type Auth, createAuth, openIdentityStore } from "@remit/auth-service";
 import { auth_session, auth_user } from "@remit/auth-service/schema";
+import { mcp_device_code } from "@remit/drizzle-service/schema-sets/mcp";
 import { noopLogger } from "@remit/logger";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { buildRelationalDeletionCapabilities } from "./compose-relational.js";
 
 const ORIGIN = "https://reader.remit.test";
@@ -20,15 +20,6 @@ const MIGRATIONS = new URL(
 	"../../../deploy/vps/migrations-sqlite/",
 	import.meta.url,
 );
-
-const mcpDeviceCode = sqliteTable("mcp_device_code", {
-	id: text("id").primaryKey(),
-	deviceCode: text("device_code").notNull(),
-	userCode: text("user_code").notNull(),
-	userId: text("user_id"),
-	expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-	status: text("status").notNull(),
-});
 
 interface SignedUp {
 	userId: string;
@@ -80,8 +71,8 @@ describe("relational deletion capabilities — login user erase", () => {
 			.all()
 			.map((row) => row.userId);
 		const deviceCodeUsers = db
-			.select({ userId: mcpDeviceCode.userId })
-			.from(mcpDeviceCode)
+			.select({ userId: mcp_device_code.userId })
+			.from(mcp_device_code)
 			.all()
 			.map((row) => row.userId);
 		sqlite.close();
@@ -121,7 +112,7 @@ describe("relational deletion capabilities — login user erase", () => {
 
 		const seeding = new Database(filename);
 		drizzle(seeding)
-			.insert(mcpDeviceCode)
+			.insert(mcp_device_code)
 			.values(
 				[erased, kept].map(({ userId }) => ({
 					id: userId,
