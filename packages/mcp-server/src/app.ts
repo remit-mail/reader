@@ -7,6 +7,7 @@ import {
 	LOGIN_PATH,
 	MCP_PATH,
 	type McpAuthRoutes,
+	type McpBrowserRoutes,
 	mcpResource,
 } from "./auth/authorization-server.js";
 import { MCP_SCOPES } from "./auth/scopes.js";
@@ -112,14 +113,31 @@ export const createMcpApp = ({
 		return redirectWithCookies(url, response);
 	};
 
-	const toLogin = (returnTo: string): Response =>
-		new Response(null, {
+	const disabledPage = (): Response =>
+		errorPage(
+			"Access refused",
+			"This account is disabled.",
+			"Ask the person who runs this remit server to restore your account.",
+			403,
+		);
+
+	const toLogin = (returnTo: string): Response => {
+		if (authRoutes.browser.kind === "host") {
+			return errorPage(
+				"Not signed in",
+				"This server could not tell who you are.",
+				"Sign in to remit, then open this page again.",
+				401,
+			);
+		}
+		return new Response(null, {
 			status: 302,
 			headers: {
 				location: `${LOGIN_PATH}?${new URLSearchParams({ return_to: returnTo })}`,
 				"cache-control": "no-store",
 			},
 		});
+	};
 
 	const returnToOf = (raw: string): string => {
 		if (!raw.startsWith("/") || raw.startsWith("//"))
@@ -131,7 +149,10 @@ export const createMcpApp = ({
 		return `${url.pathname}${url.search}`;
 	};
 
-	const login = async (request: Request): Promise<Response> => {
+	const login = async (
+		request: Request,
+		signIn: Extract<McpBrowserRoutes, { kind: "signIn" }>["signIn"],
+	): Promise<Response> => {
 		if (request.method === "GET") {
 			const url = new URL(request.url);
 			if (url.search === "" || url.searchParams.has("return_to")) {
@@ -148,7 +169,7 @@ export const createMcpApp = ({
 			? { oauth_query: oauthQuery }
 			: { return_to: returnTo };
 		const email = formString(form, "email");
-		const response = await authRoutes.signIn(request.headers, {
+		const response = await signIn(request.headers, {
 			email,
 			password: formString(form, "password"),
 			oauth_query: oauthQuery,
@@ -189,6 +210,9 @@ export const createMcpApp = ({
 			const scopes = (url.searchParams.get("scope") ?? "")
 				.split(" ")
 				.filter((scope) => scope.length > 0);
+			if ((await authRoutes.sessionOf(request.headers)) === "disabled") {
+				return disabledPage();
+			}
 			const clientName = await authRoutes.clientName(request.headers, clientId);
 			if (!clientName) {
 				return errorPage(
@@ -224,7 +248,9 @@ export const createMcpApp = ({
 
 	const device = async (request: Request): Promise<Response> => {
 		const url = new URL(request.url);
-		if (!(await authRoutes.hasSession(request.headers))) {
+		const session = await authRoutes.sessionOf(request.headers);
+		if (session === "disabled") return disabledPage();
+		if (session === "absent") {
 			return toLogin(`${url.pathname}${url.search}`);
 		}
 		if (request.method === "GET") {
@@ -270,11 +296,15 @@ export const createMcpApp = ({
 
 	const listConnectedApps = async (
 		request: Request,
-	): Promise<ConnectedAppGrant[] | undefined> => {
+	): Promise<ConnectedAppGrant[] | Response> => {
 		const response = await authRoutes.connectedApps(request.headers);
 		if (response.status === 401) {
 			await response.body?.cancel();
-			return undefined;
+			return toLogin(CONNECTED_APPS_PATH);
+		}
+		if (response.status === 403) {
+			await response.body?.cancel();
+			return disabledPage();
 		}
 		if (!response.ok) {
 			throw new Error(
@@ -287,13 +317,13 @@ export const createMcpApp = ({
 	const connectedApps = async (request: Request): Promise<Response> => {
 		if (request.method === "GET") {
 			const apps = await listConnectedApps(request);
-			if (!apps) return toLogin(CONNECTED_APPS_PATH);
+			if (apps instanceof Response) return apps;
 			return connectedAppsView(apps);
 		}
 		const form = await request.formData();
 		const clientId = formString(form, "client_id");
 		const before = await listConnectedApps(request);
-		if (!before) return toLogin(CONNECTED_APPS_PATH);
+		if (before instanceof Response) return before;
 		const name =
 			before.find((app) => app.clientId === clientId)?.clientName ?? clientId;
 		const response = await authRoutes.revokeClient(request.headers, clientId);
@@ -311,7 +341,7 @@ export const createMcpApp = ({
 		}
 		await response.body?.cancel();
 		const after = await listConnectedApps(request);
-		if (!after) return toLogin(CONNECTED_APPS_PATH);
+		if (after instanceof Response) return after;
 		return connectedAppsView(after, 200, name);
 	};
 
@@ -342,7 +372,9 @@ export const createMcpApp = ({
 			});
 		}
 		if (pathname === MCP_PATH) return serveMcp(request);
-		if (pathname === LOGIN_PATH) return login(request);
+		if (pathname === LOGIN_PATH && authRoutes.browser.kind === "signIn") {
+			return login(request, authRoutes.browser.signIn);
+		}
 		if (pathname === CONSENT_PATH) return consent(request);
 		if (pathname === DEVICE_PATH) return device(request);
 		if (pathname === CONNECTED_APPS_PATH) return connectedApps(request);

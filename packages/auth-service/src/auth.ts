@@ -5,6 +5,11 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
 import { jwt } from "better-auth/plugins";
 import {
+	ACCOUNT_DISABLED,
+	CLIENT_IP_HEADER,
+	SIGN_IN_DISABLED,
+} from "./constants.js";
+import {
 	deleteSessions,
 	type IdentityStore,
 	isUserDisabled,
@@ -12,7 +17,6 @@ import {
 	sessionUserOf,
 } from "./identity-store.js";
 import * as authSchemaSqlite from "./schema/auth-schema-sqlite.js";
-
 export interface AuthConfig {
 	/**
 	 * Path to the app database file (#1420). The identity tables live beside
@@ -51,26 +55,11 @@ const buildAuthAdapter = async (config: AuthConfig) => {
 	});
 };
 
-/**
- * The header carrying the client address, set by the edge proxy from the
- * connection it terminates (deploy/vps/caddy/routes.caddy). It is deliberately
- * not `X-Forwarded-For`: that header arrives with an appended hop per proxy,
- * which resolves to no single client and collapses rate limiting onto one
- * shared bucket for everybody. Nothing else in the chain writes this name, and
- * the edge replaces any value a client sends, so it is single-valued and
- * trustworthy at the point better-auth reads it.
- */
-export const CLIENT_IP_HEADER = "x-remit-client-ip";
-
-export const SIGN_IN_DISABLED = {
-	code: "SIGN_IN_DISABLED",
-	message: "Sign-in is turned off on this server.",
-} as const;
-
-export const ACCOUNT_DISABLED = {
-	code: "ACCOUNT_DISABLED",
-	message: "This account is disabled.",
-} as const;
+export {
+	ACCOUNT_DISABLED,
+	CLIENT_IP_HEADER,
+	SIGN_IN_DISABLED,
+} from "./constants.js";
 
 const RESET_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 

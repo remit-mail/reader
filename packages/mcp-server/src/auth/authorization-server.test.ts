@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+	type AuditRecord,
 	type Auth,
 	createAuth,
 	createPeopleDirectory,
@@ -13,11 +14,13 @@ import {
 	openIdentityStore,
 	type PeopleAdmin,
 } from "@remit/auth-service";
+import { auth_account, auth_user } from "@remit/auth-service/schema";
 import {
 	createJwtVerifier,
 	resolveVerifierConfig,
 } from "@remit/auth-service/verifier";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
+import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
 import {
 	BodySyncQueueService,
 	BodySyncService,
@@ -28,6 +31,7 @@ import {
 	type Store,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -41,11 +45,13 @@ import {
 	BROWSER_TOKEN_TTL_SECONDS,
 	createBetterAuthTokenVerifier,
 	createMcpAuth,
-	createMcpAuthRoutes,
 	DEVICE_TOKEN_TTL_SECONDS,
 	type McpAuth,
+	type McpAuthConfig,
+	type McpAuthServer,
 } from "./authorization-server.js";
 import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
+import { createSqliteMcpAuth } from "./node-auth.js";
 
 const MCP_ORIGIN = "https://mcp.remit.test";
 const MAIN_ORIGIN = "https://reader.remit.test";
@@ -78,6 +84,7 @@ const app = (request: Request, clientIp: string): Promise<Response> => {
 	return handler(new Request(request, { headers }));
 };
 let mainSessionToken: string;
+let ownerId: string;
 let mainJwt: string;
 
 const sharedRows = (): unknown[] => {
@@ -90,23 +97,23 @@ const sharedRows = (): unknown[] => {
 	return rows;
 };
 
-const buildApp = (): { auth: McpAuth; handler: McpRequestHandler } => {
-	const instance = createMcpAuth({
-		origin: MCP_ORIGIN,
-		secret: "mcp-instance-secret-0123456789abcdef",
-		db: database.db,
-		signInEnabled: true,
-	});
-	return {
-		auth: instance,
-		handler: createMcpApp({
-			origin: MCP_ORIGIN,
-			authRoutes: createMcpAuthRoutes(instance),
-			verifier: createBetterAuthTokenVerifier(instance, MCP_ORIGIN),
-			deps,
-		}),
-	};
+const MCP_CONFIG: McpAuthConfig = {
+	origin: MCP_ORIGIN,
+	secret: "mcp-instance-secret-0123456789abcdef",
+	signInEnabled: true,
 };
+
+const buildApp = (
+	server: McpAuthServer = createSqliteMcpAuth(MCP_CONFIG, database.db),
+): { auth: McpAuth; handler: McpRequestHandler } => ({
+	auth: server.auth,
+	handler: createMcpApp({
+		origin: MCP_ORIGIN,
+		authRoutes: server.routes,
+		verifier: createBetterAuthTokenVerifier(server.auth, MCP_ORIGIN),
+		deps,
+	}),
+});
 
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "mcp-auth-"));
@@ -138,7 +145,12 @@ before(async () => {
 		asResponse: true,
 	});
 	assert.equal(signUp.status, 200);
-	mainSessionToken = ((await signUp.json()) as { token: string }).token;
+	const signedUp = (await signUp.json()) as {
+		token: string;
+		user: { id: string };
+	};
+	mainSessionToken = signedUp.token;
+	ownerId = signedUp.user.id;
 	const cookie = signUp.headers
 		.getSetCookie()
 		.map((value) => value.split(";")[0])
@@ -686,6 +698,85 @@ describe("the MCP authorization server", () => {
 		assert.equal(refreshed.body.access_token, undefined);
 
 		assert.equal((await listTools(spared.access)).status, 200);
+	});
+});
+
+describe("a host that authenticates the browser itself", () => {
+	const SUBJECT_HEADER = "x-test-subject";
+	const hosted = (disabled = false) => {
+		const audits: AuditRecord[] = [];
+		const server = createMcpAuth(
+			MCP_CONFIG,
+			drizzleAdapter(database.db, {
+				provider: "sqlite",
+				schema: { ...mcpTables, auth_user, auth_account },
+			}),
+			{
+				isDisabled: async () => disabled,
+				audit: async (record) => {
+					audits.push(record);
+				},
+				browser: {
+					subjectOf: async (headers) => {
+						const id = headers.get(SUBJECT_HEADER);
+						return id ? { id } : undefined;
+					},
+				},
+			},
+		);
+		return { server, audits, handle: buildApp(server).handler };
+	};
+	const asSubject = (id: string) => new Headers({ [SUBJECT_HEADER]: id });
+
+	it("serves no sign-in page", async () => {
+		const response = await hosted().handle(new Request(`${MCP_ORIGIN}/login`));
+		assert.equal(response.status, 404);
+	});
+
+	it("provisions the subject the host names and opens its session", async () => {
+		const { handle } = hosted();
+		const signedIn = await handle(
+			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject("host-user") }),
+		);
+		assert.equal(signedIn.status, 200);
+		const sqlite = new Database(filename, { readonly: true });
+		const row = sqlite
+			.prepare("SELECT email FROM auth_user WHERE id = ?")
+			.get("host-user");
+		sqlite.close();
+		assert.deepEqual(row, { email: "host-user@subject.invalid" });
+		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
+		assert.equal(anonymous.status, 401);
+	});
+
+	it("never hands one subject another subject's session", async () => {
+		const { server } = hosted();
+		const appsOf = async (id: string): Promise<unknown[]> => {
+			const response = await server.routes.connectedApps(asSubject(id));
+			assert.equal(response.status, 200);
+			return ((await response.json()) as { apps: unknown[] }).apps;
+		};
+		assert.ok((await appsOf(ownerId)).length > 0);
+		assert.deepEqual(await appsOf("host-user-b"), []);
+		assert.ok((await appsOf(ownerId)).length > 0);
+	});
+
+	it("refuses a disabled subject and audits the refusal", async () => {
+		const { server, audits } = hosted(true);
+		const response = await server.routes.connectedApps(asSubject(ownerId));
+		assert.equal(response.status, 403);
+		assert.deepEqual(
+			audits.map((record) => [record.actor, record.outcome]),
+			[[ownerId, "RefusedDisabled"]],
+		);
+	});
+
+	it("shows a disabled subject the refusal on the apps page", async () => {
+		const response = await hosted(true).handle(
+			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject(ownerId) }),
+		);
+		assert.equal(response.status, 403);
+		assert.match(await response.text(), /This account is disabled\./);
 	});
 });
 
