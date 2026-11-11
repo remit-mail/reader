@@ -3,6 +3,7 @@ import type {
 	IAddressRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
+	MessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
 import { AddressRole, MessageKeywordFlag } from "@remit/domain-enums";
@@ -275,6 +276,17 @@ export class SpamReportService {
 		);
 	};
 
+	/**
+	 * Undo a report, or overrule Remit's own Junk verdict.
+	 *
+	 * A message with `originalMailboxId` was moved by Remit or the user, and
+	 * goes back where it came from. A message that sits in Junk with no report
+	 * and no recorded move is Remit's verdict on mail that arrived there: it
+	 * moves to the Inbox and the sender is granted `neverSpam` (issue #1553,
+	 * decision 6). Both moves wait for an in-flight placement to settle and
+	 * refuse with `MoveNotSettledError` when it does not (imap-mutations R2:
+	 * wait, never reconcile).
+	 */
 	notSpam = async (params: SpamReportParams): Promise<void> => {
 		const { accountConfigId, accountId, messageId } = params;
 
@@ -326,6 +338,8 @@ export class SpamReportService {
 				},
 				{ originalMailboxId: null, originalUid: null },
 			);
+		} else if (!message.spamReport) {
+			await this.overruleJunkVerdict(params, message, from);
 		}
 
 		const current = await this.messageService.get(messageId);
@@ -353,5 +367,56 @@ export class SpamReportService {
 			{ accountId, messageId, addressId: from.addressId },
 			"Undid spam report",
 		);
+	};
+
+	/**
+	 * An in-flight row names its destination in `mailboxId`, so a row already
+	 * on its way out of Junk (a repeated press) is left alone without waiting.
+	 * The grant is written after the move is enqueued, so a refused move
+	 * leaves the sender as it was and a retry starts from the same state.
+	 */
+	private overruleJunkVerdict = async (
+		params: SpamReportParams,
+		message: MessageItem,
+		from: { addressId: string; normalizedEmail: string; displayName: string },
+	): Promise<void> => {
+		const { accountConfigId, accountId, messageId, setBy } = params;
+
+		const junkMailbox =
+			await this.mailboxSpecialUseService.findJunkMailbox(accountId);
+		if (!junkMailbox || message.mailboxId !== junkMailbox.mailboxId) return;
+
+		const settled = await waitForPlacementToSettle(
+			this.messageService,
+			messageId,
+			{ timeoutMs: this.moveSettleTimeoutMs, pollMs: this.moveSettlePollMs },
+		);
+		if (isPlacementUnsettled(settled)) {
+			throw new MoveNotSettledError(messageId);
+		}
+		if (settled.mailboxId !== junkMailbox.mailboxId) return;
+
+		const inboxMailbox =
+			await this.mailboxSpecialUseService.findInboxMailbox(accountId);
+		if (!inboxMailbox) {
+			throw new Error(`Account ${accountId} has no Inbox to move ${messageId}`);
+		}
+
+		await this.messageMoveService.moveMessage(
+			accountConfigId,
+			messageId,
+			inboxMailbox.mailboxId,
+			accountId,
+		);
+
+		const account = await this.accountService.get(accountId);
+		if (from.normalizedEmail.toLowerCase() === account.email.toLowerCase()) {
+			return;
+		}
+		await this.ensureSenderAddress(accountConfigId, from);
+		await this.addressService.mergeFlags(accountConfigId, from.addressId, {
+			neverSpam: { value: true, setAt: Date.now(), setBy },
+			blocked: null,
+		});
 	};
 }

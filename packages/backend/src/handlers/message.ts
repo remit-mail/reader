@@ -966,8 +966,15 @@ export const MessageBulkOperations = {
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
 
+		const setBy = ctx.identity.sub;
+
 		return settleSpamReportBulk(messageIds, (messageId) =>
-			client.spamReport.notSpam({ accountConfigId, accountId, messageId }),
+			client.spamReport.notSpam({
+				accountConfigId,
+				accountId,
+				messageId,
+				setBy,
+			}),
 		);
 	},
 } satisfies Record<

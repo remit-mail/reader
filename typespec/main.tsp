@@ -1407,7 +1407,7 @@ namespace RemitApi {
       | ForbiddenError
       | UnauthorizedError;
 
-    @doc("Undo a spam report: clear the sender's `blocked` flag (never promotes to trusted/wellknown) and move each message back to `Message.originalMailboxId`. Idempotent under a repeated call. Each message is processed independently and concurrently, so the request's total wait is bounded by one message's settle timeout rather than accumulating across the batch.")
+    @doc("Undo a spam report: clear the sender's `blocked` flag (never promotes to trusted/wellknown) and move each message back to `Message.originalMailboxId`. A message in Junk with no `spamReport` and no `originalMailboxId` is Remit's own Junk verdict: it moves to the Inbox and the sender gets `neverSpam`. A message whose move is still in flight waits for it to settle, then fails with \"has not settled yet\". Idempotent under a repeated call. Each message is processed independently and concurrently, so the request's total wait is bounded by one message's settle timeout rather than accumulating across the batch.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/not-spam")
