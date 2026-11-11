@@ -5,7 +5,12 @@ import type {
 	ClassificationConfigured,
 	UserSettingsResponse,
 } from "@remit/api-openapi-types";
-import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
+import {
+	type ClassificationDeploymentDefault,
+	classificationUsageName,
+	utcDateOf,
+} from "@remit/data-ports/classification-presets";
+import { isClassificationBudgetSpent } from "@remit/data-ports/classification-resolver";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	AccountSettingName,
@@ -616,5 +621,52 @@ describe("without a session", () => {
 
 			assert.equal(result.statusCode, 401, `${httpMethod} ${path}`);
 		}
+	});
+});
+
+describe("the classifier budget for the day", () => {
+	const DAY = Date.UTC(2026, 10, 11, 12);
+	const NEXT_DAY = Date.UTC(2026, 10, 12, 0, 0, 1);
+	const DAILY_LIMIT = 2;
+	const ACCOUNT_ID = "account-1";
+
+	beforeEach(() => {
+		classificationDefault = {
+			state: "Configured",
+			presetId: ClassificationPresetId.Mistral,
+			model: "mistral-small-latest",
+			baseUrl: "https://mistral.example/v1",
+			apiKey: "deployment-key",
+			enabled: true,
+			dailyLimit: DAILY_LIMIT,
+		};
+	});
+
+	const claim = () =>
+		repos.accountSetting.claimDailyCount({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			name: classificationUsageName(ACCOUNT_ID),
+			date: utcDateOf(DAY),
+			limit: DAILY_LIMIT,
+		});
+
+	const spent = (now: number) =>
+		isClassificationBudgetSpent(
+			{
+				accountSetting: repos.accountSetting,
+				accountConfig: repos.accountConfig,
+				classificationDefault,
+			},
+			{ accountId: ACCOUNT_ID, accountConfigId: ACCOUNT_CONFIG_ID },
+			now,
+		);
+
+	it("is spent once the day's calls reach the limit and open again the next UTC day", async () => {
+		assert.equal(await spent(DAY), false);
+		await claim();
+		assert.equal(await spent(DAY), false);
+		await claim();
+		assert.equal(await spent(DAY), true);
+		assert.equal(await spent(NEXT_DAY), false);
 	});
 });
