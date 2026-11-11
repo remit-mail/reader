@@ -565,8 +565,6 @@ export const buildMcpAuthOptions = (
 			enabled: true,
 			customRules: { [SIGN_IN_PATH]: { window: 60, max: 5 } },
 		},
-		user: { modelName: "auth_user" },
-		account: { modelName: "auth_account" },
 		session: { modelName: "mcp_session", storeSessionInDatabase: true },
 		verification: { modelName: "mcp_verification" },
 		plugins: [

@@ -30,6 +30,11 @@ export {
 	type SignIn,
 } from "./auth/authorization-server.js";
 export {
+	type McpSqliteDatabase,
+	type McpUserTables,
+	mcpDatabase,
+} from "./auth/mcp-database.js";
+export {
 	describeScopes,
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,

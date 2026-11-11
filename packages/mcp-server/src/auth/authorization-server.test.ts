@@ -31,7 +31,6 @@ import {
 	type Store,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -51,6 +50,7 @@ import {
 	type McpAuthServer,
 } from "./authorization-server.js";
 import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
+import { mcpDatabase } from "./mcp-database.js";
 import { createSqliteMcpAuth } from "./node-auth.js";
 
 const MCP_ORIGIN = "https://mcp.remit.test";
@@ -701,84 +701,99 @@ describe("the MCP authorization server", () => {
 	});
 });
 
-describe("a host that authenticates the browser itself", () => {
-	const SUBJECT_HEADER = "x-test-subject";
-	const hosted = (disabled = false) => {
-		const audits: AuditRecord[] = [];
-		const server = createMcpAuth(
-			MCP_CONFIG,
-			drizzleAdapter(database.db, {
-				provider: "sqlite",
-				schema: { ...mcpTables, auth_user, auth_account },
-			}),
-			{
-				isDisabled: async () => disabled,
-				audit: async (record) => {
-					audits.push(record);
-				},
-				browser: {
-					subjectOf: async (headers) => {
-						const id = headers.get(SUBJECT_HEADER);
-						return id ? { id } : undefined;
+const HOSTED_USER_TABLES = [
+	{
+		label: "the shared",
+		userTable: "auth_user",
+		user: auth_user,
+		account: auth_account,
+	},
+	{
+		label: "its own",
+		userTable: "mcp_user",
+		user: mcpTables.mcp_user,
+		account: mcpTables.mcp_account,
+	},
+];
+
+for (const { label, userTable, user, account } of HOSTED_USER_TABLES)
+	describe(`a host that authenticates the browser itself, on ${label} user tables`, () => {
+		const SUBJECT_HEADER = "x-test-subject";
+		const hosted = (disabled = false) => {
+			const audits: AuditRecord[] = [];
+			const server = createMcpAuth(
+				MCP_CONFIG,
+				mcpDatabase(database.db, { user, account }),
+				{
+					isDisabled: async () => disabled,
+					audit: async (record) => {
+						audits.push(record);
+					},
+					browser: {
+						subjectOf: async (headers) => {
+							const id = headers.get(SUBJECT_HEADER);
+							return id ? { id } : undefined;
+						},
 					},
 				},
-			},
-		);
-		return { server, audits, handle: buildApp(server).handler };
-	};
-	const asSubject = (id: string) => new Headers({ [SUBJECT_HEADER]: id });
-
-	it("serves no sign-in page", async () => {
-		const response = await hosted().handle(new Request(`${MCP_ORIGIN}/login`));
-		assert.equal(response.status, 404);
-	});
-
-	it("provisions the subject the host names and opens its session", async () => {
-		const { handle } = hosted();
-		const signedIn = await handle(
-			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject("host-user") }),
-		);
-		assert.equal(signedIn.status, 200);
-		const sqlite = new Database(filename, { readonly: true });
-		const row = sqlite
-			.prepare("SELECT email FROM auth_user WHERE id = ?")
-			.get("host-user");
-		sqlite.close();
-		assert.deepEqual(row, { email: "host-user@subject.invalid" });
-		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
-		assert.equal(anonymous.status, 401);
-	});
-
-	it("never hands one subject another subject's session", async () => {
-		const { server } = hosted();
-		const appsOf = async (id: string): Promise<unknown[]> => {
-			const response = await server.routes.connectedApps(asSubject(id));
-			assert.equal(response.status, 200);
-			return ((await response.json()) as { apps: unknown[] }).apps;
+			);
+			return { server, audits, handle: buildApp(server).handler };
 		};
-		assert.ok((await appsOf(ownerId)).length > 0);
-		assert.deepEqual(await appsOf("host-user-b"), []);
-		assert.ok((await appsOf(ownerId)).length > 0);
-	});
+		const asSubject = (id: string) => new Headers({ [SUBJECT_HEADER]: id });
 
-	it("refuses a disabled subject and audits the refusal", async () => {
-		const { server, audits } = hosted(true);
-		const response = await server.routes.connectedApps(asSubject(ownerId));
-		assert.equal(response.status, 403);
-		assert.deepEqual(
-			audits.map((record) => [record.actor, record.outcome]),
-			[[ownerId, "RefusedDisabled"]],
-		);
-	});
+		it("serves no sign-in page", async () => {
+			const response = await hosted().handle(
+				new Request(`${MCP_ORIGIN}/login`),
+			);
+			assert.equal(response.status, 404);
+		});
 
-	it("shows a disabled subject the refusal on the apps page", async () => {
-		const response = await hosted(true).handle(
-			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject(ownerId) }),
-		);
-		assert.equal(response.status, 403);
-		assert.match(await response.text(), /This account is disabled\./);
+		it("provisions the subject the host names and opens its session", async () => {
+			const { handle } = hosted();
+			const signedIn = await handle(
+				new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject("host-user") }),
+			);
+			assert.equal(signedIn.status, 200);
+			const sqlite = new Database(filename, { readonly: true });
+			const row = sqlite
+				.prepare(`SELECT email FROM ${userTable} WHERE id = ?`)
+				.get("host-user");
+			sqlite.close();
+			assert.deepEqual(row, { email: "host-user@subject.invalid" });
+			const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
+			assert.equal(anonymous.status, 401);
+		});
+
+		it("never hands one subject another subject's session", async () => {
+			const { server } = hosted();
+			const appsOf = async (id: string): Promise<unknown[]> => {
+				const response = await server.routes.connectedApps(asSubject(id));
+				assert.equal(response.status, 200);
+				return ((await response.json()) as { apps: unknown[] }).apps;
+			};
+			assert.ok((await appsOf(ownerId)).length > 0);
+			assert.deepEqual(await appsOf("host-user-b"), []);
+			assert.ok((await appsOf(ownerId)).length > 0);
+		});
+
+		it("refuses a disabled subject and audits the refusal", async () => {
+			const { server, audits } = hosted(true);
+			const response = await server.routes.connectedApps(asSubject(ownerId));
+			assert.equal(response.status, 403);
+			assert.deepEqual(
+				audits.map((record) => [record.actor, record.outcome]),
+				[[ownerId, "RefusedDisabled"]],
+			);
+		});
+
+		it("shows a disabled subject the refusal on the apps page", async () => {
+			const response = await hosted(true).handle(
+				new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject(ownerId) }),
+			);
+			assert.equal(response.status, 403);
+			assert.match(await response.text(), /This account is disabled\./);
+		});
 	});
-});
 
 describe("device authorization (RFC 8628)", () => {
 	let deviceSessionCookie: string;
