@@ -1,9 +1,17 @@
 {
   "name": "@remit/mcp-server",
   "version": "0.0.1",
-  "private": true,
+  "description": "The remit MCP server: mail tools over streamable HTTP and the OAuth authorization server that guards them.",
   "type": "module",
+  "exports": {
+    "./app": {
+      "types": "./src/app-entry.ts",
+      "default": "./src/app-entry.ts"
+    }
+  },
   "scripts": {
+    "prepack": "node ../../npm-scripts/pack-dist.mjs prepack && vite build --config vite.pages.config.ts --emptyOutDir=false",
+    "postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
     "build": "vite build --config vite.pages.config.ts",
     "test:typecheck": "tsgo --noEmit",
     "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
@@ -32,16 +40,36 @@
     "react": "^19",
     "react-dom": "^19",
     "zod": "^4.6.7",
-    "@remit/backend": "*"
+    "@remit/backend": "*",
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
   },
   "devDependencies": {
     "@remit/imap-worker": "*",
     "@tailwindcss/vite": "^4",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "tailwindcss": "^4",
     "tsx": "*",
     "vite": "^7.3.7"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remit-mail/reader.git",
+    "directory": "packages/mcp-server"
+  },
+  "packManifest": {
+    "exports": {
+      "./app": {
+        "types": "./dist/app-entry.d.ts",
+        "default": "./dist/app-entry.js"
+      },
+      "./pages.css": "./dist/pages/pages.css"
+    },
+    "files": [
+      "dist"
+    ]
+  }
 }
