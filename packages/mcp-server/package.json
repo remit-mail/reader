@@ -3,7 +3,19 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "exports": {
+    "./schema": {
+      "types": "./src/auth/schema.ts",
+      "default": "./src/auth/schema.ts"
+    },
+    "./migrations/*": "./migrations/*"
+  },
+  "files": [
+    "src",
+    "migrations"
+  ],
   "scripts": {
+    "prepack": "rm -rf migrations && cp -R ../../deploy/vps/migrations-sqlite/mcp migrations",
     "build": "vite build --config vite.pages.config.ts",
     "test:typecheck": "tsgo --noEmit",
     "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
