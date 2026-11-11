@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+    "prepack": "node ../../npm-scripts/pack-dist.mjs prepack && vite build --config vite.pages.config.ts --emptyOutDir=false",
     "postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
     "build": "vite build --config vite.pages.config.ts",
     "test:typecheck": "tsgo --noEmit",
@@ -65,7 +65,8 @@
       "./app": {
         "types": "./dist/app-entry.d.ts",
         "default": "./dist/app-entry.js"
-      }
+      },
+      "./pages.css": "./dist/pages/pages.css"
     },
     "files": [
       "dist"

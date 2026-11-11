@@ -26,7 +26,7 @@ const isAsset = (spec) =>
 	spec.includes("?raw") ||
 	spec.includes("?url");
 
-const packageNameOf = (spec) => {
+export const packageNameOf = (spec) => {
 	const parts = spec.split("/");
 	return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
 };
@@ -48,6 +48,19 @@ const stripComments = (source) =>
 // matches: the keyword must open an actual import/export or a dynamic
 // `import(…)`/`require(…)` call, and the intervening clause may not cross a
 // quote or `;`, so a preceding statement can't leak into the specifier.
+// `import { type A, type B } from "x"` names only types, so it erases like
+// `import type`; one value member keeps the whole import.
+const isInlineTypeClause = (clause) => {
+	const trimmed = clause?.trim() ?? "";
+	if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+	const members = trimmed
+		.slice(1, -1)
+		.split(",")
+		.map((member) => member.trim())
+		.filter(Boolean);
+	return members.length > 0 && members.every((m) => m.startsWith("type "));
+};
+
 export const importSpecifiers = (raw) => {
 	const source = stripComments(raw);
 	const out = [];
@@ -55,20 +68,22 @@ export const importSpecifiers = (raw) => {
 		// import type … from "x"  /  export type … from "x"
 		/\b(?:import|export)\s+type\s+(?:[^"';]+\s+from\s+)?["']([^"']+)["']/g,
 	];
-	const value = [
+	const clauses = [
 		// import … from "x"  and  import "x"  (not `import type …`)
-		/\bimport\s+(?!type\s)(?:[^"';]+\s+from\s+)?["']([^"']+)["']/g,
+		/\bimport\s+(?!type\s)(?:([^"';]+)\s+from\s+)?["']([^"']+)["']/g,
 		// export … from "x"  (not `export type …`)
-		/\bexport\s+(?!type\s)[^"';]*\bfrom\s+["']([^"']+)["']/g,
-		// import("x") and require("x")
-		/\b(?:import|require)\s*\(\s*["']([^"']+)["']/g,
+		/\bexport\s+(?!type\s)([^"';]*)\bfrom\s+["']([^"']+)["']/g,
 	];
+	// import("x") and require("x")
+	const calls = /\b(?:import|require)\s*\(\s*["']([^"']+)["']/g;
 	for (const re of typeOnly)
 		for (const m of source.matchAll(re))
 			out.push({ spec: m[1], typeOnly: true });
-	for (const re of value)
+	for (const re of clauses)
 		for (const m of source.matchAll(re))
-			out.push({ spec: m[1], typeOnly: false });
+			out.push({ spec: m[2], typeOnly: isInlineTypeClause(m[1]) });
+	for (const m of source.matchAll(calls))
+		out.push({ spec: m[1], typeOnly: false });
 	return out;
 };
 

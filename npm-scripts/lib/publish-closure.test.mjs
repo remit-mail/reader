@@ -50,6 +50,13 @@ describe("importSpecifiers", () => {
 	it("treats a mixed inline-type import as a value import", () => {
 		assert.deepEqual(specs(`import { type A, b } from "pkg";`), ["pkg"]);
 	});
+
+	it("treats an import of only inline types as type-only", () => {
+		assert.deepEqual(specs(`import { type A, type B } from "pkg";`), [
+			"type pkg",
+		]);
+		assert.deepEqual(specs(`export { type A } from "pkg";`), ["type pkg"]);
+	});
 });
 
 describe("typesPackageOf", () => {

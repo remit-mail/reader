@@ -1,8 +1,6 @@
 import { createRemoteJWKSet, type JWTVerifyGetKey, jwtVerify } from "jose";
 import type { VerifierConfig } from "./config.js";
 
-export { extractBearerToken } from "./constants.js";
-
 export interface JwtClaims {
 	sub: string;
 	email?: string;
@@ -38,4 +36,15 @@ export const createJwtVerifier = (
 		const email = typeof payload.email === "string" ? payload.email : undefined;
 		return { sub, email };
 	};
+};
+
+const BEARER_PREFIX = /^Bearer\s+/i;
+
+export const extractBearerToken = (
+	authorization: string | undefined,
+): string | undefined => {
+	if (!authorization) return undefined;
+	if (!BEARER_PREFIX.test(authorization)) return undefined;
+	const token = authorization.replace(BEARER_PREFIX, "").trim();
+	return token.length > 0 ? token : undefined;
 };

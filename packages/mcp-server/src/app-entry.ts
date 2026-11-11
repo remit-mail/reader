@@ -1,8 +1,6 @@
 export { createMcpApp, type McpAppConfig } from "./app.js";
 export {
 	AUTH_BASE_PATH,
-	BROWSER_TOKEN_TTL_SECONDS,
-	buildMcpAuthOptions,
 	CONNECTED_APPS_API_PATH,
 	CONNECTED_APPS_PATH,
 	CONSENT_PATH,
@@ -12,7 +10,6 @@ export {
 	DEVICE_CODE_PATH,
 	DEVICE_DENY_PATH,
 	DEVICE_PATH,
-	DEVICE_TOKEN_TTL_SECONDS,
 	JWKS_PATH,
 	LOGIN_PATH,
 	MCP_PATH,

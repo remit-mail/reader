@@ -18,14 +18,3 @@ export const ACCOUNT_DISABLED = {
 	code: "ACCOUNT_DISABLED",
 	message: "This account is disabled.",
 } as const;
-
-const BEARER_PREFIX = /^Bearer\s+/i;
-
-export const extractBearerToken = (
-	authorization: string | undefined,
-): string | undefined => {
-	if (!authorization) return undefined;
-	if (!BEARER_PREFIX.test(authorization)) return undefined;
-	const token = authorization.replace(BEARER_PREFIX, "").trim();
-	return token.length > 0 ? token : undefined;
-};

@@ -3,26 +3,47 @@
 // modules the VPS composition root (`src/main.ts`) wires in (#1581).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { builtinModules } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { importGraph, valueImports } from "./import-graph.mjs";
+import { importGraph } from "./import-graph.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MANIFEST = JSON.parse(
 	readFileSync(join(ROOT, "packages", "mcp-server", "package.json"), "utf8"),
 );
 
-const FORBIDDEN = [
-	/^@remit\/auth-service(?!\/constants$)/,
-	/^@remit\/sqs-client(\/|$)/,
-	/^@remit\/storage-service\/s3$/,
-	/^@remit\/logger-lambda(\/|$)/,
-	/^@remit\/drizzle-service(?!\/schema-sets\/mcp$)/,
-	/^better-sqlite3$/,
-	/^better-auth\/node$/,
-	/^(node:)?(fs|timers|http)(\/|$)/,
+// A Worker's nodejs_compat covers crypto, buffer, stream and util, which the
+// mail services import; it has no file system, timers module or HTTP server.
+const NODE_ONLY_BUILTINS = new Set(["fs", "timers", "http"]);
+const FORBIDDEN_BUILTINS = builtinModules
+	.filter((name) => NODE_ONLY_BUILTINS.has(name.split("/")[0]))
+	.flatMap((name) => [name, `node:${name}`]);
+
+const FORBIDDEN_PACKAGES = [
+	"@hono/node-server",
+	"@remit/auth-service",
+	"@remit/drizzle-service",
+	"@remit/logger-lambda",
+	"@remit/sqs-client",
+	"@remit/storage-service/s3",
+	"better-auth/node",
+	"better-sqlite3",
 ];
+
+const ALLOWED = new Set([
+	"@remit/auth-service/constants",
+	"@remit/auth-service/verifier",
+	"@remit/drizzle-service/schema-sets/mcp",
+]);
+
+const isForbidden = (spec) =>
+	!ALLOWED.has(spec) &&
+	(FORBIDDEN_BUILTINS.includes(spec) ||
+		FORBIDDEN_PACKAGES.some(
+			(name) => spec === name || spec.startsWith(`${name}/`),
+		));
 
 describe("the @remit/mcp-server/app entry", () => {
 	const entry = MANIFEST.exports["./app"].default;
@@ -42,29 +63,20 @@ describe("the @remit/mcp-server/app entry", () => {
 		}
 	});
 
+	it("knows the Node-only builtins it refuses", () => {
+		for (const spec of [
+			"fs",
+			"node:fs/promises",
+			"node:timers/promises",
+			"http",
+		])
+			assert.ok(isForbidden(spec), spec);
+	});
+
 	it("imports no Node-only or AWS module", () => {
 		const leaks = [...specifiers]
-			.filter(([spec]) => FORBIDDEN.some((pattern) => pattern.test(spec)))
+			.filter(([spec]) => isForbidden(spec))
 			.map(([spec, importers]) => `${spec} <- ${[...importers].join(", ")}`);
 		assert.deepEqual(leaks, []);
-	});
-});
-
-describe("valueImports", () => {
-	it("skips imports that erase at build", () => {
-		assert.deepEqual(
-			valueImports(
-				[
-					'import type { A } from "erased-a";',
-					'import { type B, type C } from "erased-b";',
-					'export type { D } from "erased-c";',
-					'import { type E, f } from "kept-a";',
-					'export { g } from "kept-b";',
-					'import "kept-c";',
-					'const h = await import("kept-d");',
-				].join("\n"),
-			),
-			["kept-a", "kept-b", "kept-c", "kept-d"],
-		);
 	});
 });
