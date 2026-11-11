@@ -1,5 +1,6 @@
 import type { RemitClient } from "@remit/backend/client";
 import { runJunkBacklogReevaluation } from "@remit/backend/junk-backlog";
+import { runNeverSpamBackApply } from "@remit/backend/never-spam";
 import type { GroupedQueueProducer } from "@remit/data-ports";
 import { createLogger } from "@remit/logger";
 import { cascadeServicesOf } from "./cascade.js";
@@ -14,6 +15,7 @@ import type {
 	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
+	SenderNeverSpamBackApplyEvent,
 } from "./events.js";
 import {
 	finalizeAccountDelete,
@@ -39,10 +41,11 @@ export type {
 export type ClientFanoutEvent =
 	| OrganizeJobEvent
 	| SenderCategoryBackApplyEvent
-	| JunkPlacementReevaluationEvent;
+	| JunkPlacementReevaluationEvent
+	| SenderNeverSpamBackApplyEvent;
 
 export interface AccountFanoutContext {
-	client: RemitClient<"messageManagement">;
+	client: RemitClient<"messageManagement" | "accountFanout">;
 }
 
 export type AccountPurgeEvent =
@@ -88,6 +91,19 @@ export const processAccountFanoutEvent = (
 					"Junk placement re-evaluation delivery finished",
 				);
 			});
+		case "SenderNeverSpamBackApply":
+			return runNeverSpamBackApply(ctx.client, event, Date.now()).then(
+				(result) => {
+					log.info(
+						{
+							accountConfigId: event.accountConfigId,
+							addressId: event.addressId,
+							...result,
+						},
+						"Sender never-spam back-apply delivery finished",
+					);
+				},
+			);
 	}
 };
 

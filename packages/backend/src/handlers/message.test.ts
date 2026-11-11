@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MessagePlacementUnsettledError } from "@remit/data-ports/errors";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import { NoJunkMailboxError } from "@remit/mailbox-service";
-import { GENERIC_FAILURE_REASON, settleSpamReportBulk } from "./message.js";
+import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
+import type { RemitClient } from "../service/data-client.js";
+import {
+	GENERIC_FAILURE_REASON,
+	MessageBulkOperations,
+	settleSpamReportBulk,
+} from "./message.js";
 
 describe("settleSpamReportBulk", () => {
 	it("aggregates successes and failures, surfacing the one allowlisted reason verbatim", async () => {
@@ -122,6 +131,53 @@ describe("settleSpamReportBulk", () => {
 		assert.ok(
 			elapsed < WAIT_MS * 5,
 			`expected roughly one wait (~${WAIT_MS}ms), took ${elapsed}ms — looks sequential`,
+		);
+	});
+});
+
+describe("MessageBulkOperations_notSpam never-spam back-apply (#1553)", () => {
+	it("enqueues one back-apply for a sender whose two messages were marked not spam", async () => {
+		const sub = "cognito-sub-1553";
+		const accountConfigId = deriveAccountConfigId(sub);
+		const accountFanout = recordingQueue();
+		const grant = {
+			accountConfigId,
+			addressId: "addr-friend",
+			normalizedEmail: "friend@example.org",
+		};
+		const client = {
+			queues: { accountFanout },
+			message: {
+				get: async (messageId: string) => ({ messageId, mailboxId: "junk-1" }),
+			},
+			account: {
+				listAllByAccountConfig: async () => [{ accountId: "acc-1" }],
+			},
+			mailbox: {
+				get: async () => [{ mailboxId: "junk-1", accountId: "acc-1" }],
+			},
+			spamReport: { notSpam: async () => grant },
+		} as unknown as RemitClient;
+
+		await MessageBulkOperations.MessageBulkOperations_notSpam(
+			{
+				request: { requestBody: { messageIds: ["msg-1", "msg-2"] } },
+			} as unknown as Context,
+			{
+				client,
+				config: testApiConfig(),
+				identity: {
+					kind: "user",
+					accountConfigId,
+					sub,
+					email: `${sub}@example.com`,
+				},
+			},
+		);
+
+		assert.deepEqual(
+			accountFanout.sent.map((message) => message.body),
+			[{ type: "SenderNeverSpamBackApply", ...grant }],
 		);
 	});
 });

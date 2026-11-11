@@ -68,10 +68,18 @@ export type JunkPlacementReevaluationEvent = {
 	accountId: string;
 };
 
+export type SenderNeverSpamBackApplyEvent = {
+	type: "SenderNeverSpamBackApply";
+	accountConfigId: string;
+	addressId: string;
+	normalizedEmail: string;
+};
+
 export type AccountFanoutEvent =
 	| AccountDeleteEvent
 	| AccountDataPurgeEvent
 	| AccountExportEvent
 	| OrganizeJobEvent
 	| SenderCategoryBackApplyEvent
-	| JunkPlacementReevaluationEvent;
+	| JunkPlacementReevaluationEvent
+	| SenderNeverSpamBackApplyEvent;

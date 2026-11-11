@@ -10,6 +10,7 @@ import type {
 import { ForbiddenError } from "@remit/data-ports/errors";
 import { AddressFlagKey } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
+import { requestNeverSpamBackApply } from "../service/never-spam.js";
 import type { QueueName } from "../service/queues.js";
 import type {
 	AddressDetailOperationIds,
@@ -181,6 +182,17 @@ export const AddressDetailOperations = {
 						{ cause },
 					);
 				});
+		}
+
+		if (
+			patch.neverSpam?.value === true &&
+			updated.flags?.neverSpam?.value === true
+		) {
+			await requestNeverSpamBackApply(client.queues.accountFanout, {
+				accountConfigId,
+				addressId,
+				normalizedEmail: updated.normalizedEmail,
+			});
 		}
 
 		return toAddressResponse(updated);

@@ -4,6 +4,7 @@ import type {
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
 	MessageItem,
+	SenderNeverSpamBackApplyEvent,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
 import { AddressRole, MessageKeywordFlag } from "@remit/domain-enums";
@@ -45,6 +46,8 @@ export interface SpamReportConfig {
 	flagPushService: FlagPushService;
 	logger?: SpamReportLogger;
 }
+
+export type NeverSpamGrant = Omit<SenderNeverSpamBackApplyEvent, "type">;
 
 export interface SpamReportParams {
 	accountConfigId: string;
@@ -246,7 +249,9 @@ export class SpamReportService {
 		);
 	};
 
-	notSpam = async (params: SpamReportParams): Promise<void> => {
+	notSpam = async (
+		params: SpamReportParams,
+	): Promise<NeverSpamGrant | undefined> => {
 		const { accountConfigId, accountId, messageId, setBy } = params;
 
 		const from = await this.resolveFromAddress(accountConfigId, messageId);
@@ -290,9 +295,9 @@ export class SpamReportService {
 			);
 		}
 
-		if (overrulesJunkVerdict) {
-			await this.grantNeverSpam(accountConfigId, accountId, from, setBy);
-		}
+		const grant = overrulesJunkVerdict
+			? await this.grantNeverSpam(accountConfigId, accountId, from, setBy)
+			: undefined;
 
 		const current = await this.messageService.get(messageId);
 
@@ -319,6 +324,7 @@ export class SpamReportService {
 			{ accountId, messageId, addressId: from.addressId },
 			"Undid spam report",
 		);
+		return grant;
 	};
 
 	private isInJunk = async (
@@ -352,14 +358,19 @@ export class SpamReportService {
 		accountId: string,
 		from: { addressId: string; normalizedEmail: string; displayName: string },
 		setBy: string,
-	): Promise<void> => {
+	): Promise<NeverSpamGrant | undefined> => {
 		const account = await this.accountService.get(accountId);
 		if (from.normalizedEmail.toLowerCase() === account.email.toLowerCase()) {
-			return;
+			return undefined;
 		}
 		await this.ensureSenderAddress(accountConfigId, from);
 		await this.addressService.mergeFlags(accountConfigId, from.addressId, {
 			neverSpam: { value: true, setAt: Date.now(), setBy },
 		});
+		return {
+			accountConfigId,
+			addressId: from.addressId,
+			normalizedEmail: from.normalizedEmail,
+		};
 	};
 }

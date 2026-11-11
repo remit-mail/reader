@@ -288,6 +288,14 @@ const placementTerms = (expected: PlacementPredicate): SQL[] => {
 	return terms;
 };
 
+const unplacedJunkTerms = (junkMailboxId: string): SQL[] => [
+	eq(messageTable.mailboxId, junkMailboxId),
+	eq(messageTable.status, "active"),
+	isNull(messageTable.spamReport),
+	isNull(messageTable.originalMailboxId),
+	eq(messageTable.movedByRemit, false),
+];
+
 /** The rows `listStrandedPlacements` returns: `moving` or `deleting`, unwritten since `untouchedSince`. */
 export const strandedPlacementCondition = (
 	mailboxIds: readonly string[],
@@ -940,22 +948,48 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.from(messageTable)
 			.where(
 				and(
-					eq(messageTable.mailboxId, junkMailboxId),
+					...unplacedJunkTerms(junkMailboxId),
 					lte(messageTable.internalDate, arrivedBy),
-					eq(messageTable.status, "active"),
 					or(
 						isNull(messageTable.placementDecidedAt),
 						sql`coalesce(json_extract(${messageTable.placementVerdict}, '$.fromPlacement'), '') <> 'junk'`,
 					),
-					isNull(messageTable.spamReport),
-					isNull(messageTable.originalMailboxId),
-					eq(messageTable.movedByRemit, false),
 					isNotNull(messageTable.bodyStorageKey),
 				),
 			)
 			.orderBy(desc(messageTable.uid))
 			.limit(limit);
 		return rows.map(toMessageItem).filter(hasStoredBody);
+	}
+
+	async listSenderJunk(
+		junkMailboxId: string,
+		fromEmail: string,
+		limit: number,
+	): ReturnType<IMessageRepository["listSenderJunk"]> {
+		const rows = await this.db
+			.select()
+			.from(messageTable)
+			.where(
+				and(
+					...unplacedJunkTerms(junkMailboxId),
+					exists(
+						this.db
+							.select({ one: sql`1` })
+							.from(envelopeAddressTable)
+							.where(
+								and(
+									eq(envelopeAddressTable.messageId, messageTable.messageId),
+									eq(envelopeAddressTable.addressRole, "from"),
+									eq(envelopeAddressTable.normalizedEmail, fromEmail),
+								),
+							),
+					),
+				),
+			)
+			.orderBy(desc(messageTable.uid))
+			.limit(limit);
+		return rows.map(toMessageItem);
 	}
 
 	async recordPlacementIf(

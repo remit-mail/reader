@@ -24,6 +24,7 @@ import {
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 	materializeBodyParts,
+	type NeverSpamGrant,
 	NoJunkMailboxError,
 	ownedMessages,
 	resolveFolderPlacement,
@@ -41,6 +42,7 @@ import {
 } from "../derive/contentSignature.js";
 import { buildContentUrl } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
+import { requestNeverSpamBackApply } from "../service/never-spam.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -944,7 +946,7 @@ export const MessageBulkOperations = {
 
 	MessageBulkOperations_notSpam: async (
 		context,
-		ctx: HandlerContext<"sync">,
+		ctx: HandlerContext<"sync" | "accountFanout">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
@@ -963,14 +965,39 @@ export const MessageBulkOperations = {
 
 		const setBy = ctx.identity.sub;
 
-		return settleSpamReportBulk(messageIds, (messageId) =>
-			client.spamReport.notSpam({
-				accountConfigId,
-				accountId,
-				messageId,
-				setBy,
-			}),
+		const grants = new Map<string, NeverSpamGrant>();
+		const outcome = await settleSpamReportBulk(
+			messageIds,
+			async (messageId) => {
+				const grant = await client.spamReport.notSpam({
+					accountConfigId,
+					accountId,
+					messageId,
+					setBy,
+				});
+				if (grant) grants.set(grant.addressId, grant);
+			},
 		);
+		const unstarted: { grant: NeverSpamGrant; cause: unknown }[] = [];
+		await Promise.all(
+			[...grants.values()].map((grant) =>
+				requestNeverSpamBackApply(client.queues.accountFanout, grant).catch(
+					(cause: unknown) => {
+						unstarted.push({ grant, cause });
+					},
+				),
+			),
+		);
+		if (unstarted.length > 0) {
+			const senders = unstarted
+				.map(({ grant }) => grant.normalizedEmail)
+				.join(", ");
+			throw new Error(
+				`Never spam is saved for ${senders}, but their other mail in Spam did not move. Press Not spam again, or turn never spam on from the sender's settings, to retry.`,
+				{ cause: unstarted.map(({ cause }) => cause) },
+			);
+		}
+		return outcome;
 	},
 } satisfies Record<
 	MessageBulkOperationIds,
