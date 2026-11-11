@@ -11,10 +11,6 @@ import {
 import type { RemitClient } from "./data-client.js";
 import { buildOrganizeMoveService } from "./organize.js";
 
-/**
- * Start the pass that clears a never-spam sender's mail out of Junk. Every
- * path that turns `neverSpam` on calls this once the flag is durable.
- */
 export const requestNeverSpamBackApply = (
 	queue: QueueProducer<AccountFanoutEvent>,
 	grant: NeverSpamGrant,
@@ -29,7 +25,7 @@ export const requestNeverSpamBackApply = (
 		});
 
 export const runNeverSpamBackApply = (
-	client: RemitClient<"messageManagement">,
+	client: RemitClient<"messageManagement" | "accountFanout">,
 	event: SenderNeverSpamBackApplyEvent,
 	now: number,
 ): Promise<NeverSpamBackApplyResult> =>
@@ -40,6 +36,7 @@ export const runNeverSpamBackApply = (
 			mailboxSpecialUseService: client.mailboxSpecialUse,
 			messageService: client.message,
 			placementMoveService: buildOrganizeMoveService(client),
+			fanoutQueue: client.queues.accountFanout,
 		},
 		event,
 		now,

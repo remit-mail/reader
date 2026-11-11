@@ -1,8 +1,10 @@
 import type {
+	AccountFanoutEvent,
 	IAccountRepository,
 	IAddressRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
+	QueueProducer,
 	SenderNeverSpamBackApplyEvent,
 } from "@remit/data-ports";
 import {
@@ -22,10 +24,11 @@ export interface NeverSpamBackApplyDeps {
 	>;
 	messageService: Pick<IMessageRepository, "listSenderJunk" | "update">;
 	placementMoveService: Pick<PlacementMoveService, "moveMessage">;
+	fanoutQueue: Pick<QueueProducer<AccountFanoutEvent>, "send">;
 }
 
 export interface NeverSpamBackApplyResult {
-	outcome: "Done" | "FlagCleared";
+	outcome: "Done" | "Continued" | "FlagCleared";
 	moved: number;
 	skipped: number;
 }
@@ -51,11 +54,6 @@ const NEVER_SPAM_DECISION: PlacementDecision = {
 };
 
 /**
- * Move a never-spam sender's Junk mail to the Inbox (#1553 Decision 6), the
- * newest {@link NEVER_SPAM_BACKAPPLY_LIMIT} per account. Delivery is
- * at-least-once, so each one re-reads the flag first and does nothing once it
- * is off.
- *
  * Wait, not reconcile (imap-mutations R2/R3): the selection skips rows a user
  * move or a spam report has placed, and `moveMessage` binds to the settled row
  * still in Junk, so a user move that lands after the selection wins and the
@@ -84,6 +82,7 @@ export const backApplyNeverSpam = async (
 	const accounts = await deps.accountService.listMailSourcesByAccountConfig(
 		event.accountConfigId,
 	);
+	let batchFilled = false;
 	for (const account of accounts) {
 		const junk = await deps.mailboxSpecialUseService.findJunkMailbox(
 			account.accountId,
@@ -97,6 +96,7 @@ export const backApplyNeverSpam = async (
 			event.normalizedEmail,
 			NEVER_SPAM_BACKAPPLY_LIMIT,
 		);
+		const movedBefore = result.moved;
 		for (const message of messages) {
 			const outcome = await deps.placementMoveService.moveMessage(
 				event.accountConfigId,
@@ -112,6 +112,14 @@ export const backApplyNeverSpam = async (
 			await deps.messageService.update(message.messageId, verdict);
 			result.moved += 1;
 		}
+		if (
+			messages.length === NEVER_SPAM_BACKAPPLY_LIMIT &&
+			result.moved > movedBefore
+		) {
+			batchFilled = true;
+		}
 	}
-	return result;
+	if (!batchFilled) return result;
+	await deps.fanoutQueue.send({ body: event });
+	return { ...result, outcome: "Continued" };
 };

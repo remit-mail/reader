@@ -68,10 +68,6 @@ export type JunkPlacementReevaluationEvent = {
 	accountId: string;
 };
 
-/**
- * The retroactive half of a never-spam grant (#1553 Decision 6): the fanout
- * worker moves that sender's Junk mail to the Inbox while the flag stands.
- */
 export type SenderNeverSpamBackApplyEvent = {
 	type: "SenderNeverSpamBackApply";
 	accountConfigId: string;

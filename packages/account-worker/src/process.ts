@@ -45,7 +45,7 @@ export type ClientFanoutEvent =
 	| SenderNeverSpamBackApplyEvent;
 
 export interface AccountFanoutContext {
-	client: RemitClient<"messageManagement">;
+	client: RemitClient<"messageManagement" | "accountFanout">;
 }
 
 export type AccountPurgeEvent =

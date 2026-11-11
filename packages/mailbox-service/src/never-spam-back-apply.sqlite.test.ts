@@ -84,12 +84,14 @@ const mover = (): PlacementMoveService =>
 
 const deps = (
 	placementMoveService: NeverSpamBackApplyDeps["placementMoveService"] = mover(),
+	fanoutQueue: NeverSpamBackApplyDeps["fanoutQueue"] = recordingQueue(),
 ): NeverSpamBackApplyDeps => ({
 	accountService: store.account,
 	addressService: store.address,
 	mailboxSpecialUseService: store.mailboxSpecialUse,
 	messageService: store.message,
 	placementMoveService,
+	fanoutQueue,
 });
 
 const mailboxOf = async (messageId: string): Promise<string> =>
@@ -142,6 +144,31 @@ describe("the never-spam back-apply (#1553)", () => {
 		assert.equal(row.mailboxId, receipts.mailboxId);
 		assert.equal(row.movedByRemit, false);
 		assert.equal(row.placementVerdict, undefined);
+	});
+
+	it("re-enqueues itself while a delivery fills its batch and stops once one does not", async () => {
+		for (let i = 0; i < 501; i += 1) {
+			await inJunk(FRIEND);
+		}
+		await grantNeverSpam();
+		const fanout = recordingQueue();
+
+		const first = await backApplyNeverSpam(deps(mover(), fanout), event(), NOW);
+
+		assert.deepEqual(first, { outcome: "Continued", moved: 500, skipped: 0 });
+		assert.deepEqual(
+			fanout.sent.map((message) => message.body),
+			[event()],
+		);
+
+		const second = await backApplyNeverSpam(
+			deps(mover(), fanout),
+			event(),
+			NOW,
+		);
+
+		assert.deepEqual(second, { outcome: "Done", moved: 1, skipped: 0 });
+		assert.equal(fanout.sent.length, 1);
 	});
 
 	it("moves nothing once the flag is off again before delivery", async () => {

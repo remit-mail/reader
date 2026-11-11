@@ -47,7 +47,6 @@ export interface SpamReportConfig {
 	logger?: SpamReportLogger;
 }
 
-/** A sender this call granted `neverSpam`, whose Junk mail the caller back-applies. */
 export type NeverSpamGrant = Omit<SenderNeverSpamBackApplyEvent, "type">;
 
 export interface SpamReportParams {

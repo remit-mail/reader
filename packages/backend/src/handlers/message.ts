@@ -978,8 +978,24 @@ export const MessageBulkOperations = {
 				if (grant) grants.set(grant.addressId, grant);
 			},
 		);
-		for (const grant of grants.values()) {
-			await requestNeverSpamBackApply(client.queues.accountFanout, grant);
+		const unstarted: { grant: NeverSpamGrant; cause: unknown }[] = [];
+		await Promise.all(
+			[...grants.values()].map((grant) =>
+				requestNeverSpamBackApply(client.queues.accountFanout, grant).catch(
+					(cause: unknown) => {
+						unstarted.push({ grant, cause });
+					},
+				),
+			),
+		);
+		if (unstarted.length > 0) {
+			const senders = unstarted
+				.map(({ grant }) => grant.normalizedEmail)
+				.join(", ");
+			throw new Error(
+				`Never spam is saved for ${senders}, but their other mail in Spam did not move. Press Not spam again, or turn never spam on from the sender's settings, to retry.`,
+				{ cause: unstarted.map(({ cause }) => cause) },
+			);
 		}
 		return outcome;
 	},
