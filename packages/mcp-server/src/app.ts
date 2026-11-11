@@ -282,11 +282,19 @@ export const createMcpApp = ({
 
 	const listConnectedApps = async (
 		request: Request,
-	): Promise<ConnectedAppGrant[] | undefined> => {
+	): Promise<ConnectedAppGrant[] | Response> => {
 		const response = await authRoutes.connectedApps(request.headers);
 		if (response.status === 401) {
 			await response.body?.cancel();
-			return undefined;
+			return toLogin(CONNECTED_APPS_PATH);
+		}
+		if (response.status === 403) {
+			return errorPage(
+				"Access refused",
+				await failureOf(response),
+				"Ask the person who runs this remit server to restore your account.",
+				403,
+			);
 		}
 		if (!response.ok) {
 			throw new Error(
@@ -299,13 +307,13 @@ export const createMcpApp = ({
 	const connectedApps = async (request: Request): Promise<Response> => {
 		if (request.method === "GET") {
 			const apps = await listConnectedApps(request);
-			if (!apps) return toLogin(CONNECTED_APPS_PATH);
+			if (apps instanceof Response) return apps;
 			return connectedAppsView(apps);
 		}
 		const form = await request.formData();
 		const clientId = formString(form, "client_id");
 		const before = await listConnectedApps(request);
-		if (!before) return toLogin(CONNECTED_APPS_PATH);
+		if (before instanceof Response) return before;
 		const name =
 			before.find((app) => app.clientId === clientId)?.clientName ?? clientId;
 		const response = await authRoutes.revokeClient(request.headers, clientId);
@@ -323,7 +331,7 @@ export const createMcpApp = ({
 		}
 		await response.body?.cancel();
 		const after = await listConnectedApps(request);
-		if (!after) return toLogin(CONNECTED_APPS_PATH);
+		if (after instanceof Response) return after;
 		return connectedAppsView(after, 200, name);
 	};
 

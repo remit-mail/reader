@@ -762,6 +762,14 @@ describe("a host that authenticates the browser itself", () => {
 			[[ownerId, "RefusedDisabled"]],
 		);
 	});
+
+	it("shows a disabled subject the refusal on the apps page", async () => {
+		const response = await hosted(true).handle(
+			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject(ownerId) }),
+		);
+		assert.equal(response.status, 403);
+		assert.match(await response.text(), /This account is disabled\./);
+	});
 });
 
 describe("device authorization (RFC 8628)", () => {
