@@ -275,6 +275,9 @@ model ThreadMessageResponse {
 
   @doc("Present when the user reported this message as spam and the report has not been undone, projected from the underlying Message row. Backs the \"Reported as spam · Undo\" affordance in list views.")
   spamReport?: MessageSpamReport;
+
+  @doc("Remit's placement verdict for this message, projected from the underlying Message row. Absent for a message judged before placement verdicts were recorded, or one Remit left in place.")
+  placementVerdict?: MessagePlacementVerdict;
 }
 
 @doc("""
