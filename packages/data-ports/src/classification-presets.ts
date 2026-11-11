@@ -12,6 +12,7 @@ import {
 	type AccountSettingValueFor,
 	composeSettingName,
 } from "./account-settings.js";
+import type { DailyCount } from "./types.js";
 
 const NO_PRICE: ClassificationPreset["price"] = { state: "NoPrice" };
 
@@ -117,3 +118,6 @@ export const classificationUsageName = (accountId: string): string =>
 
 export const utcDateOf = (epochMs: number): string =>
 	new Date(epochMs).toISOString().slice(0, 10);
+
+export const callsOn = (usage: DailyCount | undefined, date: string): number =>
+	usage?.date === date ? usage.calls : 0;

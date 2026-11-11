@@ -19,7 +19,7 @@ describe("message lookups without sqlite_stat1", () => {
 		messageObjectsInMemory(),
 	);
 
-	test("listJunkBacklog searches message_by_mailbox_id", async () => {
+	test("listJunkBacklog searches message_by_mailbox_internal_date", async () => {
 		assertPlanSearches(
 			queryPlan(
 				sqlite,
@@ -27,7 +27,7 @@ describe("message lookups without sqlite_stat1", () => {
 					repos.message.listJunkBacklog("junk", 1, 25),
 				),
 			),
-			"message_by_mailbox_id",
+			"message_by_mailbox_internal_date",
 		);
 	});
 
