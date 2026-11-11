@@ -65,10 +65,6 @@ export interface RunSchedulerTickDeps {
 		account: AccountItem,
 		now: number,
 	) => Promise<number>;
-	enqueueJunkReevaluation: (
-		account: AccountItem,
-		now: number,
-	) => Promise<boolean>;
 }
 
 export interface SchedulerTickResult {
@@ -81,8 +77,6 @@ export interface SchedulerTickResult {
 	subscriptionsFailed: number;
 	redriven: number;
 	redriveFailed: number;
-	junkReevaluations: number;
-	junkReevaluationFailed: number;
 }
 
 /**
@@ -151,8 +145,6 @@ export const runSchedulerTick = async (
 	let sweepFailed = 0;
 	let redriven = 0;
 	let redriveFailed = 0;
-	let junkReevaluations = 0;
-	let junkReevaluationFailed = 0;
 
 	do {
 		const page = await accountService.listAllAccountsPage({
@@ -245,27 +237,6 @@ export const runSchedulerTick = async (
 			redriven += count;
 		}
 
-		// Contained like the re-drive: a failed enqueue costs one account a tick
-		// of its Junk re-check, never the scheduler.
-		const junkOutcomes = await pMap(
-			page.items.filter(isEligible),
-			(account) =>
-				deps.enqueueJunkReevaluation(account, now).catch((error: unknown) => {
-					log.error(
-						{ accountId: account.accountId, error },
-						"Junk re-evaluation enqueue failed for account",
-					);
-					return null;
-				}),
-			{ concurrency: SCHEDULER_ENQUEUE_CONCURRENCY },
-		);
-		junkReevaluations += junkOutcomes.filter(
-			(enqueued) => enqueued === true,
-		).length;
-		junkReevaluationFailed += junkOutcomes.filter(
-			(enqueued) => enqueued === null,
-		).length;
-
 		cursor = page.cursor ?? undefined;
 	} while (cursor);
 
@@ -297,8 +268,6 @@ export const runSchedulerTick = async (
 			subscriptionsFailed,
 			redriven,
 			redriveFailed,
-			junkReevaluations,
-			junkReevaluationFailed,
 		},
 		"Scheduled-sync tick complete",
 	);
@@ -313,7 +282,5 @@ export const runSchedulerTick = async (
 		subscriptionsFailed,
 		redriven,
 		redriveFailed,
-		junkReevaluations,
-		junkReevaluationFailed,
 	};
 };

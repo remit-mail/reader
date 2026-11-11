@@ -3,7 +3,6 @@ export type {
 	AccountDeleteEvent,
 	AccountExportEvent,
 	AccountFanoutEvent,
-	JunkPlacementReevaluationEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
 	SenderNeverSpamBackApplyEvent,

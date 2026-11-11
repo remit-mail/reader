@@ -17,7 +17,6 @@ import {
 	isNotNull,
 	isNull,
 	lt,
-	lte,
 	or,
 	type SQL,
 	sql,
@@ -265,11 +264,6 @@ const isList = <T>(value: T | readonly T[]): value is readonly T[] =>
 
 const oneOf = <T>(value: T | readonly T[]): T[] =>
 	isList(value) ? [...value] : [value];
-
-const hasStoredBody = (
-	message: MessageItem,
-): message is MessageItem & { bodyStorageKey: string } =>
-	message.bodyStorageKey !== undefined;
 
 const placementTerms = (expected: PlacementPredicate): SQL[] => {
 	const terms: SQL[] = [];
@@ -936,30 +930,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.where(strandedPlacementCondition(mailboxIds, untouchedSince))
 			.orderBy(asc(messageTable.updatedAt), asc(messageTable.messageId));
 		return rows.map(toMessageItem);
-	}
-
-	async listJunkBacklog(
-		junkMailboxId: string,
-		arrivedBy: number,
-		limit: number,
-	): ReturnType<IMessageRepository["listJunkBacklog"]> {
-		const rows = await this.db
-			.select()
-			.from(messageTable)
-			.where(
-				and(
-					...unplacedJunkTerms(junkMailboxId),
-					lte(messageTable.internalDate, arrivedBy),
-					or(
-						isNull(messageTable.placementDecidedAt),
-						sql`coalesce(json_extract(${messageTable.placementVerdict}, '$.fromPlacement'), '') <> 'junk'`,
-					),
-					isNotNull(messageTable.bodyStorageKey),
-				),
-			)
-			.orderBy(desc(messageTable.internalDate))
-			.limit(limit);
-		return rows.map(toMessageItem).filter(hasStoredBody);
 	}
 
 	async listSenderJunk(

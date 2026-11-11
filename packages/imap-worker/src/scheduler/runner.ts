@@ -14,7 +14,6 @@ import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerLoop } from "./loop.js";
 import {
 	buildAttachmentSweep,
-	buildJunkReevaluationEnqueue,
 	redriveStrandedPlacements,
 	runSchedulerTick,
 } from "./tick.js";
@@ -104,7 +103,6 @@ const runLoop = async (): Promise<void> => {
 				client,
 				log,
 			),
-			enqueueJunkReevaluation: buildJunkReevaluationEnqueue(client),
 			redriveStrandedPlacements: (stranded, now) =>
 				redriveStrandedPlacements(
 					{
