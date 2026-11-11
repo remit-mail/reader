@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSyncStatus } from "@remit/domain-enums";
@@ -95,6 +96,7 @@ beforeEach(async () => {
 			mailboxQueue: client.mailboxQueue,
 			settleTimeoutMs: 100,
 			pollIntervalMs: 10,
+			sleep,
 		},
 		filters: {
 			organizeQueue: client.queues.accountFanout,

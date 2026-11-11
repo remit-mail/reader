@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { RecordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	fifoMailboxManagement,
@@ -20,6 +21,7 @@ export const ruleDeps = (
 		}),
 		settleTimeoutMs: 100,
 		pollIntervalMs: 10,
+		sleep,
 	},
 	filters: {
 		organizeQueue: queue,

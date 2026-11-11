@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { serve } from "@hono/node-server";
 import { resolveSignInEnabled } from "@remit/auth-service/verifier";
 import { getClient } from "@remit/backend/client";
@@ -12,7 +13,8 @@ import {
 import { openMcpAuthDatabase } from "./auth/database.js";
 import { resolveMcpServerConfig } from "./config.js";
 import { mcpDepsOf } from "./deps.js";
-import { loadPageAssets } from "./pages/assets.js";
+import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
+import { loadPageAssets } from "./pages/load-assets.js";
 
 installNodeLogger();
 
@@ -27,6 +29,7 @@ const deps = mcpDepsOf(client, {
 	settle: {
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
 		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,
+		sleep,
 	},
 });
 
@@ -41,11 +44,17 @@ const app = createMcpApp({
 	authRoutes: createMcpAuthRoutes(auth),
 	verifier: createBetterAuthTokenVerifier(auth, config.origin),
 	deps,
-	pageAssets: loadPageAssets(config.pageAssetsDir),
 });
+const pageAssets = loadPageAssets(config.pageAssetsDir);
 
 serve({
-	fetch: app,
+	fetch: (request) => {
+		const { pathname } = new URL(request.url);
+		if (pathname.startsWith(ASSETS_PATH_PREFIX)) {
+			return serveAsset(pageAssets, pathname);
+		}
+		return app(request);
+	},
 	hostname: "0.0.0.0",
 	port: config.port,
 });
