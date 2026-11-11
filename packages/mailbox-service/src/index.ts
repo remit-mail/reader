@@ -178,10 +178,12 @@ export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 export { ImapFlowConnection } from "./imapflow-connection.js";
 export {
 	isJunkBacklogDue,
-	JUNK_BACKLOG_BATCH,
 	type JunkBacklogAccount,
-	type JunkBacklogDeps,
 	type JunkBacklogProbeDeps,
+} from "./junk-backlog-due.js";
+export {
+	JUNK_BACKLOG_BATCH,
+	type JunkBacklogDeps,
 	type JunkBacklogResult,
 	reevaluateJunkBacklog,
 } from "./junk-reevaluation.js";

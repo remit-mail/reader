@@ -51,6 +51,10 @@
       "types": "./src/service/junk-backlog.ts",
       "default": "./src/service/junk-backlog.ts"
     },
+    "./junk-backlog-due": {
+      "types": "./src/service/junk-backlog-due.ts",
+      "default": "./src/service/junk-backlog-due.ts"
+    },
     "./organize": {
       "types": "./src/service/organize.ts",
       "default": "./src/service/organize.ts"
@@ -131,6 +135,10 @@
       "./junk-backlog": {
         "types": "./dist/src/service/junk-backlog.d.ts",
         "default": "./dist/src/service/junk-backlog.js"
+      },
+      "./junk-backlog-due": {
+        "types": "./dist/src/service/junk-backlog-due.d.ts",
+        "default": "./dist/src/service/junk-backlog-due.js"
       },
       "./organize": {
         "types": "./dist/src/service/organize.d.ts",

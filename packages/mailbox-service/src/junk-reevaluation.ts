@@ -1,20 +1,10 @@
 import type {
-	IAccountConfigRepository,
-	IAccountSettingRepository,
 	IAddressRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
 	MessageItem,
 } from "@remit/data-ports";
-import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
-import {
-	type ClassificationDeploymentDefault,
-	classificationUsageName,
-	utcDateOf,
-} from "@remit/data-ports/classification-presets";
-import { readResolvedClassification } from "@remit/data-ports/classification-resolver";
-import { AccountSettingName } from "@remit/domain-enums";
 import {
 	isStorageNotFoundError,
 	type StorageService,
@@ -26,30 +16,11 @@ import {
 	readClassifierGate,
 } from "./classifier/classifier-gate.js";
 import { extractPrimaryFromEmail } from "./classify-message.js";
+import { type JunkBacklogAccount, junkBacklogOf } from "./junk-backlog-due.js";
 import { type PlaceMessageDeps, placeMessage } from "./place-message.js";
 import { readSenderPlacement } from "./sender-placement.js";
 
 export const JUNK_BACKLOG_BATCH = 25;
-
-export interface JunkBacklogAccount {
-	accountId: string;
-	accountConfigId: string;
-}
-
-interface JunkBacklogLookup {
-	mailboxSpecialUseService: Pick<
-		IMailboxSpecialUseRepository,
-		"findJunkMailbox"
-	>;
-	mailboxService: Pick<IMailboxRepository, "get">;
-	messageService: Pick<IMessageRepository, "listUndecidedJunkBacklog">;
-}
-
-export interface JunkBacklogProbeDeps extends JunkBacklogLookup {
-	accountSetting: Pick<IAccountSettingRepository, "get" | "getMany">;
-	accountConfig: Pick<IAccountConfigRepository, "get">;
-	classificationDefault: ClassificationDeploymentDefault;
-}
 
 export interface JunkBacklogLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -77,57 +48,6 @@ export interface JunkBacklogResult {
 	examined: number;
 	moved: number;
 }
-
-type RoleMailbox = { mailboxId: string; fullPath: string };
-
-const junkBacklogOf = async (
-	deps: JunkBacklogLookup,
-	accountId: string,
-	limit: number,
-): Promise<{ junk: RoleMailbox; messages: MessageItem[] } | null> => {
-	const junk = await deps.mailboxSpecialUseService.findJunkMailbox(accountId);
-	if (!junk) return null;
-	const mailbox = await deps.mailboxService.get(accountId, junk.mailboxId);
-	return {
-		junk,
-		messages: await deps.messageService.listUndecidedJunkBacklog(
-			junk.mailboxId,
-			mailbox.createdAt,
-			limit,
-		),
-	};
-};
-
-const classifierBudgetLeft = async (
-	deps: JunkBacklogProbeDeps,
-	{ accountId, accountConfigId }: JunkBacklogAccount,
-	now: number,
-): Promise<boolean> => {
-	const resolved = await readResolvedClassification(deps, accountConfigId);
-	if (resolved.state !== "Configured" || !resolved.enabled.value) return true;
-	const row = await deps.accountSetting.get(
-		accountConfigId,
-		classificationUsageName(accountId),
-	);
-	if (!row) return true;
-	const usage = parseAccountSettingValue(
-		AccountSettingName.ClassificationUsage,
-		row.value,
-	).value;
-	return (
-		usage.date !== utcDateOf(now) || usage.calls < resolved.dailyLimit.value
-	);
-};
-
-export const isJunkBacklogDue = async (
-	deps: JunkBacklogProbeDeps,
-	account: JunkBacklogAccount,
-	now: number,
-): Promise<boolean> => {
-	if (!(await classifierBudgetLeft(deps, account, now))) return false;
-	const backlog = await junkBacklogOf(deps, account.accountId, 1);
-	return (backlog?.messages.length ?? 0) > 0;
-};
 
 const isUnreadableBody = (error: unknown): boolean =>
 	error instanceof BodyParseError || isStorageNotFoundError(error);

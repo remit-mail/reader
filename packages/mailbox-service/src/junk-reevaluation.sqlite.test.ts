@@ -12,8 +12,8 @@ import {
 	PlacementAction,
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
+import { isJunkBacklogDue } from "./junk-backlog-due.js";
 import {
-	isJunkBacklogDue,
 	type JunkBacklogDeps,
 	reevaluateJunkBacklog,
 } from "./junk-reevaluation.js";

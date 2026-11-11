@@ -33,6 +33,10 @@
       "types": "./src/account-credentials.ts",
       "default": "./src/account-credentials.ts"
     },
+    "./junk-backlog-due": {
+      "types": "./src/junk-backlog-due.ts",
+      "default": "./src/junk-backlog-due.ts"
+    },
     "./outbox-attachment-content": {
       "types": "./src/outbox-attachment-content.ts",
       "default": "./src/outbox-attachment-content.ts"
@@ -120,6 +124,10 @@
       "./account-credentials": {
         "types": "./dist/account-credentials.d.ts",
         "default": "./dist/account-credentials.js"
+      },
+      "./junk-backlog-due": {
+        "types": "./dist/junk-backlog-due.d.ts",
+        "default": "./dist/junk-backlog-due.js"
       },
       "./outbox-attachment-content": {
         "types": "./dist/outbox-attachment-content.d.ts",

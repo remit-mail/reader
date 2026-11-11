@@ -1,5 +1,5 @@
 import type { RemitClient } from "@remit/backend/client";
-import { junkBacklogDue } from "@remit/backend/junk-backlog";
+import { junkBacklogDue } from "@remit/backend/junk-backlog-due";
 import type { AccountItem } from "@remit/data-ports";
 
 export const buildJunkReevaluationEnqueue =
