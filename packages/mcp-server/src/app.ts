@@ -1,4 +1,4 @@
-import { extractBearerToken } from "@remit/auth-service/verifier";
+import { extractBearerToken } from "@remit/auth-service/constants";
 import { z } from "zod";
 import {
 	CONNECTED_APPS_PATH,
