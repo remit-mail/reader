@@ -23,7 +23,6 @@ const config = resolveMcpServerConfig();
 
 const client = await getClient();
 const deps = mcpDepsOf(client, {
-	organizeQueue: client.queues.accountFanout,
 	logger,
 	settle: {
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,

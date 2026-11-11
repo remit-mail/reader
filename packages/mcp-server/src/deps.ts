@@ -57,14 +57,13 @@ export interface McpDeps {
 }
 
 export interface McpDepsExtras {
-	organizeQueue: QueueProducer<OrganizeJobEvent>;
 	logger: MaterializeLogger & OrganizeJobLogger;
-	settle: Pick<FolderToolDeps, "settleTimeoutMs" | "pollIntervalMs">;
+	settle: Omit<FolderToolDeps, "mailboxQueue">;
 }
 
 export const mcpDepsOf = (
 	client: RemitClient,
-	{ organizeQueue, logger, settle }: McpDepsExtras,
+	{ logger, settle }: McpDepsExtras,
 ): McpDeps => ({
 	account: client.account,
 	mailbox: client.mailbox,
@@ -77,5 +76,5 @@ export const mcpDepsOf = (
 	bodySyncQueue: client.bodySyncQueue,
 	logger,
 	folders: { mailboxQueue: client.mailboxQueue, ...settle },
-	filters: { organizeQueue, logger },
+	filters: { organizeQueue: client.queues.accountFanout, logger },
 });
