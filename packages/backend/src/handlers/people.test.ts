@@ -40,19 +40,20 @@ const closedConfig: ApiConfig = testApiConfig({
 	corsAllowedOrigins: [ORIGIN],
 });
 
-const sql = (statement: string, ...params: unknown[]): unknown[] => {
-	const handle = openSqlite({
-		filename,
-		mode: "open",
-		synchronous: "NORMAL",
-		schema: {},
-	});
-	const prepared = handle.sqlite.prepare(statement);
-	const reads = /^\s*SELECT\b/i.test(statement);
-	const found = reads ? prepared.all(...params) : [];
-	if (!reads) prepared.run(...params);
+const openApp = () =>
+	openSqlite({ filename, mode: "open", synchronous: "NORMAL", schema: {} });
+
+const rows = (statement: string, ...params: unknown[]): unknown[] => {
+	const handle = openApp();
+	const found = handle.sqlite.prepare(statement).all(...params);
 	handle.close();
 	return found;
+};
+
+const run = (statement: string, ...params: unknown[]): void => {
+	const handle = openApp();
+	handle.sqlite.prepare(statement).run(...params);
+	handle.close();
 };
 
 const signUp = async (email: string): Promise<string> => {
@@ -167,7 +168,7 @@ const reset = (
 
 const auditCount = (where: string, ...params: unknown[]): number =>
 	(
-		sql(
+		rows(
 			`SELECT count(*) AS n FROM identity_audit_event WHERE ${where}`,
 			...params,
 		)[0] as { n: number }
@@ -263,7 +264,7 @@ describe("the People operations", () => {
 		];
 		for (const { action, act } of operations) {
 			const expired = await stepUpToken(alice, carol, action);
-			sql("UPDATE identity_step_up SET expires_at = ?", Date.now() - 1000);
+			run("UPDATE identity_step_up SET expires_at = ?", Date.now() - 1000);
 			const spent = await stepUpToken(alice, carol, action);
 			assert.equal(refusalOf(await act(alice, spent)), undefined);
 			const bobs = await stepUpToken(bob, carol, action);
@@ -346,7 +347,7 @@ describe("the People operations", () => {
 		assert.equal(auditCount("actor = ? AND outcome = 'RefusedSelf'", alice), 1);
 		assert.equal(
 			(
-				sql("SELECT disabled FROM auth_user WHERE id = ?", alice)[0] as {
+				rows("SELECT disabled FROM auth_user WHERE id = ?", alice)[0] as {
 					disabled: number;
 				}
 			).disabled,
@@ -386,7 +387,7 @@ describe("the People operations", () => {
 	it("revoke a disabled person's calendar feeds and keep everyone else's", async () => {
 		const erin = await signUp("erin@remit.test");
 		const insertFeed = (userId: string, feedTokenId: string) =>
-			sql(
+			run(
 				"INSERT INTO calendar_feed_token (feed_token_id, account_config_id, calendar_id, token_hash, created_at, updated_at) VALUES (?, ?, 'cal', ?, 0, 0)",
 				feedTokenId,
 				deriveAccountConfigId(userId),
@@ -403,13 +404,13 @@ describe("the People operations", () => {
 		);
 
 		assert.deepEqual(
-			sql("SELECT feed_token_id AS id FROM calendar_feed_token"),
+			rows("SELECT feed_token_id AS id FROM calendar_feed_token"),
 			[{ id: "carol-feed" }],
 		);
 	});
 
 	it("sweep audit records older than 90 days on every insert", async () => {
-		sql(
+		run(
 			"INSERT INTO identity_audit_event (audit_event_id, occurred_at, actor, target, action, outcome, client_ip) VALUES ('ancient', ?, 'env', 'all', 'KillSwitchOn', 'Succeeded', 'host')",
 			Date.now() - 91 * 24 * 60 * 60 * 1000,
 		);

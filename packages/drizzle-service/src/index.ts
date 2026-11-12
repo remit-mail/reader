@@ -100,11 +100,6 @@ export * from "./schema/quarantine.js";
 export * from "./schema/sync-warning.js";
 export { SearchIndex } from "./search/thread-message-search.js";
 export {
-	createSqliteDatabase,
-	type SqliteClient,
-	type SqliteClientOptions,
-} from "./sqlite-client.js";
-export {
 	composeSqliteRepositories,
 	createSqliteRepositories,
 	type SqliteRepositories,
