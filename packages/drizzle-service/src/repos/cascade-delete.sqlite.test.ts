@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { MailboxCursorState } from "@remit/domain-enums";
-import Database from "better-sqlite3";
 import { messageDataSchema } from "../schema/message-data.js";
 import {
 	accountTable,
@@ -14,6 +13,7 @@ import {
 	quarantineTable,
 	syncWarningTable,
 } from "../schema.js";
+import { openSqlite } from "../sqlite.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
 	type CascadeEntity,
@@ -140,10 +140,15 @@ describe("createSqliteCascadeDeleter", () => {
 		});
 		await deleter(entities, log);
 
-		const sqlite = new Database(filename);
+		const handle = openSqlite({
+			filename,
+			mode: "open",
+			synchronous: "NORMAL",
+			schema: {},
+		});
 		const count = (table: string, column: string, value: string): number =>
 			(
-				sqlite
+				handle.sqlite
 					.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} = ?`)
 					.get(value) as { n: number }
 			).n;
@@ -156,6 +161,6 @@ describe("createSqliteCascadeDeleter", () => {
 		);
 		assert.equal(count("mailbox", "mailbox_id", MAILBOX_ID), 0, "mailbox gone");
 		assert.equal(count("account", "account_id", ACCOUNT_ID), 0, "account gone");
-		sqlite.close();
+		handle.close();
 	});
 });

@@ -4,9 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { migrateSqlite, openSqlite, type SqliteHandle } from "./sqlite.js";
 
 /**
  * A release's `schemaVersion` and an instance's `currentSchemaVersion` have to
@@ -87,20 +85,23 @@ describe("schema version accounting", () => {
 	const sets = migrationSets();
 	const databases = new Map(
 		[...new Set(sets.map(({ database }) => database))].map((database) => {
-			const sqlite = new Database(join(dir, `${database}.db`));
-			sqlite.pragma("journal_mode = WAL");
-			sqlite.pragma("foreign_keys = ON");
-			return [database, sqlite] as const;
+			const handle = openSqlite({
+				filename: join(dir, `${database}.db`),
+				mode: "create",
+				synchronous: "NORMAL",
+				schema: {},
+			});
+			return [database, handle] as const;
 		}),
 	);
-	const sqliteOf = (database: string): Database.Database => {
+	const sqliteOf = (database: string): SqliteHandle<Record<string, never>> => {
 		const sqlite = databases.get(database);
 		assert.ok(sqlite, `no database file for ${database}`);
 		return sqlite;
 	};
 	const migrateAll = (): void => {
 		for (const { database, set, table } of sets) {
-			migrate(drizzle(sqliteOf(database)), {
+			migrateSqlite(sqliteOf(database), {
 				migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS_ROOT)),
 				migrationsTable: table,
 			});
@@ -109,14 +110,14 @@ describe("schema version accounting", () => {
 	migrateAll();
 
 	after(() => {
-		for (const sqlite of databases.values()) sqlite.close();
+		for (const handle of databases.values()) handle.close();
 		rmSync(dir, { recursive: true, force: true });
 	});
 
 	const rows = ({ database, table }: MigrationSet): number =>
 		(
 			sqliteOf(database)
-				.prepare(`SELECT count(*) AS n FROM ${table}`)
+				.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`)
 				.get() as {
 				n: number;
 			}

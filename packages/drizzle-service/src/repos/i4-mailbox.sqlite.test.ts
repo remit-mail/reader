@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { mailboxTable } from "../schema.js";
+import { openTestSqlite } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
@@ -214,9 +213,9 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 	let repo: MailboxRepo;
 
 	before(() => {
-		const sqlite = new Database(":memory:");
+		const sqlite = openTestSqlite({ mailbox: mailboxTable });
 		applyMigrationSet(sqlite, "mail");
-		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
+		const { db } = sqlite;
 		repo = createSqliteRepositories(
 			{
 				app: db,

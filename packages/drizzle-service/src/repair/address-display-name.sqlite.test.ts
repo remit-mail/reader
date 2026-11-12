@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { storedDisplayName } from "@remit/data-ports/display-name";
-import Database from "better-sqlite3";
+import {
+	openTestSqlite,
+	type SqliteConnection,
+	type SqliteHandle,
+} from "../sqlite.js";
 import { shippedTableDdl } from "../test-shipped-sqlite-schema.js";
 import {
 	type DisplayNameRepairClient,
@@ -11,15 +15,16 @@ import {
 
 const SPOOF = "aramirez@secresaludguaviare.gov.co";
 
-const clientOver = (sqlite: Database.Database): DisplayNameRepairClient => ({
+const clientOver = (sqlite: SqliteConnection): DisplayNameRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
 	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 });
 
-const seed = (sqlite: Database.Database): void => {
-	sqlite.exec(shippedTableDdl("address"));
-	sqlite.exec(shippedTableDdl("envelope_address"));
-	sqlite.exec(shippedTableDdl("thread_message"));
+const seed = (handle: SqliteHandle<Record<string, unknown>>): void => {
+	handle.exec(shippedTableDdl("address"));
+	handle.exec(shippedTableDdl("envelope_address"));
+	handle.exec(shippedTableDdl("thread_message"));
+	const { sqlite } = handle;
 
 	const address = sqlite.prepare(
 		`INSERT INTO address (
@@ -77,17 +82,19 @@ const seed = (sqlite: Database.Database): void => {
 };
 
 describe("rewriting display names that claim another address", () => {
-	let sqlite: Database.Database;
+	let handle: SqliteHandle<Record<string, unknown>>;
+	let sqlite: SqliteConnection;
 	let client: DisplayNameRepairClient;
 
 	before(() => {
-		sqlite = new Database(":memory:");
-		seed(sqlite);
+		handle = openTestSqlite<Record<string, unknown>>({});
+		sqlite = handle.sqlite;
+		seed(handle);
 		client = clientOver(sqlite);
 	});
 
 	after(() => {
-		sqlite.close();
+		handle.close();
 	});
 
 	const nameOf = (id: string): string | null =>
@@ -222,8 +229,9 @@ describe("rewriting display names that claim another address", () => {
 
 describe("the SQL narrowing is a superset of the rule", () => {
 	test("selects every name the rule rewrites", () => {
-		const sqlite = new Database(":memory:");
-		sqlite.exec("CREATE TABLE probe (name text)");
+		const handle = openTestSqlite<Record<string, unknown>>({});
+		handle.exec("CREATE TABLE probe (name text)");
+		const { sqlite } = handle;
 		const insert = sqlite.prepare("INSERT INTO probe VALUES (?)");
 		const names = [
 			"matthijs@ischen.nl",
@@ -253,7 +261,7 @@ describe("the SQL narrowing is a superset of the rule", () => {
 					.all(EMBEDDED_ADDRESS_LIKE) as Array<{ name: string }>
 			).map((row) => row.name),
 		);
-		sqlite.close();
+		handle.close();
 
 		for (const name of names) {
 			if (storedDisplayName(name, "nobody@example.org") === name) continue;

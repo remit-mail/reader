@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type Database from "better-sqlite3";
+import type { SqliteHandle } from "./sqlite.js";
 
 // Read the committed SQLite migrations — the DDL a self-host deployment
 // actually runs — so a test can exercise the shipped shape instead of the one
@@ -69,7 +69,7 @@ export const migrationStatements = (set: MigrationSet): string[] =>
 
 /** Run every committed migration of a set against an open database. */
 export const applyMigrationSet = (
-	sqlite: Database.Database,
+	sqlite: Pick<SqliteHandle<Record<string, unknown>>, "exec">,
 	set: MigrationSet,
 ): void => {
 	for (const statement of migrationStatements(set)) {

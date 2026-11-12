@@ -9,7 +9,11 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import Database from "better-sqlite3";
+import {
+	openTestSqlite,
+	type SqliteConnection,
+	type SqliteHandle,
+} from "../sqlite.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
 	STRANDED_AFTER_MILLIS,
@@ -17,7 +21,7 @@ import {
 	sweepStrandedSentOutbox,
 } from "./stranded-sent-outbox.js";
 
-const clientOver = (sqlite: Database.Database): StrandedSentRepairClient => ({
+const clientOver = (sqlite: SqliteConnection): StrandedSentRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
 	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 });
@@ -28,7 +32,8 @@ interface Row {
 }
 
 describe("outbox rows stranded at sent", () => {
-	let sqlite: Database.Database;
+	let handle: SqliteHandle<Record<string, unknown>>;
+	let sqlite: SqliteConnection;
 
 	const insert = (
 		outboxMessageId: string,
@@ -78,12 +83,13 @@ describe("outbox rows stranded at sent", () => {
 		).n;
 
 	before(() => {
-		sqlite = new Database(":memory:");
-		applyMigrationSet(sqlite, "mail");
+		handle = openTestSqlite<Record<string, unknown>>({});
+		sqlite = handle.sqlite;
+		applyMigrationSet(handle, "mail");
 	});
 
 	after(() => {
-		sqlite.close();
+		handle.close();
 	});
 
 	test("makes a stranded sent message visible again", async () => {

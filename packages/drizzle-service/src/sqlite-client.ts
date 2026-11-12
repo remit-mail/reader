@@ -10,9 +10,8 @@ import type { Db } from "./db.js";
 // set runs as one synchronous batch (`batch.ts`), so the shared connection is
 // never inside another caller's transaction when a plain write lands.
 //
-// The opener and its driver are imported dynamically so the whole
-// module stays out of the DynamoDB Lambda bundle (this package is `external`
-// there — see remit-backend/src/service/data-client.ts).
+// The opener is imported dynamically so the SQLite driver stays out of
+// everything that imports this package's index.
 
 export interface SqliteClientOptions {
 	filename: string;
@@ -31,18 +30,17 @@ export async function createSqliteDatabase<
 ): Promise<SqliteClient<TSchema>> {
 	const { openSqlite } = await import("./sqlite.js");
 
-	const db = openSqlite({
+	const handle = openSqlite({
 		filename: options.filename,
-		readonly: false,
-		mustExist: false,
+		mode: "create",
 		synchronous: "NORMAL",
 		schema,
 	});
 
 	return {
-		db,
+		db: handle.db,
 		close: async () => {
-			db.$client.close();
+			handle.close();
 		},
 	};
 }

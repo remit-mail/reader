@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
-import type Database from "better-sqlite3";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import type { SqliteConnection } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, type TestDb } from "../test-db.js";
 import { AddressRepo } from "./i4-address.js";
@@ -12,7 +12,8 @@ const CONFIG = "cfg-1";
 
 describe("reconciling one message's addresses at the moment it moves", () => {
 	let db: TestDb;
-	let sqlite: Database.Database;
+	let sqlite: SqliteConnection;
+	let exec: (sql: string) => void;
 	let close: () => Promise<void>;
 	let repo: AddressRepo;
 	let specialUse: MailboxSpecialUseRepo;
@@ -125,7 +126,7 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 		).items.map((item) => item.addressId);
 
 	before(async () => {
-		({ db, sqlite, close } = await createTestDb());
+		({ db, sqlite, exec, close } = await createTestDb());
 		repo = new AddressRepo(db as never);
 		specialUse = createSqliteRepositories(
 			{
@@ -162,7 +163,7 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 			"mailbox_special_use_entry",
 			"account",
 		]) {
-			sqlite.exec(`DELETE FROM ${table}`);
+			exec(`DELETE FROM ${table}`);
 		}
 		mailbox("inbox", null, { fullPath: "INBOX" });
 		mailbox("junk", "Junk", { fullPath: "Ongewenst" });
@@ -284,8 +285,8 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 	 * would hand the spammer back on the next move.
 	 */
 	test("a move never lifts a mark when no folder holds Junk", async () => {
-		sqlite.exec("DELETE FROM mailbox_special_use_entry");
-		sqlite.exec("UPDATE mailbox SET special_use = NULL");
+		exec("DELETE FROM mailbox_special_use_entry");
+		exec("UPDATE mailbox SET special_use = NULL");
 		message("msg", "inbox");
 		await repo.upsertJunkAddress({
 			addressId: "spammer",

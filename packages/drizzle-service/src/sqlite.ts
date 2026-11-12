@@ -1,63 +1,84 @@
 import Database from "better-sqlite3";
-import {
-	type BetterSQLite3Database,
-	drizzle,
-} from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import type { MigrationConfig } from "drizzle-orm/migrator";
+import type { Db } from "./db.js";
+
+export type SqliteMode = "create" | "open" | "readonly";
 
 export type SqliteSynchronous = "OFF" | "NORMAL" | "FULL";
 
 export interface OpenSqliteOptions<TSchema extends Record<string, unknown>> {
-	/** A file path, or `:memory:`. */
 	filename: string;
-	readonly: boolean;
-	mustExist: boolean;
+	mode: SqliteMode;
 	synchronous: SqliteSynchronous;
 	schema: TSchema;
 }
 
-export type SqliteDb<TSchema extends Record<string, unknown>> =
-	BetterSQLite3Database<TSchema> & { $client: Database.Database };
+export interface SqliteStatement {
+	all(...params: unknown[]): unknown[];
+	get(...params: unknown[]): unknown;
+	run(...params: unknown[]): { changes: number };
+}
 
-export const MEMORY = ":memory:";
+export interface SqliteConnection {
+	prepare(source: string): SqliteStatement;
+}
 
-/**
- * Open a SQLite database. A writable file runs in WAL mode; every handle has
- * foreign keys on and waits up to 5 s on a lock held by another connection.
- */
+export interface SqliteHandle<TSchema extends Record<string, unknown>> {
+	db: Db<TSchema>;
+	sqlite: SqliteConnection;
+	exec(sql: string): void;
+	close(): void;
+}
+
+const drivers = new WeakMap<object, Database.Database>();
+
+// A writable database runs in WAL mode, and every handle waits up to 5 s on a
+// lock another connection holds.
 export function openSqlite<TSchema extends Record<string, unknown>>(
 	options: OpenSqliteOptions<TSchema>,
-): SqliteDb<TSchema> {
+): SqliteHandle<TSchema> {
 	const sqlite = new Database(options.filename, {
-		readonly: options.readonly,
-		fileMustExist: options.mustExist,
+		readonly: options.mode === "readonly",
+		fileMustExist: options.mode !== "create",
 	});
-	if (!options.readonly && options.filename !== MEMORY) {
-		sqlite.pragma("journal_mode = WAL");
-	}
+	if (options.mode !== "readonly") sqlite.pragma("journal_mode = WAL");
 	sqlite.pragma("busy_timeout = 5000");
 	sqlite.pragma(`synchronous = ${options.synchronous}`);
 	sqlite.pragma("foreign_keys = ON");
-	return drizzle(sqlite, { schema: options.schema });
+
+	const db = drizzle(sqlite, { schema: options.schema });
+	const handle: SqliteHandle<TSchema> = {
+		db,
+		sqlite,
+		exec: (sql) => {
+			sqlite.exec(sql);
+		},
+		close: () => {
+			sqlite.close();
+		},
+	};
+	drivers.set(handle, sqlite);
+	return handle;
 }
 
-/** A writable in-memory database, for a test. */
 export function openTestSqlite<TSchema extends Record<string, unknown>>(
 	schema: TSchema,
-): SqliteDb<TSchema> {
+): SqliteHandle<TSchema> {
 	return openSqlite({
-		filename: MEMORY,
-		readonly: false,
-		mustExist: false,
+		filename: ":memory:",
+		mode: "create",
 		synchronous: "OFF",
 		schema,
 	});
 }
 
-/** Apply a drizzle migrations folder to an open database. */
 export function migrateSqlite<TSchema extends Record<string, unknown>>(
-	db: SqliteDb<TSchema>,
-	migrationsFolder: string,
+	handle: SqliteHandle<TSchema>,
+	config: MigrationConfig,
 ): void {
-	migrate(db, { migrationsFolder });
+	const sqlite = drivers.get(handle);
+	if (!sqlite) throw new Error("migrateSqlite takes a handle from openSqlite");
+	migrate(drizzle(sqlite), config);
 }

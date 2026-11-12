@@ -1,8 +1,6 @@
 import { join } from "node:path";
-import type Database from "better-sqlite3";
 import { SQLITE_DATABASE_ENV, type SqliteDatabasePaths } from "./databases.js";
-import type { Db } from "./db.js";
-import { openSqlite, openTestSqlite } from "./sqlite.js";
+import { openSqlite, openTestSqlite, type SqliteHandle } from "./sqlite.js";
 import {
 	applyMigrationSet,
 	MIGRATION_SETS,
@@ -18,7 +16,9 @@ import {
  * repo whatever database the repo runs on in a deployment. Their tables do not
  * overlap, so nothing collides.
  */
-export const applyShippedMigrations = (sqlite: Database.Database): void => {
+export const applyShippedMigrations = (
+	sqlite: Pick<SqliteHandle<Record<string, unknown>>, "exec">,
+): void => {
 	for (const set of MIGRATION_SETS) applyMigrationSet(sqlite, set);
 };
 
@@ -26,19 +26,12 @@ export const applyShippedMigrations = (sqlite: Database.Database): void => {
  * A migrated in-memory database and a drizzle handle over it, for a test that
  * wants one repo and no file to clean up.
  */
-export const createShippedSqliteDb = (): {
-	db: Db<Record<string, unknown>>;
-	sqlite: Database.Database;
-	close: () => void;
-} => {
-	const db = openTestSqlite({});
-	const sqlite = db.$client;
-	applyShippedMigrations(sqlite);
-	return {
-		db: db as unknown as Db<Record<string, unknown>>,
-		sqlite,
-		close: () => sqlite.close(),
-	};
+export const createShippedSqliteDb = (): SqliteHandle<
+	Record<string, unknown>
+> => {
+	const handle = openTestSqlite<Record<string, unknown>>({});
+	applyShippedMigrations(handle);
+	return handle;
 };
 
 /**
@@ -55,15 +48,14 @@ export const createShippedSqliteFiles = (
 		search: join(directory, "search.db"),
 	};
 	for (const set of MIGRATION_SETS) {
-		const { $client: sqlite } = openSqlite({
+		const handle = openSqlite({
 			filename: paths[set],
-			readonly: false,
-			mustExist: false,
+			mode: "create",
 			synchronous: "NORMAL",
 			schema: {},
 		});
-		applyMigrationSet(sqlite, set);
-		sqlite.close();
+		applyMigrationSet(handle, set);
+		handle.close();
 		process.env[SQLITE_DATABASE_ENV[set]] = paths[set];
 	}
 	return paths;
