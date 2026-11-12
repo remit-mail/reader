@@ -12,17 +12,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import {
+	migrateSqlite,
+	type SqliteHandle,
+} from "@remit/drizzle-service/sqlite";
 import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
-import { LEGACY_SETS, migrateSqliteFiles, prepareInPlace } from "./in-place.js";
+import {
+	LEGACY_SETS,
+	migrateSqliteFiles,
+	openFile,
+	prepareInPlace,
+} from "./in-place.js";
 import {
 	ADDED_COLUMNS,
 	captureBefore,
 	DROPPED_COLUMNS,
 	DROPPED_TABLES,
 	FILLED_COLUMNS,
+	firstValue,
 	isDerivedTable,
 	verifyAfter,
 } from "./in-place-verify.js";
@@ -32,7 +39,7 @@ const ROOT = fileURLToPath(new URL("../../../deploy/vps", import.meta.url));
 const fixture = (name: string): string =>
 	readFileSync(new URL(`fixtures/${name}`, import.meta.url), "utf8");
 
-const driver = { Database, drizzle };
+type Handle = SqliteHandle<Record<string, never>>;
 const quiet = (): void => {};
 
 const dir = mkdtempSync(join(tmpdir(), "remit-in-place-"));
@@ -53,16 +60,16 @@ const V0922_LAST = {
 // drizzle 0.x stamped each row with the millisecond its migration was
 // generated; a 1.0 migration folder names only the second.
 const legacyRow = (
-	sqlite: Database.Database,
+	sqlite: Handle,
 	table: string,
 	migration: MigrationMeta,
 ): void => {
-	sqlite
+	sqlite.sqlite
 		.prepare(`INSERT INTO "${table}" (hash, created_at) VALUES (?, ?)`)
 		.run(migration.hash, migration.folderMillis + 123);
 };
 
-const journalRows = (sqlite: Database.Database): void => {
+const journalRows = (sqlite: Handle): void => {
 	const sets = [
 		{ ...LEGACY_SETS[0], last: V0922_LAST.entities },
 		{ ...LEGACY_SETS[1], last: V0922_LAST.auth },
@@ -81,7 +88,7 @@ const journalRows = (sqlite: Database.Database): void => {
 	sqlite.exec(
 		"CREATE TABLE __drizzle_migrations_meta (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)",
 	);
-	sqlite
+	sqlite.sqlite
 		.prepare(
 			"INSERT INTO __drizzle_migrations_meta (hash, created_at) VALUES ('v0.9.22 meta 0000', ?)",
 		)
@@ -90,11 +97,11 @@ const journalRows = (sqlite: Database.Database): void => {
 
 /** A row with every NOT NULL column the test does not name filled in. */
 const insert = (
-	sqlite: Database.Database,
+	sqlite: Handle,
 	table: string,
 	values: Record<string, string | number | null>,
 ): void => {
-	const columns = sqlite
+	const columns = sqlite.sqlite
 		.prepare(
 			'SELECT name, type, "notnull" AS "notnull", dflt_value AS dflt FROM pragma_table_info(?)',
 		)
@@ -116,7 +123,7 @@ const insert = (
 			: `${table}.${column.name}`;
 	}
 	const names = Object.keys(row);
-	sqlite
+	sqlite.sqlite
 		.prepare(
 			`INSERT INTO "${table}" (${names.map((n) => `"${n}"`).join(", ")}) VALUES (${names.map(() => "?").join(", ")})`,
 		)
@@ -131,7 +138,7 @@ const RULES = '[{"field":"From","value":"support@npmjs.com"}]';
  * installed beside them.
  */
 const seedV0922 = (path: string): void => {
-	const sqlite = new Database(path);
+	const sqlite = openFile(path, "create");
 	sqlite.exec(fixture("remit-v0.9.22.sql"));
 	sqlite.exec(fixture("remit-v0.9.22-migrator-objects.sql"));
 	journalRows(sqlite);
@@ -267,8 +274,8 @@ const seedV0922 = (path: string): void => {
 	sqlite.close();
 };
 
-const read = <T>(path: string, run: (sqlite: Database.Database) => T): T => {
-	const sqlite = new Database(path, { readonly: true });
+const read = <T>(path: string, run: (sqlite: Handle) => T): T => {
+	const sqlite = openFile(path, "readonly");
 	try {
 		return run(sqlite);
 	} finally {
@@ -277,7 +284,7 @@ const read = <T>(path: string, run: (sqlite: Database.Database) => T): T => {
 };
 
 const rows = (path: string, sql: string): unknown[] =>
-	read(path, (sqlite) => sqlite.prepare(sql).all());
+	read(path, (sqlite) => sqlite.sqlite.prepare(sql).all());
 
 const objects = (path: string): string[] =>
 	rows(
@@ -289,15 +296,15 @@ const everyRow = (path: string): string =>
 	JSON.stringify(
 		read(path, (sqlite) =>
 			(
-				sqlite
+				sqlite.sqlite
 					.prepare(
 						"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
 					)
-					.pluck()
-					.all() as string[]
+					.all()
+					.map(firstValue) as string[]
 			).map((table) => [
 				table,
-				sqlite.prepare(`SELECT * FROM "${table}" ORDER BY 1`).all(),
+				sqlite.sqlite.prepare(`SELECT * FROM "${table}" ORDER BY 1`).all(),
 			]),
 		),
 	);
@@ -309,7 +316,7 @@ describe("a v0.9.22 remit.db migrated in place", async () => {
 		path,
 		"SELECT * FROM message ORDER BY message_id",
 	);
-	await migrateSqliteFiles(sameFile(path), driver, ROOT, quiet);
+	await migrateSqliteFiles(sameFile(path), ROOT, quiet);
 
 	test("keeps the filter with rules exactly as it was", () => {
 		assert.deepEqual(
@@ -404,7 +411,7 @@ describe("a v0.9.22 remit.db migrated in place", async () => {
 
 	test("changes nothing on a second run", async () => {
 		const once = everyRow(path);
-		await migrateSqliteFiles(sameFile(path), driver, ROOT, quiet);
+		await migrateSqliteFiles(sameFile(path), ROOT, quiet);
 		assert.equal(everyRow(path), once);
 	});
 });
@@ -413,14 +420,14 @@ describe("the verification", () => {
 	test("fails when a carried row differs after migrating", () => {
 		const path = freshPath();
 		seedV0922(path);
-		const sqlite = new Database(path);
+		const sqlite = openFile(path, "create");
 		try {
-			const before = captureBefore(sqlite);
+			const before = captureBefore(sqlite.sqlite);
 			sqlite.exec(
 				"UPDATE message SET mailbox_id = 'mbx-notifications' WHERE message_id = 'msg-filed'",
 			);
 			assert.throws(
-				() => verifyAfter(sqlite, before, "remit.db"),
+				() => verifyAfter(sqlite.sqlite, before, "remit.db"),
 				/V5 messages: 4 rows before and 4 after, and they differ/,
 			);
 		} finally {
@@ -431,18 +438,18 @@ describe("the verification", () => {
 
 describe("refusing a file it cannot migrate safely", () => {
 	const refuses = async (
-		change: (sqlite: Database.Database) => void,
+		change: (sqlite: Handle) => void,
 		message: RegExp,
 		seed: (path: string) => void = seedV0922,
 	): Promise<void> => {
 		const path = freshPath();
 		seed(path);
-		const sqlite = new Database(path);
+		const sqlite = openFile(path, "create");
 		change(sqlite);
 		sqlite.close();
 		const bytes = readFileSync(path);
 		await assert.rejects(
-			migrateSqliteFiles(sameFile(path), driver, ROOT, quiet),
+			migrateSqliteFiles(sameFile(path), ROOT, quiet),
 			message,
 		);
 		assert.ok(readFileSync(path).equals(bytes), "the file changed");
@@ -462,7 +469,7 @@ describe("refusing a file it cannot migrate safely", () => {
 			() => {},
 			/holds tables but no migration history, so its shape is unknown\. Nothing was changed\./,
 			(path) => {
-				const sqlite = new Database(path);
+				const sqlite = openFile(path, "create");
 				sqlite.exec(fixture("remit-v0.9.22.sql"));
 				sqlite.close();
 			},
@@ -513,9 +520,9 @@ describe("refusing a file it cannot migrate safely", () => {
 describe("a fresh install on one file", () => {
 	test("holds the same schema as the three sets on three files", async () => {
 		const one = freshPath();
-		await migrateSqliteFiles(sameFile(one), driver, ROOT, quiet);
+		await migrateSqliteFiles(sameFile(one), ROOT, quiet);
 		const three = { app: freshPath(), mail: freshPath(), search: freshPath() };
-		await migrateSqliteFiles(three, driver, ROOT, quiet);
+		await migrateSqliteFiles(three, ROOT, quiet);
 		const union = [
 			...new Set([
 				...objects(three.app),
@@ -557,34 +564,34 @@ const NEW_TABLES: ReadonlyMap<string, string> = new Map([
 ]);
 const KEPT_UNREAD = new Set(["instance_owner"]);
 
-const shape = (sqlite: Database.Database): Map<string, string[]> =>
+const shape = (sqlite: Handle): Map<string, string[]> =>
 	new Map(
 		(
-			sqlite
+			sqlite.sqlite
 				.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-				.pluck()
-				.all() as string[]
+				.all()
+				.map(firstValue) as string[]
 		)
 			.filter((table) => !isDerivedTable(table))
 			.map((table) => [
 				table,
-				sqlite
+				sqlite.sqlite
 					.prepare("SELECT name FROM pragma_table_info(?)")
-					.pluck()
-					.all(table) as string[],
+					.all(table)
+					.map(firstValue) as string[],
 			]),
 	);
 
 describe("the spec's delta table", () => {
 	test("names every table and column the v0.9.22 and v0.10 schemas differ in", async () => {
-		const old = new Database(":memory:");
+		const old = openFile(":memory:", "create");
 		old.exec(fixture("remit-v0.9.22.sql"));
-		const fresh = new Database(":memory:");
-		await applyMigrationSets(
+		const fresh = openFile(":memory:", "create");
+		applyMigrationSets(
 			{
-				app: drizzle({ client: fresh }),
-				mail: drizzle({ client: fresh }),
-				search: drizzle({ client: fresh }),
+				app: fresh,
+				mail: fresh,
+				search: fresh,
 			},
 			ROOT,
 			quiet,
@@ -630,20 +637,21 @@ describe("the spec's delta table", () => {
 	});
 
 	test("applies only the legacy tail to a v0.9.22 file: entities 0040 to 0044 and auth 0001", () => {
-		const sqlite = new Database(":memory:");
+		const sqlite = openFile(":memory:", "create");
 		sqlite.exec(fixture("remit-v0.9.22.sql"));
 		journalRows(sqlite);
 		for (const set of LEGACY_SETS) {
-			migrate(drizzle({ client: sqlite }), {
+			migrateSqlite(sqlite, {
 				migrationsFolder: join(ROOT, set.migrationsFolder),
 				migrationsTable: set.migrationsTable,
 			});
 		}
 		const applied = (table: string): number =>
-			sqlite
-				.prepare(`SELECT count(*) FROM ${table} WHERE applied_at IS NOT NULL`)
-				.pluck()
-				.get() as number;
+			firstValue(
+				sqlite.sqlite
+					.prepare(`SELECT count(*) FROM ${table} WHERE applied_at IS NOT NULL`)
+					.get(),
+			) as number;
 		assert.equal(applied("__drizzle_migrations_entities"), 5);
 		assert.equal(applied("__drizzle_migrations_auth"), 1);
 		sqlite.close();
@@ -656,7 +664,7 @@ describe("the spec's delta table", () => {
  */
 const seedV0927 = (path: string): void => {
 	seedV0922(path);
-	const sqlite = new Database(path);
+	const sqlite = openFile(path, "create");
 	const legacyLast = [V0922_LAST.entities, V0922_LAST.auth];
 	LEGACY_SETS.forEach((set, index) => {
 		for (const migration of readMigrationFiles({
@@ -687,12 +695,13 @@ describe("a v0.9.27 remit.db migrated in place", async () => {
 	const path = freshPath();
 	seedV0927(path);
 	const newest = read(path, (sqlite) =>
-		sqlite
-			.prepare("SELECT max(created_at) FROM __drizzle_migrations_entities")
-			.pluck()
-			.get(),
+		firstValue(
+			sqlite.sqlite
+				.prepare("SELECT max(created_at) FROM __drizzle_migrations_entities")
+				.get(),
+		),
 	);
-	await migrateSqliteFiles(sameFile(path), driver, ROOT, quiet);
+	await migrateSqliteFiles(sameFile(path), ROOT, quiet);
 
 	test("starts from the entities journal at 0044", () => {
 		const [last] = readMigrationFiles({
@@ -721,9 +730,9 @@ describe("a run that stopped before verifying", () => {
 	test("is refused on the next run instead of reported migrated", async () => {
 		const path = freshPath();
 		seedV0922(path);
-		assert.ok(await prepareInPlace(sameFile(path), driver, ROOT, quiet));
+		assert.ok(await prepareInPlace(sameFile(path), ROOT, quiet));
 		await assert.rejects(
-			migrateSqliteFiles(sameFile(path), driver, ROOT, quiet),
+			migrateSqliteFiles(sameFile(path), ROOT, quiet),
 			/was migrated in place by a run that did not finish its verification.*Restore the pre-update snapshot/,
 		);
 	});
@@ -739,7 +748,7 @@ describe("a volume a v0.9.28 to v0.10 release split", () => {
 		writeFileSync(join(volume, "app.db"), "the split app database");
 		const path = join(volume, "remit.db");
 		await assert.rejects(
-			migrateSqliteFiles(sameFile(path), driver, ROOT, quiet),
+			migrateSqliteFiles(sameFile(path), ROOT, quiet),
 			/remit\.db is missing or empty, but app\.db, remit\.db\.pre-split beside it hold the data of a release that split remit\.db\..*Nothing was changed\./,
 		);
 		assert.ok(!existsSync(path), "an empty remit.db was created");

@@ -1,5 +1,8 @@
 import { join } from "node:path";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import {
+	migrateSqlite,
+	type SqliteHandle,
+} from "@remit/drizzle-service/sqlite";
 import type { SqliteDatabasePaths } from "../../drizzle-service/src/databases.js";
 
 /**
@@ -40,19 +43,18 @@ export const MIGRATION_SETS = [
 
 export type MigrationDatabases = Record<
 	keyof SqliteDatabasePaths,
-	BetterSQLite3Database
+	SqliteHandle<Record<string, unknown>>
 >;
 
 /** Apply each database's committed migrations, forward only. */
-export const applyMigrationSets = async (
+export const applyMigrationSets = (
 	databases: MigrationDatabases,
 	root: string,
 	log: (database: string) => void,
-): Promise<void> => {
-	const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
+): void => {
 	for (const set of MIGRATION_SETS) {
 		log(set.database);
-		migrate(databases[set.database], {
+		migrateSqlite(databases[set.database], {
 			migrationsFolder: join(root, set.migrationsFolder),
 			migrationsTable: set.migrationsTable,
 		});

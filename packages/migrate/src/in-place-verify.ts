@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
-import type BetterSqlite3 from "better-sqlite3";
+import type { SqliteConnection } from "@remit/drizzle-service/sqlite";
 
-type Handle = BetterSqlite3.Database;
+type Handle = SqliteConnection;
+
+export const firstValue = (row: unknown): unknown =>
+	row === undefined ? undefined : Object.values(row as object)[0];
 
 /**
  * What the in-place migration of a v0.9 remit.db removes, each with the
@@ -55,8 +58,8 @@ const tablesOf = (db: Handle): string[] =>
 		.prepare(
 			"SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
 		)
-		.pluck()
-		.all() as string[];
+		.all()
+		.map(firstValue) as string[];
 
 const columnsOf = (db: Handle, table: string): ColumnInfo[] =>
 	db
@@ -64,7 +67,7 @@ const columnsOf = (db: Handle, table: string): ColumnInfo[] =>
 		.all(table) as ColumnInfo[];
 
 const idsOf = (db: Handle, sql: string): string[] =>
-	db.prepare(sql).pluck().all() as string[];
+	db.prepare(sql).all().map(firstValue) as string[];
 
 interface Query {
 	id: string;
@@ -80,8 +83,8 @@ interface Digest {
 const digest = (db: Handle, sql: string): Digest => {
 	const hash = createHash("sha256");
 	let rows = 0;
-	for (const row of db.prepare(sql).raw().iterate()) {
-		hash.update(JSON.stringify(row));
+	for (const row of db.prepare(sql).iterate()) {
+		hash.update(JSON.stringify(Object.values(row as object)));
 		hash.update("\n");
 		rows++;
 	}
@@ -347,7 +350,7 @@ export const captureBefore = (db: Handle): BeforeState => {
 };
 
 const count = (db: Handle, sql: string): number =>
-	db.prepare(sql).pluck().get() as number;
+	firstValue(db.prepare(sql).get()) as number;
 
 /**
  * The after half: every pair equal, every removal one the delta lists, every

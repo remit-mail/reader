@@ -1,3 +1,4 @@
+import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 import { BETTER_SQLITE3_LIMITS } from "../../drizzle-service/src/bound-parameters.js";
@@ -26,13 +27,12 @@ import {
 import type { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
 import { SearchIndex } from "../../drizzle-service/src/search/thread-message-search.js";
 import { createSqliteRepositories } from "../../drizzle-service/src/sqlite-repositories.js";
-import { migrateSqliteFiles, type SqliteDriver } from "./in-place.js";
+import { migrateSqliteFiles } from "./in-place.js";
 
-// The drizzle-service modules above are reached by module path rather than
-// through the package entry point: this entrypoint is bundled by esbuild, and
-// everything reached this way is pure TypeScript over the drizzle query builder,
-// so bundling it drags in no native driver — better-sqlite3 stays external and
-// dynamically imported below.
+// The drizzle-service modules above are reached by module path or the `sqlite`
+// subpath rather than through the package entry point: this entrypoint is
+// bundled by esbuild, and the native driver behind the opener stays external
+// (see npm-scripts/docker-bundle.mjs).
 
 installNodeLogger();
 
@@ -175,46 +175,38 @@ type ParamRepairClient = DisplayNameRepairClient &
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const paths = sqliteDatabasePathsFromEnv();
 
-	// Dynamic imports so the module stays bundleable with the native
-	// better-sqlite3 binding marked external (see npm-scripts/docker-bundle.mjs).
-	const { default: Database } = await import("better-sqlite3");
-	const { drizzle: sqliteDrizzle } = await import("drizzle-orm/better-sqlite3");
-	const driver: SqliteDriver = { Database, drizzle: sqliteDrizzle };
-
 	// The schema first, with its own handles, so the repairs below run against
 	// a file that is fully migrated and, for a v0.9 remit.db, verified.
 	if (mode.kind !== "check") {
-		await migrateSqliteFiles(paths, driver, ".", logStep);
+		await migrateSqliteFiles(paths, ".", logStep);
 	}
 
 	// `--check` opens the files read-only, so "writes nothing" is enforced by
 	// the engine rather than by reading the queries — that is what makes it safe
 	// to point at a live instance.
-	const readonly = mode.kind === "check";
-	const open = (path: string) => {
-		const sqlite = new Database(path, { readonly });
-		if (!readonly) {
-			// WAL + busy_timeout are the cross-process write coordination RFC 036
-			// D3 requires; set them on the migrator connection too so a concurrent
-			// app boot never trips on a fresh database file.
-			sqlite.pragma("journal_mode = WAL");
-			sqlite.pragma("busy_timeout = 5000");
-			sqlite.pragma("foreign_keys = ON");
-		}
-		return sqlite;
-	};
+	// The opener sets WAL and busy_timeout on a writable handle, the cross-process
+	// write coordination RFC 036 D3 requires, so a concurrent app boot never trips
+	// on a fresh database file.
+	const open = (path: string) =>
+		openSqlite({
+			filename: path,
+			mode: mode.kind === "check" ? "readonly" : "create",
+			synchronous: "FULL",
+			schema: {},
+		});
 	const appSqlite = open(paths.app);
 	const mailSqlite = open(paths.mail);
 	const searchSqlite = open(paths.search);
 	// One handle, both parameterised repairs: the two clients are the same
 	// three lines, and a second copy is a second thing to keep in step.
 	const paramRepairClient: ParamRepairClient = {
-		all: async (sql, params) => mailSqlite.prepare(sql).all(...params),
-		run: async (sql, params) => mailSqlite.prepare(sql).run(...params).changes,
+		all: async (sql, params) => mailSqlite.sqlite.prepare(sql).all(...params),
+		run: async (sql, params) =>
+			mailSqlite.sqlite.prepare(sql).run(...params).changes,
 	};
-	const app = sqliteDrizzle({ client: appSqlite });
-	const db = sqliteDrizzle({ client: mailSqlite });
-	const searchDb = sqliteDrizzle({ client: searchSqlite });
+	const app = appSqlite.db;
+	const db = mailSqlite.db;
+	const searchDb = searchSqlite.db;
 	const search = new SearchIndex(
 		db,
 		syncStore(searchDb, BETTER_SQLITE3_LIMITS),

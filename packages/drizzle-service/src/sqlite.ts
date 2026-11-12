@@ -21,6 +21,7 @@ export interface SqliteStatement {
 	all(...params: unknown[]): unknown[];
 	get(...params: unknown[]): unknown;
 	run(...params: unknown[]): { changes: number };
+	iterate(...params: unknown[]): IterableIterator<unknown>;
 }
 
 export interface SqliteConnection {
