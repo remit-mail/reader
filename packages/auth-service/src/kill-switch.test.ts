@@ -77,7 +77,7 @@ before(() => {
 	sqlite.pragma("journal_mode = WAL");
 	sqlite.pragma("foreign_keys = ON");
 	for (const set of ["app", "mcp"]) {
-		migrate(drizzle(sqlite), {
+		migrate(drizzle({ client: sqlite }), {
 			migrationsFolder: join(MIGRATIONS, set),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});

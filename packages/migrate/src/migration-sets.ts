@@ -40,7 +40,7 @@ export const MIGRATION_SETS = [
 
 export type MigrationDatabases = Record<
 	keyof SqliteDatabasePaths,
-	BetterSQLite3Database<Record<string, unknown>>
+	BetterSQLite3Database
 >;
 
 /** Apply each database's committed migrations, forward only. */

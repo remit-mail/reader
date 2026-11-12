@@ -573,7 +573,11 @@ describe("the spec's delta table", () => {
 		old.exec(fixture("remit-v0.9.22.sql"));
 		const fresh = new Database(":memory:");
 		await applyMigrationSets(
-			{ app: drizzle(fresh), mail: drizzle(fresh), search: drizzle(fresh) },
+			{
+				app: drizzle({ client: fresh }),
+				mail: drizzle({ client: fresh }),
+				search: drizzle({ client: fresh }),
+			},
 			ROOT,
 			quiet,
 		);
@@ -622,7 +626,7 @@ describe("the spec's delta table", () => {
 		sqlite.exec(fixture("remit-v0.9.22.sql"));
 		journalRows(sqlite);
 		for (const set of LEGACY_SETS) {
-			migrate(drizzle(sqlite), {
+			migrate(drizzle({ client: sqlite }), {
 				migrationsFolder: join(ROOT, set.migrationsFolder),
 				migrationsTable: set.migrationsTable,
 			});
@@ -649,7 +653,7 @@ const seedV0927 = (path: string): void => {
 	seedV0922(path);
 	const sqlite = new Database(path);
 	for (const set of LEGACY_SETS) {
-		migrate(drizzle(sqlite), {
+		migrate(drizzle({ client: sqlite }), {
 			migrationsFolder: join(ROOT, set.migrationsFolder),
 			migrationsTable: set.migrationsTable,
 		});
@@ -703,6 +707,19 @@ describe("a v0.9.27 remit.db migrated in place", async () => {
 			rows(path, "SELECT * FROM __drizzle_migrations_mcp").length,
 			5,
 		);
+	});
+});
+
+describe("a v0.9.27 journal stamped to the millisecond", () => {
+	test("is migrated, not refused as written by an unknown release", async () => {
+		const path = freshPath();
+		seedV0927(path);
+		const sqlite = new Database(path);
+		sqlite.exec(
+			"UPDATE __drizzle_migrations_entities SET created_at = created_at + 999 WHERE created_at = (SELECT max(created_at) FROM __drizzle_migrations_entities)",
+		);
+		sqlite.close();
+		await migrateSqliteFiles(sameFile(path), driver, ROOT, quiet);
 	});
 });
 

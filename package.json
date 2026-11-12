@@ -80,7 +80,7 @@
     "@typespec/openapi": "~1.17.0",
     "@typespec/openapi3": "~1.17.0",
     "conventional-changelog-conventionalcommits": "^9.3.1",
-    "drizzle-orm": "0.45.2",
+    "drizzle-orm": "1.0.0-rc.5",
     "openapi-client-axios": "^7.9.1",
     "semantic-release": "^25.0.9",
     "sharp": "0.35.5",

@@ -1,4 +1,4 @@
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core";
 import type { WriteBatch } from "./batch.js";
 
 /**
@@ -6,10 +6,9 @@ import type { WriteBatch } from "./batch.js";
  * Object's `durable-sqlite`. Only `syncBatch` and the better-sqlite3
  * composition name it; a repository never does.
  */
-export type Db<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<
+export type Db<_TSchema extends Record<string, unknown>> = SQLiteAsyncDatabase<
 	"sync",
-	unknown,
-	TSchema
+	unknown
 >;
 
 /**
@@ -18,8 +17,8 @@ export type Db<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<
  * `transaction` and no `batch`, so a repository writes a set through the
  * injected `WriteBatch` and cannot open an interactive transaction (C5).
  */
-export type RepositoryDb<TSchema extends Record<string, unknown>> = Omit<
-	BaseSQLiteDatabase<"sync" | "async", unknown, TSchema>,
+export type RepositoryDb<_TSchema extends Record<string, unknown>> = Omit<
+	SQLiteAsyncDatabase<"sync" | "async", unknown>,
 	"transaction" | "batch"
 >;
 

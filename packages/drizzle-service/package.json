@@ -32,14 +32,14 @@
   "devDependencies": {
     "@remit/calendar-service": "*",
     "@remit/config-transfer": "*",
-    "drizzle-kit": "^0.31.1",
+    "drizzle-kit": "1.0.0-rc.5",
     "miniflare": "^4.20260730.0",
     "tsx": "*"
   },
   "dependencies": {
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.5",
     "uuid": "^13.0.2",
     "@remit/drizzle-sqlite-schema": "*",
     "better-sqlite3": "^12.11.1",

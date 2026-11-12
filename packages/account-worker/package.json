@@ -48,7 +48,7 @@
 		"@remit/electrodb-entities": "*",
 		"@aws-sdk/client-sqs": "^3.1090.0",
 		"archiver": "^8.0.0",
-		"drizzle-orm": "^0.45.2",
+		"drizzle-orm": "1.0.0-rc.5",
 		"electrodb": "^3.9.1",
 		"expect-env": "^1.0.1",
 		"@types/archiver": "^8.0.0",

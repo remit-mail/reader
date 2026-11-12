@@ -49,7 +49,7 @@ const buildAuthAdapter = async (config: AuthConfig) => {
 	sqlite.pragma("busy_timeout = 5000");
 	sqlite.pragma("synchronous = NORMAL");
 	sqlite.pragma("foreign_keys = ON");
-	return drizzleAdapter(drizzle(sqlite, { schema: authSchemaSqlite }), {
+	return drizzleAdapter(drizzle({ client: sqlite }), {
 		provider: "sqlite",
 		schema: authSchemaSqlite,
 	});

@@ -37,7 +37,7 @@ const mcp_session = sqliteTable("mcp_session", {
 
 export type IdentityDb = ReturnType<typeof drizzle>;
 
-type SqliteDb = BetterSQLite3Database<Record<string, unknown>>;
+type SqliteDb = BetterSQLite3Database;
 
 export interface IdentityStore {
 	db: IdentityDb;
@@ -121,7 +121,7 @@ export const openIdentityStore = async (
 	sqlite.pragma("busy_timeout = 5000");
 	sqlite.pragma("synchronous = NORMAL");
 	sqlite.pragma("foreign_keys = ON");
-	return identityStore(drizzle(sqlite));
+	return identityStore(drizzle({ client: sqlite }));
 };
 
 export interface UserRow {
