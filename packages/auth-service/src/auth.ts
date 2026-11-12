@@ -36,20 +36,20 @@ export interface AuthConfig {
 	signInEnabled: boolean;
 }
 
-// The drizzle adapter better-auth runs against. better-sqlite3 and its drizzle
-// driver are imported dynamically so the module stays out of any bundle that
-// never opens the database. The auth connection sets the same WAL/busy_timeout
+// The drizzle adapter better-auth runs against. The SQLite opener is imported
+// dynamically so the driver stays out of any bundle that never opens the
+// database. The auth connection sets the same WAL/busy_timeout
 // coordination every writer uses (RFC 036 D3) — it shares the file with the app
 // tables through its own connection.
 const buildAuthAdapter = async (config: AuthConfig) => {
-	const { default: Database } = await import("better-sqlite3");
-	const { drizzle } = await import("drizzle-orm/better-sqlite3");
-	const sqlite = new Database(config.connectionString);
-	sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("busy_timeout = 5000");
-	sqlite.pragma("synchronous = NORMAL");
-	sqlite.pragma("foreign_keys = ON");
-	return drizzleAdapter(drizzle({ client: sqlite }), {
+	const { openSqlite } = await import("@remit/drizzle-service/sqlite");
+	const { db } = openSqlite({
+		filename: config.connectionString,
+		mode: "create",
+		synchronous: "NORMAL",
+		schema: authSchemaSqlite,
+	});
+	return drizzleAdapter(db, {
 		provider: "sqlite",
 		schema: authSchemaSqlite,
 	});

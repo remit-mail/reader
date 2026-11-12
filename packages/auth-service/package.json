@@ -43,14 +43,13 @@
   "dependencies": {
     "@remit/logger": "*",
     "better-auth": "^1.7.12",
-    "better-sqlite3": "^12.11.1",
     "drizzle-orm": "1.0.0-rc.5",
     "jose": "^6.2.3",
-    "@types/better-sqlite3": "^7.6.13",
     "@remit/data-ports": "*",
     "@remit/drizzle-sqlite-schema": "*",
     "@remit/api-openapi-types": "*",
-    "@remit/domain-enums": "*"
+    "@remit/domain-enums": "*",
+    "@remit/drizzle-service": "*"
   },
   "license": "MIT",
   "publishConfig": {

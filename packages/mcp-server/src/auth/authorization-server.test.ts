@@ -21,6 +21,11 @@ import {
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
 import {
+	migrateSqlite,
+	openSqlite,
+	type SqliteMode,
+} from "@remit/drizzle-service/sqlite";
+import {
 	BodySyncQueueService,
 	BodySyncService,
 	SyncWarningService,
@@ -30,9 +35,6 @@ import {
 	type Store,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
@@ -86,13 +88,16 @@ let mainSessionToken: string;
 let ownerId: string;
 let mainJwt: string;
 
+const openFile = (mode: SqliteMode) =>
+	openSqlite({ filename, mode, synchronous: "NORMAL", schema: {} });
+
 const sharedRows = (): unknown[] => {
-	const sqlite = new Database(filename, { readonly: true });
+	const file = openFile("readonly");
 	const rows = [
-		...sqlite.prepare("SELECT * FROM auth_user ORDER BY id").all(),
-		...sqlite.prepare("SELECT * FROM auth_account ORDER BY id").all(),
+		...file.sqlite.prepare("SELECT * FROM auth_user ORDER BY id").all(),
+		...file.sqlite.prepare("SELECT * FROM auth_account ORDER BY id").all(),
 	];
-	sqlite.close();
+	file.close();
 	return rows;
 };
 
@@ -117,11 +122,9 @@ const buildApp = (
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "mcp-auth-"));
 	filename = join(dir, "app.db");
-	const migrating = new Database(filename);
-	migrating.pragma("journal_mode = WAL");
-	migrating.pragma("foreign_keys = ON");
+	const migrating = openFile("create");
 	for (const set of ["app", "mcp"]) {
-		migrate(drizzle({ client: migrating }), {
+		migrateSqlite(migrating, {
 			migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS)),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});
@@ -738,11 +741,11 @@ describe("a host that authenticates the browser itself", () => {
 			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject("host-user") }),
 		);
 		assert.equal(signedIn.status, 200);
-		const sqlite = new Database(filename, { readonly: true });
-		const row = sqlite
+		const file = openFile("readonly");
+		const row = file.sqlite
 			.prepare("SELECT email FROM mcp_user WHERE id = ?")
 			.get("host-user");
-		sqlite.close();
+		file.close();
 		assert.deepEqual(row, { email: "host-user@subject.invalid" });
 		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
 		assert.equal(anonymous.status, 401);
@@ -842,9 +845,9 @@ describe("device authorization (RFC 8628)", () => {
 		);
 
 	const updateDeviceCode = (sql: string, ...params: unknown[]): void => {
-		const sqlite = new Database(filename);
-		sqlite.prepare(sql).run(...params);
-		sqlite.close();
+		const file = openFile("open");
+		file.sqlite.prepare(sql).run(...params);
+		file.close();
 	};
 
 	const elapse = (userCode: string, ms: number): void =>
@@ -1022,11 +1025,11 @@ describe("the People operations reach the connector (#1519)", () => {
 	});
 
 	const userIdOf = (email: string): string => {
-		const sqlite = new Database(filename, { readonly: true });
-		const row = sqlite
+		const file = openFile("readonly");
+		const row = file.sqlite
 			.prepare("SELECT id FROM auth_user WHERE email = ?")
 			.get(email) as { id: string };
-		sqlite.close();
+		file.close();
 		return row.id;
 	};
 

@@ -4,6 +4,8 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import type { MigrationConfig } from "drizzle-orm/migrator";
 import type { Db } from "./db.js";
 
+export type { Db } from "./db.js";
+
 export type SqliteMode = "create" | "open" | "readonly";
 
 export type SqliteSynchronous = "OFF" | "NORMAL" | "FULL";

@@ -1,14 +1,14 @@
 import { auth_account, auth_user } from "@remit/auth-service/schema";
 import { verifyPassword } from "better-auth/crypto";
 import { and, eq } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import type { McpAuthDb } from "./database.js";
 
 export type PasswordCheck = { ok: true; userId: string } | { ok: false };
 
 const CREDENTIAL_PROVIDER = "credential";
 
 export const checkRemitPassword = async (
-	db: BetterSQLite3Database,
+	db: McpAuthDb,
 	email: string,
 	password: string,
 ): Promise<PasswordCheck> => {
