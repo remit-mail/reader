@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { openSqlite, type SqliteHandle } from "@remit/drizzle-service/sqlite";
 import { and, asc, count, eq, gt, lt, lte, sql } from "drizzle-orm";
 import {
-	index,
 	integer,
 	primaryKey,
 	sqliteTable,
@@ -22,28 +21,21 @@ const queues = sqliteTable("queues", {
 		.default(0),
 });
 
-const messages = sqliteTable(
-	"messages",
-	{
-		id: integer("id").primaryKey({ autoIncrement: true }),
-		messageId: text("message_id").notNull().unique(),
-		queueName: text("queue_name").notNull(),
-		body: text("body").notNull(),
-		md5Body: text("md5_body").notNull(),
-		groupId: text("group_id"),
-		dedupId: text("dedup_id"),
-		sequenceNumber: text("sequence_number"),
-		receiveCount: integer("receive_count").notNull().default(0),
-		visibleAt: integer("visible_at").notNull().default(0),
-		receiptHandle: text("receipt_handle"),
-		sentAt: integer("sent_at").notNull(),
-		firstReceivedAt: integer("first_received_at"),
-	},
-	(table) => [
-		index("messages_queue_order").on(table.queueName, table.id),
-		index("messages_queue_group").on(table.queueName, table.groupId, table.id),
-	],
-);
+const messages = sqliteTable("messages", {
+	id: integer("id").primaryKey({ autoIncrement: true }),
+	messageId: text("message_id").notNull(),
+	queueName: text("queue_name").notNull(),
+	body: text("body").notNull(),
+	md5Body: text("md5_body").notNull(),
+	groupId: text("group_id"),
+	dedupId: text("dedup_id"),
+	sequenceNumber: text("sequence_number"),
+	receiveCount: integer("receive_count").notNull().default(0),
+	visibleAt: integer("visible_at").notNull().default(0),
+	receiptHandle: text("receipt_handle"),
+	sentAt: integer("sent_at").notNull(),
+	firstReceivedAt: integer("first_received_at"),
+});
 
 const dedup = sqliteTable(
 	"dedup",
@@ -338,26 +330,8 @@ export class QueueStore {
 		}, IMMEDIATE);
 	}
 
-	private insertMessage(message: {
-		messageId: string;
-		queueName: string;
-		body: string;
-		md5Body: string;
-		groupId: string | null;
-		dedupId: string | null;
-		sequenceNumber: string | null;
-		sentAt: number;
-	}): void {
-		this.db
-			.insert(messages)
-			.values({
-				...message,
-				receiveCount: 0,
-				visibleAt: 0,
-				receiptHandle: null,
-				firstReceivedAt: null,
-			})
-			.run();
+	private insertMessage(message: typeof messages.$inferInsert): void {
+		this.db.insert(messages).values(message).run();
 	}
 
 	receiveMessages(input: {
