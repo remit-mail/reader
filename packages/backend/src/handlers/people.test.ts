@@ -12,9 +12,7 @@ import {
 	type PeopleAdmin,
 } from "@remit/auth-service";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { migrateSqlite, openSqlite } from "@remit/drizzle-service/sqlite";
 import type { Context } from "openapi-backend";
 import type { ApiConfig } from "../config/api-config.js";
 import { testApiConfig, testSelfHostAuth } from "../config/test-config.js";
@@ -43,11 +41,17 @@ const closedConfig: ApiConfig = testApiConfig({
 });
 
 const sql = (statement: string, ...params: unknown[]): unknown[] => {
-	const sqlite = new Database(filename);
-	const prepared = sqlite.prepare(statement);
-	const found = prepared.reader ? prepared.all(...params) : [];
-	if (!prepared.reader) prepared.run(...params);
-	sqlite.close();
+	const handle = openSqlite({
+		filename,
+		mode: "open",
+		synchronous: "NORMAL",
+		schema: {},
+	});
+	const prepared = handle.sqlite.prepare(statement);
+	const reads = /^\s*SELECT\b/i.test(statement);
+	const found = reads ? prepared.all(...params) : [];
+	if (!reads) prepared.run(...params);
+	handle.close();
 	return found;
 };
 
@@ -172,11 +176,14 @@ const auditCount = (where: string, ...params: unknown[]): number =>
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "remit-people-handlers-"));
 	filename = join(dir, "app.db");
-	const sqlite = new Database(filename);
-	sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("foreign_keys = ON");
+	const sqlite = openSqlite({
+		filename,
+		mode: "create",
+		synchronous: "NORMAL",
+		schema: {},
+	});
 	for (const set of ["app", "mcp"]) {
-		migrate(drizzle({ client: sqlite }), {
+		migrateSqlite(sqlite, {
 			migrationsFolder: join(MIGRATIONS, set),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});

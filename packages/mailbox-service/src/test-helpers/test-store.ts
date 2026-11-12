@@ -18,10 +18,10 @@ import {
 	messageObjectsInMemory,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
+import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
-import Database from "better-sqlite3";
 import { MessageSyncService } from "../message-sync.js";
 import { SyncWarningService } from "../sync-warning.js";
 import type { FakeImapServer } from "./fake-imap.js";
@@ -50,8 +50,12 @@ const migratedTemplate = (): string => {
 	if (migrated) return migrated;
 	const dir = mkdtempSync(join(tmpdir(), "mbx-template-"));
 	const filename = join(dir, "template.sqlite");
-	const migrating = new Database(filename);
-	migrating.pragma("synchronous = OFF");
+	const migrating = openSqlite({
+		filename,
+		mode: "create",
+		synchronous: "OFF",
+		schema: {},
+	});
 	applyShippedMigrations(migrating);
 	migrating.close();
 	process.once("exit", () => rmSync(dir, { recursive: true, force: true }));

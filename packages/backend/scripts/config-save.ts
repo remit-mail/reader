@@ -7,7 +7,7 @@ import { env } from "expect-env";
 // esbuild, and a barrel import would drag every repository and the native
 // driver behind it into a script that reads one table.
 import { auth_user } from "../../auth-service/src/schema/auth-schema-sqlite.js";
-import { createSqliteDatabase } from "../../drizzle-service/src/sqlite-client.js";
+import { openSqlite } from "../../drizzle-service/src/sqlite.js";
 import { configFromEnv } from "../src/config/from-env.js";
 import { getClient } from "../src/service/data-client.js";
 import { exportIdentity } from "../src/service/export-identity.js";
@@ -65,10 +65,12 @@ const parseArguments = (argv: readonly string[]): Options => {
  * be expected to know.
  */
 const accountConfigIdForUser = async (email: string): Promise<string> => {
-	const { db, close } = await createSqliteDatabase(
-		{ auth_user },
-		{ filename: env.SQLITE_APP_DB_PATH },
-	);
+	const { db, close } = openSqlite({
+		filename: env.SQLITE_APP_DB_PATH,
+		mode: "readonly",
+		synchronous: "NORMAL",
+		schema: { auth_user },
+	});
 	try {
 		const users = await db
 			.select({ id: auth_user.id, email: auth_user.email })
@@ -82,7 +84,7 @@ const accountConfigIdForUser = async (email: string): Promise<string> => {
 		if (!user) throw new Error(`no user signs in as ${email}`);
 		return deriveAccountConfigId(user.id);
 	} finally {
-		await close();
+		close();
 	}
 };
 
