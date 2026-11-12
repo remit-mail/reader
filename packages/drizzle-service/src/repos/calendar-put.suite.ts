@@ -18,6 +18,7 @@ import {
 	calendarTable,
 } from "../schema.js";
 import { composeSqliteRepositories } from "../sqlite-repositories.js";
+import { failedWith } from "../test-error.js";
 import type { OpenTestStores } from "../test-stores.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
@@ -129,7 +130,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 					resourceName: "doomed.ics",
 					icalData: RESOURCE,
 				}),
-				/NOT NULL constraint failed/,
+				failedWith(/NOT NULL constraint failed/),
 			);
 
 			const after = await objects();
@@ -150,7 +151,7 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 					resourceName: "doomed-again.ics",
 					icalData: RESOURCE,
 				}),
-				/NOT NULL constraint failed/,
+				failedWith(/NOT NULL constraint failed/),
 			);
 
 			const [after] = await db.select().from(calendarTable);

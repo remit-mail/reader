@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { syncBatch } from "./batch.js";
 import { calendarTable } from "./schema.js";
 import { createSqliteTestDb, type SqliteTestDb } from "./test-db-sqlite.js";
+import { failedWith } from "./test-error.js";
 
 const SCHEMA = { calendars: calendarTable };
 
@@ -66,7 +67,7 @@ describe("a batch on better-sqlite3", () => {
 					.where(eq(calendarTable.calendarId, "first")),
 				db.insert(calendarTable).values(collection("first")),
 			]),
-			/UNIQUE constraint failed/,
+			failedWith(/UNIQUE constraint failed/),
 		);
 
 		assert.deepEqual(await stored(), before);
