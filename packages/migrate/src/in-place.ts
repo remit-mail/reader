@@ -344,7 +344,7 @@ export const baselineDifferences = (
 };
 
 const JOURNAL_DDL = (table: string): string =>
-	`CREATE TABLE IF NOT EXISTS "${table}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`;
+	`CREATE TABLE IF NOT EXISTS "${table}" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`;
 
 /**
  * Step 2: the file must hold exactly what the app and mail baselines create,
@@ -391,8 +391,13 @@ const adoptBaselines = (
 		for (const { table, migration } of baselines) {
 			db.exec(JOURNAL_DDL(table));
 			db.prepare(
-				`INSERT INTO "${table}" ("hash", "created_at") VALUES (?, ?)`,
-			).run(migration.hash, migration.folderMillis);
+				`INSERT INTO "${table}" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)`,
+			).run(
+				migration.hash,
+				migration.folderMillis,
+				migration.name,
+				new Date().toISOString(),
+			);
 		}
 	})();
 };

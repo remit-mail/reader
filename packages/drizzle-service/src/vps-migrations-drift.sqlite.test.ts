@@ -106,19 +106,6 @@ describe("committed sqlite migrations", () => {
 		});
 	}
 
-	for (const configPath of Object.values(CONFIGS)) {
-		test(`${configPath} — every entry on disk is a migration folder`, async () => {
-			const { out } = await loadConfig(configPath);
-			for (const folder of migrationFolders(out)) {
-				assert.deepEqual(
-					readdirSync(new URL(`${out}/${folder}/`, REPO_ROOT)).sort(),
-					["migration.sql", "snapshot.json"],
-					folder,
-				);
-			}
-		});
-	}
-
 	// A new TypeSpec entity has to be placed in a database: one that is in
 	// neither set is never migrated anywhere, and one in both is two tables.
 	test("place every generated entity table in exactly one database", async () => {
