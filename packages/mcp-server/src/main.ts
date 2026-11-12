@@ -9,14 +9,15 @@ import { createBetterAuthTokenVerifier } from "./auth/authorization-server.js";
 import { openMcpAuthDatabase } from "./auth/database.js";
 import { createSqliteMcpAuth } from "./auth/node-auth.js";
 import { resolveMcpServerConfig } from "./config.js";
-import { mcpDepsOf } from "./deps.js";
+import {
+	FOLDER_POLL_INTERVAL_MS,
+	FOLDER_SETTLE_TIMEOUT_MS,
+	mcpDepsOf,
+} from "./deps.js";
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
 import { loadPageAssets } from "./pages/load-assets.js";
 
 installNodeLogger();
-
-const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
-const FOLDER_POLL_INTERVAL_MS = 500;
 
 const config = resolveMcpServerConfig();
 
