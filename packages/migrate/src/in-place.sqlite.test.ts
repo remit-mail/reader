@@ -14,6 +14,7 @@ import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
 	migrateSqlite,
+	openTestSqlite,
 	type SqliteHandle,
 } from "@remit/drizzle-service/sqlite";
 import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
@@ -309,14 +310,14 @@ const everyRow = (path: string): string =>
 		),
 	);
 
-describe("a v0.9.22 remit.db migrated in place", async () => {
+describe("a v0.9.22 remit.db migrated in place", () => {
 	const path = freshPath();
 	seedV0922(path);
 	const beforeMessages = rows(
 		path,
 		"SELECT * FROM message ORDER BY message_id",
 	);
-	await migrateSqliteFiles(sameFile(path), ROOT, quiet);
+	migrateSqliteFiles(sameFile(path), ROOT, quiet);
 
 	test("keeps the filter with rules exactly as it was", () => {
 		assert.deepEqual(
@@ -409,9 +410,9 @@ describe("a v0.9.22 remit.db migrated in place", async () => {
 		}
 	});
 
-	test("changes nothing on a second run", async () => {
+	test("changes nothing on a second run", () => {
 		const once = everyRow(path);
-		await migrateSqliteFiles(sameFile(path), ROOT, quiet);
+		migrateSqliteFiles(sameFile(path), ROOT, quiet);
 		assert.equal(everyRow(path), once);
 	});
 });
@@ -437,19 +438,19 @@ describe("the verification", () => {
 });
 
 describe("refusing a file it cannot migrate safely", () => {
-	const refuses = async (
+	const refuses = (
 		change: (sqlite: Handle) => void,
 		message: RegExp,
 		seed: (path: string) => void = seedV0922,
-	): Promise<void> => {
+	): void => {
 		const path = freshPath();
 		seed(path);
 		const sqlite = openFile(path, "create");
 		change(sqlite);
 		sqlite.close();
 		const bytes = readFileSync(path);
-		await assert.rejects(
-			migrateSqliteFiles(sameFile(path), ROOT, quiet),
+		assert.throws(
+			() => migrateSqliteFiles(sameFile(path), ROOT, quiet),
 			message,
 		);
 		assert.ok(readFileSync(path).equals(bytes), "the file changed");
@@ -518,11 +519,11 @@ describe("refusing a file it cannot migrate safely", () => {
 });
 
 describe("a fresh install on one file", () => {
-	test("holds the same schema as the three sets on three files", async () => {
+	test("holds the same schema as the three sets on three files", () => {
 		const one = freshPath();
-		await migrateSqliteFiles(sameFile(one), ROOT, quiet);
+		migrateSqliteFiles(sameFile(one), ROOT, quiet);
 		const three = { app: freshPath(), mail: freshPath(), search: freshPath() };
-		await migrateSqliteFiles(three, ROOT, quiet);
+		migrateSqliteFiles(three, ROOT, quiet);
 		const union = [
 			...new Set([
 				...objects(three.app),
@@ -583,10 +584,10 @@ const shape = (sqlite: Handle): Map<string, string[]> =>
 	);
 
 describe("the spec's delta table", () => {
-	test("names every table and column the v0.9.22 and v0.10 schemas differ in", async () => {
-		const old = openFile(":memory:", "create");
+	test("names every table and column the v0.9.22 and v0.10 schemas differ in", () => {
+		const old = openTestSqlite({});
 		old.exec(fixture("remit-v0.9.22.sql"));
-		const fresh = openFile(":memory:", "create");
+		const fresh = openTestSqlite({});
 		applyMigrationSets(
 			{
 				app: fresh,
@@ -637,7 +638,7 @@ describe("the spec's delta table", () => {
 	});
 
 	test("applies only the legacy tail to a v0.9.22 file: entities 0040 to 0044 and auth 0001", () => {
-		const sqlite = openFile(":memory:", "create");
+		const sqlite = openTestSqlite({});
 		sqlite.exec(fixture("remit-v0.9.22.sql"));
 		journalRows(sqlite);
 		for (const set of LEGACY_SETS) {
@@ -691,7 +692,7 @@ const seedV0927 = (path: string): void => {
 	sqlite.close();
 };
 
-describe("a v0.9.27 remit.db migrated in place", async () => {
+describe("a v0.9.27 remit.db migrated in place", () => {
 	const path = freshPath();
 	seedV0927(path);
 	const newest = read(path, (sqlite) =>
@@ -701,7 +702,7 @@ describe("a v0.9.27 remit.db migrated in place", async () => {
 				.get(),
 		),
 	);
-	await migrateSqliteFiles(sameFile(path), ROOT, quiet);
+	migrateSqliteFiles(sameFile(path), ROOT, quiet);
 
 	test("starts from the entities journal at 0044", () => {
 		const [last] = readMigrationFiles({
@@ -727,19 +728,19 @@ describe("a v0.9.27 remit.db migrated in place", async () => {
 });
 
 describe("a run that stopped before verifying", () => {
-	test("is refused on the next run instead of reported migrated", async () => {
+	test("is refused on the next run instead of reported migrated", () => {
 		const path = freshPath();
 		seedV0922(path);
-		assert.ok(await prepareInPlace(sameFile(path), ROOT, quiet));
-		await assert.rejects(
-			migrateSqliteFiles(sameFile(path), ROOT, quiet),
+		assert.ok(prepareInPlace(sameFile(path), ROOT, quiet));
+		assert.throws(
+			() => migrateSqliteFiles(sameFile(path), ROOT, quiet),
 			/was migrated in place by a run that did not finish its verification.*Restore the pre-update snapshot/,
 		);
 	});
 });
 
 describe("a volume a v0.9.28 to v0.10 release split", () => {
-	test("is refused rather than migrated as an empty install", async () => {
+	test("is refused rather than migrated as an empty install", () => {
 		const volume = join(dir, "split-volume");
 		mkdirSync(volume);
 		const seeded = freshPath();
@@ -747,8 +748,8 @@ describe("a volume a v0.9.28 to v0.10 release split", () => {
 		copyFileSync(seeded, join(volume, "remit.db.pre-split"));
 		writeFileSync(join(volume, "app.db"), "the split app database");
 		const path = join(volume, "remit.db");
-		await assert.rejects(
-			migrateSqliteFiles(sameFile(path), ROOT, quiet),
+		assert.throws(
+			() => migrateSqliteFiles(sameFile(path), ROOT, quiet),
 			/remit\.db is missing or empty, but app\.db, remit\.db\.pre-split beside it hold the data of a release that split remit\.db\..*Nothing was changed\./,
 		);
 		assert.ok(!existsSync(path), "an empty remit.db was created");

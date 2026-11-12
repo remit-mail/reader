@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import {
 	migrateSqlite,
 	openSqlite,
+	openTestSqlite,
 	type SqliteConnection,
 	type SqliteHandle,
 	type SqliteMode,
@@ -31,12 +32,7 @@ type Handle = SqliteConnection;
 type SqliteFile = SqliteHandle<Record<string, never>>;
 
 export const openFile = (filename: string, mode: SqliteMode): SqliteFile =>
-	openSqlite({
-		filename,
-		mode,
-		synchronous: filename === ":memory:" ? "OFF" : "FULL",
-		schema: {},
-	});
+	openSqlite({ filename, mode, synchronous: "FULL", schema: {} });
 
 export type MigrateLog = (fields: Record<string, unknown>, msg: string) => void;
 
@@ -117,7 +113,7 @@ const baselineTables = (
 	root: string,
 	database: "app" | "mail",
 ): Set<string> => {
-	const memory = openFile(":memory:", "create");
+	const memory = openTestSqlite({});
 	try {
 		const [baseline] = migrationsOf(root, setOf(database).migrationsFolder);
 		applyStatements(memory, baseline.sql);
@@ -373,8 +369,8 @@ const adoptBaselines = (
 		const [first] = migrationsOf(root, set.migrationsFolder);
 		return { table: set.migrationsTable, migration: first };
 	});
-	const mcpTables = openFile(":memory:", "create");
-	const expected = openFile(":memory:", "create");
+	const mcpTables = openTestSqlite({});
+	const expected = openTestSqlite({});
 	try {
 		for (const set of MIGRATION_SETS) {
 			if (set.migrationsTable !== "__drizzle_migrations_mcp") continue;
@@ -509,11 +505,11 @@ export interface InPlaceMigration {
  * verification pairs' before half. Returns null when there is no v0.9 file to
  * bring forward. The ordinary sets run next, then {@link InPlaceMigration.verify}.
  */
-export const prepareInPlace = async (
+export const prepareInPlace = (
 	paths: SqliteDatabasePaths,
 	root: string,
 	log: MigrateLog,
-): Promise<InPlaceMigration | null> => {
+): InPlaceMigration | null => {
 	refuseSplitInstall(paths);
 	const files = [...new Set([paths.app, paths.mail, paths.search])].filter(
 		(path) => existsSync(path),
@@ -593,27 +589,24 @@ export const prepareInPlace = async (
  * forward in place, every set applied, and the in-place result verified before
  * anything else writes to it.
  */
-export const migrateSqliteFiles = async (
+export const migrateSqliteFiles = (
 	paths: SqliteDatabasePaths,
 	root: string,
 	log: MigrateLog,
-): Promise<void> => {
-	const inPlace = await prepareInPlace(paths, root, log);
-	const files = [...new Set([paths.app, paths.mail, paths.search])];
-	const handles = new Map(
-		files.map((path) => [path, openFile(path, "create")] as const),
-	);
-	const handleOf = (path: string): SqliteFile => {
-		const handle = handles.get(path);
-		if (!handle) throw new Error(`${path} is not open`);
+): void => {
+	const inPlace = prepareInPlace(paths, root, log);
+	const handles = new Map<string, SqliteFile>();
+	const open = (path: string): SqliteFile => {
+		const handle = handles.get(path) ?? openFile(path, "create");
+		handles.set(path, handle);
 		return handle;
 	};
 	try {
 		applyMigrationSets(
 			{
-				app: handleOf(paths.app),
-				mail: handleOf(paths.mail),
-				search: handleOf(paths.search),
+				app: open(paths.app),
+				mail: open(paths.mail),
+				search: open(paths.search),
 			},
 			root,
 			(database) => log({ database }, "applying schema migrations (sqlite)"),

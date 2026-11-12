@@ -178,7 +178,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	// The schema first, with its own handles, so the repairs below run against
 	// a file that is fully migrated and, for a v0.9 remit.db, verified.
 	if (mode.kind !== "check") {
-		await migrateSqliteFiles(paths, ".", logStep);
+		migrateSqliteFiles(paths, ".", logStep);
 	}
 
 	// `--check` opens the files read-only, so "writes nothing" is enforced by
