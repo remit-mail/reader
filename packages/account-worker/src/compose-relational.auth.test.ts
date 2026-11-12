@@ -7,10 +7,8 @@ import { fileURLToPath } from "node:url";
 import { type Auth, createAuth, openIdentityStore } from "@remit/auth-service";
 import { auth_session, auth_user } from "@remit/auth-service/schema";
 import { mcp_device_code } from "@remit/drizzle-service/schema-sets/mcp";
+import { migrateSqlite, openSqlite } from "@remit/drizzle-service/sqlite";
 import { noopLogger } from "@remit/logger";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { buildRelationalDeletionCapabilities } from "./compose-relational.js";
 
 const ORIGIN = "https://reader.remit.test";
@@ -58,8 +56,12 @@ describe("relational deletion capabilities — login user erase", () => {
 		sessionUsers: string[];
 		deviceCodeUsers: (string | null)[];
 	} => {
-		const sqlite = new Database(filename, { readonly: true });
-		const db = drizzle({ client: sqlite });
+		const { db, close } = openSqlite({
+			filename,
+			mode: "readonly",
+			synchronous: "NORMAL",
+			schema: {},
+		});
 		const users = db
 			.select({ id: auth_user.id })
 			.from(auth_user)
@@ -75,7 +77,7 @@ describe("relational deletion capabilities — login user erase", () => {
 			.from(mcp_device_code)
 			.all()
 			.map((row) => row.userId);
-		sqlite.close();
+		close();
 		return { users, sessionUsers, deviceCodeUsers };
 	};
 
@@ -86,11 +88,14 @@ describe("relational deletion capabilities — login user erase", () => {
 		process.env.SQLITE_MAIL_DB_PATH = join(dir, "mail.db");
 		process.env.SQLITE_SEARCH_DB_PATH = join(dir, "search.db");
 
-		const migrating = new Database(filename);
-		migrating.pragma("journal_mode = WAL");
-		migrating.pragma("foreign_keys = ON");
+		const migrating = openSqlite({
+			filename,
+			mode: "create",
+			synchronous: "NORMAL",
+			schema: {},
+		});
 		for (const set of ["app", "mcp"]) {
-			migrate(drizzle({ client: migrating }), {
+			migrateSqlite(migrating, {
 				migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS)),
 				migrationsTable: `__drizzle_migrations_${set}`,
 			});
@@ -110,8 +115,13 @@ describe("relational deletion capabilities — login user erase", () => {
 		erased = await signUp(auth, "erased@remit.test");
 		kept = await signUp(auth, "kept@remit.test");
 
-		const seeding = new Database(filename);
-		drizzle({ client: seeding })
+		const seeding = openSqlite({
+			filename,
+			mode: "open",
+			synchronous: "NORMAL",
+			schema: {},
+		});
+		seeding.db
 			.insert(mcp_device_code)
 			.values(
 				[erased, kept].map(({ userId }) => ({

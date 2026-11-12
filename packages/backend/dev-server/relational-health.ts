@@ -11,12 +11,17 @@ import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
 const pingSqlite = async (path: string): Promise<void> => {
 	await access(path, constants.R_OK | constants.W_OK);
 
-	const { default: Database } = await import("better-sqlite3");
-	const db = new Database(path, { readonly: true });
+	const { openSqlite } = await import("@remit/drizzle-service/sqlite");
+	const handle = openSqlite({
+		filename: path,
+		mode: "readonly",
+		synchronous: "NORMAL",
+		schema: {},
+	});
 	try {
-		db.prepare("SELECT 1").get();
+		handle.sqlite.prepare("SELECT 1").get();
 	} finally {
-		db.close();
+		handle.close();
 	}
 };
 
