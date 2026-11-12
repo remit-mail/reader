@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import type Database from "better-sqlite3";
 import { SQLITE_DATABASE_ENV, type SqliteDatabasePaths } from "./databases.js";
 import type { Db } from "./db.js";
+import { openSqlite, openTestSqlite } from "./sqlite.js";
 import {
 	applyMigrationSet,
 	MIGRATION_SETS,
@@ -31,10 +31,11 @@ export const createShippedSqliteDb = (): {
 	sqlite: Database.Database;
 	close: () => void;
 } => {
-	const sqlite = new Database(":memory:");
+	const db = openTestSqlite({});
+	const sqlite = db.$client;
 	applyShippedMigrations(sqlite);
 	return {
-		db: drizzle(sqlite) as unknown as Db<Record<string, unknown>>,
+		db: db as unknown as Db<Record<string, unknown>>,
 		sqlite,
 		close: () => sqlite.close(),
 	};
@@ -54,7 +55,13 @@ export const createShippedSqliteFiles = (
 		search: join(directory, "search.db"),
 	};
 	for (const set of MIGRATION_SETS) {
-		const sqlite = new Database(paths[set]);
+		const { $client: sqlite } = openSqlite({
+			filename: paths[set],
+			readonly: false,
+			mustExist: false,
+			synchronous: "NORMAL",
+			schema: {},
+		});
 		applyMigrationSet(sqlite, set);
 		sqlite.close();
 		process.env[SQLITE_DATABASE_ENV[set]] = paths[set];

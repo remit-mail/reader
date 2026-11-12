@@ -1,7 +1,7 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { pushSQLiteSchema } from "drizzle-kit/api";
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { Db } from "./db.js";
+import { MEMORY, openSqlite } from "./sqlite.js";
 import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
 
 // A real better-sqlite3 database (in-memory by default) with the schema pushed
@@ -20,10 +20,16 @@ export async function createSqliteTestDb<
 	sqlite: Database.Database;
 	close: () => Promise<void>;
 }> {
-	const sqlite = new Database(options?.filename ?? ":memory:");
-	sqlite.pragma("foreign_keys = ON");
+	const opened = openSqlite({
+		filename: options?.filename ?? MEMORY,
+		readonly: false,
+		mustExist: false,
+		synchronous: "OFF",
+		schema,
+	});
+	const sqlite = opened.$client;
 
-	const db: SqliteTestDb<TSchema> = drizzle(sqlite, { schema });
+	const db: SqliteTestDb<TSchema> = opened;
 
 	// pushSQLiteSchema derives the CREATE statements from the table objects;
 	// better-sqlite3 rejects its own `apply()` (it issues the DDL through a
