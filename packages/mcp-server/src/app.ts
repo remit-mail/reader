@@ -23,15 +23,51 @@ import {
 } from "./pages/views.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
 
-export interface McpAppConfig {
+export interface McpResourceConfig {
 	origin: string;
+}
+
+export interface McpPagesConfig extends McpResourceConfig {
 	authRoutes: McpAuthRoutes;
+}
+
+export interface McpAppConfig extends McpPagesConfig {
 	verifier: TokenVerifier;
 	deps: McpDeps;
 }
 
+export type McpChallengeError = "unauthorized" | "invalid_token";
+
 const PROTECTED_RESOURCE_METADATA_PATH =
 	"/.well-known/oauth-protected-resource";
+const RESOURCE_METADATA_PATH = `${PROTECTED_RESOURCE_METADATA_PATH}${MCP_PATH}`;
+
+export const challenge = (
+	{ origin }: McpResourceConfig,
+	error: McpChallengeError,
+): Response =>
+	new Response(JSON.stringify({ error, resource: mcpResource(origin) }), {
+		status: 401,
+		headers: {
+			"content-type": "application/json",
+			"www-authenticate": [
+				"Bearer",
+				` resource_metadata="${origin}${RESOURCE_METADATA_PATH}",`,
+				` scope="${MCP_SCOPES.join(" ")}"`,
+				error === "unauthorized" ? "" : `, error="${error}"`,
+			].join(""),
+		},
+	});
+
+export const protectedResourceMetadata = ({
+	origin,
+}: McpResourceConfig): Response =>
+	Response.json({
+		resource: mcpResource(origin),
+		authorization_servers: [origin],
+		scopes_supported: [...MCP_SCOPES],
+		bearer_methods_supported: ["header"],
+	});
 
 const RETURN_PATHS: ReadonlySet<string> = new Set([
 	DEVICE_PATH,
@@ -78,28 +114,10 @@ const redirectWithCookies = (location: string, from: Response): Response => {
 	return new Response(null, { status: 302, headers });
 };
 
-export const createMcpApp = ({
+export const createMcpPages = ({
 	origin,
 	authRoutes,
-	verifier,
-	deps,
-}: McpAppConfig): McpRequestHandler => {
-	const resource = mcpResource(origin);
-	const resourceMetadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${MCP_PATH}`;
-	const challenge = (error?: string): Response =>
-		new Response(JSON.stringify({ error: error ?? "unauthorized", resource }), {
-			status: 401,
-			headers: {
-				"content-type": "application/json",
-				"www-authenticate": [
-					"Bearer",
-					` resource_metadata="${origin}${resourceMetadataPath}",`,
-					` scope="${MCP_SCOPES.join(" ")}"`,
-					error ? `, error="${error}"` : "",
-				].join(""),
-			},
-		});
-
+}: McpPagesConfig): McpRequestHandler => {
 	const continueFrom = async (response: Response): Promise<Response> => {
 		if (!response.ok) {
 			return errorPage(
@@ -345,33 +363,17 @@ export const createMcpApp = ({
 		return connectedAppsView(after, 200, name);
 	};
 
-	const serveMcp = async (request: Request): Promise<Response> => {
-		const bearer = extractBearerToken(
-			request.headers.get("authorization") ?? undefined,
-		);
-		if (!bearer) return challenge();
-		const verification = await verifier.verify(bearer);
-		if (!verification.ok) return challenge("invalid_token");
-		return createMcpHandler(verification.principal, deps)(request);
-	};
-
 	return async (request) => {
 		const { pathname } = new URL(request.url);
 		if (pathname === "/.well-known/oauth-authorization-server") {
 			return authRoutes.serverMetadata(request);
 		}
 		if (
-			pathname === resourceMetadataPath ||
+			pathname === RESOURCE_METADATA_PATH ||
 			pathname === PROTECTED_RESOURCE_METADATA_PATH
 		) {
-			return Response.json({
-				resource,
-				authorization_servers: [origin],
-				scopes_supported: [...MCP_SCOPES],
-				bearer_methods_supported: ["header"],
-			});
+			return protectedResourceMetadata({ origin });
 		}
-		if (pathname === MCP_PATH) return serveMcp(request);
 		if (pathname === LOGIN_PATH && authRoutes.browser.kind === "signIn") {
 			return login(request, authRoutes.browser.signIn);
 		}
@@ -379,5 +381,22 @@ export const createMcpApp = ({
 		if (pathname === DEVICE_PATH) return device(request);
 		if (pathname === CONNECTED_APPS_PATH) return connectedApps(request);
 		return authRoutes.handle(request);
+	};
+};
+
+export const createMcpApp = (config: McpAppConfig): McpRequestHandler => {
+	const pages = createMcpPages(config);
+	const serveMcp = async (request: Request): Promise<Response> => {
+		const bearer = extractBearerToken(
+			request.headers.get("authorization") ?? undefined,
+		);
+		if (!bearer) return challenge(config, "unauthorized");
+		const verification = await config.verifier.verify(bearer);
+		if (!verification.ok) return challenge(config, "invalid_token");
+		return createMcpHandler(verification.principal, config.deps)(request);
+	};
+	return (request) => {
+		if (new URL(request.url).pathname === MCP_PATH) return serveMcp(request);
+		return pages(request);
 	};
 };

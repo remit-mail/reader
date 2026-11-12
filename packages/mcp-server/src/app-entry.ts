@@ -1,5 +1,14 @@
 export { CLIENT_IP_HEADER } from "@remit/auth-service/constants";
-export { createMcpApp, type McpAppConfig } from "./app.js";
+export {
+	challenge,
+	createMcpApp,
+	createMcpPages,
+	type McpAppConfig,
+	type McpChallengeError,
+	type McpPagesConfig,
+	type McpResourceConfig,
+	protectedResourceMetadata,
+} from "./app.js";
 export {
 	AUTH_BASE_PATH,
 	CONNECTED_APPS_API_PATH,
@@ -54,6 +63,8 @@ export {
 } from "./cli/device-login.js";
 export {
 	type FilterToolDeps,
+	FOLDER_POLL_INTERVAL_MS,
+	FOLDER_SETTLE_TIMEOUT_MS,
 	type FolderToolDeps,
 	type McpDeps,
 	type McpDepsExtras,

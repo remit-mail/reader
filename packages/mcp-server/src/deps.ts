@@ -18,6 +18,9 @@ import type {
 } from "@remit/mailbox-service";
 import type { StorageService } from "@remit/storage-service";
 
+export const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
+export const FOLDER_POLL_INTERVAL_MS = 500;
+
 export interface FolderToolDeps {
 	mailboxQueue: Pick<
 		MailboxQueueService,
