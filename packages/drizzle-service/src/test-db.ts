@@ -1,6 +1,6 @@
-import type Database from "better-sqlite3";
 import type { Db } from "./db.js";
 import * as schema from "./schema.js";
+import type { SqliteConnection } from "./sqlite.js";
 import { createSqliteTestDb } from "./test-db-sqlite.js";
 
 export type TestDb = Db<typeof schema>;
@@ -12,7 +12,8 @@ export type TestDb = Db<typeof schema>;
  */
 export async function createTestDb(): Promise<{
 	db: TestDb;
-	sqlite: Database.Database;
+	sqlite: SqliteConnection;
+	exec: (sql: string) => void;
 	close: () => Promise<void>;
 }> {
 	return createSqliteTestDb(schema, { searchIndex: true });

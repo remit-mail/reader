@@ -10,9 +10,8 @@ import type { Db } from "./db.js";
 // set runs as one synchronous batch (`batch.ts`), so the shared connection is
 // never inside another caller's transaction when a plain write lands.
 //
-// better-sqlite3 and its drizzle driver are imported dynamically so the whole
-// module stays out of the DynamoDB Lambda bundle (this package is `external`
-// there — see remit-backend/src/service/data-client.ts).
+// The opener is imported dynamically so the SQLite driver stays out of
+// everything that imports this package's index.
 
 export interface SqliteClientOptions {
 	filename: string;
@@ -29,21 +28,19 @@ export async function createSqliteDatabase<
 	schema: TSchema,
 	options: SqliteClientOptions,
 ): Promise<SqliteClient<TSchema>> {
-	const { default: Database } = await import("better-sqlite3");
-	const { drizzle } = await import("drizzle-orm/better-sqlite3");
+	const { openSqlite } = await import("./sqlite.js");
 
-	const sqlite = new Database(options.filename);
-	sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("busy_timeout = 5000");
-	sqlite.pragma("synchronous = NORMAL");
-	sqlite.pragma("foreign_keys = ON");
-
-	const db: Db<TSchema> = drizzle(sqlite, { schema });
+	const handle = openSqlite({
+		filename: options.filename,
+		mode: "create",
+		synchronous: "NORMAL",
+		schema,
+	});
 
 	return {
-		db,
+		db: handle.db,
 		close: async () => {
-			sqlite.close();
+			handle.close();
 		},
 	};
 }

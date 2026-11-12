@@ -1,10 +1,10 @@
 import type { CreateMailboxResult, MailboxItem } from "@remit/data-ports";
-import type Database from "better-sqlite3";
 import type { Db } from "../db.js";
 import {
 	type MessageDataSchema,
 	messageDataSchema,
 } from "../schema/message-data.js";
+import type { SqliteConnection } from "../sqlite.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 
 export type TestDb = Db<MessageDataSchema>;
@@ -15,11 +15,13 @@ export type TestDb = Db<MessageDataSchema>;
  */
 export async function createTestDb(): Promise<{
 	db: TestDb;
-	sqlite: Database.Database;
+	sqlite: SqliteConnection;
+	exec: (sql: string) => void;
 	stop: () => Promise<void>;
 }> {
-	const { db, sqlite, close } = await createSqliteTestDb(messageDataSchema);
-	return { db, sqlite, stop: close };
+	const { db, sqlite, exec, close } =
+		await createSqliteTestDb(messageDataSchema);
+	return { db, sqlite, exec, stop: close };
 }
 
 export const mailboxCreated = (result: CreateMailboxResult): MailboxItem => {

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import type Database from "better-sqlite3";
+import type { SqliteConnection } from "./sqlite.js";
 
 export const selectsIssuedDuring = async (
-	sqlite: Database.Database,
+	sqlite: SqliteConnection,
 	run: () => Promise<unknown>,
 ): Promise<string[]> => {
 	const captured: string[] = [];
@@ -22,7 +22,7 @@ export const selectsIssuedDuring = async (
 };
 
 export const queryPlan = (
-	sqlite: Database.Database,
+	sqlite: SqliteConnection,
 	statements: string[],
 ): string[] =>
 	statements.flatMap((source) => {

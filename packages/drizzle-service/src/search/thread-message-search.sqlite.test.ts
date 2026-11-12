@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { syncStore } from "../databases.js";
-import type { Db } from "../db.js";
 import { messageObjectsInMemory } from "../repos/message-objects.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
+import { openTestSqlite } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
@@ -41,12 +39,9 @@ const input = (
 });
 
 const open = (set: "mail" | "search") => {
-	const sqlite = new Database(":memory:");
-	applyMigrationSet(sqlite, set);
-	return {
-		sqlite,
-		db: drizzle(sqlite) as unknown as Db<Record<string, unknown>>,
-	};
+	const handle = openTestSqlite<Record<string, unknown>>({});
+	applyMigrationSet(handle, set);
+	return handle;
 };
 
 describe("the thread-message search index in its own database", () => {
@@ -93,8 +88,8 @@ describe("the thread-message search index in its own database", () => {
 	});
 
 	after(() => {
-		mail.sqlite.close();
-		search.sqlite.close();
+		mail.close();
+		search.close();
 	});
 
 	test("finds a message by subject, sender and body once it is written", async () => {

@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
 import type { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
 import { messageObjectsInMemory } from "../repos/message-objects.js";
+import {
+	openTestSqlite,
+	type SqliteConnection,
+	type SqliteHandle,
+} from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
@@ -17,7 +20,7 @@ import {
 	sweepJunkOnlyAddresses,
 } from "./junk-only-address.js";
 
-const clientOver = (sqlite: Database.Database): JunkOnlyRepairClient => ({
+const clientOver = (sqlite: SqliteConnection): JunkOnlyRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
 	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 });
@@ -28,7 +31,8 @@ interface AddressRow {
 }
 
 describe("addresses standing only on mail in Junk", () => {
-	let sqlite: Database.Database;
+	let handle: SqliteHandle<Record<string, unknown>>;
+	let sqlite: SqliteConnection;
 	let specialUse: MailboxSpecialUseRepo;
 	let accountSetting: AccountSettingRepo;
 
@@ -182,8 +186,9 @@ describe("addresses standing only on mail in Junk", () => {
 		).n;
 
 	before(() => {
-		sqlite = new Database(":memory:");
-		const db = drizzle(sqlite);
+		handle = openTestSqlite<Record<string, unknown>>({});
+		sqlite = handle.sqlite;
+		const { db } = handle;
 		specialUse = createSqliteRepositories(
 			{
 				app: db,
@@ -194,12 +199,12 @@ describe("addresses standing only on mail in Junk", () => {
 			messageObjectsInMemory(),
 		).mailboxSpecialUse;
 		accountSetting = new AccountSettingRepo(db as never);
-		applyMigrationSet(sqlite, "app");
-		applyMigrationSet(sqlite, "mail");
+		applyMigrationSet(handle, "app");
+		applyMigrationSet(handle, "mail");
 	});
 
 	after(() => {
-		sqlite.close();
+		handle.close();
 	});
 
 	beforeEach(() => {
@@ -212,7 +217,7 @@ describe("addresses standing only on mail in Junk", () => {
 			"account_setting",
 			"account",
 		]) {
-			sqlite.exec(`DELETE FROM ${table}`);
+			handle.exec(`DELETE FROM ${table}`);
 		}
 		mailbox("junk", '["Junk"]');
 		specialUseEntry("junk", "Junk");
@@ -564,7 +569,7 @@ describe("addresses standing only on mail in Junk", () => {
 			"mailbox",
 			"mailbox_special_use_entry",
 		]) {
-			sqlite.exec(`DELETE FROM ${table}`);
+			handle.exec(`DELETE FROM ${table}`);
 		}
 		mailbox("plain-inbox", null, { fullPath: "INBOX" });
 		message("mail-9", "plain-inbox");
@@ -583,7 +588,7 @@ describe("addresses standing only on mail in Junk", () => {
 
 	test("standing the account gave an address lifts its mark regardless", async () => {
 		for (const table of ["mailbox", "mailbox_special_use_entry"]) {
-			sqlite.exec(`DELETE FROM ${table}`);
+			handle.exec(`DELETE FROM ${table}`);
 		}
 		mailbox("plain-inbox", null, { fullPath: "INBOX" });
 		address(
