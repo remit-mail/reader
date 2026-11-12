@@ -51,6 +51,7 @@ const RESOLVES = [
 	"@remit/sqs-client",
 	"@remit/mail-oauth-service",
 	"@remit/logger",
+	"@remit/logger/node",
 	"@remit/logger-lambda/node",
 	"@remit/logger-lambda/metrics",
 	"@remit/api-openapi-spec/openapi.json",

@@ -2,14 +2,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { serve } from "@hono/node-server";
 import { resolveSignInEnabled } from "@remit/auth-service/verifier";
 import { getClient } from "@remit/backend/client";
-import {
-	createJsonLogger,
-	DEFAULT_LOG_LEVEL,
-	isLogLevel,
-	LOG_LEVELS,
-	logger,
-	setLogger,
-} from "@remit/logger";
+import { logger } from "@remit/logger";
+import { installNodeLogger } from "@remit/logger/node";
 import { createMcpApp } from "./app.js";
 import { createBetterAuthTokenVerifier } from "./auth/authorization-server.js";
 import { openMcpAuthDatabase } from "./auth/database.js";
@@ -23,26 +17,7 @@ import {
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
 import { loadPageAssets } from "./pages/load-assets.js";
 
-const requestedLevel = process.env.LOG_LEVEL?.trim().toLowerCase();
-const level =
-	requestedLevel && isLogLevel(requestedLevel)
-		? requestedLevel
-		: DEFAULT_LOG_LEVEL;
-setLogger(
-	createJsonLogger({
-		level,
-		service: process.env.REMIT_SERVICE_NAME ?? "remit",
-		write: (line) => {
-			process.stdout.write(`${line}\n`);
-		},
-	}),
-);
-if (requestedLevel && requestedLevel !== level) {
-	logger.warn(
-		{ configured: requestedLevel, expected: LOG_LEVELS.join(", ") },
-		`LOG_LEVEL is not a level name; logging at ${level}`,
-	);
-}
+installNodeLogger();
 
 const config = resolveMcpServerConfig();
 

@@ -23,7 +23,7 @@ process.stdout.write = ((
 
 // Capturing starts before the install: an unusable LOG_LEVEL is reported when
 // the Node logger is installed, not on the first call.
-const { createLogger } = await import("@remit/logger");
+const { createLogger } = await import("./handle.js");
 const { installNodeLogger } = await import("./node.js");
 installNodeLogger();
 capturing = false;
@@ -53,6 +53,7 @@ describe("log level", () => {
 	it("reports an unusable LOG_LEVEL instead of failing or ignoring it", () => {
 		assert.equal(startup.length, 1);
 		const [line] = startup;
+		assert.ok(line);
 		assert.equal(line.level, "warn");
 		assert.match(String(line.msg), /LOG_LEVEL/);
 		assert.equal(line.configured, "verbose");
@@ -74,6 +75,7 @@ describe("log level", () => {
 
 	it("defaults the service name when none is stamped into the build", () => {
 		const [line] = capture(() => createLogger().warn("unnamed"));
+		assert.ok(line);
 		assert.equal(line.service, "remit");
 	});
 });

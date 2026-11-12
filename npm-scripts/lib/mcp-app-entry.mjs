@@ -5,6 +5,7 @@ export const FORBIDDEN_PACKAGES = [
 	"@remit/auth-service",
 	"@remit/drizzle-service",
 	"@remit/logger-lambda",
+	"@remit/logger/node",
 	"@remit/sqs-client",
 	"@remit/storage-service/s3",
 	"better-auth/node",

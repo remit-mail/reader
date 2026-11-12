@@ -9,6 +9,10 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./node": {
+			"types": "./src/node.ts",
+			"default": "./src/node.ts"
 		}
 	},
 	"packManifest": {
@@ -18,6 +22,10 @@
 			".": {
 				"types": "./dist/index.d.ts",
 				"default": "./dist/index.js"
+			},
+			"./node": {
+				"types": "./dist/node.d.ts",
+				"default": "./dist/node.js"
 			}
 		},
 		"files": ["dist"]
