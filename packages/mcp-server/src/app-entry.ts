@@ -1,3 +1,4 @@
+export { CLIENT_IP_HEADER } from "@remit/auth-service/constants";
 export { createMcpApp, type McpAppConfig } from "./app.js";
 export {
 	AUTH_BASE_PATH,

@@ -6,44 +6,13 @@ import type {
 	drizzle,
 } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { AuditAction, AuditRecord } from "./constants.js";
 import {
 	auth_session,
 	auth_user,
 	identity_audit_event,
 	identity_step_up,
 } from "./schema/auth-schema-sqlite.js";
-
-export type AuditAction =
-	| "KillSwitchOn"
-	| "KillSwitchOff"
-	| "StepUpPassed"
-	| "StepUpFailed"
-	| "SessionsRevoked"
-	| "PasswordResetIssued"
-	| "PasswordResetRedeemed"
-	| "PasswordResetRefused"
-	| "UserDisabled"
-	| "UserEnabled"
-	| "SignInRefusedDisabled"
-	| "PeopleRequestRefused";
-
-export type AuditOutcome =
-	| "Succeeded"
-	| "RefusedSelf"
-	| "RefusedCallerDisabled"
-	| "RefusedSignInOff"
-	| "RefusedForeignOrigin"
-	| "RefusedStepUp"
-	| "RefusedToken"
-	| "RefusedDisabled";
-
-export interface AuditRecord {
-	actor: string;
-	target: string;
-	action: AuditAction;
-	outcome: AuditOutcome;
-	clientIp: string;
-}
 
 export const HOST_CLIENT_IP = "host";
 

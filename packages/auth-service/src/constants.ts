@@ -18,3 +18,35 @@ export const ACCOUNT_DISABLED = {
 	code: "ACCOUNT_DISABLED",
 	message: "This account is disabled.",
 } as const;
+
+export type AuditAction =
+	| "KillSwitchOn"
+	| "KillSwitchOff"
+	| "StepUpPassed"
+	| "StepUpFailed"
+	| "SessionsRevoked"
+	| "PasswordResetIssued"
+	| "PasswordResetRedeemed"
+	| "PasswordResetRefused"
+	| "UserDisabled"
+	| "UserEnabled"
+	| "SignInRefusedDisabled"
+	| "PeopleRequestRefused";
+
+export type AuditOutcome =
+	| "Succeeded"
+	| "RefusedSelf"
+	| "RefusedCallerDisabled"
+	| "RefusedSignInOff"
+	| "RefusedForeignOrigin"
+	| "RefusedStepUp"
+	| "RefusedToken"
+	| "RefusedDisabled";
+
+export interface AuditRecord {
+	actor: string;
+	target: string;
+	action: AuditAction;
+	outcome: AuditOutcome;
+	clientIp: string;
+}

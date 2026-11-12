@@ -19,8 +19,8 @@ export {
 	resolveVerifierConfig,
 	type VerifierConfig,
 } from "./config.js";
+export type { AuditRecord } from "./constants.js";
 export {
-	type AuditRecord,
 	HOST_CLIENT_IP,
 	type IdentityStore,
 	isUserDisabled,

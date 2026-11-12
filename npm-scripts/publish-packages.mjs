@@ -224,6 +224,10 @@ if (dryRun) {
 	run("node", ["npm-scripts/check-consumer-typecheck.mjs"], {
 		stdio: "inherit",
 	});
+	console.log("\nMCP app declarations...\n");
+	run("node", ["npm-scripts/check-mcp-app-declarations.mjs"], {
+		stdio: "inherit",
+	});
 }
 
 for (const pkg of generated) {
