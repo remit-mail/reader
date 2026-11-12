@@ -1,5 +1,6 @@
 import { access, constants } from "node:fs/promises";
 import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
+import { openSqlite } from "@remit/drizzle-service/sqlite";
 
 // The SELECT ping opens a read-only connection, so it keeps succeeding on a
 // file that can still be read but no longer written — permissions revoked to
@@ -11,7 +12,6 @@ import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
 const pingSqlite = async (path: string): Promise<void> => {
 	await access(path, constants.R_OK | constants.W_OK);
 
-	const { openSqlite } = await import("@remit/drizzle-service/sqlite");
 	const handle = openSqlite({
 		filename: path,
 		mode: "readonly",

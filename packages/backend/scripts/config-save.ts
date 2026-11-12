@@ -1,13 +1,9 @@
 import { readConfigForExport } from "@remit/config-transfer";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 import { env } from "expect-env";
-// Reached by module path rather than through either package's entry point, the
-// same way the migrate entrypoint reaches its repairs: this file is bundled by
-// esbuild, and a barrel import would drag every repository and the native
-// driver behind it into a script that reads one table.
 import { auth_user } from "../../auth-service/src/schema/auth-schema-sqlite.js";
-import { openSqlite } from "../../drizzle-service/src/sqlite.js";
 import { configFromEnv } from "../src/config/from-env.js";
 import { getClient } from "../src/service/data-client.js";
 import { exportIdentity } from "../src/service/export-identity.js";

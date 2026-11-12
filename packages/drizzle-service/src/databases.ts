@@ -2,7 +2,6 @@ import { syncBatch } from "./batch.js";
 import type { SqliteLimits } from "./bound-parameters.js";
 import type { Db, SqliteStore } from "./db.js";
 import { messageDataSchema } from "./schema/message-data.js";
-import { createSqliteDatabase } from "./sqlite-client.js";
 
 // The three databases an instance runs on (#1420), each on the file its
 // SQLITE_*_DB_PATH names; a self-host points all three at one remit.db. The app
@@ -75,17 +74,22 @@ export const sqliteDatabasePathsFromEnv = (
 export const openSqliteDatabases = async (
 	paths: SqliteDatabasePaths,
 ): Promise<SqliteDatabases & { close: () => Promise<void> }> => {
-	const app = await createSqliteDatabase({}, { filename: paths.app });
-	const mail = await createSqliteDatabase(messageDataSchema, {
-		filename: paths.mail,
-	});
-	const search = await createSqliteDatabase({}, { filename: paths.search });
+	const { openSqlite } = await import("./sqlite.js");
+	const open = <TSchema extends Record<string, unknown>>(
+		filename: string,
+		schema: TSchema,
+	) => openSqlite({ filename, mode: "create", synchronous: "NORMAL", schema });
+	const app = open(paths.app, {});
+	const mail = open(paths.mail, messageDataSchema);
+	const search = open(paths.search, {});
 	return {
 		app: app.db,
 		mail: mail.db,
 		search: search.db,
 		close: async () => {
-			await Promise.all([app.close(), mail.close(), search.close()]);
+			app.close();
+			mail.close();
+			search.close();
 		},
 	};
 };
