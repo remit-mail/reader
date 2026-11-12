@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import { migrateSqlite, openSqlite, type SqliteHandle } from "./sqlite.js";
 
 /**
@@ -13,7 +14,7 @@ import { migrateSqlite, openSqlite, type SqliteHandle } from "./sqlite.js";
  * "installing this release runs a migration" (#279).
  *
  * They are computed by two different programs from two different sources. The
- * manifest sums the drizzle journals (npm-scripts/lib/update-manifest.mjs); the
+ * manifest counts the drizzle migrations (npm-scripts/lib/update-manifest.mjs); the
  * wrapper counts rows in the `__drizzle_migrations_*` tables on the live
  * database (deploy/vps/remit). Nothing tied the two together, and a run that
  * reported ten against a manifest's nine inverted the derivation with no test
@@ -21,7 +22,7 @@ import { migrateSqlite, openSqlite, type SqliteHandle } from "./sqlite.js";
  *
  * This applies the shipped migration sets with the shipped migrator, each to
  * its own database file, and asserts the two quantities agree: one applied row
- * per journal entry, in exactly the tables and files the wrapper counts.
+ * per migration, in exactly the tables and files the wrapper counts.
  */
 
 const REPO_ROOT = new URL("../../../", import.meta.url);
@@ -58,12 +59,10 @@ const migrationSets = (): MigrationSet[] => {
 	return sets;
 };
 
-const journalEntries = (set: string): unknown[] => {
-	const journal = JSON.parse(
-		readFileSync(new URL(`${set}/meta/_journal.json`, MIGRATIONS_ROOT), "utf8"),
-	) as { entries: unknown[] };
-	return journal.entries;
-};
+const migrationsOf = (set: string): unknown[] =>
+	readMigrationFiles({
+		migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS_ROOT)),
+	});
 
 /**
  * The `<database>:<table>` pairs `read_schema_version` in the wrapper sums on
@@ -123,23 +122,23 @@ describe("schema version accounting", () => {
 			}
 		).n;
 
-	test("a fully migrated database holds one row per journal entry", () => {
+	test("a fully migrated database holds one row per migration", () => {
 		for (const set of sets) {
 			assert.equal(
 				rows(set),
-				journalEntries(set.set).length,
-				`${set.table} does not hold one row per entry in the ${set.set} journal`,
+				migrationsOf(set.set).length,
+				`${set.table} does not hold one row per migration in the ${set.set} set`,
 			);
 		}
 	});
 
 	// The sum is the quantity both sides publish, and the manifest derives it
-	// from these same journals — so this is `deriveSchemaVersion` against the
+	// from these same migration folders — so this is `deriveSchemaVersion` against the
 	// count the wrapper reads back off a migrated instance.
 	test("the total equals the schema version the manifest derives", () => {
 		const applied = sets.reduce((total, set) => total + rows(set), 0);
 		const derived = sets.reduce(
-			(total, { set }) => total + journalEntries(set).length,
+			(total, { set }) => total + migrationsOf(set).length,
 			0,
 		);
 		assert.equal(applied, derived);
@@ -156,7 +155,7 @@ describe("schema version accounting", () => {
 	});
 
 	// Forward-only: the migrator is run on every boot, and a second pass that
-	// re-recorded an applied migration would lift the count above the journal
+	// re-recorded an applied migration would lift the count above the migration
 	// sum — the shape of the drift #279 reported.
 	test("a second migrate run records nothing further", () => {
 		const before = sets.reduce((total, set) => total + rows(set), 0);
