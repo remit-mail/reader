@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { migrateSqlite, openSqlite } from "@remit/drizzle-service/sqlite";
+import {
+	migrateSqlite,
+	openSqlite,
+	type SqliteHandle,
+} from "@remit/drizzle-service/sqlite";
 import { type Auth, createAuth } from "./auth.js";
 import { openIdentityStore } from "./identity-store.js";
 import { createPeopleDirectory } from "./people.js";
@@ -18,6 +22,7 @@ const PASSWORD = "correct horse battery staple";
 
 let dir: string;
 let filename: string;
+let file: SqliteHandle<Record<string, unknown>>;
 
 const build = async (signInEnabled: boolean): Promise<Auth> =>
 	createAuth(
@@ -61,37 +66,27 @@ const cookiesOf = (response: Response): string =>
 		.map((value) => value.split(";")[0])
 		.join("; ");
 
-const rows = (sql: string): unknown[] => {
-	const handle = openSqlite({
-		filename,
-		mode: "readonly",
-		synchronous: "NORMAL",
-		schema: {},
-	});
-	const found = handle.sqlite.prepare(sql).all();
-	handle.close();
-	return found;
-};
+const rows = (sql: string): unknown[] => file.sqlite.prepare(sql).all();
 
 before(() => {
 	dir = mkdtempSync(join(tmpdir(), "remit-kill-switch-"));
 	filename = join(dir, "app.db");
-	const migrating = openSqlite({
+	file = openSqlite({
 		filename,
 		mode: "create",
 		synchronous: "NORMAL",
 		schema: {},
 	});
 	for (const set of ["app", "mcp"]) {
-		migrateSqlite(migrating, {
+		migrateSqlite(file, {
 			migrationsFolder: join(MIGRATIONS, set),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});
 	}
-	migrating.close();
 });
 
 after(() => {
+	file.close();
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -108,23 +103,16 @@ describe("the sign-in kill switch", () => {
 		assert.equal(signedUp.status, 200);
 		cookie = cookiesOf(signedUp);
 		const userId = (rows("SELECT id FROM auth_user")[0] as { id: string }).id;
-		const handle = openSqlite({
-			filename,
-			mode: "open",
-			synchronous: "NORMAL",
-			schema: {},
-		});
-		handle.sqlite
+		file.sqlite
 			.prepare(
 				"INSERT INTO mcp_oauth_client (id, client_id, redirect_uris) VALUES ('client-row', 'client-1', '[]')",
 			)
 			.run();
-		handle.sqlite
+		file.sqlite
 			.prepare(
 				"INSERT INTO mcp_oauth_consent (id, client_id, user_id, scopes) VALUES ('consent-1', 'client-1', ?, '[]')",
 			)
 			.run(userId);
-		handle.close();
 
 		const off = await build(false);
 		const refusals = [

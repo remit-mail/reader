@@ -22,8 +22,7 @@ import { recordingQueue } from "@remit/data-ports/recording-queue";
 import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
 import {
 	migrateSqlite,
-	openSqlite,
-	type SqliteMode,
+	type SqliteHandle,
 } from "@remit/drizzle-service/sqlite";
 import {
 	BodySyncQueueService,
@@ -50,7 +49,7 @@ import {
 	type McpAuthConfig,
 	type McpAuthServer,
 } from "./authorization-server.js";
-import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
+import { openMcpAuthDatabase } from "./database.js";
 import { mcpDatabase } from "./mcp-database.js";
 import { createSqliteMcpAuth } from "./node-auth.js";
 
@@ -70,7 +69,7 @@ const MIGRATIONS = new URL(
 let dir: string;
 let store: Store;
 let filename: string;
-let database: McpAuthDatabase;
+let database: SqliteHandle<Record<string, unknown>>;
 let deps: McpDeps;
 let mainAuth: Auth;
 let mainStore: IdentityStore;
@@ -88,17 +87,11 @@ let mainSessionToken: string;
 let ownerId: string;
 let mainJwt: string;
 
-const openFile = (mode: SqliteMode) =>
-	openSqlite({ filename, mode, synchronous: "NORMAL", schema: {} });
-
 const sharedRows = (): unknown[] => {
-	const file = openFile("readonly");
-	const rows = [
-		...file.sqlite.prepare("SELECT * FROM auth_user ORDER BY id").all(),
-		...file.sqlite.prepare("SELECT * FROM auth_account ORDER BY id").all(),
+	return [
+		...database.sqlite.prepare("SELECT * FROM auth_user ORDER BY id").all(),
+		...database.sqlite.prepare("SELECT * FROM auth_account ORDER BY id").all(),
 	];
-	file.close();
-	return rows;
 };
 
 const MCP_CONFIG: McpAuthConfig = {
@@ -122,14 +115,13 @@ const buildApp = (
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "mcp-auth-"));
 	filename = join(dir, "app.db");
-	const migrating = openFile("create");
+	database = openMcpAuthDatabase(filename);
 	for (const set of ["app", "mcp"]) {
-		migrateSqlite(migrating, {
+		migrateSqlite(database, {
 			migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS)),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});
 	}
-	migrating.close();
 
 	mainStore = await openIdentityStore(filename);
 	mainAuth = await createAuth(
@@ -165,7 +157,6 @@ before(async () => {
 
 	store = await openStore();
 	const storage = store.storage();
-	database = openMcpAuthDatabase(filename);
 	deps = {
 		...store,
 		storage,
@@ -741,11 +732,9 @@ describe("a host that authenticates the browser itself", () => {
 			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject("host-user") }),
 		);
 		assert.equal(signedIn.status, 200);
-		const file = openFile("readonly");
-		const row = file.sqlite
+		const row = database.sqlite
 			.prepare("SELECT email FROM mcp_user WHERE id = ?")
 			.get("host-user");
-		file.close();
 		assert.deepEqual(row, { email: "host-user@subject.invalid" });
 		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
 		assert.equal(anonymous.status, 401);
@@ -845,9 +834,7 @@ describe("device authorization (RFC 8628)", () => {
 		);
 
 	const updateDeviceCode = (sql: string, ...params: unknown[]): void => {
-		const file = openFile("open");
-		file.sqlite.prepare(sql).run(...params);
-		file.close();
+		database.sqlite.prepare(sql).run(...params);
 	};
 
 	const elapse = (userCode: string, ms: number): void =>
@@ -1025,11 +1012,9 @@ describe("the People operations reach the connector (#1519)", () => {
 	});
 
 	const userIdOf = (email: string): string => {
-		const file = openFile("readonly");
-		const row = file.sqlite
+		const row = database.sqlite
 			.prepare("SELECT id FROM auth_user WHERE email = ?")
 			.get(email) as { id: string };
-		file.close();
 		return row.id;
 	};
 

@@ -31,6 +31,7 @@ export interface SqliteHandle<TSchema extends Record<string, unknown>> {
 	db: Db<TSchema>;
 	sqlite: SqliteConnection;
 	exec(sql: string): void;
+	immediate<T>(work: () => T): T;
 	close(): void;
 }
 
@@ -57,6 +58,7 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 		exec: (sql) => {
 			sqlite.exec(sql);
 		},
+		immediate: (work) => sqlite.transaction(work).immediate(),
 		close: () => {
 			sqlite.close();
 		},

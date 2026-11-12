@@ -1,3 +1,4 @@
+import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { logger } from "@remit/logger";
 import type { Auth as BetterAuthInstance } from "better-auth";
 import { betterAuth, type GenericEndpointContext } from "better-auth";
@@ -36,13 +37,10 @@ export interface AuthConfig {
 	signInEnabled: boolean;
 }
 
-// The drizzle adapter better-auth runs against. The SQLite opener is imported
-// dynamically so the driver stays out of any bundle that never opens the
-// database. The auth connection sets the same WAL/busy_timeout
-// coordination every writer uses (RFC 036 D3) — it shares the file with the app
-// tables through its own connection.
-const buildAuthAdapter = async (config: AuthConfig) => {
-	const { openSqlite } = await import("@remit/drizzle-service/sqlite");
+// The drizzle adapter better-auth runs against. The auth connection sets the
+// same WAL/busy_timeout coordination every writer uses (RFC 036 D3) — it
+// shares the file with the app tables through its own connection.
+const buildAuthAdapter = (config: AuthConfig) => {
 	const { db } = openSqlite({
 		filename: config.connectionString,
 		mode: "create",
@@ -162,7 +160,7 @@ export const createAuth = async (
 	config: AuthConfig,
 	store: IdentityStore,
 ): Promise<BetterAuthInstance> => {
-	const database = await buildAuthAdapter(config);
+	const database = buildAuthAdapter(config);
 
 	return betterAuth({
 		secret: config.secret,

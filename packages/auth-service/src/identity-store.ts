@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Db, SqliteHandle } from "@remit/drizzle-service/sqlite";
+import type { Db } from "@remit/drizzle-service/sqlite";
 import { logger } from "@remit/logger";
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
@@ -34,8 +34,6 @@ const mcp_session = sqliteTable("mcp_session", {
 
 export type IdentityDb = Db<Record<string, unknown>>;
 
-type SqliteDb = IdentityDb;
-
 export interface IdentityStore {
 	db: IdentityDb;
 	immediate<T>(work: () => T): T;
@@ -49,7 +47,7 @@ const logAudit = (record: AuditRecord): void => {
 	logger.info({ audit: record }, "Identity audit event");
 };
 
-const insertAudit = (db: SqliteDb, record: AuditRecord): string => {
+const insertAudit = (db: IdentityDb, record: AuditRecord): string => {
 	const now = Date.now();
 	const auditEventId = randomUUID();
 	db.delete(identity_audit_event)
@@ -63,16 +61,23 @@ const insertAudit = (db: SqliteDb, record: AuditRecord): string => {
 	return auditEventId;
 };
 
-export const writeAudit = (db: SqliteDb, record: AuditRecord): void => {
+export const writeAudit = (db: IdentityDb, record: AuditRecord): void => {
 	insertAudit(db, record);
 	logAudit(record);
 };
 
-export const identityStore = (
-	handle: SqliteHandle<Record<string, unknown>>,
-): IdentityStore => {
-	let pending: AuditRecord[] | null = null;
+export const openIdentityStore = async (
+	filename: string,
+): Promise<IdentityStore> => {
+	const { openSqlite } = await import("@remit/drizzle-service/sqlite");
+	const handle = openSqlite({
+		filename,
+		mode: "create",
+		synchronous: "NORMAL",
+		schema: {},
+	});
 	const { db } = handle;
+	let pending: AuditRecord[] | null = null;
 
 	const log = (record: AuditRecord): void => {
 		if (pending) pending.push(record);
@@ -98,15 +103,7 @@ export const identityStore = (
 		const written = pending;
 		const result = (() => {
 			try {
-				const done: T[] = [];
-				db.transaction(
-					() => {
-						done.push(work());
-					},
-					{ behavior: "immediate" },
-				);
-				const [value] = done;
-				return value;
+				return handle.immediate(work);
 			} finally {
 				pending = null;
 			}
@@ -116,15 +113,6 @@ export const identityStore = (
 	};
 
 	return { db, immediate, audit, relabel, close: handle.close };
-};
-
-export const openIdentityStore = async (
-	filename: string,
-): Promise<IdentityStore> => {
-	const { openSqlite } = await import("@remit/drizzle-service/sqlite");
-	return identityStore(
-		openSqlite({ filename, mode: "create", synchronous: "NORMAL", schema: {} }),
-	);
 };
 
 export interface UserRow {
@@ -151,7 +139,7 @@ export const findUser = (
 		.where(eq(auth_user.id, userId))
 		.get();
 
-export const isUserDisabled = (db: SqliteDb, userId: string): boolean =>
+export const isUserDisabled = (db: IdentityDb, userId: string): boolean =>
 	db
 		.select({ disabled: auth_user.disabled })
 		.from(auth_user)
