@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { resolveSignInEnabled } from "@remit/auth-service/verifier";
 import { getClient } from "@remit/backend/client";
 import { logger } from "@remit/logger";
-import { installNodeLogger } from "@remit/logger-lambda/node";
+import { installNodeLogger } from "@remit/logger/node";
 import { createMcpApp } from "./app.js";
 import { createBetterAuthTokenVerifier } from "./auth/authorization-server.js";
 import { openMcpAuthDatabase } from "./auth/database.js";

@@ -28,7 +28,6 @@
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "@remit/drizzle-service": "*",
-    "@remit/logger-lambda": "*",
     "@remit/mailbox-service": "*",
     "@remit/storage-service": "*",
     "@remit/ui": "0.0.234",

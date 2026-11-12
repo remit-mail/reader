@@ -12,7 +12,7 @@ let installed: Logger = createJsonLogger();
 /**
  * Plugs the implementation every `logger` and `createLogger()` handle writes
  * through. The composition root calls it once: the Lambda and Node entry points
- * install the Node adapter from `@remit/logger-lambda/node`, a Workers host its
+ * install the Node adapter from `@remit/logger/node`, a Workers host its
  * own. Until then the handles write the platform-neutral JSON line to the
  * console at `info`.
  */
