@@ -1,6 +1,6 @@
 # @remit/logger-lambda
 
-The Node host for [`@remit/logger`](../logger/README.md). `@remit/logger-lambda/node` holds what only a Node process can run: `installNodeLogger()`, which writes one JSON object per line on stdout at `LOG_LEVEL`, and `withTelemetry`, which installs it and records handler duration and outcome. `@remit/logger-lambda/metrics` owns the process-wide Prometheus registry every service renders at `/metrics`; see [docs/design/standalone-observability.md](../../docs/design/standalone-observability.md) for the signal set. A Workers host imports neither entry.
+The Node host for [`@remit/logger`](../logger/README.md). `@remit/logger-lambda/node` holds what only a Node process can run: `installNodeLogger()`, re-exported from `@remit/logger/node`, which writes one JSON object per line on stdout at `LOG_LEVEL`, and `withTelemetry`, which installs it and records handler duration and outcome. `@remit/logger-lambda/metrics` owns the process-wide Prometheus registry every service renders at `/metrics`; see [docs/design/standalone-observability.md](../../docs/design/standalone-observability.md) for the signal set. A Workers host imports neither entry.
 
 A signal only one service can answer for is declared by that service against the exported `registry` — see `queue-sidecar/src/metrics.ts`. Declaring it here would render it in every process that imports this module, including the ones that cannot know its value.
 
