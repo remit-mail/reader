@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { after, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
+import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { bootstrapQueues, parseQueuesConfig } from "./queues-config.js";
 import {
 	InvalidParameterValueError,
@@ -322,8 +322,13 @@ describe("QueueStore", () => {
 	const seedBacklog = (rows: number, groups: number): void => {
 		const path = join(dir, "queue.db");
 		store.close();
-		const seed = new Database(path);
-		seed
+		const seed = openSqlite({
+			filename: path,
+			mode: "open",
+			synchronous: "FULL",
+			schema: {},
+		});
+		seed.sqlite
 			.prepare(
 				`WITH RECURSIVE n(i) AS (
 					SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?
