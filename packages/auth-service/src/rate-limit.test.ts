@@ -19,7 +19,7 @@ const createDatabase = async (dir: string, name: string): Promise<string> => {
 	const { drizzle } = await import("drizzle-orm/better-sqlite3");
 	const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
 	const sqlite = new Database(path);
-	migrate(drizzle(sqlite), { migrationsFolder: MIGRATIONS });
+	migrate(drizzle({ client: sqlite }), { migrationsFolder: MIGRATIONS });
 	sqlite.close();
 	return path;
 };

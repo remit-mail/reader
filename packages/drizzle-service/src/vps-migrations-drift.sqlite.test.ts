@@ -3,9 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import * as entities from "@remit/drizzle-sqlite-schema";
 import {
-	generateSQLiteDrizzleJson,
-	generateSQLiteMigration,
-} from "drizzle-kit/api";
+	generateDrizzleJson,
+	generateMigration,
+} from "drizzle-kit/payload/sqlite";
 import { getTableName, is } from "drizzle-orm";
 import { SQLiteTable } from "drizzle-orm/sqlite-core";
 
@@ -70,26 +70,22 @@ const tableNames = (schema: Record<string, unknown>): string[] =>
 		.filter((value) => is(value, SQLiteTable))
 		.map((table) => getTableName(table as SQLiteTable));
 
-interface Journal {
-	entries: Array<{ idx: number; tag: string }>;
-}
+type Snapshot = Parameters<typeof generateMigration>[0];
 
-const journalOf = (out: string): Journal =>
+/** Every migration folder of a set, in the order the migrator runs them. */
+const migrationFolders = (out: string): string[] =>
+	readdirSync(new URL(`${out}/`, REPO_ROOT)).sort();
+
+const latestSnapshot = (out: string): Snapshot =>
 	JSON.parse(
-		readFileSync(new URL(`${out}/meta/_journal.json`, REPO_ROOT), "utf8"),
-	) as Journal;
-
-const latestSnapshot = (out: string): Record<string, unknown> => {
-	const dir = new URL(`${out}/`, REPO_ROOT);
-	const journal = journalOf(out);
-	const idx = Math.max(...journal.entries.map((entry) => entry.idx));
-	return JSON.parse(
 		readFileSync(
-			new URL(`meta/${String(idx).padStart(4, "0")}_snapshot.json`, dir),
+			new URL(
+				`${out}/${migrationFolders(out).at(-1)}/snapshot.json`,
+				REPO_ROOT,
+			),
 			"utf8",
 		),
-	) as Record<string, unknown>;
-};
+	) as Snapshot;
 
 describe("committed sqlite migrations", () => {
 	for (const configPath of Object.values(CONFIGS)) {
@@ -97,34 +93,15 @@ describe("committed sqlite migrations", () => {
 			const config = await loadConfig(configPath);
 			const schema = await loadSchema(config);
 
-			const drift = await generateSQLiteMigration(
-				latestSnapshot(config.out) as unknown as Parameters<
-					typeof generateSQLiteMigration
-				>[0],
-				await generateSQLiteDrizzleJson(schema),
+			const drift = await generateMigration(
+				latestSnapshot(config.out),
+				await generateDrizzleJson(schema),
 			);
 
 			assert.deepEqual(
 				drift,
 				[],
 				`the committed migrations in ${config.out} no longer match ${config.schema} — regenerate them with drizzle-kit generate`,
-			);
-		});
-	}
-
-	for (const configPath of Object.values(CONFIGS)) {
-		test(`${configPath} — the journal names every file on disk once, in order`, async () => {
-			const { out } = await loadConfig(configPath);
-			const { entries } = journalOf(out);
-			assert.deepEqual(
-				entries.map((entry) => entry.idx),
-				entries.map((_, index) => index),
-			);
-			assert.deepEqual(
-				entries.map((entry) => `${entry.tag}.sql`).sort(),
-				readdirSync(new URL(`${out}/`, REPO_ROOT))
-					.filter((name) => name.endsWith(".sql"))
-					.sort(),
 			);
 		});
 	}
@@ -151,13 +128,13 @@ describe("committed sqlite migrations", () => {
 
 	test("declare mailbox.highest_modseq as text", async () => {
 		const { out } = await loadConfig(CONFIGS.mail);
-		const snapshot = latestSnapshot(out) as {
-			tables: Record<
-				string,
-				{ columns: Record<string, { type: string; notNull: boolean }> }
-			>;
-		};
-		const column = snapshot.tables.mailbox.columns.highest_modseq;
+		const column = latestSnapshot(out).ddl.find(
+			(entity) =>
+				entity.entityType === "columns" &&
+				entity.table === "mailbox" &&
+				entity.name === "highest_modseq",
+		) as { type: string; notNull: boolean } | undefined;
+		assert.ok(column, "mailbox.highest_modseq is in the latest snapshot");
 
 		// A mod-sequence is an unsigned 63-bit value carried as decimal digits and
 		// parsed to BigInt, and the stored cursor also takes a `<group>:<uid>`

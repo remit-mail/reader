@@ -42,7 +42,7 @@ export const openMcpAuthDatabase = (filename: string): McpAuthDatabase => {
 	sqlite.pragma("synchronous = NORMAL");
 	sqlite.pragma("foreign_keys = ON");
 	return {
-		db: drizzle(sqlite),
+		db: drizzle({ client: sqlite }),
 		close: () => sqlite.close(),
 	};
 };

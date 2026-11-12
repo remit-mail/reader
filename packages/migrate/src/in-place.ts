@@ -156,7 +156,9 @@ const preflight = (db: Handle, root: string, fileName: string): void => {
 	const newest = Number(
 		db.prepare(`SELECT max(created_at) FROM ${LEGACY_JOURNAL}`).pluck().get(),
 	);
-	if (known && newest > known.folderMillis) {
+	// drizzle 0.x stamped a row to the millisecond; a migration folder names
+	// only the second.
+	if (known && Math.floor(newest / 1000) * 1000 > known.folderMillis) {
 		throw new Error(
 			`${fileName} was written by a release this migrator does not know (entities migration ${newest}). ${nothingChanged}`,
 		);
@@ -342,7 +344,7 @@ export const baselineDifferences = (
 };
 
 const JOURNAL_DDL = (table: string): string =>
-	`CREATE TABLE IF NOT EXISTS "${table}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`;
+	`CREATE TABLE IF NOT EXISTS "${table}" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`;
 
 /**
  * Step 2: the file must hold exactly what the app and mail baselines create,
@@ -389,8 +391,13 @@ const adoptBaselines = (
 		for (const { table, migration } of baselines) {
 			db.exec(JOURNAL_DDL(table));
 			db.prepare(
-				`INSERT INTO "${table}" ("hash", "created_at") VALUES (?, ?)`,
-			).run(migration.hash, migration.folderMillis);
+				`INSERT INTO "${table}" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)`,
+			).run(
+				migration.hash,
+				migration.folderMillis,
+				migration.name,
+				new Date().toISOString(),
+			);
 		}
 	})();
 };
@@ -539,7 +546,7 @@ export const prepareInPlace = async (
 		const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
 		for (const set of LEGACY_SETS) {
 			log({ database: set.migrationsTable }, "applying the v0.9 migrations");
-			migrate(driver.drizzle(db), {
+			migrate(driver.drizzle({ client: db }), {
 				migrationsFolder: join(root, set.migrationsFolder),
 				migrationsTable: set.migrationsTable,
 			});
@@ -604,7 +611,7 @@ export const migrateSqliteFiles = async (
 	const drizzleOf = (path: string) => {
 		const sqlite = handles.get(path);
 		if (!sqlite) throw new Error(`${path} is not open`);
-		return driver.drizzle(sqlite);
+		return driver.drizzle({ client: sqlite });
 	};
 	try {
 		await applyMigrationSets(

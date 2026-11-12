@@ -19,33 +19,37 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-export const auth_user = sqliteTable("auth_user", {
-	id: text("id").primaryKey(),
-	name: text("name").notNull(),
-	email: text("email").notNull().unique(),
-	emailVerified: integer("email_verified", { mode: "boolean" })
-		.default(false)
-		.notNull(),
-	image: text("image"),
-	createdAt: integer("created_at", { mode: "timestamp" })
-		.$defaultFn(() => /* @__PURE__ */ new Date())
-		.notNull(),
-	updatedAt: integer("updated_at", { mode: "timestamp" })
-		.$defaultFn(() => /* @__PURE__ */ new Date())
-		.$onUpdate(() => /* @__PURE__ */ new Date())
-		.notNull(),
-	disabled: integer("disabled", { mode: "boolean" }).default(false).notNull(),
-	lastSignInAt: integer("last_sign_in_at", { mode: "timestamp" })
-		.default(sql`0`)
-		.notNull(),
-});
+export const auth_user = sqliteTable(
+	"auth_user",
+	{
+		id: text("id").primaryKey(),
+		name: text("name").notNull(),
+		email: text("email").notNull(),
+		emailVerified: integer("email_verified", { mode: "boolean" })
+			.default(false)
+			.notNull(),
+		image: text("image"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.$defaultFn(() => /* @__PURE__ */ new Date())
+			.notNull(),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.$defaultFn(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+		disabled: integer("disabled", { mode: "boolean" }).default(false).notNull(),
+		lastSignInAt: integer("last_sign_in_at", { mode: "timestamp" })
+			.default(sql`0`)
+			.notNull(),
+	},
+	(table) => [uniqueIndex("auth_user_email_unique").on(table.email)],
+);
 
 export const auth_session = sqliteTable(
 	"auth_session",
 	{
 		id: text("id").primaryKey(),
 		expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
-		token: text("token").notNull().unique(),
+		token: text("token").notNull(),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.$defaultFn(() => /* @__PURE__ */ new Date())
 			.notNull(),
@@ -58,7 +62,10 @@ export const auth_session = sqliteTable(
 			.notNull()
 			.references(() => auth_user.id, { onDelete: "cascade" }),
 	},
-	(table) => [index("auth_session_userId_idx").on(table.userId)],
+	(table) => [
+		uniqueIndex("auth_session_token_unique").on(table.token),
+		index("auth_session_userId_idx").on(table.userId),
+	],
 );
 
 export const auth_account = sqliteTable(

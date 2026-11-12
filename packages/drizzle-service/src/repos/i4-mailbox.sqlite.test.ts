@@ -7,6 +7,7 @@ import { mailboxTable } from "../schema.js";
 import { openTestSqlite } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { failedWith } from "../test-error.js";
 import {
 	applyMigrationSet,
 	shippedTableDdl,
@@ -161,7 +162,9 @@ describe("MailboxRepo (sqlite)", () => {
 				to: MailboxSyncStatus.synced,
 				set: { fullPath: "INBOX/Notifications" },
 			}),
-			/UNIQUE constraint failed: mailbox\.account_id, mailbox\.full_path/,
+			failedWith(
+				/UNIQUE constraint failed: mailbox\.account_id, mailbox\.full_path/,
+			),
 		);
 	});
 

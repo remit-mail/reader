@@ -46,18 +46,12 @@ const owned: Owned[] = Object.entries({ ...appTables, ...mailTables }).flatMap(
 );
 
 const fillerOf = (column: SQLiteColumn, tenant: string): unknown => {
-	switch (column.dataType) {
-		case "number":
-			return 1;
-		case "boolean":
-			return false;
-		case "json":
-			return {};
-		case "buffer":
-			return Buffer.from(tenant);
-		default:
-			return `${tenant}-${column.name}`;
-	}
+	const [type, constraint] = column.dataType.split(" ");
+	if (type === "number") return 1;
+	if (type === "boolean") return false;
+	if (constraint === "json") return {};
+	if (constraint === "buffer") return Buffer.from(tenant);
+	return `${tenant}-${column.name}`;
 };
 
 const rowOf = (table: SQLiteTable, tenant: string): Record<string, unknown> => {

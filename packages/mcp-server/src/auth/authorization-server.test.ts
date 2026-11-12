@@ -121,7 +121,7 @@ before(async () => {
 	migrating.pragma("journal_mode = WAL");
 	migrating.pragma("foreign_keys = ON");
 	for (const set of ["app", "mcp"]) {
-		migrate(drizzle(migrating), {
+		migrate(drizzle({ client: migrating }), {
 			migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS)),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});

@@ -59,7 +59,7 @@ describe("relational deletion capabilities — login user erase", () => {
 		deviceCodeUsers: (string | null)[];
 	} => {
 		const sqlite = new Database(filename, { readonly: true });
-		const db = drizzle(sqlite);
+		const db = drizzle({ client: sqlite });
 		const users = db
 			.select({ id: auth_user.id })
 			.from(auth_user)
@@ -90,7 +90,7 @@ describe("relational deletion capabilities — login user erase", () => {
 		migrating.pragma("journal_mode = WAL");
 		migrating.pragma("foreign_keys = ON");
 		for (const set of ["app", "mcp"]) {
-			migrate(drizzle(migrating), {
+			migrate(drizzle({ client: migrating }), {
 				migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS)),
 				migrationsTable: `__drizzle_migrations_${set}`,
 			});
@@ -111,7 +111,7 @@ describe("relational deletion capabilities — login user erase", () => {
 		kept = await signUp(auth, "kept@remit.test");
 
 		const seeding = new Database(filename);
-		drizzle(seeding)
+		drizzle({ client: seeding })
 			.insert(mcp_device_code)
 			.values(
 				[erased, kept].map(({ userId }) => ({

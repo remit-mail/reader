@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -101,28 +101,21 @@ describe("readTagSummary", () => {
 });
 
 describe("deriveSchemaVersion", () => {
-	it("sums the drizzle journal entries across every sqlite migration set", () => {
-		const expected = SQLITE_MIGRATION_SETS.reduce((sum, set) => {
-			const journal = JSON.parse(
-				readFileSync(
-					join(
-						repoRoot,
-						"deploy/vps/migrations-sqlite",
-						set,
-						"meta",
-						"_journal.json",
-					),
-					"utf8",
-				),
-			);
-			return sum + journal.entries.length;
-		}, 0);
+	it("counts the drizzle migrations across every sqlite migration set", () => {
+		const expected = SQLITE_MIGRATION_SETS.reduce(
+			(sum, set) =>
+				sum +
+				readdirSync(join(repoRoot, "deploy/vps/migrations-sqlite", set), {
+					recursive: true,
+				}).filter((path) => path.endsWith("migration.sql")).length,
+			0,
+		);
 		assert.equal(deriveSchemaVersion(repoRoot), expected);
 		// One migration per set at least, so the count clears the set count.
 		assert.ok(deriveSchemaVersion(repoRoot) >= SQLITE_MIGRATION_SETS.length);
 	});
 
-	it("throws rather than guessing when a set's journal is missing", () => {
+	it("throws rather than guessing when a set's folder is missing", () => {
 		assert.throws(() => deriveSchemaVersion("/no/such/repo/root"));
 	});
 });

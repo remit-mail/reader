@@ -212,9 +212,9 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		all: async (sql, params) => mailSqlite.prepare(sql).all(...params),
 		run: async (sql, params) => mailSqlite.prepare(sql).run(...params).changes,
 	};
-	const app = sqliteDrizzle(appSqlite);
-	const db = sqliteDrizzle(mailSqlite);
-	const searchDb = sqliteDrizzle(searchSqlite);
+	const app = sqliteDrizzle({ client: appSqlite });
+	const db = sqliteDrizzle({ client: mailSqlite });
+	const searchDb = sqliteDrizzle({ client: searchSqlite });
 	const search = new SearchIndex(
 		db,
 		syncStore(searchDb, BETTER_SQLITE3_LIMITS),

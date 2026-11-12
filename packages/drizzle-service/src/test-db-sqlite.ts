@@ -1,4 +1,4 @@
-import { pushSQLiteSchema } from "drizzle-kit/api";
+import { pushSchema } from "drizzle-kit/payload/sqlite";
 import type { Db } from "./db.js";
 import { openSqlite, openTestSqlite, type SqliteConnection } from "./sqlite.js";
 import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
@@ -31,25 +31,20 @@ export async function createSqliteTestDb<
 
 	const db: SqliteTestDb<TSchema> = sqlite.db;
 
-	// pushSQLiteSchema derives the CREATE statements from the table objects;
-	// better-sqlite3 rejects its own `apply()` (it issues the DDL through a
-	// data-returning path), so run the statements directly. The pull-schema
-	// progress spinner writes to stdout — silence it so the test reporter output
-	// stays clean.
-	const write = process.stdout.write.bind(process.stdout);
-	process.stdout.write = (() => true) as typeof process.stdout.write;
-	let statementsToExecute: string[];
-	try {
-		({ statementsToExecute } = await pushSQLiteSchema(
-			schema,
-			db as unknown as Parameters<typeof pushSQLiteSchema>[1],
-		));
-	} finally {
-		process.stdout.write = write;
-	}
-	for (const statement of statementsToExecute) {
-		sqlite.exec(statement);
-	}
+	// pushSchema derives the CREATE statements from the table objects by
+	// diffing them against the live database through this client.
+	const client: Parameters<typeof pushSchema>[1] = {
+		query: async <T>(sql: string, params: unknown[] = []) =>
+			sqlite.sqlite.prepare(sql).all(...params) as T[],
+		run: async (sql: string) => {
+			sqlite.exec(sql);
+		},
+		batch: async (statements: string[]) => {
+			for (const statement of statements) sqlite.exec(statement);
+		},
+	};
+	const { apply } = await pushSchema(schema, client);
+	await apply();
 
 	// Install the committed search set beside the pushed schema so the
 	// thread-message search predicates run their real FTS5 path. The one

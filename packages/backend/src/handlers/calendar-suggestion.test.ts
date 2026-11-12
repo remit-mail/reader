@@ -1153,7 +1153,10 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 					accountConfigId,
 					suggestion: card,
 				}),
-			/NOT NULL constraint failed/,
+			(error: unknown) =>
+				error instanceof Error &&
+				error.cause instanceof Error &&
+				/NOT NULL constraint failed/.test(error.cause.message),
 		);
 
 		const kept = await client.calendarObject.find(

@@ -48,7 +48,7 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 	sqlite.pragma(`synchronous = ${options.synchronous}`);
 	sqlite.pragma("foreign_keys = ON");
 
-	const db = drizzle(sqlite, { schema: options.schema });
+	const db = drizzle({ client: sqlite });
 	const handle: SqliteHandle<TSchema> = {
 		db,
 		sqlite,
@@ -80,5 +80,5 @@ export function migrateSqlite<TSchema extends Record<string, unknown>>(
 ): void {
 	const sqlite = drivers.get(handle);
 	if (!sqlite) throw new Error("migrateSqlite takes a handle from openSqlite");
-	migrate(drizzle(sqlite), config);
+	migrate(drizzle({ client: sqlite }), config);
 }

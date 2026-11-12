@@ -6,6 +6,7 @@ import { after, describe, test } from "node:test";
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable } from "drizzle-orm/sqlite-core";
 import { openSqlite } from "./sqlite.js";
+import { failedWith } from "./test-error.js";
 
 const counters = sqliteTable("counters", { value: integer("value") });
 const schema = { counters };
@@ -50,7 +51,7 @@ describe("openSqlite", () => {
 		});
 		assert.throws(
 			() => reader.db.insert(counters).values({ value: 1 }).run(),
-			/readonly/,
+			failedWith(/readonly/),
 		);
 		reader.close();
 	});

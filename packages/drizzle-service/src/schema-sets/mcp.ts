@@ -11,22 +11,26 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-export const mcp_user = sqliteTable("mcp_user", {
-	id: text("id").primaryKey(),
-	name: text("name").notNull(),
-	email: text("email").notNull().unique(),
-	emailVerified: integer("email_verified", { mode: "boolean" })
-		.default(false)
-		.notNull(),
-	image: text("image"),
-	createdAt: integer("created_at", { mode: "timestamp_ms" })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-		.notNull(),
-	updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-		.$onUpdate(() => /* @__PURE__ */ new Date())
-		.notNull(),
-});
+export const mcp_user = sqliteTable(
+	"mcp_user",
+	{
+		id: text("id").primaryKey(),
+		name: text("name").notNull(),
+		email: text("email").notNull(),
+		emailVerified: integer("email_verified", { mode: "boolean" })
+			.default(false)
+			.notNull(),
+		image: text("image"),
+		createdAt: integer("created_at", { mode: "timestamp_ms" })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [uniqueIndex("mcp_user_email_unique").on(table.email)],
+);
 
 export const mcp_account = sqliteTable(
 	"mcp_account",
@@ -61,7 +65,7 @@ export const mcp_session = sqliteTable(
 	{
 		id: text("id").primaryKey(),
 		expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-		token: text("token").notNull().unique(),
+		token: text("token").notNull(),
 		createdAt: integer("created_at", { mode: "timestamp_ms" })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -72,7 +76,10 @@ export const mcp_session = sqliteTable(
 		userAgent: text("user_agent"),
 		userId: text("user_id").notNull(),
 	},
-	(table) => [index("mcp_session_userId_idx").on(table.userId)],
+	(table) => [
+		uniqueIndex("mcp_session_token_unique").on(table.token),
+		index("mcp_session_userId_idx").on(table.userId),
+	],
 );
 
 export const mcp_verification = sqliteTable(
@@ -107,7 +114,7 @@ export const mcp_oauth_client = sqliteTable(
 	"mcp_oauth_client",
 	{
 		id: text("id").primaryKey(),
-		clientId: text("client_id").notNull().unique(),
+		clientId: text("client_id").notNull(),
 		clientSecret: text("client_secret"),
 		clientDiscoveryId: text("client_discovery_id"),
 		disabled: integer("disabled", { mode: "boolean" }).default(false),
@@ -150,28 +157,40 @@ export const mcp_oauth_client = sqliteTable(
 		referenceId: text("reference_id"),
 		metadata: text("metadata", { mode: "json" }),
 	},
-	(table) => [index("mcp_oauth_client_userId_idx").on(table.userId)],
+	(table) => [
+		uniqueIndex("mcp_oauth_client_client_id_unique").on(table.clientId),
+		index("mcp_oauth_client_userId_idx").on(table.userId),
+	],
 );
 
-export const mcp_oauth_resource = sqliteTable("mcp_oauth_resource", {
-	id: text("id").primaryKey(),
-	identifier: text("identifier").notNull().unique(),
-	name: text("name").notNull(),
-	accessTokenTtl: integer("access_token_ttl"),
-	refreshTokenTtl: integer("refresh_token_ttl"),
-	signingAlgorithm: text("signing_algorithm"),
-	signingKeyId: text("signing_key_id"),
-	allowedScopes: text("allowed_scopes", { mode: "json" }),
-	customClaims: text("custom_claims", { mode: "json" }),
-	dpopBoundAccessTokensRequired: integer("dpop_bound_access_tokens_required", {
-		mode: "boolean",
-	}).default(false),
-	disabled: integer("disabled", { mode: "boolean" }).default(false),
-	createdAt: integer("created_at", { mode: "timestamp_ms" }),
-	updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
-	policyVersion: integer("policy_version").default(1),
-	metadata: text("metadata", { mode: "json" }),
-});
+export const mcp_oauth_resource = sqliteTable(
+	"mcp_oauth_resource",
+	{
+		id: text("id").primaryKey(),
+		identifier: text("identifier").notNull(),
+		name: text("name").notNull(),
+		accessTokenTtl: integer("access_token_ttl"),
+		refreshTokenTtl: integer("refresh_token_ttl"),
+		signingAlgorithm: text("signing_algorithm"),
+		signingKeyId: text("signing_key_id"),
+		allowedScopes: text("allowed_scopes", { mode: "json" }),
+		customClaims: text("custom_claims", { mode: "json" }),
+		dpopBoundAccessTokensRequired: integer(
+			"dpop_bound_access_tokens_required",
+			{
+				mode: "boolean",
+			},
+		).default(false),
+		disabled: integer("disabled", { mode: "boolean" }).default(false),
+		createdAt: integer("created_at", { mode: "timestamp_ms" }),
+		updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+		policyVersion: integer("policy_version").default(1),
+		metadata: text("metadata", { mode: "json" }),
+	},
+	(table) => [
+		uniqueIndex("mcp_oauth_resource_identifier_unique").on(table.identifier),
+	],
+);
 
 export const mcp_oauth_client_resource = sqliteTable(
 	"mcp_oauth_client_resource",
@@ -200,7 +219,7 @@ export const mcp_oauth_refresh_token = sqliteTable(
 	"mcp_oauth_refresh_token",
 	{
 		id: text("id").primaryKey(),
-		token: text("token").notNull().unique(),
+		token: text("token").notNull(),
 		clientId: text("client_id")
 			.notNull()
 			.references(() => mcp_oauth_client.clientId, { onDelete: "cascade" }),
@@ -227,6 +246,7 @@ export const mcp_oauth_refresh_token = sqliteTable(
 		scopes: text("scopes", { mode: "json" }).notNull(),
 	},
 	(table) => [
+		uniqueIndex("mcp_oauth_refresh_token_token_unique").on(table.token),
 		index("mcp_oauth_refresh_token_clientId_idx").on(table.clientId),
 		index("mcp_oauth_refresh_token_sessionId_idx").on(table.sessionId),
 		index("mcp_oauth_refresh_token_userId_idx").on(table.userId),
@@ -240,7 +260,7 @@ export const mcp_oauth_access_token = sqliteTable(
 	"mcp_oauth_access_token",
 	{
 		id: text("id").primaryKey(),
-		token: text("token").unique(),
+		token: text("token"),
 		clientId: text("client_id")
 			.notNull()
 			.references(() => mcp_oauth_client.clientId, { onDelete: "cascade" }),
@@ -264,6 +284,7 @@ export const mcp_oauth_access_token = sqliteTable(
 		scopes: text("scopes", { mode: "json" }).notNull(),
 	},
 	(table) => [
+		uniqueIndex("mcp_oauth_access_token_token_unique").on(table.token),
 		index("mcp_oauth_access_token_clientId_idx").on(table.clientId),
 		index("mcp_oauth_access_token_sessionId_idx").on(table.sessionId),
 		index("mcp_oauth_access_token_userId_idx").on(table.userId),

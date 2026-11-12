@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { readMigrationFiles } from "drizzle-orm/migrator";
+import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
 import { LEGACY_SETS, migrateSqliteFiles, prepareInPlace } from "./in-place.js";
 import {
 	ADDED_COLUMNS,
@@ -50,6 +50,18 @@ const V0922_LAST = {
 	meta: 1784583099917,
 };
 
+// drizzle 0.x stamped each row with the millisecond its migration was
+// generated; a 1.0 migration folder names only the second.
+const legacyRow = (
+	sqlite: Database.Database,
+	table: string,
+	migration: MigrationMeta,
+): void => {
+	sqlite
+		.prepare(`INSERT INTO "${table}" (hash, created_at) VALUES (?, ?)`)
+		.run(migration.hash, migration.folderMillis + 123);
+};
+
 const journalRows = (sqlite: Database.Database): void => {
 	const sets = [
 		{ ...LEGACY_SETS[0], last: V0922_LAST.entities },
@@ -63,11 +75,7 @@ const journalRows = (sqlite: Database.Database): void => {
 			migrationsFolder: join(ROOT, set.migrationsFolder),
 		})) {
 			if (migration.folderMillis > set.last) continue;
-			sqlite
-				.prepare(
-					`INSERT INTO "${set.migrationsTable}" (hash, created_at) VALUES (?, ?)`,
-				)
-				.run(migration.hash, migration.folderMillis);
+			legacyRow(sqlite, set.migrationsTable, migration);
 		}
 	}
 	sqlite.exec(
@@ -573,7 +581,11 @@ describe("the spec's delta table", () => {
 		old.exec(fixture("remit-v0.9.22.sql"));
 		const fresh = new Database(":memory:");
 		await applyMigrationSets(
-			{ app: drizzle(fresh), mail: drizzle(fresh), search: drizzle(fresh) },
+			{
+				app: drizzle({ client: fresh }),
+				mail: drizzle({ client: fresh }),
+				search: drizzle({ client: fresh }),
+			},
 			ROOT,
 			quiet,
 		);
@@ -622,21 +634,18 @@ describe("the spec's delta table", () => {
 		sqlite.exec(fixture("remit-v0.9.22.sql"));
 		journalRows(sqlite);
 		for (const set of LEGACY_SETS) {
-			migrate(drizzle(sqlite), {
+			migrate(drizzle({ client: sqlite }), {
 				migrationsFolder: join(ROOT, set.migrationsFolder),
 				migrationsTable: set.migrationsTable,
 			});
 		}
-		const newer = (table: string, since: number): number =>
+		const applied = (table: string): number =>
 			sqlite
-				.prepare(`SELECT count(*) FROM ${table} WHERE created_at > ?`)
+				.prepare(`SELECT count(*) FROM ${table} WHERE applied_at IS NOT NULL`)
 				.pluck()
-				.get(since) as number;
-		assert.equal(
-			newer("__drizzle_migrations_entities", V0922_LAST.entities),
-			5,
-		);
-		assert.equal(newer("__drizzle_migrations_auth", V0922_LAST.auth), 1);
+				.get() as number;
+		assert.equal(applied("__drizzle_migrations_entities"), 5);
+		assert.equal(applied("__drizzle_migrations_auth"), 1);
 		sqlite.close();
 	});
 });
@@ -648,12 +657,18 @@ describe("the spec's delta table", () => {
 const seedV0927 = (path: string): void => {
 	seedV0922(path);
 	const sqlite = new Database(path);
-	for (const set of LEGACY_SETS) {
-		migrate(drizzle(sqlite), {
+	const legacyLast = [V0922_LAST.entities, V0922_LAST.auth];
+	LEGACY_SETS.forEach((set, index) => {
+		for (const migration of readMigrationFiles({
 			migrationsFolder: join(ROOT, set.migrationsFolder),
-			migrationsTable: set.migrationsTable,
-		});
-	}
+		})) {
+			if (migration.folderMillis <= legacyLast[index]) continue;
+			for (const statement of migration.sql) {
+				if (statement.trim()) sqlite.exec(statement);
+			}
+			legacyRow(sqlite, set.migrationsTable, migration);
+		}
+	});
 	sqlite.exec(
 		"CREATE TABLE __drizzle_migrations_mcp (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)",
 	);
@@ -663,11 +678,7 @@ const seedV0927 = (path: string): void => {
 		for (const statement of migration.sql) {
 			if (statement.trim()) sqlite.exec(statement);
 		}
-		sqlite
-			.prepare(
-				"INSERT INTO __drizzle_migrations_mcp (hash, created_at) VALUES (?, ?)",
-			)
-			.run(migration.hash, migration.folderMillis);
+		legacyRow(sqlite, "__drizzle_migrations_mcp", migration);
 	}
 	sqlite.close();
 };
@@ -687,7 +698,7 @@ describe("a v0.9.27 remit.db migrated in place", async () => {
 		const [last] = readMigrationFiles({
 			migrationsFolder: join(ROOT, LEGACY_SETS[0].migrationsFolder),
 		}).slice(-1);
-		assert.equal(Number(newest), last.folderMillis);
+		assert.equal(Number(newest), last.folderMillis + 123);
 	});
 
 	test("keeps the filter with rules and the pending mutations", () => {
