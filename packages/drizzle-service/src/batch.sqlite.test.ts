@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, before, describe, test } from "node:test";
+import { after, before, describe, mock, test } from "node:test";
 import { eq } from "drizzle-orm";
 import { syncBatch } from "./batch.js";
 import type { Db } from "./db.js";
@@ -72,6 +72,19 @@ describe("a batch on node:sqlite", () => {
 		);
 
 		assert.deepEqual(await stored(), before);
+	});
+
+	test("opens its transaction with no config, which durable-sqlite rejects", async () => {
+		const transaction = mock.method(db, "transaction");
+		try {
+			await syncBatch(db)([
+				db.insert(calendarTable).values(collection("no-config")),
+			]);
+			assert.equal(transaction.mock.callCount(), 1);
+			assert.equal(transaction.mock.calls[0]?.arguments.length, 1);
+		} finally {
+			transaction.mock.restore();
+		}
 	});
 
 	test("an empty batch writes nothing and answers nothing", async () => {
