@@ -508,6 +508,15 @@ export class QueueStore {
 	 * a FIFO group still sees it after anything sent since.
 	 */
 	redriveDeadLetters(deadLetterName: string, now = Date.now()): number {
+		return this.db.transaction(
+			(): number => this.moveDeadLetters(deadLetterName, now),
+			IMMEDIATE,
+		);
+	}
+
+	// The body of a redrive, for a caller already inside a transaction:
+	// node:sqlite cannot begin one inside another.
+	private moveDeadLetters(deadLetterName: string, now: number): number {
 		this.requireQueue(deadLetterName);
 		const source = this.listQueues().find(
 			(queue) => queue.deadLetterTargetName === deadLetterName,
@@ -517,18 +526,14 @@ export class QueueStore {
 				`${deadLetterName} is not the dead-letter queue of any queue`,
 			);
 		}
-		const destination = source.name;
-
-		return this.db.transaction((): number => {
-			const rows = this.db
-				.select()
-				.from(messages)
-				.where(eq(messages.queueName, deadLetterName))
-				.orderBy(asc(messages.id))
-				.all();
-			for (const row of rows) this.moveToQueue(row, destination, now);
-			return rows.length;
-		}, IMMEDIATE);
+		const rows = this.db
+			.select()
+			.from(messages)
+			.where(eq(messages.queueName, deadLetterName))
+			.orderBy(asc(messages.id))
+			.all();
+		for (const row of rows) this.moveToQueue(row, source.name, now);
+		return rows.length;
 	}
 
 	redriveForRelease(release: string, deadLetterNames: string[]): void {
@@ -539,7 +544,8 @@ export class QueueStore {
 				.where(eq(releaseRedrive.id, 1))
 				.get();
 			if (marker?.release === release) return;
-			for (const name of deadLetterNames) this.redriveDeadLetters(name);
+			const now = Date.now();
+			for (const name of deadLetterNames) this.moveDeadLetters(name, now);
 			this.db
 				.insert(releaseRedrive)
 				.values({ id: 1, release })
