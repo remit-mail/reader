@@ -327,6 +327,7 @@ export const MessageOperations = {
 			syncStatus: message.syncStatus,
 			abandonedMutation: message.abandonedMutation,
 			spamVerdict: message.spamVerdict,
+			spamCleared: message.spamCleared,
 			...(autoMoved ? { autoMoved } : {}),
 			...(labels.length > 0 ? { labels } : {}),
 			...(message.spamReport ? { spamReport: message.spamReport } : {}),

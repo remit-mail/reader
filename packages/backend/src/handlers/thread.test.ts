@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ThreadMessageItem } from "@remit/data-ports";
+import type {
+	AccountItem,
+	MailboxItem,
+	ThreadMessageItem,
+} from "@remit/data-ports";
 import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import {
 	buildListThreadMessagesOptions,
@@ -25,6 +29,20 @@ const row = (
 	messageIdHeader: string | undefined,
 	createdAt: number,
 ): Row => ({ threadMessageId, messageIdHeader, createdAt });
+
+const ownership = {
+	account: {
+		listMailSourcesByAccountConfig: async () =>
+			[{ accountId: "account-1" }] as AccountItem[],
+	},
+	mailbox: {
+		get: async (accountId: string, mailboxIds: string[]) =>
+			mailboxIds.map((mailboxId) => ({
+				mailboxId,
+				accountId,
+			})) as MailboxItem[],
+	},
+};
 
 describe("buildListThreadMessagesOptions", () => {
 	it("defaults to oldest-first and hides soft-deleted messages", () => {
@@ -169,6 +187,7 @@ describe("executeThreadSearch", () => {
 			address: { getAddress: async () => [] },
 			messageLabel: { listByMessageIds: async () => [] },
 			label: { listByAccountConfig: async () => [] },
+			...ownership,
 		};
 
 		return { client, windowCalls, countCalls };
@@ -278,6 +297,7 @@ describe("executeThreadSearch", () => {
 			address: { getAddress: async () => [] },
 			messageLabel: { listByMessageIds: async () => [] },
 			label: { listByAccountConfig: async () => [] },
+			...ownership,
 		};
 
 		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
@@ -319,6 +339,7 @@ describe("executeThreadSearch", () => {
 			address: { getAddress: async () => [] },
 			messageLabel: { listByMessageIds: async () => [] },
 			label: { listByAccountConfig: async () => [] },
+			...ownership,
 		};
 
 		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {

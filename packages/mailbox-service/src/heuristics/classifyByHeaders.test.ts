@@ -516,6 +516,7 @@ const messageFrom = (parsed: ParsedMail): MessageItem => ({
 	classificationState: "NotExamined",
 	classifierScores: [],
 	spamVerdict: { state: "NotChecked" },
+	spamCleared: false,
 	hasListUnsubscribe: false,
 	movedByRemit: false,
 	createdAt: 1,

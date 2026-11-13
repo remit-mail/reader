@@ -540,6 +540,7 @@ export type CreateMessageInput = Omit<
 	| "movedByRemit"
 	| "classifierScores"
 	| "spamVerdict"
+	| "spamCleared"
 > & {
 	messageId: string;
 	status?: MessageItem["status"];
@@ -551,6 +552,7 @@ export type CreateMessageInput = Omit<
 	movedByRemit?: MessageItem["movedByRemit"];
 	classifierScores?: MessageItem["classifierScores"];
 	spamVerdict?: MessageItem["spamVerdict"];
+	spamCleared?: MessageItem["spamCleared"];
 };
 
 /**

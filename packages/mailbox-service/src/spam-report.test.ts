@@ -71,6 +71,8 @@ const spam = () =>
 		addressService: store.address,
 		accountService: store.account,
 		mailboxSpecialUseService: store.mailboxSpecialUse,
+		labelService: store.label,
+		messageLabelService: store.messageLabel,
 		messageMoveService: new MessageMoveService({
 			messageService: store.message,
 			mailboxService: store.mailbox,

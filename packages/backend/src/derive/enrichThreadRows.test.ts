@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type {
+	AccountItem,
 	AddressItem,
 	LabelItem,
+	MailboxItem,
 	MessageItem,
 	MessageLabelItem,
 	ThreadMessageItem,
@@ -37,6 +39,20 @@ const threadRow = (
 		updatedAt: 1,
 	}) as unknown as ThreadMessageItem;
 
+const ownership: Pick<EnrichClient, "account" | "mailbox"> = {
+	account: {
+		listMailSourcesByAccountConfig: async () =>
+			[{ accountId: "account-1" }] as AccountItem[],
+	},
+	mailbox: {
+		get: async (accountId: string, mailboxIds: string[]) =>
+			mailboxIds.map((mailboxId) => ({
+				mailboxId,
+				accountId,
+			})) as MailboxItem[],
+	},
+};
+
 const buildClient = (
 	messageLabels: MessageLabelItem[],
 	labels: LabelItem[],
@@ -51,6 +67,7 @@ const buildClient = (
 	label: {
 		listByAccountConfig: async () => labels,
 	},
+	...ownership,
 });
 
 describe("enrichThreadRows — labels", () => {
@@ -188,6 +205,7 @@ describe("enrichThreadRows — spamReport", () => {
 			address: { getAddress: async () => [] },
 			messageLabel: { listByMessageIds: async () => [] },
 			label: { listByAccountConfig: async () => [] },
+			...ownership,
 		};
 
 		const [result] = await enrichThreadRows(rows, client, "acc-1");
@@ -227,6 +245,7 @@ describe("enrichThreadRows — muted", () => {
 			},
 			messageLabel: { listByMessageIds: async () => [] },
 			label: { listByAccountConfig: async () => [] },
+			...ownership,
 		};
 
 		const [result] = await enrichThreadRows(rows, client, "acc-1");
@@ -266,6 +285,7 @@ describe("enrichThreadRows — the mutation pair", () => {
 		address: { getAddress: async () => [] },
 		messageLabel: { listByMessageIds: async () => [] },
 		label: { listByAccountConfig: async () => [] },
+		...ownership,
 	});
 
 	const project = async (message: Partial<MessageItem>) => {

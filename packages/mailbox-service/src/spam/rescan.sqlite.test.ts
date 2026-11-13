@@ -15,6 +15,9 @@ import {
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import { BodySyncService } from "../body-sync.js";
+import { FlagPushService } from "../flag-push.js";
+import { MessageMoveService } from "../message-move.js";
+import { SpamReportService } from "../spam-report.js";
 import { SyncWarningService } from "../sync-warning.js";
 import { saveClassifierProvider } from "../test-helpers/classifier-stub.js";
 import { eml, FakeImapServer } from "../test-helpers/fake-imap.js";
@@ -31,7 +34,7 @@ import {
 	spamConfigFor,
 	syncFolder,
 } from "../test-helpers/test-store.js";
-import { InlineSpamService } from "./index.js";
+import { InlineSpamService, type SpamConfig } from "./index.js";
 
 const from = (email: string, subject: string): Buffer =>
 	eml({ From: `Sender <${email}>`, Subject: subject }, "Hello there.");
@@ -62,7 +65,10 @@ afterEach(async () => {
 	await world.store.close();
 });
 
-const arriveAndSync = async (raw: Buffer): Promise<string> => {
+const arriveAndSync = async (
+	raw: Buffer,
+	spam: SpamConfig = spamConfigFor(world.store),
+): Promise<string> => {
 	const { store, storage, account, inbox, imap } = world;
 	const uid = imap.deliver(inbox.fullPath, raw, {
 		internalDate: new Date(Date.now() + 60_000),
@@ -76,7 +82,7 @@ const arriveAndSync = async (raw: Buffer): Promise<string> => {
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
-		spamConfigFor(store),
+		spam,
 		silentLog,
 	).syncBodies(
 		[messageId],
@@ -230,5 +236,71 @@ describe("rescan", () => {
 			[],
 		);
 		assert.deepEqual(byId.get(suspect)?.labels, ["Spam"]);
+	});
+
+	it("drops the warning label on Not spam and a rescan does not bring it back", async () => {
+		const { store, storage, account } = world;
+		const warnAll: SpamConfig = {
+			...spamConfigFor(store),
+			spamService: new InlineSpamService({
+				state: "Set",
+				cleanBelow: 0,
+				spamAt: 1,
+			}),
+			thresholds: { state: "Set", cleanBelow: 0, spamAt: 1 },
+		};
+		const messageId = await arriveAndSync(
+			from("desk@parcel-notice.example", "Your parcel"),
+			warnAll,
+		);
+		const labelNames = async () =>
+			Promise.all(
+				(await store.messageLabel.listByMessageId(messageId)).map(
+					async (row) =>
+						(await store.label.get(account.accountConfigId, row.labelId)).name,
+				),
+			);
+		assert.deepEqual(await labelNames(), ["Spam"]);
+
+		const queue = recordingQueue();
+		await new SpamReportService({
+			messageService: store.message,
+			addressService: store.address,
+			accountService: store.account,
+			mailboxSpecialUseService: store.mailboxSpecialUse,
+			labelService: store.label,
+			messageLabelService: store.messageLabel,
+			messageMoveService: new MessageMoveService({
+				messageService: store.message,
+				mailboxService: store.mailbox,
+				mailboxSpecialUseService: store.mailboxSpecialUse,
+				threadMessageService: store.threadMessage,
+				addressService: store.address,
+				queue: queue.fifo,
+			}),
+			flagPushService: new FlagPushService({
+				markerService: store.flagPush,
+				queue: queue.fifo,
+			}),
+		}).notSpam({
+			accountConfigId: account.accountConfigId,
+			accountId: account.accountId,
+			messageId,
+			setBy: "user-1",
+		});
+
+		assert.deepEqual(await labelNames(), []);
+		assert.equal((await store.message.get(messageId)).spamCleared, true);
+
+		const result = await rescanServiceFor(
+			store,
+			storage,
+			queue,
+			warnAll,
+		).rescan(account, { messageIds: [messageId], move: true });
+
+		assert.deepEqual(result.successful[0]?.labels, []);
+		assert.deepEqual(await labelNames(), []);
+		assert.equal((await store.message.get(messageId)).spamCleared, true);
 	});
 });

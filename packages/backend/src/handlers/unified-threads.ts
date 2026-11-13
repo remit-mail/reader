@@ -319,20 +319,6 @@ export const dedupeByMessageId = <T extends { messageId: string }>(
 };
 
 /**
- * Attach accountId to each enriched ThreadMessageResponse row using the
- * mailboxId→accountId map built from inbox discovery. Same read-time-attach
- * pattern as senderTrust in enrichThreadRows.
- */
-export const attachAccountIds = (
-	rows: Awaited<ReturnType<typeof enrichThreadRows>>,
-	mailboxIdToAccountId: Map<string, string>,
-): typeof rows =>
-	rows.map((row) => ({
-		...row,
-		accountId: mailboxIdToAccountId.get(row.mailboxId),
-	}));
-
-/**
  * The row criteria the listing carries, whichever mode answers it.
  *
  * `category`, `unread` and `attachments` are columns on the ThreadMessage row,
@@ -429,6 +415,7 @@ export const scopeToMailbox = (
  * filters and the count are testable with an in-memory fake.
  */
 export interface UnifiedThreadClient extends EnrichClient, InboxMapClient {
+	mailbox: EnrichClient["mailbox"] & InboxMapClient["mailbox"];
 	labelMailbox: Pick<ILabelMailboxRepository, "listByLabel">;
 	threadMessage: {
 		listByDate(
@@ -582,8 +569,7 @@ export const executeUnifiedThreadListing = async (
 				)
 			: result.items;
 
-		const enriched = await enrichThreadRows(rows, client, accountConfigId);
-		response.items = attachAccountIds(enriched, mailboxIdToAccountId);
+		response.items = await enrichThreadRows(rows, client, accountConfigId);
 		response.continuationToken = result.continuationToken;
 	}
 

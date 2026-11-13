@@ -247,6 +247,7 @@ export class RescanService {
 
 		const cleared =
 			sender.senderOverride === SenderOverride.NeverSpam ||
+			message.spamCleared ||
 			(await deps.messageFlag.hasFlag(messageId, MessageKeywordFlag.NotJunk));
 		const { update, labels } = await recordArrival(deps.spam, {
 			account,

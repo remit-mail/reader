@@ -444,6 +444,8 @@ export const composeSyncServices = (
 			addressService: core.address,
 			accountService: core.account,
 			mailboxSpecialUseService: core.mailboxSpecialUse,
+			labelService: core.label,
+			messageLabelService: core.messageLabel,
 			messageMoveService: messageMove,
 			flagPushService,
 			logger,

@@ -13,7 +13,6 @@ import {
 	extractHasListUnsubscribe,
 	extractProviderSpam,
 } from "./heuristics/classifyByHeaders.js";
-import { extractSenderMismatch } from "./heuristics/senderMismatch.js";
 
 type ThreadMessageCategory = ThreadMessageItem["category"];
 
@@ -87,14 +86,6 @@ export const classifyParsedMessage = async (
 	const providerSpam = extractProviderSpam(parsed);
 	const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
 
-	const senderMismatch =
-		authenticity === null
-			? {}
-			: await extractSenderMismatch(parsed, {
-					fromDomain: authenticity.fromDomain,
-					bulkSender: hasListUnsubscribe,
-				});
-
 	const fromEmail = extractPrimaryFromEmail(parsed);
 	const categoryOverride = fromEmail
 		? await resolveCategoryOverride(addressService, accountConfigId, fromEmail)
@@ -104,9 +95,7 @@ export const classifyParsedMessage = async (
 		fields: {
 			category: categoryOverride ?? headerCategory,
 			hasListUnsubscribe,
-			...(authenticity !== null
-				? { authenticity: { ...authenticity, ...senderMismatch } }
-				: {}),
+			...(authenticity !== null ? { authenticity } : {}),
 			...(authResult !== null
 				? {
 						authResult: {
