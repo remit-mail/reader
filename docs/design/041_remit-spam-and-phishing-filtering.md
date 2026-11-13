@@ -171,7 +171,7 @@ type RescanResult = {
 1. The owner rescans the existing mailboxes with `move` off. Every message gets a category classifier answer and a stored spam score.
 2. Known spam is the mail the owner reported. Known good is the mail from VIP and well-known senders.
 3. `spamAt` sits where the known spam scores begin and the known good scores have thinned out. `cleanBelow` sits below the bulk of the known spam.
-4. The two values become deployment config. Placement reads them from the next stage on.
+4. Code reads both values from configuration. They start as deployment config. `readResolvedClassification` already lets a saved account setting override a deployment value, as it does for `dailyLimit`, and the thresholds follow that path to a per-user setting. Placement reads them from the next stage on.
 
 ## Cleanup
 
