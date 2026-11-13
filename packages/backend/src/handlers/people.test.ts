@@ -12,6 +12,7 @@ import {
 	type PeopleAdmin,
 } from "@remit/auth-service";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import type { SqliteValue } from "@remit/drizzle-service/sqlite";
 import { migrateSqlite, openSqlite } from "@remit/drizzle-service/sqlite";
 import type { Context } from "openapi-backend";
 import type { ApiConfig } from "../config/api-config.js";
@@ -43,14 +44,14 @@ const closedConfig: ApiConfig = testApiConfig({
 const openApp = () =>
 	openSqlite({ filename, mode: "open", synchronous: "NORMAL", schema: {} });
 
-const rows = (statement: string, ...params: unknown[]): unknown[] => {
+const rows = (statement: string, ...params: SqliteValue[]): unknown[] => {
 	const handle = openApp();
 	const found = handle.sqlite.prepare(statement).all(...params);
 	handle.close();
 	return found;
 };
 
-const run = (statement: string, ...params: unknown[]): void => {
+const run = (statement: string, ...params: SqliteValue[]): void => {
 	const handle = openApp();
 	handle.sqlite.prepare(statement).run(...params);
 	handle.close();
@@ -166,7 +167,7 @@ const reset = (
 		callerOf(caller, config),
 	);
 
-const auditCount = (where: string, ...params: unknown[]): number =>
+const auditCount = (where: string, ...params: SqliteValue[]): number =>
 	(
 		rows(
 			`SELECT count(*) AS n FROM identity_audit_event WHERE ${where}`,

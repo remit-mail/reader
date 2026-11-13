@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { syncStore } from "../databases.js";
 import { messageObjectsInMemory } from "../repos/message-objects.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
@@ -49,7 +49,7 @@ describe("the thread-message search index in its own database", () => {
 	const search = open("search");
 	const index = new SearchIndex(
 		mail.db,
-		syncStore(search.db, BETTER_SQLITE3_LIMITS),
+		syncStore(search.db, NODE_SQLITE_LIMITS),
 	);
 	const repo = createSqliteRepositories(
 		{
@@ -57,7 +57,7 @@ describe("the thread-message search index in its own database", () => {
 			mail: mail.db,
 			search: search.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).threadMessage;
 
@@ -158,7 +158,7 @@ describe("the thread-message search index in its own database", () => {
 
 	test("rebuilds while a live writer indexes a message the rebuild has yet to reach", async () => {
 		const created = await repo.create(input({ subject: "Raced reminder" }));
-		const store = syncStore(search.db, BETTER_SQLITE3_LIMITS);
+		const store = syncStore(search.db, NODE_SQLITE_LIMITS);
 		let raced = false;
 		const migrator = new SearchIndex(mail.db, {
 			...store,

@@ -15,8 +15,8 @@ import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
 	type AccountRepo,
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
@@ -85,7 +85,7 @@ before(() => {
 			mail: db.db,
 			search: db.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).account;
 });

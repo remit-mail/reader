@@ -1,11 +1,11 @@
 import { getTableColumns, type Table } from "drizzle-orm";
 
 export interface SqliteLimits {
-	/** The most parameters the host's SQLite binds in one statement: 32766 on better-sqlite3, 100 on D1 and Durable Object storage. */
+	/** The most parameters the host's SQLite binds in one statement: 32766 on node:sqlite, 100 on D1 and Durable Object storage. */
 	maxBoundParameters: number;
 }
 
-export const BETTER_SQLITE3_LIMITS: SqliteLimits = {
+export const NODE_SQLITE_LIMITS: SqliteLimits = {
 	maxBoundParameters: 32766,
 };
 

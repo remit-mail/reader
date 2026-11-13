@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { ClassificationPresetId } from "@remit/domain-enums";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -56,7 +56,7 @@ beforeEach(async () => {
 	close = store.close;
 	repos = createSqliteRepositories(
 		{ app: store.db, mail: store.db, search: store.db },
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 	await repos.accountConfig.create({

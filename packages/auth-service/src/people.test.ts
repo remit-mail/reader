@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
+import type { SqliteValue } from "@remit/drizzle-service/sqlite";
 import {
 	migrateSqlite,
 	openSqlite,
@@ -80,10 +81,10 @@ const signUp = async (email: string): Promise<string> => {
 	return ((await response.json()) as { user: { id: string } }).user.id;
 };
 
-const rows = (statement: string, ...params: unknown[]): unknown[] =>
+const rows = (statement: string, ...params: SqliteValue[]): unknown[] =>
 	file.sqlite.prepare(statement).all(...params);
 
-const run = (statement: string, ...params: unknown[]): void => {
+const run = (statement: string, ...params: SqliteValue[]): void => {
 	file.sqlite.prepare(statement).run(...params);
 };
 

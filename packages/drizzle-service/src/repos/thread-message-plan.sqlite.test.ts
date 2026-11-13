@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import {
 	assertPlanSearches,
@@ -15,13 +15,13 @@ describe("thread-message lookups without sqlite_stat1", () => {
 	after(close);
 	const repos = createSqliteRepositories(
 		{ app: db, mail: db, search: db },
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 	const repo = repos.threadMessage;
 
 	const planDuring = async (run: () => Promise<unknown>): Promise<string[]> =>
-		queryPlan(sqlite, await selectsIssuedDuring(sqlite, run));
+		queryPlan(sqlite, await selectsIssuedDuring(run));
 
 	test("findByMessageId searches thread_message_by_message_id", async () => {
 		assertPlanSearches(

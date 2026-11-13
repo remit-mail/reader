@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import {
 	assertPlanSearches,
@@ -15,14 +15,14 @@ describe("message lookups without sqlite_stat1", () => {
 	after(close);
 	const repos = createSqliteRepositories(
 		{ app: db, mail: db, search: db },
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 
 	test("listSenderJunk searches the Junk folder and probes each sender by message", async () => {
 		const plan = queryPlan(
 			sqlite,
-			await selectsIssuedDuring(sqlite, () =>
+			await selectsIssuedDuring(() =>
 				repos.message.listSenderJunk("junk", "news@example.com", 25),
 			),
 		);

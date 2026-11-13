@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import {
 	type MessageDataSchema,
 	messageDataSchema,
@@ -11,7 +11,7 @@ import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
 // Envelope repo on sqlite (RFC 036 D1): the onConflictDoUpdate upsert path and
-// the transactional body-part upsert both run on better-sqlite3 unchanged.
+// the transactional body-part upsert both run on node:sqlite unchanged.
 
 const MESSAGE_ID = "00000000-0000-0000-4444-000000000001";
 
@@ -24,7 +24,7 @@ describe("DrizzleEnvelopeRepository (sqlite)", () => {
 		({ db, close } = await createSqliteTestDb(messageDataSchema));
 		repo = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).envelope;
 	});

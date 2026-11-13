@@ -13,9 +13,9 @@ import type {
 } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
 import { openSqlite } from "@remit/drizzle-service/sqlite";
@@ -76,7 +76,7 @@ export const openStore = async () => {
 	return {
 		...createSqliteRepositories(
 			databases,
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		),
 		storage: (): StorageService =>

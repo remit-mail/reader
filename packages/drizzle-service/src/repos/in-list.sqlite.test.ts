@@ -22,7 +22,7 @@ const calendar = (calendarId: string): typeof calendarTable.$inferInsert => ({
 	updatedAt: 0,
 });
 
-describe("inList on better-sqlite3", () => {
+describe("inList on node:sqlite", () => {
 	let db: SqliteTestDb<typeof SCHEMA>;
 	let close: () => Promise<void>;
 	const allIds = Array.from({ length: 150 }, (_, index) => `calendar-${index}`);

@@ -1,7 +1,7 @@
 import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
-import { BETTER_SQLITE3_LIMITS } from "../../drizzle-service/src/bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../../drizzle-service/src/bound-parameters.js";
 import {
 	sqliteDatabasePathsFromEnv,
 	syncStore,
@@ -207,17 +207,14 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const app = appSqlite.db;
 	const db = mailSqlite.db;
 	const searchDb = searchSqlite.db;
-	const search = new SearchIndex(
-		db,
-		syncStore(searchDb, BETTER_SQLITE3_LIMITS),
-	);
+	const search = new SearchIndex(db, syncStore(searchDb, NODE_SQLITE_LIMITS));
 	const specialUse = createSqliteRepositories(
 		{
 			app,
 			mail: db,
 			search: searchDb,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		{
 			storage: {
 				deleteKeys: () =>

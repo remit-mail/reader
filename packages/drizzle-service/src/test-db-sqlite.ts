@@ -1,6 +1,7 @@
 import { pushSchema } from "drizzle-kit/payload/sqlite";
 import type { Db } from "./db.js";
 import { openSqlite, openTestSqlite, type SqliteConnection } from "./sqlite.js";
+import { statementLog } from "./test-query-plan.js";
 import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
 
 // A real SQLite database (in-memory by default) with the schema pushed
@@ -26,16 +27,16 @@ export async function createSqliteTestDb<
 				mode: "create",
 				synchronous: "OFF",
 				schema,
+				logger: statementLog,
 			})
-		: openTestSqlite(schema);
+		: openTestSqlite(schema, statementLog);
 
 	const db: SqliteTestDb<TSchema> = sqlite.db;
 
 	// pushSchema derives the CREATE statements from the table objects by
 	// diffing them against the live database through this client.
 	const client: Parameters<typeof pushSchema>[1] = {
-		query: async <T>(sql: string, params: unknown[] = []) =>
-			sqlite.sqlite.prepare(sql).all(...params) as T[],
+		query: async <T>(sql: string) => sqlite.sqlite.prepare(sql).all() as T[],
 		run: async (sql: string) => {
 			sqlite.exec(sql);
 		},

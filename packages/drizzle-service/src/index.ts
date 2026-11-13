@@ -6,7 +6,7 @@ export {
 	type WriteBatch,
 } from "./batch.js";
 export {
-	BETTER_SQLITE3_LIMITS,
+	NODE_SQLITE_LIMITS,
 	type SqliteLimits,
 } from "./bound-parameters.js";
 export {

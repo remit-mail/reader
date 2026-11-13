@@ -8,12 +8,12 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type DrizzleMessageRepository,
 	type DrizzleThreadMessageRepository,
 	type MailboxRepo,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -136,7 +136,7 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 				mail: store.db,
 				search: store.db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);
 		mailboxes = repos.mailbox;

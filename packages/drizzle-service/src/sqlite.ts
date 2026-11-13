@@ -1,7 +1,13 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { existsSync } from "node:fs";
+import {
+	DatabaseSync,
+	type SQLOutputValue,
+	type StatementSync,
+} from "node:sqlite";
+import type { Logger } from "drizzle-orm/logger";
 import type { MigrationConfig } from "drizzle-orm/migrator";
+import { drizzle } from "drizzle-orm/node-sqlite";
+import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import type { Db } from "./db.js";
 
 export type { Db } from "./db.js";
@@ -15,13 +21,16 @@ export interface OpenSqliteOptions<TSchema extends Record<string, unknown>> {
 	mode: SqliteMode;
 	synchronous: SqliteSynchronous;
 	schema: TSchema;
+	logger?: Logger;
 }
 
+export type SqliteValue = null | number | bigint | string | Uint8Array;
+
 export interface SqliteStatement {
-	all(...params: unknown[]): unknown[];
-	get(...params: unknown[]): unknown;
-	run(...params: unknown[]): { changes: number };
-	iterate(...params: unknown[]): IterableIterator<unknown>;
+	all(...params: SqliteValue[]): unknown[];
+	get(...params: SqliteValue[]): unknown;
+	run(...params: SqliteValue[]): { changes: number };
+	iterate(...params: SqliteValue[]): IterableIterator<unknown>;
 }
 
 export interface SqliteConnection {
@@ -36,30 +45,57 @@ export interface SqliteHandle<TSchema extends Record<string, unknown>> {
 	close(): void;
 }
 
-const drivers = new WeakMap<object, Database.Database>();
+const drivers = new WeakMap<object, DatabaseSync>();
+
+const plain = (
+	row: Record<string, SQLOutputValue> | undefined,
+): Record<string, SQLOutputValue> | undefined => (row ? { ...row } : row);
+
+function* plainRows(
+	rows: Iterator<Record<string, SQLOutputValue>>,
+): IterableIterator<unknown> {
+	for (let next = rows.next(); !next.done; next = rows.next()) {
+		yield { ...next.value };
+	}
+}
+
+const statement = (prepared: StatementSync): SqliteStatement => ({
+	all: (...params) => prepared.all(...params).map((row) => ({ ...row })),
+	get: (...params) => plain(prepared.get(...params)),
+	run: (...params) => ({
+		changes: Number(prepared.run(...params).changes),
+	}),
+	iterate: (...params) => plainRows(prepared.iterate(...params)),
+});
 
 // A writable database runs in WAL mode, and every handle waits up to 5 s on a
-// lock another connection holds.
+// lock another connection holds, from the open on, so a second process
+// switching the file to WAL at startup waits instead of failing busy. node:sqlite
+// enforces foreign keys by default. node:sqlite has no fileMustExist, so a file
+// opened rather than created is checked before the open would create it.
 export function openSqlite<TSchema extends Record<string, unknown>>(
 	options: OpenSqliteOptions<TSchema>,
 ): SqliteHandle<TSchema> {
-	const sqlite = new Database(options.filename, {
-		readonly: options.mode === "readonly",
-		fileMustExist: options.mode !== "create",
+	if (options.mode !== "create" && !existsSync(options.filename)) {
+		throw new Error(`SQLite database ${options.filename} does not exist`);
+	}
+	const sqlite = new DatabaseSync(options.filename, {
+		readOnly: options.mode === "readonly",
+		timeout: 5000,
 	});
-	if (options.mode !== "readonly") sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("busy_timeout = 5000");
-	sqlite.pragma(`synchronous = ${options.synchronous}`);
-	sqlite.pragma("foreign_keys = ON");
+	if (options.mode !== "readonly") sqlite.exec("PRAGMA journal_mode = WAL");
+	sqlite.exec(`PRAGMA synchronous = ${options.synchronous}`);
 
-	const db = drizzle({ client: sqlite });
+	const db = drizzle({ client: sqlite, logger: options.logger });
 	const handle: SqliteHandle<TSchema> = {
 		db,
-		sqlite,
+		sqlite: { prepare: (source) => statement(sqlite.prepare(source)) },
 		exec: (sql) => {
 			sqlite.exec(sql);
 		},
-		immediate: (work) => sqlite.transaction(work).immediate(),
+		immediate: (work) =>
+			db.transaction(() => ({ value: work() }), { behavior: "immediate" })
+				.value,
 		close: () => {
 			sqlite.close();
 		},
@@ -70,12 +106,14 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 
 export function openTestSqlite<TSchema extends Record<string, unknown>>(
 	schema: TSchema,
+	logger?: Logger,
 ): SqliteHandle<TSchema> {
 	return openSqlite({
 		filename: ":memory:",
 		mode: "create",
 		synchronous: "OFF",
 		schema,
+		logger,
 	});
 }
 

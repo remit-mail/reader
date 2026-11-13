@@ -10,10 +10,10 @@ import type { FilterItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type DrizzleThreadMessageRepository,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
@@ -193,7 +193,7 @@ const world = async (filters: FilterItem[]): Promise<World> => {
 			mail: store.db,
 			search: store.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).threadMessage;
 	const { inbox, archive } = await seedThreads(threadMessage);

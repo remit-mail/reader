@@ -7,11 +7,11 @@ import { after, before, describe, it } from "node:test";
 import { MailboxCursorState } from "@remit/domain-enums";
 import {
 	accountTable,
-	BETTER_SQLITE3_LIMITS,
 	composeSqliteRepositories,
 	mailboxTable,
 	messageObjectsInMemory,
 	messageTable,
+	NODE_SQLITE_LIMITS,
 	openSqliteDatabases,
 	syncStores,
 } from "@remit/drizzle-service";
@@ -169,7 +169,7 @@ describe("processAccountExport over SQLite repositories and filesystem storage",
 		databases = await openSqliteDatabases(createShippedSqliteFiles(directory));
 		close = databases.close;
 		repositories = composeSqliteRepositories(
-			syncStores(databases, BETTER_SQLITE3_LIMITS),
+			syncStores(databases, NODE_SQLITE_LIMITS),
 			messageObjectsInMemory(),
 		);
 		storage = createFilesystemStorageService(join(directory, "storage"));

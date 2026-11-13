@@ -3,7 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
 import { syncBatch } from "../batch.js";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -62,7 +62,7 @@ describe("MailboxRepo", () => {
 				mail: db,
 				search: db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
 	});
@@ -555,7 +555,7 @@ describe("MailboxRepo", () => {
 					mail: db,
 					search: db,
 				},
-				BETTER_SQLITE3_LIMITS,
+				NODE_SQLITE_LIMITS,
 				messageObjectsInMemory(),
 			).message.create({
 				messageId,

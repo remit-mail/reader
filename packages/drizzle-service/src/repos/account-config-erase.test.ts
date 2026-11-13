@@ -6,7 +6,7 @@ import {
 	type SQLiteColumn,
 	SQLiteTable,
 } from "drizzle-orm/sqlite-core";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { syncStores } from "../databases.js";
 import * as appTables from "../schema-sets/app.js";
 import * as mailTables from "../schema-sets/mail.js";
@@ -89,7 +89,7 @@ describe("runDrizzleAccountConfigErase", () => {
 		}
 		const stores = syncStores(
 			{ app: db, mail: db, search: db } as never,
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 		);
 		await runDrizzleAccountConfigErase(stores, ERASED, log);
 	});

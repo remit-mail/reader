@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import type { AccountRepo } from "./i4-account.js";
@@ -34,7 +34,7 @@ describe("AccountRepo", () => {
 				mail: db,
 				search: db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).account;
 	});
@@ -176,7 +176,7 @@ describe("AccountRepo", () => {
 				mail: db,
 				search: db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
 		mailboxCreated(

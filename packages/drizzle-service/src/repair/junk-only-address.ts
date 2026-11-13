@@ -1,8 +1,9 @@
 import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
+import type { SqliteValue } from "../sqlite.js";
 
 export interface JunkOnlyRepairClient {
-	all(sql: string, params: readonly unknown[]): Promise<unknown[]>;
-	run(sql: string, params: readonly unknown[]): Promise<number>;
+	all(sql: string, params: readonly SqliteValue[]): Promise<unknown[]>;
+	run(sql: string, params: readonly SqliteValue[]): Promise<number>;
 }
 
 export type JunkOnlyRepairMode = "check" | "repair";
@@ -18,7 +19,7 @@ export interface JunkOnlyReport {
 /** A statement or fragment with the values its `?` placeholders take, in order. */
 export interface BoundSql {
 	readonly sql: string;
-	readonly params: readonly unknown[];
+	readonly params: readonly SqliteValue[];
 }
 
 export const JUNK_ONLY_FLAG = "junkOnly";

@@ -1,22 +1,27 @@
 import assert from "node:assert/strict";
+import type { Logger } from "drizzle-orm/logger";
 import type { SqliteConnection } from "./sqlite.js";
 
+let captured: string[] | null = null;
+
+/** The drizzle logger a test handle carries so `selectsIssuedDuring` sees its statements. */
+export const statementLog: Logger = {
+	logQuery: (query) => {
+		captured?.push(query);
+	},
+};
+
 export const selectsIssuedDuring = async (
-	sqlite: SqliteConnection,
 	run: () => Promise<unknown>,
 ): Promise<string[]> => {
-	const captured: string[] = [];
-	const original = sqlite.prepare.bind(sqlite);
-	sqlite.prepare = ((source: string) => {
-		captured.push(source);
-		return original(source);
-	}) as typeof sqlite.prepare;
+	const issued: string[] = [];
+	captured = issued;
 	try {
 		await run();
 	} finally {
-		sqlite.prepare = original as typeof sqlite.prepare;
+		captured = null;
 	}
-	const selects = captured.filter((source) => /^\s*select/i.test(source));
+	const selects = issued.filter((source) => /^\s*select/i.test(source));
 	assert.ok(selects.length > 0, "the repo issued a select");
 	return selects;
 };
