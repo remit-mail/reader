@@ -107,7 +107,15 @@ export const classifyParsedMessage = async (
 			...(authenticity !== null
 				? { authenticity: { ...authenticity, ...senderMismatch } }
 				: {}),
-			...(authResult !== null ? { authResult } : {}),
+			...(authResult !== null
+				? {
+						authResult: {
+							dmarc: authResult.dmarc,
+							spf: authResult.spf,
+							dkim: authResult.dkim,
+						},
+					}
+				: {}),
 			...(providerSpam !== null ? { providerSpam } : {}),
 		},
 		categoryOverridden: categoryOverride !== undefined,

@@ -1,5 +1,5 @@
 CREATE TABLE `domain_registration` (
-	`registrable_domain` text PRIMARY KEY,
+	`domain_registration_id` text PRIMARY KEY,
 	`registration` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL

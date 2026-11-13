@@ -340,6 +340,7 @@ interface BatchLookups {
 	activeFilters: () => Promise<FilterItem[]>;
 	usableFilters: () => Promise<PreparedFilters>;
 	classifierGate: () => Promise<ClassifierGate>;
+	ownAddresses: () => Promise<string[]>;
 }
 
 // A failed load is forgotten, so the next message retries it rather than the
@@ -373,6 +374,7 @@ export class BodySyncService {
 		private addressService: IAddressRepository,
 		private envelopeService: IEnvelopeRepository,
 		private readonly syncWarningService: SyncWarningService,
+		private readonly spamConfig: SpamConfig,
 		logger?: BodySyncLogger,
 		private readonly placementConfig?: PlacementConfig,
 		private readonly filterConfig?: FilterConfig,
@@ -380,7 +382,6 @@ export class BodySyncService {
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
 		private readonly calendarConfig?: CalendarSuggestionConfig,
 		private readonly classifierConfig?: ClassifierConfig,
-		private readonly spamConfig?: SpamConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.filterPipeline = filterConfig
@@ -1375,14 +1376,12 @@ export class BodySyncService {
 			senderPlacement: () => Promise<SenderPlacement>;
 		},
 	): Promise<MessageSpamVerdict | undefined> {
-		const { spamConfig } = this;
-		if (!spamConfig || !message.arrival.folderSynced) return undefined;
-		const gate = this.classifierConfig
-			? await lookups.classifierGate()
-			: CLASSIFIER_OFF;
-		return decideSpamVerdict(spamConfig, this.addressService, {
+		if (!message.arrival.folderSynced) return undefined;
+		const gate = await lookups.classifierGate();
+		return decideSpamVerdict(this.spamConfig, this.addressService, {
 			accountConfigId,
 			fromEmail: extractPrimaryFromEmail(message.parsed),
+			rcpt: await lookups.ownAddresses(),
 			parsed: message.parsed,
 			raw: message.body,
 			internalDate: message.arrival.internalDate,
@@ -1686,6 +1685,13 @@ export class BodySyncService {
 				classifierConfig
 					? readClassifierGate(classifierConfig, accountConfigId)
 					: CLASSIFIER_OFF,
+			),
+			ownAddresses: once(async () =>
+				(
+					await this.spamConfig.accountService.listAllByAccountConfig(
+						accountConfigId,
+					)
+				).map((account) => account.email),
 			),
 		};
 	}

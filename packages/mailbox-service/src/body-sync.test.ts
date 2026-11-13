@@ -45,6 +45,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	silentLog,
+	spamConfigFor,
 	syncFolder,
 } from "./test-helpers/test-store.js";
 
@@ -198,6 +199,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
+		spamConfigFor(store),
 		silentLog,
 		wiring.placement
 			? {

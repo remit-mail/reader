@@ -5,6 +5,9 @@ enum SpamReasonName {
   @doc("Check 1: DMARC failed.")
   DmarcFail: "DmarcFail",
 
+  @doc("Check 1: the message is signed by a different registrable domain than its sender's.")
+  SignerMismatch: "SignerMismatch",
+
   @doc("Check 2: the Reply-To domain differs from the From domain.")
   ReplyToMismatch: "ReplyToMismatch",
 
@@ -52,4 +55,7 @@ enum SpamReasonName {
 
   @doc("Check 11: the display name sits a short edit distance from a sender or link domain label.")
   DisplayNameLookalike: "DisplayNameLookalike",
+
+  @doc("A backend symbol with no name of its own here, such as an rspamd rule. The reason's `symbol` carries it.")
+  BackendSymbol: "BackendSymbol",
 }

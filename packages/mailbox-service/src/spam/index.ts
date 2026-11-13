@@ -6,8 +6,6 @@ import type {
 	MessageSpamVerdict,
 	SpamService,
 } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
-import { deriveAddressId } from "@remit/data-ports/id";
 import type { AuthResultVerdict } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
 import type { FilterDecision } from "../filters/pipeline.js";
@@ -35,6 +33,7 @@ export interface SpamConfig {
 export interface SpamArrival {
 	accountConfigId: string;
 	fromEmail: string | null;
+	rcpt: string[];
 	parsed: ParsedMail;
 	raw: Buffer;
 	internalDate: number;
@@ -46,25 +45,6 @@ export interface SpamArrival {
 	dmarc: (typeof AuthResultVerdict)[keyof typeof AuthResultVerdict] | undefined;
 }
 
-const readSenderHistory = async (
-	addressService: Pick<IAddressRepository, "getAddress">,
-	accountConfigId: string,
-	fromEmail: string | null,
-): Promise<{ knownSender: boolean; senderMessagesSeen: number }> => {
-	if (fromEmail === null) return { knownSender: false, senderMessagesSeen: 0 };
-	const address = await addressService
-		.getAddress(accountConfigId, deriveAddressId(accountConfigId, fromEmail))
-		.catch((error: unknown) => {
-			if (error instanceof NotFoundError) return undefined;
-			throw error;
-		});
-	return {
-		knownSender:
-			(address?.outboundCount ?? 0) > 0 || (address?.replyCount ?? 0) > 0,
-		senderMessagesSeen: address?.inboundCount ?? 0,
-	};
-};
-
 /**
  * Stage 1 screens trusted mail out; everything else goes to the spam service
  * with the evidence Remit gathered: sender history, the domain's history and
@@ -72,24 +52,16 @@ const readSenderHistory = async (
  */
 export const decideSpamVerdict = async (
 	config: SpamConfig,
-	addressService: Pick<
-		IAddressRepository,
-		"getAddress" | "countInboundForDomain"
-	>,
+	addressService: Pick<IAddressRepository, "countInboundForDomain">,
 	arrival: SpamArrival,
 ): Promise<MessageSpamVerdict> => {
-	const { accountConfigId, fromEmail } = arrival;
-	const history = await readSenderHistory(
-		addressService,
-		accountConfigId,
-		fromEmail,
-	);
+	const { accountConfigId, fromEmail, sender } = arrival;
 	const screened = screen({
-		sender: arrival.sender,
+		sender,
 		filterDecision: arrival.filterDecision,
 		hasListUnsubscribe: arrival.hasListUnsubscribe,
 		dmarc: arrival.dmarc,
-		senderMessagesSeen: history.senderMessagesSeen,
+		senderMessagesSeen: sender.inboundCount,
 	});
 	if (screened) return { state: "ScreenedOut", screen: screened };
 
@@ -97,15 +69,14 @@ export const decideSpamVerdict = async (
 	const senderDomain = fromEmail
 		? tldts.getDomain(fromEmail.slice(fromEmail.lastIndexOf("@") + 1))
 		: null;
-	const accounts =
-		await config.accountService.listAllByAccountConfig(accountConfigId);
 	const request = buildSpamRequest(
 		arrival.parsed,
 		arrival.raw,
 		{
-			rcpt: accounts.map((account) => account.email),
+			rcpt: arrival.rcpt,
 			receivedAt: arrival.internalDate,
-			...history,
+			knownSender: sender.knownSender,
+			senderMessagesSeen: sender.inboundCount,
 			senderDomainMessagesSeen: senderDomain
 				? await addressService.countInboundForDomain(
 						accountConfigId,

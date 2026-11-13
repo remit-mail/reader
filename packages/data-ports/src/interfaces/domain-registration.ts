@@ -9,6 +9,6 @@ import type {
  */
 export interface IDomainRegistrationRepository {
 	/** Throws the adapter's not-found error when the domain was never cached. */
-	get(registrableDomain: string): Promise<DomainRegistrationItem>;
+	get(domainRegistrationId: string): Promise<DomainRegistrationItem>;
 	put(input: PutDomainRegistrationInput): Promise<DomainRegistrationItem>;
 }

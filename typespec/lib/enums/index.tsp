@@ -112,7 +112,6 @@ import "./ClassificationUnrunnableReason.tsp";
 // Spam and phishing (RFC 041)
 import "./ProviderSpamVerdict.tsp";
 import "./SpamAction.tsp";
-import "./SpamBackend.tsp";
 import "./SpamFailureKind.tsp";
 import "./SpamKind.tsp";
 import "./SpamReasonName.tsp";

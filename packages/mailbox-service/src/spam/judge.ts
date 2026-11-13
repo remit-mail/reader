@@ -5,10 +5,14 @@ import type {
 	SpamThresholds,
 } from "@remit/data-ports";
 import { SpamAction, SpamKind, SpamReasonName } from "@remit/domain-enums";
-import { type Finding, runChecks, toCheckInput } from "./checks.js";
+import {
+	type CheckName,
+	type Finding,
+	runChecks,
+	toCheckInput,
+} from "./checks.js";
 import type { Tldts } from "./display-name.js";
 
-type ReasonName = (typeof SpamReasonName)[keyof typeof SpamReasonName];
 type Action = (typeof SpamAction)[keyof typeof SpamAction];
 type Checked = Extract<SpamResponse, { state: "Checked" }>;
 
@@ -17,8 +21,9 @@ type Checked = Extract<SpamResponse, { state: "Checked" }>;
  * provider misjudges mail both ways. A missing registration date weighs
  * lightly, since some registries publish none.
  */
-export const WEIGHTS: Readonly<Record<ReasonName, number>> = {
+export const WEIGHTS: Readonly<Record<CheckName, number>> = {
 	DmarcFail: 0.45,
+	SignerMismatch: 0.1,
 	ReplyToMismatch: 0.2,
 	LinkTextMismatch: 0.45,
 	LinkDomainDistant: 0.15,
@@ -37,7 +42,7 @@ export const WEIGHTS: Readonly<Record<ReasonName, number>> = {
 	DisplayNameLookalike: 0.4,
 };
 
-const IMPERSONATION: ReadonlySet<ReasonName> = new Set([
+const IMPERSONATION: ReadonlySet<CheckName> = new Set([
 	SpamReasonName.LinkTextMismatch,
 	SpamReasonName.MixedScriptDomain,
 	SpamReasonName.ConfusableDomains,
@@ -84,6 +89,7 @@ export const judge = (
 			: SpamKind.Spam,
 		reasons: findings.map((finding) => ({
 			name: finding.name,
+			symbol: finding.name,
 			score: WEIGHTS[finding.name],
 			options: finding.options,
 		})),

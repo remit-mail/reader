@@ -134,7 +134,7 @@ export const domainRegisteredAt = async (
 			async (answer) => {
 				if (answer === undefined) return undefined;
 				await deps.domainRegistration.put({
-					registrableDomain,
+					domainRegistrationId: registrableDomain,
 					registration: answer,
 				});
 				return answer;

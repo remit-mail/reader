@@ -1,7 +1,5 @@
 import type { SpamDeployment, SpamThresholds } from "@remit/data-ports";
-import { SpamBackend } from "@remit/domain-enums";
 
-const BACKEND = "SPAM_BACKEND";
 const CLEAN_BELOW = "SPAM_CLEAN_BELOW";
 const SPAM_AT = "SPAM_AT";
 
@@ -39,16 +37,11 @@ const thresholdsOf = (env: NodeJS.ProcessEnv): SpamThresholds => {
 };
 
 /**
- * The spam service a deployment runs and the two thresholds that turn its
- * score into an action (RFC 041). Both thresholds stay unset until
- * calibration measures them, and while they are unset nothing moves.
+ * The two thresholds that turn a spam score into an action (RFC 041). Both
+ * stay unset until calibration measures them, and while unset nothing moves.
  */
 export const spamDeploymentFromEnv = (
 	env: NodeJS.ProcessEnv,
-): SpamDeployment => {
-	const backend = envValue(env, BACKEND) || SpamBackend.Inline;
-	if (backend !== SpamBackend.Inline) {
-		return refuse(`${BACKEND}=${backend} is not a spam backend. Use Inline.`);
-	}
-	return { backend, thresholds: thresholdsOf(env) };
-};
+): SpamDeployment => ({
+	thresholds: thresholdsOf(env),
+});

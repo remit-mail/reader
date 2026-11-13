@@ -554,6 +554,7 @@ const NEW_TABLES: ReadonlyMap<string, string> = new Map([
 	["message_search_text", "mail 0001"],
 	["outbox_scheduling_part", "mail 0006"],
 	["label_mailbox", "mail 0011"],
+	["domain_registration", "mail 0014"],
 	["mcp_jwks", "mcp 0000"],
 	["mcp_oauth_access_token", "mcp 0000"],
 	["mcp_oauth_client", "mcp 0000"],

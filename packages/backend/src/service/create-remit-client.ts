@@ -477,6 +477,7 @@ export const composeReadPathServices = (
 		core.address,
 		core.envelope,
 		new SyncWarningService(core.syncWarning),
+		core.spam,
 		logger,
 		undefined,
 		buildReadPathFilterConfig(core, queues),
@@ -501,7 +502,6 @@ export const composeReadPathServices = (
 			messageLabelService: core.messageLabel,
 			logger,
 		},
-		core.spam,
 	),
 });
 

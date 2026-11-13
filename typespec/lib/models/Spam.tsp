@@ -108,6 +108,9 @@ model SpamRequest {
 model SpamReason {
   name: SpamReasonName;
 
+  @doc("The backend's own name for the check, as rspamd names a symbol. The inline engine uses `name`; a backend whose symbol has no `SpamReasonName` sends `BackendSymbol` and its raw symbol here.")
+  symbol: string;
+
   @doc("What the check added to the score.")
   score: float64;
 

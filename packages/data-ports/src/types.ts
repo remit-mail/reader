@@ -931,5 +931,5 @@ export type SpamResponse =
 export type DomainRegistrationItem = z.infer<typeof DomainRegistrationSchema>;
 export type PutDomainRegistrationInput = Pick<
 	DomainRegistrationItem,
-	"registrableDomain" | "registration"
+	"domainRegistrationId" | "registration"
 >;

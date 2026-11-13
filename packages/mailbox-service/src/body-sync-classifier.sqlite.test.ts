@@ -51,6 +51,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	silentLog,
+	spamConfigFor,
 	syncFolder,
 } from "./test-helpers/test-store.js";
 
@@ -207,6 +208,7 @@ const bodySync = (classifier = true, filters = false): BodySyncService => {
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
+		spamConfigFor(store),
 		silentLog,
 		{ mailboxSpecialUseService: store.mailboxSpecialUse, placementMoveService },
 		filters

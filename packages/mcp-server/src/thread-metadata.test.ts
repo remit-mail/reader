@@ -17,6 +17,7 @@ import {
 	seedMailbox,
 	seedMessage,
 	silentLog,
+	spamConfigFor,
 } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
@@ -87,6 +88,7 @@ before(async () => {
 			store.address,
 			store.envelope,
 			new SyncWarningService(store.syncWarning),
+			spamConfigFor(store),
 			silentLog,
 		),
 		bodySyncQueue: { requestBodySync: async () => {} },

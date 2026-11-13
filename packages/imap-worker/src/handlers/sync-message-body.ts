@@ -202,6 +202,7 @@ export const syncMessageBody = async (
 				addressService,
 				envelopeService,
 				new SyncWarningService(syncWarningRepository),
+				spam,
 				log,
 				placementConfig,
 				filterConfig,
@@ -234,7 +235,6 @@ export const syncMessageBody = async (
 					messageLabelService,
 					logger: log,
 				},
-				spam,
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The

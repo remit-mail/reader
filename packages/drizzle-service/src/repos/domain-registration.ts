@@ -12,7 +12,7 @@ import { domainRegistrationTable } from "../schema.js";
 const toItem = (
 	row: typeof domainRegistrationTable.$inferSelect,
 ): DomainRegistrationItem => ({
-	registrableDomain: row.registrableDomain,
+	domainRegistrationId: row.domainRegistrationId,
 	registration: readStoredDomainRegistration(row.registration),
 	createdAt: row.createdAt,
 	updatedAt: row.updatedAt,
@@ -21,14 +21,16 @@ const toItem = (
 export class DomainRegistrationRepo implements IDomainRegistrationRepository {
 	constructor(private db: RepositoryDb) {}
 
-	async get(registrableDomain: string): Promise<DomainRegistrationItem> {
+	async get(domainRegistrationId: string): Promise<DomainRegistrationItem> {
 		const [row] = await this.db
 			.select()
 			.from(domainRegistrationTable)
-			.where(eq(domainRegistrationTable.registrableDomain, registrableDomain));
+			.where(
+				eq(domainRegistrationTable.domainRegistrationId, domainRegistrationId),
+			);
 		if (!row) {
 			throw new NotFoundError(
-				`DomainRegistration not found: ${registrableDomain}`,
+				`DomainRegistration not found: ${domainRegistrationId}`,
 			);
 		}
 		return toItem(row);
@@ -41,19 +43,19 @@ export class DomainRegistrationRepo implements IDomainRegistrationRepository {
 		const [row] = await this.db
 			.insert(domainRegistrationTable)
 			.values({
-				registrableDomain: input.registrableDomain,
+				domainRegistrationId: input.domainRegistrationId,
 				registration: input.registration,
 				createdAt: now,
 				updatedAt: now,
 			})
 			.onConflictDoUpdate({
-				target: domainRegistrationTable.registrableDomain,
+				target: domainRegistrationTable.domainRegistrationId,
 				set: { registration: input.registration, updatedAt: now },
 			})
 			.returning();
 		if (!row) {
 			throw new Error(
-				`Failed to upsert DomainRegistration: ${input.registrableDomain}`,
+				`Failed to upsert DomainRegistration: ${input.domainRegistrationId}`,
 			);
 		}
 		return toItem(row);

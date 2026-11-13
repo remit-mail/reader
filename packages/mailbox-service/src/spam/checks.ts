@@ -23,11 +23,15 @@ import {
 	parseAddressHeader,
 } from "./headers.js";
 
-type ReasonName = (typeof SpamReasonName)[keyof typeof SpamReasonName];
+/** A reason the inline engine finds itself; `BackendSymbol` is only ever a backend's. */
+export type CheckName = Exclude<
+	(typeof SpamReasonName)[keyof typeof SpamReasonName],
+	"BackendSymbol"
+>;
 
 /** One check that found something, before its weight is attached. */
 export interface Finding {
-	name: ReasonName;
+	name: CheckName;
 	options: string[];
 }
 
@@ -41,6 +45,7 @@ export interface CheckInput {
 }
 
 const MAX_OPTIONS = 10;
+const UNVERIFIED = "unverified";
 const RECENT_REGISTRATION_MS = 90 * 24 * 60 * 60 * 1000;
 const DOMAIN_IN_TEXT =
 	/(?:^|[^\p{L}\p{N}.-])((?:[\p{L}\p{N}-]+\.)+\p{L}{2,})(?![\p{L}\p{N}-])/iu;
@@ -70,11 +75,23 @@ export const toCheckInput = (
 	};
 };
 
-/** Check 1. */
-export const dmarcFails = ({ request }: CheckInput): Finding[] =>
-	request.authentication.dmarc === AuthResultVerdict.Fail
-		? [{ name: SpamReasonName.DmarcFail, options: [] }]
-		: [];
+/** Check 1: DMARC failed, or a passing signature belongs to another domain. */
+export const authenticationFails = (input: CheckInput): Finding[] => {
+	const { authentication } = input.request;
+	const findings: Finding[] = [];
+	if (authentication.dmarc === AuthResultVerdict.Fail) {
+		findings.push({ name: SpamReasonName.DmarcFail, options: [] });
+	}
+	const signer = authentication.signerDomain;
+	if (
+		signer !== UNVERIFIED &&
+		input.senderDomain !== undefined &&
+		registrable(input.tldts, signer) !== input.senderDomain
+	) {
+		findings.push({ name: SpamReasonName.SignerMismatch, options: [signer] });
+	}
+	return findings;
+};
 
 /** Check 2. */
 export const replyToDiffers = (input: CheckInput): Finding[] => {
@@ -265,36 +282,27 @@ export const providerCallsSpam = ({ request }: CheckInput): Finding[] =>
 export const displayNameClaims = (input: CheckInput): Finding[] => {
 	const { from, tldts } = input;
 	if (!from || from.name === "") return [];
-	const againstSender = classifyDisplayNameCorrespondence(
+	const correspondence = classifyDisplayNameCorrespondence(
 		from.name,
 		from.domain,
 		tldts,
+		input.links.map((link) => link.hrefDomain),
 	);
-	if (againstSender === DisplayNameCorrespondence.ForeignAddress) {
+	if (correspondence === DisplayNameCorrespondence.ForeignAddress) {
 		return [
 			{ name: SpamReasonName.DisplayNameForeignAddress, options: [from.name] },
 		];
 	}
-	const lookalikeOf = [
-		from.domain,
-		...input.links.map((link) => link.hrefDomain),
-	].find(
-		(domain) =>
-			classifyDisplayNameCorrespondence(from.name, domain, tldts) ===
-			DisplayNameCorrespondence.Lookalike,
-	);
-	return lookalikeOf
-		? [
-				{
-					name: SpamReasonName.DisplayNameLookalike,
-					options: [from.name, lookalikeOf],
-				},
-			]
-		: [];
+	if (correspondence === DisplayNameCorrespondence.Lookalike) {
+		return [
+			{ name: SpamReasonName.DisplayNameLookalike, options: [from.name] },
+		];
+	}
+	return [];
 };
 
 const ALWAYS = [
-	dmarcFails,
+	authenticationFails,
 	replyToDiffers,
 	confusableDomains,
 	generatedName,

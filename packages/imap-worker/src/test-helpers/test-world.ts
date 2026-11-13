@@ -132,7 +132,7 @@ export const openStore = async (): Promise<{
 		...buildSharedDeps(
 			queuesOn(recordingQueue()),
 			{ state: "None" },
-			{ backend: "Inline", thresholds: { state: "Unset" } },
+			{ thresholds: { state: "Unset" } },
 		),
 		storage,
 	};

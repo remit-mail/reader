@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseRdapRegistration } from "./rdap.js";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { openStore, silentLog } from "../test-helpers/test-store.js";
+import { domainRegisteredAt, parseRdapRegistration } from "./rdap.js";
 
 describe("parseRdapRegistration", () => {
 	it("reads the registration event's date", () => {
@@ -34,5 +36,30 @@ describe("parseRdapRegistration", () => {
 			parseRdapRegistration({ errorCode: 404, title: "Not Found" }),
 			undefined,
 		);
+	});
+});
+
+describe("domainRegisteredAt", () => {
+	it("leaves the date absent and caches nothing when the lookup throws", async () => {
+		const store = await openStore();
+		const registeredAt = await domainRegisteredAt(
+			{
+				domainRegistration: store.domainRegistration,
+				rdap: {
+					lookup: async () => {
+						throw new Error("registry unreachable");
+					},
+				},
+				logger: silentLog,
+			},
+			"parcel-notice.example",
+		);
+
+		assert.equal(registeredAt, undefined);
+		await assert.rejects(
+			store.domainRegistration.get("parcel-notice.example"),
+			NotFoundError,
+		);
+		await store.close();
 	});
 });

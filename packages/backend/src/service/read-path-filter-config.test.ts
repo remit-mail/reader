@@ -144,7 +144,7 @@ const readBodyThroughClient = async (
 		storage,
 		secrets: {} as unknown as SecretsService,
 		classificationDefault: { state: "None" },
-		spamDeployment: { backend: "Inline", thresholds: { state: "Unset" } },
+		spamDeployment: { thresholds: { state: "Unset" } },
 		connectionScope: () => async () => {
 			throw new Error("the read path under test opens no IMAP connection");
 		},

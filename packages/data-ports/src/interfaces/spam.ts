@@ -1,4 +1,3 @@
-import type { SpamBackend } from "@remit/domain-enums";
 import type { SpamRequest, SpamResponse } from "../types.js";
 
 /**
@@ -18,6 +17,5 @@ export type SpamThresholds =
 	| { state: "Set"; cleanBelow: number; spamAt: number };
 
 export interface SpamDeployment {
-	backend: (typeof SpamBackend)[keyof typeof SpamBackend];
 	thresholds: SpamThresholds;
 }

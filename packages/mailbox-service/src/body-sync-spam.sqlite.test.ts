@@ -98,13 +98,6 @@ const bodySync = (): BodySyncService => {
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
-		silentLog,
-		{ mailboxSpecialUseService: store.mailboxSpecialUse, placementMoveService },
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
 		{
 			spamService,
 			domainRegistration: store.domainRegistration,
@@ -112,6 +105,8 @@ const bodySync = (): BodySyncService => {
 			accountService: store.account,
 			logger: silentLog,
 		},
+		silentLog,
+		{ mailboxSpecialUseService: store.mailboxSpecialUse, placementMoveService },
 	);
 };
 

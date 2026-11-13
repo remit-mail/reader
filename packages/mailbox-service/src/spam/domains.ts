@@ -1,51 +1,28 @@
 import { domainToUnicode } from "node:url";
+import { CONFUSABLES } from "./confusables-data.js";
 
-/**
- * Cyrillic and Greek letters drawn identically to a Latin one, from the UTS #39
- * confusables table. A character table, not a list of names: it says nothing
- * about which domains matter.
- */
-const CONFUSABLE_LETTERS: Readonly<Record<string, string>> = {
-	а: "a",
-	с: "c",
-	ԁ: "d",
-	е: "e",
-	һ: "h",
-	і: "i",
-	ј: "j",
-	ӏ: "l",
-	о: "o",
-	р: "p",
-	ԛ: "q",
-	ѕ: "s",
-	ѵ: "v",
-	ԝ: "w",
-	х: "x",
-	у: "y",
-	α: "a",
-	η: "n",
-	ι: "i",
-	ν: "v",
-	ο: "o",
-	ρ: "p",
-	ı: "i",
-	"0": "o",
-	"1": "l",
-	"|": "l",
+let prototypes: ReadonlyMap<string, string> | undefined;
+
+const prototypeOf = (char: string): string => {
+	prototypes ??= new Map(
+		CONFUSABLES.split("\n").map((line): [string, string] => {
+			const [source, prototype] = line.split("\t");
+			return [source, prototype];
+		}),
+	);
+	return prototypes.get(char) ?? char;
 };
 
 /**
- * The UTS #39 skeleton of a domain, reduced to what a reader can tell apart:
- * accents dropped, lookalike letters folded to Latin, and the multi-letter
- * shapes `rn`/`m` and `vv`/`w` made one. Two domains with one skeleton look
- * the same in a mail client.
+ * The UTS #39 skeleton of a domain, read in Unicode: NFD, every character
+ * replaced by its prototype from Unicode's confusables.txt, NFD again. Two
+ * domains with one skeleton look the same in a mail client.
  */
 export const skeleton = (domain: string): string =>
-	[...unicodeDomain(domain).normalize("NFKD").replace(/\p{M}/gu, "")]
-		.map((char) => CONFUSABLE_LETTERS[char] ?? char.toLowerCase())
+	[...unicodeDomain(domain).normalize("NFD")]
+		.map(prototypeOf)
 		.join("")
-		.replaceAll("rn", "m")
-		.replaceAll("vv", "w");
+		.normalize("NFD");
 
 export const unicodeDomain = (domain: string): string =>
 	domainToUnicode(domain) || domain;

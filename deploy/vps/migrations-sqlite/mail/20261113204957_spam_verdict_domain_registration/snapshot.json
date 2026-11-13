@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "deae9d89-35aa-4d99-bce2-4d33ea82c5ea",
+  "id": "958c4856-736c-4ceb-8646-29df9f73f2b6",
   "prevIds": [
     "6a543476-9073-42dc-a662-75d4f77037bd"
   ],
@@ -808,7 +808,7 @@
     },
     {
       "table": "domain_registration",
-      "name": "registrable_domain",
+      "name": "domain_registration_id",
       "type": "text",
       "notNull": false,
       "autoincrement": false,
@@ -4591,7 +4591,7 @@
       "table": "domain_registration",
       "name": "domain_registration_pk",
       "columns": [
-        "registrable_domain"
+        "domain_registration_id"
       ],
       "nameExplicit": false,
       "entityType": "pks"

@@ -4,6 +4,7 @@ import {
 	classifyDisplayNameCorrespondence,
 	type Tldts,
 } from "../spam/display-name.js";
+import { linksOf } from "../spam/links.js";
 
 type CorrespondenceValue =
 	(typeof DisplayNameCorrespondence)[keyof typeof DisplayNameCorrespondence];
@@ -33,20 +34,6 @@ export interface SenderMismatchContext {
 
 const MAX_LINK_DOMAINS = 10;
 
-const hrefsFromHtml = (html: string): string[] => {
-	const out: string[] = [];
-	const pattern = /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
-	let match = pattern.exec(html);
-	while (match !== null) {
-		out.push(match[1] ?? match[2] ?? match[3] ?? "");
-		match = pattern.exec(html);
-	}
-	return out;
-};
-
-const urlsFromText = (text: string): string[] =>
-	text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? [];
-
 /**
  * Registrable domains the body's links point at, minus the sender's own.
  *
@@ -66,7 +53,7 @@ export const extractOffDomainLinkDomains = (
 
 	const seen = new Set<string>();
 	const out: string[] = [];
-	for (const href of [...hrefsFromHtml(html), ...urlsFromText(text)]) {
+	for (const { href } of linksOf(html, text)) {
 		const value = href.trim();
 		if (value === "" || !/^https?:\/\//i.test(value)) continue;
 		const domain = tldts.getDomain(value);

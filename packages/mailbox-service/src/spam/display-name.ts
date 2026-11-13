@@ -99,7 +99,9 @@ const lookalikeThreshold = (length: number): number => {
  *
  * A bounded edit distance is the secondary test, and only reaches names that
  * nearly match a label — `InfoMedics` against `1nfomedics.nl`. It cannot promote
- * an unrelated name on its own.
+ * an unrelated name on its own. Link domains join that test only: a name
+ * that nearly spells a link's domain imitates it, one that spells it exactly
+ * just names where the link goes.
  *
  * A name that spells out an address is decided before any of that. Over the
  * sending domain it claims nothing — `billing@` shown over
@@ -112,6 +114,7 @@ export const classifyDisplayNameCorrespondence = (
 	displayName: string | undefined,
 	fromDomain: string,
 	tldts: Tldts,
+	linkDomains: readonly string[] = [],
 ): CorrespondenceValue => {
 	const raw = (displayName ?? "").trim();
 	if (raw === "") return DisplayNameCorrespondence.NoClaim;
@@ -139,7 +142,13 @@ export const classifyDisplayNameCorrespondence = (
 		}
 	}
 
-	for (const candidate of candidates) {
+	const lookalikes = [
+		...candidates,
+		...linkDomains
+			.flatMap((domain) => correspondenceCandidates(tldts, domain))
+			.filter((candidate) => !terms.some((term) => term.includes(candidate))),
+	];
+	for (const candidate of lookalikes) {
 		const threshold = lookalikeThreshold(
 			Math.min(name.length, candidate.length),
 		);

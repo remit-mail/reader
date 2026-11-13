@@ -56,6 +56,15 @@ describe("the inline judge", () => {
 		assert.equal(verdict.action, SpamAction.None);
 	});
 
+	it("flags a passing signature from another domain than the sender's", () => {
+		const signed = request();
+		signed.authentication.signerDomain = "esp.example";
+		const found = judge(signed, UNSET, tldts).reasons.find(
+			(reason) => reason.name === SpamReasonName.SignerMismatch,
+		);
+		assert.deepEqual(found?.options, ["esp.example"]);
+	});
+
 	it("flags a punycode link domain", () => {
 		assert.ok(
 			reasons(
@@ -144,7 +153,7 @@ describe("the inline judge", () => {
 describe("domain helpers", () => {
 	it("folds lookalike letters and shapes into one skeleton", () => {
 		assert.equal(skeleton("rnybank.example"), skeleton("mybank.example"));
-		assert.equal(skeleton("g00gle.example"), skeleton("google.example"));
+		assert.equal(skeleton("аpple.example"), skeleton("apple.example"));
 		assert.notEqual(skeleton("mail.example"), skeleton("mall.example"));
 	});
 

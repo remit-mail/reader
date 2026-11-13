@@ -28,14 +28,14 @@ union DomainRegistrationOutcome {
 @index(
   "DomainRegistration",
   {
-    pk: [DomainRegistration.registrableDomain],
+    pk: [DomainRegistration.domainRegistrationId],
     sk: [],
   }
 )
 model DomainRegistration {
-  @doc("The registrable domain (eTLD+1), lowercased.")
+  @doc("The registrable domain (eTLD+1), lowercased. It is the row's identity: one row per domain.")
   @visibility(Lifecycle.Read)
-  registrableDomain: String256;
+  domainRegistrationId: String256;
 
   @visibility(Lifecycle.Read)
   registration: DomainRegistrationOutcome;
