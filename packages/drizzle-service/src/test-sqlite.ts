@@ -1,5 +1,10 @@
 import { join } from "node:path";
-import { SQLITE_DATABASE_ENV, type SqliteDatabasePaths } from "./databases.js";
+import {
+	SQLITE_DATABASE_ENV,
+	type SqliteDatabasePaths,
+	type SqliteDatabases,
+} from "./databases.js";
+import type { Db } from "./db.js";
 import { openSqlite, openTestSqlite, type SqliteHandle } from "./sqlite.js";
 import { statementLog } from "./test-query-plan.js";
 import {
@@ -56,4 +61,14 @@ export const createShippedSqliteFiles = (
 		process.env[SQLITE_DATABASE_ENV[set]] = paths[set];
 	}
 	return paths;
+};
+
+export const sharedDatabases = (db: Db): SqliteDatabases => {
+	const run = (work: () => unknown[]): unknown[] => db.transaction(work);
+	return {
+		app: db,
+		mail: db,
+		search: db,
+		transactions: { app: run, mail: run, search: run },
+	};
 };

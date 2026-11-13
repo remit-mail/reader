@@ -8,6 +8,7 @@ import {
 } from "../id.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import type { DrizzleMessageRepository } from "./message.js";
 import { messageObjectsInMemory } from "./message-objects.js";
@@ -41,7 +42,7 @@ describe("DrizzleMessageRepository", () => {
 	before(async () => {
 		({ db, close: stop } = await createTestDb());
 		const repos = createSqliteRepositories(
-			{ app: db, mail: db, search: db },
+			sharedDatabases(db),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);

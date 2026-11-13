@@ -18,6 +18,7 @@ import {
 	type SqliteRepositories,
 } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 const ACCOUNT_CONFIG_ID = "cfg-objects";
@@ -56,11 +57,9 @@ describe("message objects follow the last row that references them", () => {
 				return storage.deleteKeys(keys);
 			},
 		};
-		repos = createSqliteRepositories(
-			{ app: db, mail: db, search: db },
-			NODE_SQLITE_LIMITS,
-			{ storage: counted },
-		);
+		repos = createSqliteRepositories(sharedDatabases(db), NODE_SQLITE_LIMITS, {
+			storage: counted,
+		});
 	});
 
 	after(async () => {

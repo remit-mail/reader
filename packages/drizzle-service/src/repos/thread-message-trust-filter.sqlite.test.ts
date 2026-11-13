@@ -10,6 +10,7 @@ import {
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 import type { DrizzleThreadMessageRepository } from "./thread-message.js";
 
@@ -100,7 +101,7 @@ describe("thread-message search by sender trust and DKIM (sqlite)", () => {
 			{ searchIndex: true },
 		));
 		repo = createSqliteRepositories(
-			{ app: db, mail: db, search: db },
+			sharedDatabases(db),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;

@@ -12,6 +12,7 @@ import type { Db } from "../db.js";
 import * as appTables from "../schema-sets/app.js";
 import * as mailTables from "../schema-sets/mail.js";
 import { createTestDb } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import { runDrizzleAccountConfigErase } from "./account-config-erase.js";
 
 const log = { info: () => {} };
@@ -88,10 +89,7 @@ describe("runDrizzleAccountConfigErase", () => {
 				await db.insert(table).values(rowOf(table, tenant) as never);
 			}
 		}
-		const stores = syncStores(
-			{ app: db, mail: db, search: db } as never,
-			NODE_SQLITE_LIMITS,
-		);
+		const stores = syncStores(sharedDatabases(db), NODE_SQLITE_LIMITS);
 		await runDrizzleAccountConfigErase(stores, ERASED, log);
 	});
 

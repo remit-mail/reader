@@ -15,7 +15,9 @@ calendarEventIndexRepositoryConformance({
 			calendarEventIndexes: calendarEventIndexTable,
 		});
 		close = closeDb;
-		return new CalendarEventIndexRepo(syncStore(db, NODE_SQLITE_LIMITS));
+		return new CalendarEventIndexRepo(
+			syncStore(db, NODE_SQLITE_LIMITS, (work) => db.transaction(work)),
+		);
 	},
 	teardown: async () => {
 		await close?.();

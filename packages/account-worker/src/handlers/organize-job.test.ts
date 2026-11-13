@@ -15,7 +15,10 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
 import type { OrganizeJobEvent } from "../events.js";
 import {
@@ -188,11 +191,7 @@ interface World {
 const world = async (filters: FilterItem[]): Promise<World> => {
 	const store = createShippedSqliteDb();
 	const threadMessage = createSqliteRepositories(
-		{
-			app: store.db,
-			mail: store.db,
-			search: store.db,
-		},
+		sharedDatabases(store.db),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).threadMessage;

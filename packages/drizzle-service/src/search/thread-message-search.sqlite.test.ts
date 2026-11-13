@@ -49,13 +49,18 @@ describe("the thread-message search index in its own database", () => {
 	const search = open("search");
 	const index = new SearchIndex(
 		mail.db,
-		syncStore(search.db, NODE_SQLITE_LIMITS),
+		syncStore(search.db, NODE_SQLITE_LIMITS, search.immediate),
 	);
 	const repo = createSqliteRepositories(
 		{
 			app: mail.db,
 			mail: mail.db,
 			search: search.db,
+			transactions: {
+				app: mail.immediate,
+				mail: mail.immediate,
+				search: search.immediate,
+			},
 		},
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
@@ -158,7 +163,7 @@ describe("the thread-message search index in its own database", () => {
 
 	test("rebuilds while a live writer indexes a message the rebuild has yet to reach", async () => {
 		const created = await repo.create(input({ subject: "Raced reminder" }));
-		const store = syncStore(search.db, NODE_SQLITE_LIMITS);
+		const store = syncStore(search.db, NODE_SQLITE_LIMITS, search.immediate);
 		let raced = false;
 		const migrator = new SearchIndex(mail.db, {
 			...store,

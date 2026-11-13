@@ -20,7 +20,10 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import type { MailFailureKind } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
@@ -66,11 +69,7 @@ interface World {
 const openWorld = async (smtpOptions: FakeSmtpOptions = {}): Promise<World> => {
 	const store = createShippedSqliteDb();
 	const repos = createSqliteRepositories(
-		{
-			app: store.db,
-			mail: store.db,
-			search: store.db,
-		},
+		sharedDatabases(store.db),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

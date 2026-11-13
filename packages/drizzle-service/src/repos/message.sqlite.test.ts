@@ -10,6 +10,7 @@ import { messageDataSchema } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import type { DrizzleMessageRepository } from "./message.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
@@ -47,7 +48,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 	before(async () => {
 		({ db, close } = await createSqliteTestDb(SCHEMA));
 		repo = createSqliteRepositories(
-			{ app: db, mail: db, search: db },
+			sharedDatabases(db),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).message;

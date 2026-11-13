@@ -5,6 +5,7 @@ import type { Db } from "../db.js";
 import type { SqliteConnection } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import { AddressRepo } from "./i4-address.js";
 import type { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
 import { messageObjectsInMemory } from "./message-objects.js";
@@ -130,11 +131,7 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 		({ db, sqlite, exec, close } = await createTestDb());
 		repo = new AddressRepo(db as never);
 		specialUse = createSqliteRepositories(
-			{
-				app: db,
-				mail: db,
-				search: db,
-			},
+			sharedDatabases(db),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailboxSpecialUse;

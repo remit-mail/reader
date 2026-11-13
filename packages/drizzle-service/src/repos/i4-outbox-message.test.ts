@@ -24,7 +24,10 @@ describe("OutboxMessageRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new OutboxMessageRepo(db as never, syncBatch(db));
+		repo = new OutboxMessageRepo(
+			db as never,
+			syncBatch((work) => db.transaction(work)),
+		);
 	});
 
 	after(async () => {

@@ -22,7 +22,10 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
 import {
 	createSecretsService,
@@ -131,11 +134,7 @@ beforeEach(async () => {
 	const store = createShippedSqliteDb();
 	close = store.close;
 	const repos = createSqliteRepositories(
-		{
-			app: store.db,
-			mail: store.db,
-			search: store.db,
-		},
+		sharedDatabases(store.db),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

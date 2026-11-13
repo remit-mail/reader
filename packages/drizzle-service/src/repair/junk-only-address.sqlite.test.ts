@@ -13,6 +13,7 @@ import {
 } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import {
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
@@ -190,11 +191,7 @@ describe("addresses standing only on mail in Junk", () => {
 		sqlite = handle.sqlite;
 		const { db } = handle;
 		specialUse = createSqliteRepositories(
-			{
-				app: db,
-				mail: db,
-				search: db,
-			},
+			sharedDatabases(db),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailboxSpecialUse;

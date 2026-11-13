@@ -4,6 +4,7 @@ import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { Db } from "../db.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import type { AccountRepo } from "./i4-account.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 import { mailboxCreated } from "./test-helpers.js";
@@ -30,11 +31,7 @@ describe("AccountRepo", () => {
 	before(async () => {
 		({ db, close } = await createTestDb());
 		repo = createSqliteRepositories(
-			{
-				app: db,
-				mail: db,
-				search: db,
-			},
+			sharedDatabases(db),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).account;
@@ -172,11 +169,7 @@ describe("AccountRepo", () => {
 		const account = await repo.create(makeAccountInput(accountConfigId));
 
 		const mailboxRepo = createSqliteRepositories(
-			{
-				app: db,
-				mail: db,
-				search: db,
-			},
+			sharedDatabases(db),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;

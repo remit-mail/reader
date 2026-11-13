@@ -22,6 +22,7 @@ import {
 	threadMessageTable,
 } from "../schema.js";
 import { createTestDb } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import {
 	type CascadeEntity,
 	runDrizzleCascadeDelete,
@@ -302,10 +303,7 @@ describe("runDrizzleCascadeDelete", () => {
 
 	test("deletes every enumerated row across all tables", async () => {
 		await runDrizzleCascadeDelete(
-			syncStores(
-				{ app: db, mail: db, search: db } as never,
-				NODE_SQLITE_LIMITS,
-			),
+			syncStores(sharedDatabases(db), NODE_SQLITE_LIMITS),
 			entities,
 			log,
 		);
@@ -444,10 +442,7 @@ describe("runDrizzleCascadeDelete", () => {
 		await assert.rejects(
 			() =>
 				runDrizzleCascadeDelete(
-					syncStores(
-						{ app: db, mail: db, search: db } as never,
-						NODE_SQLITE_LIMITS,
-					),
+					syncStores(sharedDatabases(db), NODE_SQLITE_LIMITS),
 					[{ entityType: "Nonsense", key: { id: "x" } }],
 					log,
 				),

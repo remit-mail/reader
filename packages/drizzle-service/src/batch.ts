@@ -1,5 +1,4 @@
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch";
-import type { Db } from "./db.js";
 
 export type SqliteBatchItem = BatchItem<"sqlite">;
 
@@ -47,23 +46,10 @@ const emptyResponse = <
 	T extends readonly SqliteBatchItem[],
 >(): BatchResponse<T> => [] as unknown as BatchResponse<T>;
 
-export type TransactionRunner = <T>(work: () => T) => T;
+export type TransactionRunner = (work: () => unknown[]) => unknown[];
 
-/**
- * A batch as one synchronous transaction. It never yields the event loop, so
- * no other write on the shared connection lands inside it. The runner opens
- * the transaction without a config, because a Durable Object's
- * `durable-sqlite` handle rejects any; there it is one `transactionSync`.
- * node:sqlite passes its handle's `immediate`, which takes the file's write
- * lock before the first statement so a writer in another process waits out
- * the busy timeout.
- */
 export const syncBatch =
-	(
-		db: Db,
-		run: TransactionRunner = (work) =>
-			db.transaction(() => ({ value: work() })).value,
-	): WriteBatch =>
+	(run: TransactionRunner): WriteBatch =>
 	async (items) => {
 		if (items.length === 0) return emptyResponse();
 		const results = run(() => items.map(runSync));

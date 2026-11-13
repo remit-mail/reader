@@ -46,7 +46,7 @@ export const openD1TestStore = async (
 export const openD1TestStores: OpenTestStores = async () => {
 	const app = await openD1TestStore("app");
 	const shipped = createShippedSqliteDb();
-	const local = syncStore(shipped.db, CLOUDFLARE_LIMITS);
+	const local = syncStore(shipped.db, CLOUDFLARE_LIMITS, shipped.immediate);
 	return {
 		stores: { app: app.store, mail: local, search: local },
 		close: async () => {

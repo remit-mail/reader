@@ -17,7 +17,10 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import type { Context } from "openapi-backend";
 import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
@@ -39,11 +42,7 @@ beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
 	const repos = createSqliteRepositories(
-		{
-			app: store.db,
-			mail: store.db,
-			search: store.db,
-		},
+		sharedDatabases(store.db),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
