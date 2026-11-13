@@ -28,14 +28,14 @@ The RFC sets these, and every story below holds to them.
 
 ## Functional requirements
 
-The user is the owner of the mailbox. The test plan appendix maps each criterion to one test.
+The user is the owner of the mailbox. The test plan appendix maps each criterion to one test. Every string the owner reads calls the folder Spam, as #612 settled. `Junk` names the RFC's action and the IMAP role.
 
 ### S1, read why
 
 As the owner reading a flagged message, I want to see why Remit flagged it, so that I can judge the message myself.
 
 1. On a message with a `Checked` verdict of `Warn` or `Junk`, opening the intelligence rail lists every reason as one plain sentence, with what the check found, such as the domain behind a link.
-2. The same rail shows the score beside both thresholds: "Score 0.72. Remit warns from 0.40 and moves to Junk from 0.85."
+2. The same rail shows the score beside both thresholds: "Score 0.72. Remit warns from 0.40 and moves to Spam from 0.85."
 3. When the model judged the message, the rail says so and quotes the model's reason.
 4. When stage 1 let a message through, its rail names the rule: VIP, well known, Never in Spam, a named filter, or a newsletter from a known sender.
 5. When a reported sender's message went straight to Junk, its rail reads "You reported this sender" above a Not spam button.
@@ -74,7 +74,7 @@ As the owner managing senders, I want to exempt a sender from spam checks, so th
 
 As the owner tuning the filter, I want to set the scores at which Remit warns and moves, so that I choose between missed spam and false alarms.
 
-1. In Settings, Spam, the owner saves "Warn from" and "Move to Junk from". A reload shows the saved values.
+1. In Settings, Spam, the owner saves "Warn from" and "Move to Spam from". A reload shows the saved values.
 2. Reset returns both values to the deployment default, and the page names that default.
 3. Before a save, the page counts the messages from the last 30 days that the new values warn about and move.
 4. Beside the saved values, the page states that they apply to mail arriving from now on, and that Check again updates older mail.
@@ -83,8 +83,8 @@ As the owner tuning the filter, I want to set the scores at which Remit warns an
 
 As the owner deciding what leaves my inbox, I want to choose for `Spam` and for `Phishing` whether a high score moves the message or only warns, so that each label behaves as I choose.
 
-1. With `Spam` set to "Warn only", a `Spam` message scoring at or above "Move to Junk from" keeps its folder under the warning banner. The rail notes that the score reached the Junk threshold.
-2. With `Phishing` set to "Move to Junk", a `Phishing` message at or above that threshold moves to Junk.
+1. With `Spam` set to "Warn only", a `Spam` message scoring at or above "Move to Spam from" keeps its folder under the warning banner. The rail notes that the score reached the Junk threshold.
+2. With `Phishing` set to "Move to Spam", a `Phishing` message at or above that threshold moves to Junk.
 
 ### S8, see the counts
 
@@ -109,7 +109,7 @@ As the owner looking for lost mail, I want to review the latest flagged messages
 As the owner after a threshold change, I want to re-check the messages I pick, so that old verdicts catch up.
 
 1. Check again on any number of picked messages sends ten per call, shows progress such as "Checked 20 of 35", and shows each new verdict.
-2. A re-check that turns a message into `Junk` leaves it in its folder, and its banner holds a Move to Junk button.
+2. A re-check that turns a message into `Junk` leaves it in its folder, and its banner holds a "Move to Spam" button.
 
 ## Non-functional requirements
 
@@ -120,7 +120,7 @@ As the owner after a threshold change, I want to re-check the messages I pick, s
 3. A `Warn` the model never judged, because the account has no model or reached its daily cap, says which in its banner, and says only the basic checks ran.
 4. After `RateLimited` or `DailyCap` failures, Check again lists those messages with "Try again in a minute" or "Try again tomorrow". Its retry sends only those ids.
 5. After `NotFound` or `NotPermitted` failures, the page names each message and its cause, holds no retry, and links to report an issue.
-6. Saving thresholds where "Warn from" is not below "Move to Junk from", or a value outside 0 to 1, saves nothing and names the broken rule.
+6. Saving thresholds where "Warn from" is not below "Move to Spam from", or a value outside 0 to 1, saves nothing and names the broken rule.
 7. A failed Report spam or Not spam shows a banner naming the action, with Try again, as "Couldn't report this message as spam" does today.
 8. A 401 or 403 on the counts, the latest list or Check again shows the signed-out notice. It never shows an empty list or a zero.
 
