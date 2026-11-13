@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/LabelColor.tsp";
+import "../enums/LabelFolderState.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -69,7 +70,7 @@ model UpdateLabelInput is Update<Label>;
 @doc("A label's folder in one mail account, as `Present` (synced) or `Pending` (the mail server has not confirmed it yet).")
 model LabelFolderPresent {
   accountId: UUID;
-  state: "Present" | "Pending";
+  state: LabelFolderState.Present | LabelFolderState.Pending;
   mailboxId: UUID;
   fullPath: String512;
 }
@@ -77,7 +78,7 @@ model LabelFolderPresent {
 @doc("A mail account that holds no folder for the label.")
 model LabelFolderMissing {
   accountId: UUID;
-  state: "Missing";
+  state: LabelFolderState.Missing;
 }
 
 @doc("Where a label lives in one mail account, the same shape the MCP `list_labels` tool returns.")

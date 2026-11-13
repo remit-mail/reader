@@ -11,8 +11,8 @@ import type {
 } from "@remit/data-ports";
 import {
 	type LabelFolder,
-	type LabelFolderReadDeps,
-	listLabelsWithFolders,
+	type LabelFolderDeps,
+	labelFoldersFor,
 	ownedAccount,
 } from "@remit/mailbox-service";
 import { unwrap } from "../service/refusal.js";
@@ -64,14 +64,13 @@ export const findFiltersForLabel = async (
 	return filters.filter((filter) => filter.actionLabelId === labelId);
 };
 
-const foldersByLabelId = async (
-	deps: LabelFolderReadDeps,
+const foldersOf = async (
+	deps: LabelFolderDeps,
 	accountConfigId: string,
-): Promise<Map<string, LabelFolder[]>> =>
-	new Map(
-		(await listLabelsWithFolders(deps, accountConfigId)).map(
-			({ label, folders }) => [label.labelId, folders],
-		),
+	label: LabelItem,
+): Promise<LabelFolder[]> =>
+	(await labelFoldersFor(deps, accountConfigId, [label])).flatMap(
+		({ folders }) => folders,
 	);
 
 /**
@@ -81,14 +80,14 @@ const foldersByLabelId = async (
 const toLabelResponse = (
 	item: LabelItem,
 	filterCount: number,
-	folders: Map<string, LabelFolder[]>,
+	folders: LabelFolder[],
 ): LabelResponse => ({
 	labelId: item.labelId,
 	accountConfigId: item.accountConfigId,
 	name: item.name,
 	color: item.color,
 	filterCount,
-	folders: folders.get(item.labelId) ?? [],
+	folders,
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });
@@ -131,9 +130,9 @@ export const LabelOperations: Record<
 		const page = await client.label.listPageByAccountConfig(accountConfigId, {
 			continuationToken,
 		});
-		const [filters, folders] = await Promise.all([
+		const [filters, labels] = await Promise.all([
 			client.filter.listByAccountConfig(accountConfigId),
-			foldersByLabelId(client, accountConfigId),
+			labelFoldersFor(client, accountConfigId, page.items),
 		]);
 		const filterCountByLabelId = new Map<string, number>();
 		for (const filter of filters) {
@@ -145,10 +144,10 @@ export const LabelOperations: Record<
 		}
 
 		return {
-			items: page.items.map((item) =>
+			items: labels.map(({ label, folders }) =>
 				toLabelResponse(
-					item,
-					filterCountByLabelId.get(item.labelId) ?? 0,
+					label,
+					filterCountByLabelId.get(label.labelId) ?? 0,
 					folders,
 				),
 			),
@@ -173,7 +172,7 @@ export const LabelOperations: Record<
 		return toLabelResponse(
 			label,
 			0,
-			await foldersByLabelId(client, accountConfigId),
+			await foldersOf(client, accountConfigId, label),
 		);
 	},
 };
@@ -198,7 +197,7 @@ export const LabelDetailOperations: Record<
 		return toLabelResponse(
 			label,
 			filters.length,
-			await foldersByLabelId(client, accountConfigId),
+			await foldersOf(client, accountConfigId, label),
 		);
 	},
 
@@ -219,7 +218,7 @@ export const LabelDetailOperations: Record<
 		return toLabelResponse(
 			updated,
 			filters.length,
-			await foldersByLabelId(client, accountConfigId),
+			await foldersOf(client, accountConfigId, updated),
 		);
 	},
 

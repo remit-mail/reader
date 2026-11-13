@@ -9,7 +9,7 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import { isReservedFolderName } from "@remit/data-ports/folder-role";
-import { MailboxSyncStatus } from "@remit/domain-enums";
+import { LabelFolderState, MailboxSyncStatus } from "@remit/domain-enums";
 import type { MailboxQueueService } from "./mailbox-queue.js";
 import { accept, invalid, type Refusable } from "./refusal.js";
 import {
@@ -18,16 +18,14 @@ import {
 	type RemitRootLogger,
 } from "./remit-root.js";
 
-export type LabelFolderState = "Present" | "Pending" | "Missing";
-
 export type LabelFolder =
 	| {
 			accountId: string;
-			state: "Present" | "Pending";
+			state: typeof LabelFolderState.Present | typeof LabelFolderState.Pending;
 			mailboxId: string;
 			fullPath: string;
 	  }
-	| { accountId: string; state: "Missing" };
+	| { accountId: string; state: typeof LabelFolderState.Missing };
 
 export interface LabelWithFolders {
 	label: LabelItem;
@@ -40,11 +38,14 @@ export interface RemitRootDeps {
 	log: RemitRootLogger;
 }
 
-export interface LabelFolderReadDeps {
+export interface LabelFolderDeps {
 	account: Pick<IAccountRepository, "listMailSourcesByAccountConfig">;
 	mailbox: Pick<IMailboxRepository, "listAllByAccount">;
-	label: Pick<ILabelRepository, "listByAccountConfig">;
 	labelMailbox: Pick<ILabelMailboxRepository, "listByAccount">;
+}
+
+export interface LabelFolderReadDeps extends LabelFolderDeps {
+	label: Pick<ILabelRepository, "listByAccountConfig">;
 }
 
 export interface CreateLabelDeps extends RemitRootDeps {
@@ -81,16 +82,16 @@ export const labelFolderOf = (
 	mailbox: MailboxItem | undefined,
 ): LabelFolder => {
 	if (mailbox === undefined) {
-		return { accountId, state: "Missing" };
+		return { accountId, state: LabelFolderState.Missing };
 	}
 	const { mailboxId, fullPath } = mailbox;
 	if (mailbox.syncStatus === MailboxSyncStatus.synced) {
-		return { accountId, state: "Present", mailboxId, fullPath };
+		return { accountId, state: LabelFolderState.Present, mailboxId, fullPath };
 	}
 	if (mailbox.syncStatus === MailboxSyncStatus.pending) {
-		return { accountId, state: "Pending", mailboxId, fullPath };
+		return { accountId, state: LabelFolderState.Pending, mailboxId, fullPath };
 	}
-	return { accountId, state: "Missing" };
+	return { accountId, state: LabelFolderState.Missing };
 };
 
 const childName = (
@@ -197,7 +198,7 @@ const ensureLabelFolder = async (
 		accountId,
 		mailboxes.find((mailbox) => mailbox.mailboxId === mapped?.mailboxId),
 	);
-	if (mappedFolder.state !== "Missing") return mappedFolder;
+	if (mappedFolder.state !== LabelFolderState.Missing) return mappedFolder;
 
 	const root = await ensureRemitRoot(deps, mailboxes);
 	if (!root) return mappedFolder;
@@ -273,10 +274,20 @@ export const listLabelsWithFolders = async (
 	deps: LabelFolderReadDeps,
 	accountConfigId: string,
 ): Promise<LabelWithFolders[]> => {
-	const [labels, accounts] = await Promise.all([
-		deps.label.listByAccountConfig(accountConfigId),
-		liveMailSources(deps, accountConfigId),
-	]);
+	const labels = await deps.label.listByAccountConfig(accountConfigId);
+	return labelFoldersFor(
+		deps,
+		accountConfigId,
+		[...labels].sort(byFoldedNameThenId),
+	);
+};
+
+export const labelFoldersFor = async (
+	deps: LabelFolderDeps,
+	accountConfigId: string,
+	labels: readonly LabelItem[],
+): Promise<LabelWithFolders[]> => {
+	const accounts = await liveMailSources(deps, accountConfigId);
 	const perAccount = await Promise.all(
 		accounts.map(async (account) => {
 			const [mailboxes, mappings] = await Promise.all([
@@ -292,7 +303,7 @@ export const listLabelsWithFolders = async (
 			return { accountId: account.accountId, mailboxById, mailboxIdByLabel };
 		}),
 	);
-	return [...labels].sort(byFoldedNameThenId).map((label) => ({
+	return labels.map((label) => ({
 		label,
 		folders: perAccount.map(({ accountId, mailboxById, mailboxIdByLabel }) => {
 			const mailboxId = mailboxIdByLabel.get(label.labelId);

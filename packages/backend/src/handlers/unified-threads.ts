@@ -492,9 +492,6 @@ export const executeUnifiedThreadListing = async (
 		virtualCopyMailboxIds,
 	} = await buildInboxMailboxMap(accountConfigId, client);
 
-	// A label's folders come from label_mailbox, keyed by label alone; the
-	// intersection with this config's non-muted mailboxes below is what makes a
-	// label of another config, or its folder in a muted account, match nothing.
 	const labelMailboxIds =
 		params.labelId === undefined
 			? undefined
@@ -524,7 +521,7 @@ export const executeUnifiedThreadListing = async (
 			params.mailboxId,
 		);
 	// A label replaces INBOX as the listing scope: its folders sit outside INBOX.
-	const inboxMailboxIds = narrow(
+	const listingMailboxIds = narrow(
 		labelMailboxIds === undefined
 			? everyInboxMailboxId
 			: new Set(mailboxIdToAccountId.keys()),
@@ -539,7 +536,7 @@ export const executeUnifiedThreadListing = async (
 		? searchScope
 		: params.starredOnly
 			? starredMailboxIds
-			: inboxMailboxIds;
+			: listingMailboxIds;
 
 	const search = buildUnifiedThreadSearch(params);
 	const page = {
@@ -571,7 +568,7 @@ export const executeUnifiedThreadListing = async (
 					)
 				: await client.threadMessage.listByDate(
 						accountConfigId,
-						buildListAllThreadsOptions(page, inboxMailboxIds, search),
+						buildListAllThreadsOptions(page, listingMailboxIds, search),
 					);
 
 		// Search spans folders, so it is the one mode that can see the same mail
