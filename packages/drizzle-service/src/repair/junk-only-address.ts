@@ -1,10 +1,6 @@
 import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
 import type { SqliteValue } from "../sqlite.js";
-
-export interface JunkOnlyRepairClient {
-	all(sql: string, params: readonly SqliteValue[]): Promise<unknown[]>;
-	run(sql: string, params: readonly SqliteValue[]): Promise<number>;
-}
+import type { SqliteRepairClient } from "./client.js";
 
 export type JunkOnlyRepairMode = "check" | "repair";
 
@@ -136,7 +132,7 @@ export const restoreSql = (
 const REPAIR_SET_BY = "junk-only-repair";
 
 const countWhere = async (
-	client: JunkOnlyRepairClient,
+	client: SqliteRepairClient,
 	predicate: BoundSql,
 ): Promise<number> => {
 	const [row] = (await client.all(
@@ -147,7 +143,7 @@ const countWhere = async (
 };
 
 export const sweepJunkOnlyAddresses = async (
-	client: JunkOnlyRepairClient,
+	client: SqliteRepairClient,
 	mode: JunkOnlyRepairMode,
 	roles: JunkRoleMailboxes,
 	now: number = Date.now(),

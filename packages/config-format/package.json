@@ -43,6 +43,7 @@
 	},
 	"dependencies": {
 		"@remit/domain-enums": "*",
+		"tldts": "^7.4.9",
 		"zod": "^4.6.7"
 	}
 }

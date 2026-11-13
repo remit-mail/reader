@@ -48,6 +48,7 @@ afterEach(async () => {
 const deps = () => ({
 	account: store.account,
 	mailbox: store.mailbox,
+	label: store.label,
 	labelMailbox: store.labelMailbox,
 	filter: store.filter,
 	organizeJobRequest: store.organizeJobRequest,
@@ -392,6 +393,27 @@ describe("listAccountFilters", () => {
 	});
 });
 
+describe("a filter that applies a label", () => {
+	it("refuses a label id that names no label of the account", async () => {
+		const folder = await seedMailbox(store, account, "Promoties");
+
+		const outcome = await createFilter(
+			deps(),
+			{ accountConfigId: account.accountConfigId, userId: "user-1" },
+			{
+				accountId: account.accountId,
+				filter: { ...rule("None"), actionLabelId: folder.mailboxId },
+			},
+		);
+
+		assert.equal(refusalOf(outcome)?.kind, "Invalid");
+		assert.deepEqual(
+			await store.filter.listByAccountConfig(account.accountConfigId),
+			[],
+		);
+	});
+});
+
 describe("a filter that applies a label with folders", () => {
 	it("refuses a second move into a folder", async () => {
 		const folder = await seedMailbox(store, account, "Receipts");
@@ -400,8 +422,12 @@ describe("a filter that applies a label with folders", () => {
 			account,
 			"INBOX/abcdq_remit/Bills",
 		);
+		const { labelId } = await store.label.create({
+			accountConfigId: account.accountConfigId,
+			name: "Bills",
+		});
 		await store.labelMailbox.put({
-			labelId: "label-1",
+			labelId,
 			accountId: account.accountId,
 			mailboxId: labelFolder.mailboxId,
 		});
@@ -412,13 +438,13 @@ describe("a filter that applies a label with folders", () => {
 
 		const both = await createFilter(deps(), owner, {
 			accountId: account.accountId,
-			filter: { ...rule(folder.mailboxId), actionLabelId: "label-1" },
+			filter: { ...rule(folder.mailboxId), actionLabelId: labelId },
 		});
 		assert.equal(refusalOf(both)?.kind, "Invalid");
 
 		const labelOnly = await createFilter(deps(), owner, {
 			accountId: account.accountId,
-			filter: { ...rule("None"), actionLabelId: "label-1" },
+			filter: { ...rule("None"), actionLabelId: labelId },
 		});
 		assert.ok(labelOnly.ok);
 		const patched = await updateFilter(deps(), account.accountConfigId, {

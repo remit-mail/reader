@@ -13,8 +13,10 @@ export {
 	filterRuleLeaves,
 	filterRuleLimitRefusal,
 	filterRuleTestsClassification,
+	fromDomainTest,
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
+	narrowFromDomainRule,
 	readStoredFilterRule,
 } from "./filter-rule.js";
 export { deriveFilterTtl } from "./filter-ttl.js";

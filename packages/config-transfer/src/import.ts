@@ -14,6 +14,7 @@ import {
 	type FilterItem,
 	filterRuleLimitRefusal,
 	type LabelItem,
+	narrowFromDomainRule,
 } from "@remit/data-ports";
 import { ensureAccountConfig } from "@remit/data-ports/account-config";
 import {
@@ -507,7 +508,7 @@ const applyDocument = async (
 			scope: filter.scope,
 			expiresAt: filter.expiresAt ?? undefined,
 			ttl: deriveFilterTtl(filter.scope, filter.expiresAt ?? undefined),
-			rule: filter.rule,
+			rule: narrowFromDomainRule(filter.rule),
 			priority: filter.priority,
 			stop: filter.stop,
 			actionLabelId:

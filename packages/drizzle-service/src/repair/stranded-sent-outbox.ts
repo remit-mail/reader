@@ -1,4 +1,4 @@
-import type { SqliteValue } from "../sqlite.js";
+import type { SqliteRepairClient } from "./client.js";
 /**
  * The repair for outbox rows stranded at `sent` (issue #824).
  *
@@ -35,15 +35,6 @@ import type { SqliteValue } from "../sqlite.js";
  * No message content is touched, and nothing is dropped that the mail server is
  * not already holding a copy of.
  */
-
-/**
- * The smallest surface this needs, so the module imports no schema and no
- * driver and can be driven by the migrator's `node:sqlite` handle or a test.
- */
-export interface StrandedSentRepairClient {
-	all(sql: string, params: readonly SqliteValue[]): Promise<unknown[]>;
-	run(sql: string, params: readonly SqliteValue[]): Promise<number>;
-}
 
 export type StrandedSentRepairMode = "check" | "repair";
 
@@ -106,7 +97,7 @@ const DROP_MESSAGES_SQL = `DELETE FROM outbox_message
 WHERE ${FILED}`;
 
 const countStranded = async (
-	client: StrandedSentRepairClient,
+	client: SqliteRepairClient,
 	strandedBefore: number,
 ): Promise<{ neverFiled: number; filed: number }> => {
 	const [row] = (await client.all(COUNT_SQL, [strandedBefore])) as {
@@ -129,7 +120,7 @@ const countStranded = async (
  * be vouched for forever.
  */
 export const sweepStrandedSentOutbox = async (
-	client: StrandedSentRepairClient,
+	client: SqliteRepairClient,
 	mode: StrandedSentRepairMode,
 ): Promise<StrandedSentReport> => {
 	const strandedBefore = Date.now() - STRANDED_AFTER_MILLIS;
