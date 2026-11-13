@@ -239,11 +239,11 @@ export const FilterTestSchema: z.ZodType<ConfigFilterTest> = z
 		z.discriminatedUnion("test", [
 			z.strictObject({
 				test: z.literal("allof"),
-				tests: z.array(FilterTestSchema).max(50),
+				tests: z.array(FilterTestSchema).min(1).max(50),
 			}),
 			z.strictObject({
 				test: z.literal("anyof"),
-				tests: z.array(FilterTestSchema).max(50),
+				tests: z.array(FilterTestSchema).min(1).max(50),
 			}),
 			z.strictObject({ test: z.literal("not"), operand: FilterTestSchema }),
 			z.strictObject({

@@ -64,28 +64,27 @@ const matchAccepted = async (
 };
 
 /** A standing filter fixture — the account's already-existing rules. */
-const filterItem = (over: Partial<FilterItem> = {}): FilterItem => {
-	const item = {
-		filterId: "filter-other",
-		accountConfigId: ACCOUNT_CONFIG_ID,
-		name: "other filter",
-		scope: FilterScope.Standing,
-		state: FilterState.Active,
-		disabledReason: FilterDisabledReason.None,
-		ruleChangedAt: 0,
-		actionChangedAt: 0,
+const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
+	filterId: "filter-other",
+	accountConfigId: ACCOUNT_CONFIG_ID,
+	name: "other filter",
+	scope: FilterScope.Standing,
+	state: FilterState.Active,
+	disabledReason: FilterDisabledReason.None,
+	ruleChangedAt: 0,
+	actionChangedAt: 0,
+	rule: filterRuleFromClauses({
 		matchOperator: FilterMatchOperator.And,
 		literalClauses: [],
-		priority: 0,
-		stop: false,
-		actionLabelId: "None",
-		actionMailboxId: "None",
-		createdAt: 0,
-		updatedAt: 0,
-		...over,
-	};
-	return { ...item, rule: over.rule ?? filterRuleFromClauses(item) };
-};
+	}),
+	priority: 0,
+	stop: false,
+	actionLabelId: "None",
+	actionMailboxId: "None",
+	createdAt: 0,
+	updatedAt: 0,
+	...over,
+});
 
 /**
  * A client that records MessageLabel writes and blows up if the back-apply path
@@ -453,7 +452,10 @@ describe("a user-initiated apply outranks every standing filter (reader #497)", 
 			ruleChangedAt: 1_000,
 			actionChangedAt: 1_000,
 			actionMailboxId: "mbox-archive",
-			literalClauses: [{ field: "Subject", value: "reservation" }],
+			rule: filterRuleFromClauses({
+				matchOperator: FilterMatchOperator.And,
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			}),
 		});
 
 		const { messageIds: matched } = await matchAccepted(

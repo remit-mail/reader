@@ -1,13 +1,13 @@
-import type {
-	FilterItem,
-	IFilterRepository,
-	IMailboxRepository,
-	IMessageLabelRepository,
+import {
+	FILTER_NO_ACTION,
+	type FilterItem,
+	type IFilterRepository,
+	type IMailboxRepository,
+	type IMessageLabelRepository,
 } from "@remit/data-ports";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
 import type { FolderPlacement } from "../heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "../placement-move.js";
-import { NO_ACTION } from "./match.js";
 import {
 	evaluateRule,
 	type FilterMessage,
@@ -76,7 +76,7 @@ export class FilterPipeline {
 		for (const filter of orderFilters(prepared.filters)) {
 			if (!evaluateRule(filter.rule, msg, prepared.getDomain)) continue;
 			if (
-				filter.actionLabelId !== NO_ACTION &&
+				filter.actionLabelId !== FILTER_NO_ACTION &&
 				!seenLabels.has(filter.actionLabelId)
 			) {
 				seenLabels.add(filter.actionLabelId);
@@ -85,7 +85,7 @@ export class FilterPipeline {
 					filterId: filter.filterId,
 				});
 			}
-			if (!move && filter.actionMailboxId !== NO_ACTION) {
+			if (!move && filter.actionMailboxId !== FILTER_NO_ACTION) {
 				move = {
 					destinationMailboxId: filter.actionMailboxId,
 					filterId: filter.filterId,
@@ -108,7 +108,7 @@ export class FilterPipeline {
 		accountId: string,
 		filter: FilterItem,
 	): Promise<boolean> {
-		if (filter.actionMailboxId === NO_ACTION) return true;
+		if (filter.actionMailboxId === FILTER_NO_ACTION) return true;
 		const owner = await this.config.mailboxService.resolveAccountId(
 			filter.actionMailboxId,
 		);

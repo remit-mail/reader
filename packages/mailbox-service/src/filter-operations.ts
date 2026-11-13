@@ -33,15 +33,15 @@ export type NewFilter = Pick<
 	| "name"
 	| "scope"
 	| "expiresAt"
-	| "matchOperator"
 	| "priority"
 	| "stop"
 	| "actionLabelId"
 	| "actionMailboxId"
-> & {
-	literalClauses?: FilterItem["literalClauses"];
-	rule?: FilterRuleV1Item;
-};
+> &
+	Pick<FilterClauses, "matchOperator"> & {
+		literalClauses?: FilterClauses["literalClauses"];
+		rule?: FilterRuleV1Item;
+	};
 
 export type FilterPatch = Pick<
 	UpdateFilterInput,

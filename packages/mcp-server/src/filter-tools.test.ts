@@ -311,35 +311,6 @@ describe("create_filter with a rule", () => {
 		assert.equal(listed?.priority, 2);
 		assert.equal(listed?.stop, true);
 	});
-
-	it("refuses a rule sent with clauses", async () => {
-		assert.match(
-			await refusalOf("create_filter", {
-				...receiptsRule(receipts.mailboxId),
-				rule: githubRule,
-			}),
-			/not both/,
-		);
-		assert.deepEqual(await myFilters(), []);
-	});
-
-	it("refuses a clause edit to a filter its clauses cannot express", async () => {
-		const { filter } = await callToolJson<FilterOutcome>("create_filter", {
-			accountId: account.accountId,
-			name: "Quiet GitHub",
-			rule: githubRule,
-			actionMailboxId: receipts.mailboxId,
-		});
-
-		assert.match(
-			await refusalOf("update_filter", {
-				accountId: account.accountId,
-				filterId: filter.filterId,
-				literalClauses: clauses,
-			}),
-			/through rule/,
-		);
-	});
 });
 
 describe("list_filters", () => {

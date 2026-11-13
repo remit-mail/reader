@@ -4,7 +4,7 @@ import type {
 	FilterResponse,
 	UpdateFilterInput,
 } from "@remit/api-openapi-types";
-import type { FilterItem } from "@remit/data-ports";
+import { type FilterItem, filterClausesFromRule } from "@remit/data-ports";
 import { logger } from "@remit/logger";
 import {
 	createFilter,
@@ -31,8 +31,7 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	disabledReason: item.disabledReason,
 	ruleChangedAt: item.ruleChangedAt,
 	actionChangedAt: item.actionChangedAt,
-	matchOperator: item.matchOperator,
-	literalClauses: item.literalClauses,
+	...filterClausesFromRule(item.rule),
 	rule: item.rule,
 	priority: item.priority,
 	stop: item.stop,

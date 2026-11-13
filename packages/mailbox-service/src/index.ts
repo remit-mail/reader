@@ -100,15 +100,6 @@ export {
 } from "./filter-operations.js";
 export { extractListId, normalizeListId } from "./filters/list-id.js";
 export {
-	clauseMatches,
-	type FilterMessage,
-	type LiteralClauseNarrowing,
-	literalClausesMatch,
-	literalClauseTerms,
-	NO_ACTION,
-	selectMoveWinner,
-} from "./filters/match.js";
-export {
 	type FilterConfig,
 	type FilterDecision,
 	type FilterLogger,
@@ -118,6 +109,7 @@ export {
 export {
 	compareFilterPrecedence,
 	evaluateRule,
+	type FilterMessage,
 	type FilterPrecedence,
 	orderFilters,
 	type RuleNarrowing,

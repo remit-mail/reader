@@ -2,7 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
 	FILTER_NO_ACTION,
 	type FilterItem,
-	type FilterTestItem,
+	FilterRuleV1Schema,
+	filterClausesFromRule,
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
 	type OrganizeJobRequestItem,
@@ -12,9 +13,6 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	FilterClauseField,
 	FilterMatchOperator,
-	FilterRuleAddressPart,
-	FilterRuleHeader,
-	FilterRuleMatch,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
@@ -46,8 +44,7 @@ const toFilter = (item: FilterItem) => ({
 	expiresAt: item.expiresAt,
 	state: item.state,
 	disabledReason: item.disabledReason,
-	matchOperator: item.matchOperator,
-	literalClauses: item.literalClauses,
+	...filterClausesFromRule(item.rule),
 	rule: item.rule,
 	priority: item.priority,
 	stop: item.stop,
@@ -98,68 +95,9 @@ const literalClauses = z
 	.min(1)
 	.describe("Literal clauses combined by matchOperator. Send these or rule.");
 
-const ruleMatch = z
-	.enum(FilterRuleMatch)
-	.describe(
-		"Is: the whole value equals key; Contains: key occurs in it. Case-insensitive",
-	);
-
-const ruleKey = z.string().min(1).max(256);
-
-const ruleTests = (): z.ZodType<FilterTestItem[]> =>
-	z.array(ruleTest).max(MAX_FILTER_RULE_LEAVES);
-
-const ruleTest: z.ZodType<FilterTestItem> = z.lazy(() =>
-	z.discriminatedUnion("test", [
-		z
-			.object({ test: z.literal("allof"), tests: ruleTests() })
-			.describe("Matches when every test in tests matches"),
-		z
-			.object({ test: z.literal("anyof"), tests: ruleTests() })
-			.describe("Matches when any test in tests matches"),
-		z
-			.object({ test: z.literal("not"), operand: ruleTest })
-			.describe("Matches when operand does not"),
-		z
-			.object({
-				test: z.literal("header"),
-				match: ruleMatch,
-				header: z
-					.enum(FilterRuleHeader)
-					.describe(
-						"From matches the sender address and name; ListId the normalized List-Id",
-					),
-				key: ruleKey,
-			})
-			.describe("Compares one header with key"),
-		z
-			.object({
-				test: z.literal("address"),
-				match: ruleMatch,
-				part: z
-					.enum(FilterRuleAddressPart)
-					.describe(
-						"Part of the From address: All, Localpart, Domain, or RegistrableDomain (github.com for ci@sub.github.com)",
-					),
-				key: ruleKey,
-			})
-			.describe("Compares one part of the From address with key"),
-		z
-			.object({
-				test: z.literal("hasWords"),
-				words: z.array(ruleKey).min(1),
-			})
-			.describe(
-				"Matches when every word occurs in the sender, subject or body",
-			),
-	]),
+const rule = FilterRuleV1Schema.describe(
+	`A Sieve-like test tree. Send this or literalClauses, never both. At most ${MAX_FILTER_RULE_LEAVES} header, address or hasWords tests and ${MAX_FILTER_RULE_DEPTH} levels, counting the top test. Example: {"version":1,"test":{"test":"allof","tests":[{"test":"address","match":"Is","part":"RegistrableDomain","key":"github.com"},{"test":"not","operand":{"test":"header","match":"Contains","header":"Subject","key":"security"}}]}}`,
 );
-
-const rule = z
-	.object({ version: z.literal(1), test: ruleTest })
-	.describe(
-		`A Sieve-like test tree. Send this or literalClauses, never both. At most ${MAX_FILTER_RULE_LEAVES} header, address or hasWords tests and ${MAX_FILTER_RULE_DEPTH} levels, counting the top test. Example: {"version":1,"test":{"test":"allof","tests":[{"test":"address","match":"Is","part":"RegistrableDomain","key":"github.com"},{"test":"not","operand":{"test":"header","match":"Contains","header":"Subject","key":"security"}}]}}`,
-	);
 
 const priority = z
 	.int()

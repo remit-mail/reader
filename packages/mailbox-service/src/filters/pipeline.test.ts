@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import {
 	type AccountItem,
 	type CreateFilterInput,
+	FILTER_NO_ACTION,
 	type FilterItem,
 	filterRuleFromClauses,
 } from "@remit/data-ports";
@@ -24,8 +25,8 @@ import {
 	seedAccount,
 	seedMailbox,
 } from "../test-helpers/test-store.js";
-import { type FilterMessage, NO_ACTION } from "./match.js";
 import { FilterPipeline } from "./pipeline.js";
+import type { FilterMessage } from "./rule.js";
 
 const ACCOUNT = "cfg-1";
 
@@ -225,13 +226,11 @@ describe("FilterPipeline.decide by priority and stop", () => {
 		disabledReason: FilterDisabledReason.None,
 		ruleChangedAt: 1,
 		actionChangedAt: 1,
-		matchOperator: FilterMatchOperator.And,
-		literalClauses: [],
 		rule: github,
 		priority: 0,
 		stop: false,
-		actionLabelId: NO_ACTION,
-		actionMailboxId: NO_ACTION,
+		actionLabelId: FILTER_NO_ACTION,
+		actionMailboxId: FILTER_NO_ACTION,
 		createdAt: 1,
 		updatedAt: 1,
 		...over,

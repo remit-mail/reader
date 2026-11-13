@@ -22,6 +22,7 @@ model FilterClause {
 model FilterAllOfTest {
   test: "allof";
 
+  @minItems(1)
   @maxItems(50)
   tests: FilterTest[];
 }
@@ -30,6 +31,7 @@ model FilterAllOfTest {
 model FilterAnyOfTest {
   test: "anyof";
 
+  @minItems(1)
   @maxItems(50)
   tests: FilterTest[];
 }

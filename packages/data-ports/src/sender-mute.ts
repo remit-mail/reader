@@ -1,5 +1,11 @@
 import { FilterClauseField, FilterScope } from "@remit/domain-enums";
+import { filterClausesFromRule } from "./filter-rule.js";
 import type { FilterItem } from "./types.js";
+
+type SenderMuteCandidate = Pick<
+	FilterItem,
+	"scope" | "rule" | "actionLabelId" | "actionMailboxId"
+>;
 
 /**
  * The `Filter` model's sentinel for "this rule takes no such action" — the
@@ -20,20 +26,19 @@ export const FILTER_NO_ACTION = "None";
  * Structural, never name-matching: the rule is recognised by its shape, so a
  * rename in the settings UI cannot quietly un-mute a sender.
  */
-export const isSenderMuteFilter = (
-	filter: Pick<
-		FilterItem,
-		"scope" | "literalClauses" | "actionLabelId" | "actionMailboxId"
-	>,
-): boolean =>
-	filter.scope === FilterScope.Standing &&
-	filter.actionLabelId === FILTER_NO_ACTION &&
-	filter.actionMailboxId === FILTER_NO_ACTION &&
-	filter.literalClauses.length > 0 &&
-	filter.literalClauses.every(
-		(clause) =>
-			clause.field === FilterClauseField.From && clause.value.trim() !== "",
+export const isSenderMuteFilter = (filter: SenderMuteCandidate): boolean => {
+	const { literalClauses } = filterClausesFromRule(filter.rule);
+	return (
+		filter.scope === FilterScope.Standing &&
+		filter.actionLabelId === FILTER_NO_ACTION &&
+		filter.actionMailboxId === FILTER_NO_ACTION &&
+		literalClauses.length > 0 &&
+		literalClauses.every(
+			(clause) =>
+				clause.field === FilterClauseField.From && clause.value.trim() !== "",
+		)
 	);
+};
 
 const fold = (value: string): string => value.trim().toLowerCase();
 
@@ -43,10 +48,7 @@ const fold = (value: string): string => value.trim().toLowerCase();
  * about `ada@example.com` silence `not-ada@example.com.evil.test`.
  */
 export const isSenderMuted = (
-	filters: readonly Pick<
-		FilterItem,
-		"scope" | "literalClauses" | "actionLabelId" | "actionMailboxId"
-	>[],
+	filters: readonly SenderMuteCandidate[],
 	sender: string,
 ): boolean => {
 	const wanted = fold(sender);
@@ -54,6 +56,8 @@ export const isSenderMuted = (
 	return filters.some(
 		(filter) =>
 			isSenderMuteFilter(filter) &&
-			filter.literalClauses.some((clause) => fold(clause.value) === wanted),
+			filterClausesFromRule(filter.rule).literalClauses.some(
+				(clause) => fold(clause.value) === wanted,
+			),
 	);
 };

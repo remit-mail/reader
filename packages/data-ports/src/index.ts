@@ -5,10 +5,12 @@ export {
 } from "./classifier-scores.js";
 export type { TestResult } from "./connection-test.js";
 export {
+	type FilterRuleLeafItem,
+	FilterRuleV1Schema,
 	filterClausesFromRule,
 	filterRuleFromClauses,
 	filterRuleHasClauses,
-	filterRuleLeafCount,
+	filterRuleLeaves,
 	filterRuleLimitRefusal,
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,

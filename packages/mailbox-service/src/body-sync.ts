@@ -69,7 +69,6 @@ import {
 } from "./classify-message.js";
 
 import { extractListId } from "./filters/list-id.js";
-import type { FilterMessage } from "./filters/match.js";
 import {
 	type FilterConfig,
 	type FilterDecision,
@@ -77,6 +76,7 @@ import {
 	filtersForArrival,
 	type PreparedFilters,
 } from "./filters/pipeline.js";
+import type { FilterMessage } from "./filters/rule.js";
 import type { FlagQueueService } from "./flag-queue.js";
 import {
 	type FolderRoleMailboxes,

@@ -1,1 +1,0 @@
-ALTER TABLE `filter` ADD `stop` integer DEFAULT false NOT NULL;

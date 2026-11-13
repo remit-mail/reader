@@ -149,6 +149,18 @@ describe("readStoredFilterRule", () => {
 		);
 	});
 
+	it("reads a stored rule built from no clauses", () => {
+		const rule = filterRuleFromClauses({
+			matchOperator: "And",
+			literalClauses: [],
+		});
+
+		assert.deepEqual(
+			readStoredFilterRule(rule, { matchOperator: "And", literalClauses: [] }),
+			{ matchOperator: "And", literalClauses: [], rule },
+		);
+	});
+
 	it("refuses a stored rule of an unknown version", () => {
 		assert.throws(() => readStoredFilterRule({ version: 2 }, clauses));
 	});

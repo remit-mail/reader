@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	type CreateMessageLabelInput,
+	FILTER_NO_ACTION,
 	type FilterItem,
 	filterRuleFromClauses,
 	type UpdateMessageInput,
@@ -23,11 +24,7 @@ import {
 	FilterMatchOperator,
 	FilterState,
 } from "@remit/domain-enums";
-import {
-	type FilterMessage,
-	type IImapConnection,
-	NO_ACTION,
-} from "@remit/mailbox-service";
+import type { FilterMessage, IImapConnection } from "@remit/mailbox-service";
 import type { SecretsService } from "@remit/secrets-service";
 import type { StorageService } from "@remit/storage-service";
 import {
@@ -59,13 +56,6 @@ const eml = (message: FilterMessage): Buffer =>
  * A sender filter. Its action is a label, which the fake MessageLabel
  * repository below records.
  */
-const senderClauses = {
-	matchOperator: FilterMatchOperator.Or,
-	literalClauses: [
-		{ field: FilterClauseField.From, value: "billing@stripe.com" },
-	],
-};
-
 const senderFilter: FilterItem = {
 	filterId: "flt-stripe",
 	accountConfigId: "cfg-1",
@@ -75,12 +65,16 @@ const senderFilter: FilterItem = {
 	disabledReason: FilterDisabledReason.None,
 	ruleChangedAt: 1,
 	actionChangedAt: 1,
-	...senderClauses,
-	rule: filterRuleFromClauses(senderClauses),
+	rule: filterRuleFromClauses({
+		matchOperator: FilterMatchOperator.Or,
+		literalClauses: [
+			{ field: FilterClauseField.From, value: "billing@stripe.com" },
+		],
+	}),
 	priority: 0,
 	stop: false,
 	actionLabelId: "lbl-receipts",
-	actionMailboxId: NO_ACTION,
+	actionMailboxId: FILTER_NO_ACTION,
 	createdAt: 1,
 	updatedAt: 1,
 };

@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import {
 	type FilterRuleV1Item,
+	filterClausesFromRule,
 	filterRuleFromClauses,
 } from "@remit/data-ports";
 import {
@@ -66,7 +67,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 			assert.equal(filter.disabledReason, FilterDisabledReason.None);
 			assert.equal(filter.priority, 0);
 			assert.equal(filter.stop, false);
-			assert.deepEqual(filter.literalClauses, CLAUSES);
+			assert.deepEqual(filter.rule, RULE);
 			assert.equal(filter.actionLabelId, "None");
 			assert.equal(filter.actionMailboxId, "None");
 			assert.ok(
@@ -148,7 +149,10 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				}),
 			});
 
-			assert.deepEqual(filter.literalClauses, literalClauses);
+			assert.deepEqual(
+				filterClausesFromRule(filter.rule).literalClauses,
+				literalClauses,
+			);
 		});
 
 		test("a version 0 row reads as version 1 and stays version 0 (#1621)", async () => {
@@ -173,8 +177,6 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 
 			const filter = await repo.get(accountConfigId, filterId);
 
-			assert.equal(filter.matchOperator, FilterMatchOperator.Or);
-			assert.deepEqual(filter.literalClauses, literalClauses);
 			assert.deepEqual(
 				filter.rule,
 				filterRuleFromClauses({
@@ -188,7 +190,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 			});
 		});
 
-		test("a nested rule round-trips and reads with no clauses", async () => {
+		test("a nested rule round-trips", async () => {
 			const accountConfigId = randomId();
 			const rule: FilterRuleV1Item = {
 				version: 1,
@@ -230,7 +232,6 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 
 			const read = await repo.get(accountConfigId, filter.filterId);
 			assert.deepEqual(read.rule, rule);
-			assert.deepEqual(read.literalClauses, []);
 			assert.equal(read.priority, 3);
 			assert.equal(read.stop, true);
 		});
@@ -244,7 +245,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				rule: RULE,
 			});
 
-			assert.deepEqual(filter.literalClauses, CLAUSES);
+			assert.deepEqual(filter.rule, RULE);
 			assert.deepEqual(await storedRule(filter.filterId), {
 				rule: RULE,
 				literalClauses: [],
@@ -261,13 +262,13 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				}),
 			});
 
-			assert.equal(updated.matchOperator, FilterMatchOperator.Or);
-			assert.deepEqual(updated.literalClauses, literalClauses);
+			const rule = filterRuleFromClauses({
+				matchOperator: FilterMatchOperator.Or,
+				literalClauses,
+			});
+			assert.deepEqual(updated.rule, rule);
 			assert.deepEqual(await storedRule(filter.filterId), {
-				rule: filterRuleFromClauses({
-					matchOperator: FilterMatchOperator.Or,
-					literalClauses,
-				}),
+				rule,
 				literalClauses: [],
 			});
 		});

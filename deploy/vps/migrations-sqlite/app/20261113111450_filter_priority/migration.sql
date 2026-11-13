@@ -1,1 +1,0 @@
-ALTER TABLE `filter` ADD `priority` integer DEFAULT 0 NOT NULL;

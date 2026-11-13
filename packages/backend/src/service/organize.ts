@@ -1,8 +1,9 @@
-import type {
-	FilterItem,
-	FilterRuleV1Item,
-	FilterTestItem,
-	OrganizeJobRequestItem,
+import {
+	FILTER_NO_ACTION,
+	type FilterItem,
+	type FilterRuleV1Item,
+	filterRuleLeaves,
+	type OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
@@ -11,7 +12,6 @@ import {
 	evaluateRule,
 	type FilterMessage,
 	FilterPipeline,
-	NO_ACTION,
 	PlacementMoveService,
 	type PreparedFilters,
 	type RuleNarrowing,
@@ -131,7 +131,7 @@ export interface OrganizeMatchRejected {
 export type OrganizeMatchResult = OrganizeMatched | OrganizeMatchRejected;
 
 /**
- * A `HasWords` clause matches the message body (RFC 031, `clauseMatches`). The
+ * A `HasWords` clause matches the message body (RFC 031). The
  * live index-time filter evaluates it against the full parsed body
  * (`body-sync.ts` `toFilterMessage`); the corpus slice carries only
  * `From`/`Subject` at full fidelity and no faithful body, so it cannot serve a
@@ -142,24 +142,13 @@ export type OrganizeMatchResult = OrganizeMatched | OrganizeMatchRejected;
 export const BODY_CONTENT_REJECTION_MESSAGE =
 	"Organize cannot match a body-content (HasWords) clause over the mailbox: it reads only each message's preview, not its body";
 
-const readsBody = (test: FilterTestItem): boolean => {
-	switch (test.test) {
-		case "allof":
-		case "anyof":
-			return test.tests.some(readsBody);
-		case "not":
-			return readsBody(test.operand);
-		case "hasWords":
-			return true;
-		default:
-			return false;
-	}
-};
+const readsBody = (rule: FilterRuleV1Item): boolean =>
+	filterRuleLeaves(rule).some((leaf) => leaf.test === "hasWords");
 
 const bodyContentRejection = (
 	rule: FilterRuleV1Item,
 ): OrganizeRejection | null =>
-	readsBody(rule.test)
+	readsBody(rule)
 		? {
 				reason: "BodyContentUnsupported",
 				message: BODY_CONTENT_REJECTION_MESSAGE,
@@ -182,8 +171,8 @@ export const organizePredicateRejection = (
  * full fidelity from the core thread rows; body-content (`HasWords`) clauses are
  * refused before this runs (see {@link bodyContentRejection}).
  *
- * The terms are a narrowing, not the verdict ({@link literalClauseTerms}), so
- * every page is still run through {@link literalClausesMatch} — and paging
+ * The terms are a narrowing, not the verdict, so every page is still run
+ * through the rule — and paging
  * continues until the cap fills or the store runs out, which is what makes the
  * bound a bound on results rather than on the newest `limit` rows (#459).
  * Deduped by message id: the same mail filed in two folders is one match.
@@ -350,7 +339,7 @@ export interface ApplyOrganizeResult {
  * holds no claim on that message afterwards, so it never arbitrates against a
  * later user-initiated apply (reader #497). Cross-filter precedence stays where
  * two filters collide over the same message at the same trigger
- * (`FilterPipeline`/`selectMoveWinner`), and `applied` therefore counts moves
+ * (`FilterPipeline`), and `applied` therefore counts moves
  * that actually happened.
  */
 export const applyOrganize = async (
@@ -361,9 +350,11 @@ export const applyOrganize = async (
 ): Promise<ApplyOrganizeResult> => {
 	const { client, moveService } = deps;
 	const applyLabel =
-		predicate.actionLabelId !== NO_ACTION && predicate.actionLabelId !== "";
+		predicate.actionLabelId !== FILTER_NO_ACTION &&
+		predicate.actionLabelId !== "";
 	const applyMove =
-		predicate.actionMailboxId !== NO_ACTION && predicate.actionMailboxId !== "";
+		predicate.actionMailboxId !== FILTER_NO_ACTION &&
+		predicate.actionMailboxId !== "";
 
 	// A folder of another account is not this action's to fill: that mail is
 	// skipped, label and all, as if it had not matched.
@@ -578,7 +569,7 @@ export const backApplyFilter = async (
 
 	const { filter, predicate } = loaded;
 	const folderAccountId =
-		filter.actionMailboxId === NO_ACTION
+		filter.actionMailboxId === FILTER_NO_ACTION
 			? undefined
 			: await client.mailbox.resolveAccountId(filter.actionMailboxId);
 	if (folderAccountId === null) {
@@ -616,14 +607,14 @@ export const backApplyFilter = async (
 		}
 		const decision = pipeline.decide(await preparedFor(accountId), message);
 		const move = (decision.move?.filterId ?? filterId) === filterId;
-		if (!move && filter.actionLabelId === NO_ACTION) continue;
+		if (!move && filter.actionLabelId === FILTER_NO_ACTION) continue;
 		const outcome = await applyOrganize(
 			{ client, moveService },
 			accountConfigId,
 			[messageId],
 			{
 				...predicate,
-				actionMailboxId: move ? filter.actionMailboxId : NO_ACTION,
+				actionMailboxId: move ? filter.actionMailboxId : FILTER_NO_ACTION,
 			},
 		);
 		result.applied += outcome.applied;
@@ -636,4 +627,4 @@ export const backApplyFilter = async (
 /** Whether a job row runs a standing filter rather than its own snapshot. */
 export const isFilterJob = (
 	job: Pick<OrganizeJobRequestItem, "filterId">,
-): boolean => job.filterId !== NO_ACTION;
+): boolean => job.filterId !== FILTER_NO_ACTION;

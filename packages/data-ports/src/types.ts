@@ -109,14 +109,18 @@ export type LabelItem = z.infer<typeof LabelSchema>;
 export type MessageLabelItem = z.infer<typeof MessageLabelSchema>;
 export type FilterRuleV1Item = z.infer<typeof FilterRuleV1Schema>;
 export type FilterTestItem = FilterRuleV1Item["test"];
-export type FilterItem = Omit<z.infer<typeof FilterSchema>, "rule"> & {
+type StoredFilter = z.infer<typeof FilterSchema>;
+export type FilterItem = Omit<
+	StoredFilter,
+	"rule" | "matchOperator" | "literalClauses"
+> & {
 	rule: FilterRuleV1Item;
 };
-export type FilterClauseItem = FilterItem["literalClauses"][number];
 export type FilterClauses = Pick<
-	FilterItem,
+	StoredFilter,
 	"matchOperator" | "literalClauses"
 >;
+export type FilterClauseItem = FilterClauses["literalClauses"][number];
 export type MessagePlacementMoveItem = z.infer<
 	typeof MessagePlacementMoveSchema
 >;
@@ -737,8 +741,6 @@ export type CreateFilterInput = Omit<
 	| "disabledReason"
 	| "ruleChangedAt"
 	| "actionChangedAt"
-	| "matchOperator"
-	| "literalClauses"
 	| "priority"
 	| "stop"
 	| "actionLabelId"
@@ -756,8 +758,8 @@ export type CreateFilterInput = Omit<
 // only when the predicate, the action, scope, or expiresAt is present in the
 // update (RFC 034 Decision 3.2, reader #266) — a cosmetic `name` rename must
 // not move it. actionChangedAt is likewise server-derived, bumping only for
-// the narrower predicate/action subset (reader #384) that selectMoveWinner
-// reads for exclusive-move precedence. `scope` is updatable here (reader
+// the narrower predicate/action subset (reader #384) that exclusive-move
+// precedence reads. `scope` is updatable here (reader
 // #266): the handler resolves the merged scope/expiresAt/ttl/state before
 // calling through to the repo, so this type must carry `scope` as a valid
 // key, unlike the API-facing `UpdateFilterInput` for that same reason.

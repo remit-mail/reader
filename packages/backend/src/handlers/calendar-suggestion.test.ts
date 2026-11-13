@@ -14,7 +14,10 @@ import type {
 	PutCalendarSuggestionInput,
 	SettleCalendarSuggestionInput,
 } from "@remit/data-ports";
-import { filterClausesFromRule } from "@remit/data-ports";
+import {
+	filterClausesFromRule,
+	filterRuleFromClauses,
+} from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	CalendarAnswerOvertaken,
@@ -121,7 +124,6 @@ const muteDepsOf = (
 				created.push(input);
 				const row = {
 					...input,
-					...filterClausesFromRule(input.rule),
 					actionLabelId: input.actionLabelId ?? "None",
 					actionMailboxId: input.actionMailboxId ?? "None",
 				} as unknown as FilterItem;
@@ -140,8 +142,10 @@ const muteRule = (sender: string): FilterItem =>
 		name: `Muted invitations from ${sender}`,
 		scope: "Standing",
 		state: "Active",
-		matchOperator: "And",
-		literalClauses: [{ field: "From", value: sender }],
+		rule: filterRuleFromClauses({
+			matchOperator: "And",
+			literalClauses: [{ field: "From", value: sender }],
+		}),
 		actionLabelId: "None",
 		actionMailboxId: "None",
 	}) as unknown as FilterItem;
@@ -705,9 +709,10 @@ describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
 			FilterState.Active,
 		);
 		assert.equal(rules.length, 1);
-		assert.deepEqual(rules[0]?.literalClauses, [
-			{ field: "From", value: "organizer@example.test" },
-		]);
+		assert.deepEqual(
+			rules.map((rule) => filterClausesFromRule(rule.rule).literalClauses),
+			[[{ field: "From", value: "organizer@example.test" }]],
+		);
 	});
 
 	test("writes no rule when the request does not ask to mute", async () => {
@@ -1122,7 +1127,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			FilterState.Active,
 		);
 		assert.deepEqual(
-			rules.map((rule) => rule.literalClauses),
+			rules.map((rule) => filterClausesFromRule(rule.rule).literalClauses),
 			[[{ field: "From", value: "organizer@example.test" }]],
 		);
 	});

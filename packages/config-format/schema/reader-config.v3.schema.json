@@ -822,6 +822,7 @@
 							"const": "allof"
 						},
 						"tests": {
+							"minItems": 1,
 							"maxItems": 50,
 							"type": "array",
 							"items": {
@@ -843,6 +844,7 @@
 							"const": "anyof"
 						},
 						"tests": {
+							"minItems": 1,
 							"maxItems": 50,
 							"type": "array",
 							"items": {

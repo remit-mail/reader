@@ -1,7 +1,7 @@
 import {
 	type CreateFilterInput,
+	type FilterClauses,
 	type FilterItem,
-	filterClausesFromRule,
 	type IFilterRepository,
 	type ResultList,
 	readStoredFilterRule,
@@ -33,7 +33,7 @@ const RULE_ASSERTION_FIELDS = [
  * The subset of {@link RULE_ASSERTION_FIELDS} that changes what a filter
  * matches or what it does — excluding `scope`/`expiresAt`, which only change
  * how long the filter runs. Backs `actionChangedAt` (reader #384), the
- * narrower signal `selectMoveWinner` reads for exclusive-move precedence.
+ * narrower signal exclusive-move precedence reads.
  */
 const ACTION_ASSERTION_FIELDS = [
 	"rule",
@@ -60,8 +60,8 @@ const changesRuleAssertion = (input: UpdateFilterInput): boolean =>
 
 /**
  * Whether `input` touches the predicate or the action — never `scope` or
- * `expiresAt` (reader #384). Backs `actionChangedAt`, which `selectMoveWinner`
- * reads to decide an exclusive-move conflict: extending a filter's expiry or
+ * `expiresAt` (reader #384). Backs `actionChangedAt`, which exclusive-move
+ * precedence reads to decide an exclusive-move conflict: extending a filter's expiry or
  * flipping Standing/Temporary changes its lifecycle, not where a matching
  * message goes, so it must not promote the filter to move-winner.
  */
@@ -80,10 +80,10 @@ function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 		disabledReason: row.disabledReason,
 		ruleChangedAt: row.ruleChangedAt,
 		actionChangedAt: row.actionChangedAt,
-		...readStoredFilterRule(row.rule, {
+		rule: readStoredFilterRule(row.rule, {
 			matchOperator: row.matchOperator,
-			literalClauses: row.literalClauses as FilterItem["literalClauses"],
-		}),
+			literalClauses: row.literalClauses as FilterClauses["literalClauses"],
+		}).rule,
 		priority: row.priority,
 		stop: row.stop,
 		actionLabelId: row.actionLabelId,
@@ -117,7 +117,6 @@ export class FilterRepo implements IFilterRepository {
 				disabledReason: input.disabledReason ?? FilterDisabledReason.None,
 				ruleChangedAt: createdRuleChangedAt,
 				actionChangedAt: createdRuleChangedAt,
-				matchOperator: filterClausesFromRule(input.rule).matchOperator,
 				literalClauses: [],
 				rule: input.rule,
 				priority: input.priority ?? 0,
@@ -154,7 +153,7 @@ export class FilterRepo implements IFilterRepository {
 	 * narrower predicate/action subset (reader #384): a scope/expiresAt-only
 	 * edit bumps `ruleChangedAt` (so a lapsed filter's back-application can be
 	 * offered again) without touching `actionChangedAt`, so it cannot flip
-	 * `selectMoveWinner`'s exclusive-move precedence.
+	 * exclusive-move precedence.
 	 *
 	 * A patch moving `scope` to `Standing` clears `expiresAt`/`ttl` at the SQL
 	 * layer regardless of what `input` carries for them: the caller (the
@@ -180,10 +179,7 @@ export class FilterRepo implements IFilterRepository {
 			...patch,
 			updatedAt: Date.now(),
 		};
-		if (input.rule !== undefined) {
-			updates.matchOperator = filterClausesFromRule(input.rule).matchOperator;
-			updates.literalClauses = [];
-		}
+		if (input.rule !== undefined) updates.literalClauses = [];
 		if (patch.scope === FilterScope.Standing) {
 			updates.expiresAt = null;
 			updates.ttl = null;

@@ -8,6 +8,7 @@ import {
 import {
 	type AccountItem,
 	type AddressFlags,
+	FILTER_NO_ACTION,
 	filterRuleFromClauses,
 	type MailboxItem,
 	type UpdateMessageInput,
@@ -29,7 +30,6 @@ import {
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import { type BodySyncFolder, BodySyncService } from "./body-sync.js";
-import { NO_ACTION } from "./filters/match.js";
 import { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
 import { PlacementMoveService } from "./placement-move.js";
@@ -333,8 +333,8 @@ const threadRows = (messageId: string) =>
 
 const addFilter = (
 	clauses: Array<{ field: string; value: string }>,
-	actionMailboxId: string = NO_ACTION,
-	actionLabelId: string = NO_ACTION,
+	actionMailboxId: string = FILTER_NO_ACTION,
+	actionLabelId: string = FILTER_NO_ACTION,
 ) =>
 	world.store.filter.create({
 		accountConfigId: world.account.accountConfigId,

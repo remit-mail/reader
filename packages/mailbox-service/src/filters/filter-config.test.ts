@@ -16,8 +16,8 @@ import {
 	seedMailbox,
 } from "../test-helpers/test-store.js";
 import { buildFilterConfig, type FilterConfigDeps } from "./filter-config.js";
-import type { FilterMessage } from "./match.js";
 import { FilterPipeline } from "./pipeline.js";
+import type { FilterMessage } from "./rule.js";
 
 let store: Store;
 let filterId: string;

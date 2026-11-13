@@ -197,16 +197,12 @@ const leafNarrowing = (
 	}
 };
 
-const isLeaf = (test: FilterTestItem): boolean =>
-	test.test === "header" || test.test === "address" || test.test === "hasWords";
-
 const flatNarrowing = (
 	tests: readonly FilterTestItem[],
 	operator: RuleNarrowing["operator"],
 	getDomain: GetDomain,
 ): RuleNarrowing | null => {
 	if (tests.length === 0) return null;
-	if (!tests.every(isLeaf)) return { terms: [], operator };
 	const narrowings = tests.map((test) => leafNarrowing(test, getDomain));
 	const terms = narrowings.flatMap((narrowing) =>
 		narrowing.kind === "Term" ? [narrowing.term] : [],
@@ -236,8 +232,6 @@ export const ruleNarrowing = (
 			return flatNarrowing(test.tests, "and", getDomain);
 		case "anyof":
 			return flatNarrowing(test.tests, "or", getDomain);
-		case "not":
-			return { terms: [], operator: "and" };
 		default:
 			return flatNarrowing([test], "and", getDomain);
 	}

@@ -85,6 +85,8 @@ const testClause = (test: FilterTestItem): FilterClauseItem | undefined => {
 	}
 };
 
+export { FilterRuleV1Schema };
+
 export const filterRuleFromClauses = ({
 	matchOperator,
 	literalClauses,
@@ -134,36 +136,43 @@ export const filterRuleHasClauses = (rule: FilterRuleV1Item): boolean =>
 export const MAX_FILTER_RULE_LEAVES = 50;
 export const MAX_FILTER_RULE_DEPTH = 5;
 
-const childTests = (test: FilterTestItem): FilterTestItem[] => {
+export type FilterRuleLeafItem = Extract<
+	FilterTestItem,
+	{ test: "header" | "address" | "hasWords" }
+>;
+
+const leavesOf = (test: FilterTestItem): FilterRuleLeafItem[] => {
 	switch (test.test) {
 		case "allof":
 		case "anyof":
-			return test.tests;
+			return test.tests.flatMap(leavesOf);
 		case "not":
-			return [test.operand];
+			return leavesOf(test.operand);
 		default:
-			return [];
+			return [test];
 	}
 };
 
-const isLeaf = (test: FilterTestItem): boolean =>
-	test.test !== "allof" && test.test !== "anyof" && test.test !== "not";
+export const filterRuleLeaves = (
+	rule: FilterRuleV1Item,
+): FilterRuleLeafItem[] => leavesOf(rule.test);
 
-const countLeaves = (test: FilterTestItem): number =>
-	isLeaf(test)
-		? 1
-		: childTests(test).reduce((sum, child) => sum + countLeaves(child), 0);
-
-const depthOf = (test: FilterTestItem): number =>
-	1 + Math.max(0, ...childTests(test).map(depthOf));
-
-export const filterRuleLeafCount = (rule: FilterRuleV1Item): number =>
-	countLeaves(rule.test);
+const depthOf = (test: FilterTestItem): number => {
+	switch (test.test) {
+		case "allof":
+		case "anyof":
+			return 1 + Math.max(0, ...test.tests.map(depthOf));
+		case "not":
+			return 1 + depthOf(test.operand);
+		default:
+			return 1;
+	}
+};
 
 export const filterRuleLimitRefusal = (
 	rule: FilterRuleV1Item,
 ): string | null => {
-	const leaves = countLeaves(rule.test);
+	const leaves = filterRuleLeaves(rule).length;
 	if (leaves === 0) {
 		return "A rule needs at least one header, address or hasWords test.";
 	}
@@ -177,9 +186,20 @@ export const filterRuleLimitRefusal = (
 	return null;
 };
 
+// A rule built from no clauses, as a filter-backed organize job stores it,
+// holds an empty top node that a new rule may not, and still reads.
+const NoClauseRuleSchema = z.object({
+	version: z.literal(1),
+	test: z.union([
+		z.object({ test: z.literal("allof"), tests: z.tuple([]) }),
+		z.object({ test: z.literal("anyof"), tests: z.tuple([]) }),
+	]),
+});
+
 const StoredFilterRuleSchema = z.union([
 	FilterRuleV0Schema,
 	FilterRuleV1Schema,
+	NoClauseRuleSchema,
 ]);
 
 export const readStoredFilterRule = (

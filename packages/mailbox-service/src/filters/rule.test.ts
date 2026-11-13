@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	type FilterRuleV1Item,
-	type FilterTestItem,
-	MAX_FILTER_RULE_LEAVES,
-} from "@remit/data-ports";
+import type { FilterRuleV1Item, FilterTestItem } from "@remit/data-ports";
 import { getDomain } from "tldts";
 import {
 	evaluateRule,
@@ -124,6 +120,62 @@ describe("evaluateRule", () => {
 			true,
 		);
 	});
+
+	it("compares a List-Id whole, never as a substring", () => {
+		const listId = (key: string): FilterTestItem => ({
+			test: "header",
+			match: "Is",
+			header: "ListId",
+			key,
+		});
+		assert.equal(matches(listId("github.com")), false);
+		assert.equal(matches(listId("builds.github.com.other")), false);
+		assert.equal(
+			matches(listId("builds.github.com"), { ...message, listId: "" }),
+			false,
+		);
+	});
+
+	it("never matches a registrable domain on a look-alike host", () => {
+		const domain = (key: string): FilterTestItem => ({
+			test: "address",
+			match: "Is",
+			part: "RegistrableDomain",
+			key,
+		});
+		assert.equal(
+			matches(domain("github.com"), {
+				...message,
+				from: "attacker@github.com.evil.example",
+			}),
+			false,
+		);
+		assert.equal(
+			matches(domain("example.co.uk"), {
+				...message,
+				from: "hr@mail.example.co.uk",
+			}),
+			true,
+		);
+		assert.equal(
+			matches(domain("example.co.uk"), {
+				...message,
+				from: "hr@example.co.uk.evil.example",
+			}),
+			false,
+		);
+	});
+
+	it("matches hasWords on every word, in any order and case, across sender, subject and body", () => {
+		const words = (...list: string[]): FilterTestItem => ({
+			test: "hasWords",
+			words: list,
+		});
+		assert.equal(matches(words("SCAN main")), true);
+		assert.equal(matches(words("github actions")), true);
+		assert.equal(matches(words("scan", "deploy")), false);
+		assert.equal(matches(words("   ")), false);
+	});
 });
 
 describe("ruleNarrowing", () => {
@@ -157,7 +209,28 @@ describe("ruleNarrowing", () => {
 		});
 	});
 
-	it("narrows nothing when the top node is not or holds a nested node", () => {
+	it("keeps an allof's terms past a child that cannot narrow", () => {
+		assert.deepEqual(
+			ruleNarrowing(
+				rule({
+					test: "allof",
+					tests: [
+						{
+							test: "address",
+							match: "Is",
+							part: "RegistrableDomain",
+							key: "github.com",
+						},
+						{ test: "not", operand: subject("x") },
+					],
+				}),
+				getDomain,
+			),
+			{ terms: [{ field: "sender", contains: "github.com" }], operator: "and" },
+		);
+	});
+
+	it("narrows nothing when the top node is not or an anyof holds a nested node", () => {
 		assert.deepEqual(
 			ruleNarrowing(
 				rule({ test: "not", operand: sender("github") }),
@@ -186,14 +259,6 @@ describe("ruleNarrowing", () => {
 			ruleNarrowing(rule({ test: "allof", tests: [sender(" ")] }), getDomain),
 			null,
 		);
-	});
-
-	it("keeps a flat rule at the leaf cap to one term per leaf", () => {
-		const tests = Array.from({ length: MAX_FILTER_RULE_LEAVES }, (_, index) =>
-			sender(`sender-${index}.example`),
-		);
-		const narrowing = ruleNarrowing(rule({ test: "anyof", tests }), getDomain);
-		assert.equal(narrowing?.terms.length, MAX_FILTER_RULE_LEAVES);
 	});
 });
 

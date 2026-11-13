@@ -187,8 +187,6 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		actionChangedAt: 1,
 		priority: 0,
 		stop: false,
-		matchOperator: FilterMatchOperator.And,
-		literalClauses: [{ field: "From", value: "billing@example.com" }],
 		rule: {
 			version: 1,
 			test: {

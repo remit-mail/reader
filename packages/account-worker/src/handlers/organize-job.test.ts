@@ -141,22 +141,10 @@ const standingFilter = (over: Partial<FilterItem> = {}): FilterItem => ({
 	actionChangedAt: 1,
 	priority: 0,
 	stop: false,
-	matchOperator: "And",
-	literalClauses: [{ field: "From", value: "billing@example.com" }],
-	rule: {
-		version: 1,
-		test: {
-			test: "allof",
-			tests: [
-				{
-					test: "header",
-					match: "Contains",
-					header: "From",
-					key: "billing@example.com",
-				},
-			],
-		},
-	},
+	rule: filterRuleFromClauses({
+		matchOperator: "And",
+		literalClauses: [{ field: "From", value: "billing@example.com" }],
+	}),
 	actionLabelId: "None",
 	actionMailboxId: "mbx-invoices",
 	createdAt: 0,
@@ -344,7 +332,10 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 	it("matches a free-text rule from search on the stored preview", async () => {
 		current = await world([
 			standingFilter({
-				literalClauses: [{ field: "HasWords", value: "overdue" }],
+				rule: filterRuleFromClauses({
+					matchOperator: "And",
+					literalClauses: [{ field: "HasWords", value: "overdue" }],
+				}),
 			}),
 		]);
 
