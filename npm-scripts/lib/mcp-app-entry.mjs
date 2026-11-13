@@ -9,7 +9,6 @@ export const FORBIDDEN_PACKAGES = [
 	"@remit/sqs-client",
 	"@remit/storage-service/s3",
 	"better-auth/node",
-	"better-sqlite3",
 ];
 
 export const ALLOWED = new Set([

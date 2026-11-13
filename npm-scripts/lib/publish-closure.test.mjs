@@ -61,7 +61,7 @@ describe("importSpecifiers", () => {
 
 describe("typesPackageOf", () => {
 	it("maps plain and scoped names", () => {
-		assert.equal(typesPackageOf("better-sqlite3"), "@types/better-sqlite3");
+		assert.equal(typesPackageOf("pg"), "@types/pg");
 		assert.equal(
 			typesPackageOf("@aws-sdk/client-kms"),
 			"@types/aws-sdk__client-kms",
@@ -146,14 +146,14 @@ describe("closureViolations", () => {
 			"native",
 			{
 				name: "@remit/native",
-				dependencies: { "better-sqlite3": "^12" },
-				devDependencies: { "@types/better-sqlite3": "^7" },
+				dependencies: { pg: "^8" },
+				devDependencies: { "@types/pg": "^8" },
 			},
-			{ "index.ts": `import Database from "better-sqlite3";` },
+			{ "index.ts": `import pg from "pg";` },
 		);
 		const v = violationsFor(root, "@remit/native");
 		assert.deepEqual(v.undeclared, []);
-		assert.deepEqual(v.missingTypes, ["@types/better-sqlite3"]);
+		assert.deepEqual(v.missingTypes, ["@types/pg"]);
 	});
 
 	it("requires @types, not the runtime module, for a type-only DefinitelyTyped import", () => {

@@ -4,7 +4,7 @@
 // graph; this proves the type graph a consumer's compiler loads: it emits the
 // package's declarations as `npm pack` does and walks them from
 // `dist/app-entry.d.ts`, into every workspace package that publishes source. A
-// reachable Node builtin, better-sqlite3 or auth-service root would put
+// reachable Node builtin or auth-service root would put
 // `@types/node` into the host's typecheck (#1581).
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
@@ -24,11 +24,7 @@ const outDir = join(repoRoot, ".tmp", "mcp-app-declarations");
 const FORBIDDEN_BUILTINS = new Set(
 	builtinModules.flatMap((name) => [name, `node:${name}`]),
 );
-const FORBIDDEN_TYPE_PACKAGES = [
-	...FORBIDDEN_PACKAGES,
-	"@types/better-sqlite3",
-	"@types/node",
-];
+const FORBIDDEN_TYPE_PACKAGES = [...FORBIDDEN_PACKAGES, "@types/node"];
 
 const isForbidden = (spec) =>
 	spec.startsWith("node:") ||
