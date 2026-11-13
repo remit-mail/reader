@@ -365,6 +365,9 @@ const handleDelete = async (
 	} = ctx.client;
 
 	const { accountId, mailboxId, path } = event;
+	// An event queued before the field existed carries none: the delete it
+	// asked for never checked the server.
+	const requireEmpty = event.requireEmpty === true;
 
 	log.info({ event: event.type, accountId, mailboxId, path }, "Handling event");
 
@@ -390,7 +393,13 @@ const handleDelete = async (
 
 			try {
 				await managementService
-					.syncDelete(accountId, mailboxId, path, scope.getConnection)
+					.syncDelete(
+						accountId,
+						mailboxId,
+						path,
+						scope.getConnection,
+						requireEmpty,
+					)
 					.then((result) => {
 						if (result.success) {
 							log.info(

@@ -81,6 +81,8 @@ export interface MailboxDeleteEvent extends BaseEvent {
 	type: "MAILBOX_DELETE";
 	mailboxId: string;
 	path: string;
+	/** Refuse the delete while the mail server still holds mail in the folder. */
+	requireEmpty: boolean;
 }
 
 export type MailboxManagementEvent =

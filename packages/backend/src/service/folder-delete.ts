@@ -29,9 +29,13 @@ export interface FolderDeleteDeps extends DeletableFolderDeps {
 	mailboxQueue: Pick<MailboxQueueService, "deleteMailbox">;
 }
 
-export interface FolderDelete {
+export interface FolderRef {
 	accountId: string;
 	mailboxId: string;
+}
+
+export interface FolderDelete extends FolderRef {
+	requireEmpty: boolean;
 }
 
 /**
@@ -41,7 +45,7 @@ export interface FolderDelete {
 export const deletableFolder = async (
 	deps: DeletableFolderDeps,
 	accountConfigId: string,
-	{ accountId, mailboxId }: FolderDelete,
+	{ accountId, mailboxId }: FolderRef,
 ): Promise<Refusable<MailboxItem>> => {
 	const owned = ownedAccount(
 		await deps.account.get(accountId),
@@ -90,6 +94,8 @@ export const deleteFolder = async (
 ): Promise<Refusable<MailboxItem>> => {
 	const deletable = await deletableFolder(deps, accountConfigId, target);
 	if (!deletable.ok) return deletable;
-	await deps.mailboxQueue.deleteMailbox(target.mailboxId, target.accountId);
+	await deps.mailboxQueue.deleteMailbox(target.mailboxId, target.accountId, {
+		requireEmpty: target.requireEmpty,
+	});
 	return deletable;
 };

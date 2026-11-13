@@ -360,6 +360,7 @@ export const registerFolderTools = (
 				const deleted = await deleteFolder(deleteDeps, accountConfigId, {
 					accountId,
 					mailboxId,
+					requireEmpty: true,
 				});
 				if (!deleted.ok) return refused(deleted.refusal);
 			}

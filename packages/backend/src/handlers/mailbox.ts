@@ -324,7 +324,11 @@ export const MailboxDetailOperations = {
 		};
 
 		unwrap(
-			await deleteFolder(ctx.client, accountConfigId, { accountId, mailboxId }),
+			await deleteFolder(ctx.client, accountConfigId, {
+				accountId,
+				mailboxId,
+				requireEmpty: false,
+			}),
 		);
 		return { statusCode: 204 };
 	},

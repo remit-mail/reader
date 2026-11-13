@@ -246,6 +246,28 @@ describe("deleting a folder", () => {
 		assert.ok(w.imap.hasFolder("Old"));
 	});
 
+	it("keeps a folder the server still holds mail in when the delete must not take mail", async () => {
+		const w = await store.world();
+		const old = await w.folder("Old");
+		await w.message(old);
+		await w.client.mailboxQueue.deleteMailbox(
+			old.mailboxId,
+			w.account.accountId,
+			{ requireEmpty: true },
+		);
+
+		await run(w, lastEvent(w, "MAILBOX_DELETE"));
+
+		const kept = await mailbox(w, old.mailboxId);
+		assert.equal(kept?.syncStatus, MailboxSyncStatus.failed);
+		assert.match(
+			kept?.syncFailureReason ?? "",
+			/still holds 1 message on the mail server/,
+		);
+		assert.deepEqual(w.imap.commands("DELETE"), []);
+		assert.ok(w.imap.hasFolder("Old"));
+	});
+
 	it("issues no DELETE for a folder that is not being deleted", async () => {
 		const w = await store.world();
 		const kept = await w.folder("Kept");

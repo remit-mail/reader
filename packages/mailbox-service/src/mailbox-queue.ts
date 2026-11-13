@@ -51,6 +51,8 @@ export interface MailboxDeleteEvent {
 	accountId: string;
 	mailboxId: string;
 	path: string;
+	/** Refuse the delete while the mail server still holds mail in the folder. */
+	requireEmpty: boolean;
 }
 
 export type MailboxManagementEvent =
@@ -338,6 +340,7 @@ export class MailboxQueueService {
 	deleteMailbox = async (
 		mailboxId: string,
 		accountId: string,
+		{ requireEmpty }: { requireEmpty: boolean } = { requireEmpty: false },
 	): Promise<void> => {
 		// Get current mailbox to capture path
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
@@ -376,6 +379,7 @@ export class MailboxQueueService {
 			accountId,
 			mailboxId,
 			path: mailbox.fullPath,
+			requireEmpty,
 		});
 	};
 
