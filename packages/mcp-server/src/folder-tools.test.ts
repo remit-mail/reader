@@ -79,6 +79,8 @@ beforeEach(async () => {
 		label: client.label,
 		labelMailbox: client.labelMailbox,
 		mailbox: client.mailbox,
+		accountSetting: client.accountSetting,
+		mailboxSpecialUse: client.mailboxSpecialUse,
 		message: client.message,
 		messageLabel: client.messageLabel,
 		messageMove: client.messageMove,
@@ -321,5 +323,27 @@ describe("rename_folder", () => {
 		assert.equal(settled.syncStatus, MailboxSyncStatus.synced);
 		assert.equal(mailboxEvents().length, 1);
 		assert.equal(mine.imap.hasFolder("Bills"), true);
+	});
+});
+
+describe("delete_folder", () => {
+	it("refuses a folder that still holds mail, naming the count, unless forced", async () => {
+		await mine.message(receipts);
+		await mine.message(receipts);
+		const args = {
+			accountId: account.accountId,
+			mailboxId: receipts.mailboxId,
+		};
+
+		assert.match(
+			await refusalOf("delete_folder", args),
+			/still holds 2 messages/,
+		);
+		assert.equal(mine.imap.hasFolder("Receipts"), true);
+
+		const deleted = await callTool("delete_folder", { ...args, force: true });
+		assert.notEqual(deleted.isError, true, deleted.content[0]?.text);
+		assert.deepEqual(JSON.parse(deleted.content[0].text), { deleted: true });
+		assert.equal(mine.imap.hasFolder("Receipts"), false);
 	});
 });

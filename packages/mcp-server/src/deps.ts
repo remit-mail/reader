@@ -1,11 +1,13 @@
 import type { RemitClient } from "@remit/backend/client";
 import type {
 	IAccountRepository,
+	IAccountSettingRepository,
 	IAddressRepository,
 	IFilterRepository,
 	ILabelMailboxRepository,
 	ILabelRepository,
 	IMailboxRepository,
+	IMailboxSpecialUseRepository,
 	IMessageLabelRepository,
 	IMessageRepository,
 	IOrganizeJobRequestRepository,
@@ -29,7 +31,7 @@ export const FOLDER_POLL_INTERVAL_MS = 500;
 export interface FolderToolDeps {
 	mailboxQueue: Pick<
 		MailboxQueueService,
-		"createMailbox" | "renameMailbox" | "dismissMailboxIntent"
+		"createMailbox" | "renameMailbox" | "dismissMailboxIntent" | "deleteMailbox"
 	>;
 	settleTimeoutMs: number;
 	pollIntervalMs: number;
@@ -48,8 +50,14 @@ export interface McpDeps {
 	>;
 	mailbox: Pick<
 		IMailboxRepository,
-		"get" | "listAllByAccount" | "findByPath" | "resolveAccountId"
+		| "get"
+		| "listAllByAccount"
+		| "findByPath"
+		| "findByPathPrefix"
+		| "resolveAccountId"
 	>;
+	accountSetting: Pick<IAccountSettingRepository, "get">;
+	mailboxSpecialUse: Pick<IMailboxSpecialUseRepository, "resolveTrashRole">;
 	address: Pick<IAddressRepository, "countCategoryOverridesSince">;
 	label: Pick<
 		ILabelRepository,
@@ -64,10 +72,10 @@ export interface McpDeps {
 		"get" | "describe" | "countClassifiedSince"
 	>;
 	messageLabel: Pick<IMessageLabelRepository, "apply">;
-	messageMove: Pick<MessageMoveService, "moveMessages">;
+	messageMove: Pick<MessageMoveService, "moveMessages" | "deleteMessages">;
 	threadMessage: Pick<
 		IThreadMessageRepository,
-		"listByMailbox" | "listByThread" | "searchByDate"
+		"listByMailbox" | "listByThread" | "searchByDate" | "countByMailbox"
 	>;
 	filter: Pick<
 		IFilterRepository,
@@ -93,6 +101,8 @@ export const mcpDepsOf = (
 ): McpDeps => ({
 	account: client.account,
 	mailbox: client.mailbox,
+	accountSetting: client.accountSetting,
+	mailboxSpecialUse: client.mailboxSpecialUse,
 	address: client.address,
 	label: client.label,
 	labelMailbox: client.labelMailbox,

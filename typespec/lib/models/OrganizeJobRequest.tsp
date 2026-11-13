@@ -104,6 +104,14 @@ model OrganizeJobRequest {
   @visibility(Lifecycle.Read)
   sourceMailboxId: string = "None";
 
+  @doc("Snapshot of the lower bound of the message date facet, inclusive: an ISO 8601 date-time with zone offset, or `\"None\"` for no lower bound.")
+  @visibility(Lifecycle.Read)
+  sentAfter: string = "None";
+
+  @doc("Snapshot of the upper bound of the message date facet, exclusive: an ISO 8601 date-time with zone offset, or `\"None\"` for no upper bound.")
+  @visibility(Lifecycle.Read)
+  sentBefore: string = "None";
+
   @doc("Number of messages matched by the predicate, set when the pass completes")
   @visibility(Lifecycle.Read)
   matchedCount: int32 = 0;

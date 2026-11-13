@@ -214,6 +214,7 @@ export type {
 	ResultList,
 	SearchOptions,
 	SenderSignerStandingItem,
+	SentDateRange,
 	SyncWarningItem,
 	SyncWarningKey,
 	ThreadMessageFieldTerm,

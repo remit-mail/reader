@@ -2,6 +2,7 @@ import type {
 	CreateThreadMessageInput,
 	ResultList,
 	SearchOptions,
+	SentDateRange,
 	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
@@ -123,6 +124,7 @@ export interface IThreadMessageRepository {
 			continuationToken?: string;
 			excludeDeleted?: boolean;
 			mailboxIds?: readonly string[];
+			sent?: SentDateRange;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**

@@ -284,6 +284,8 @@ export interface DeleteOptions {
 	toTrash?: boolean;
 	/** Permanently delete even if in Trash. Default: false */
 	permanent?: boolean;
+	/** Refuse a message already in Trash rather than expunge it. Default: false */
+	trashOnly?: boolean;
 }
 
 /**
@@ -402,7 +404,12 @@ export class MessageMoveService {
 		// destroy mail that is already there. Checked once, before any local
 		// write, so a batch that touches such a message is refused whole rather
 		// than partially expunged.
-		if (!wantsPermanentDelete && trashResolution && trashMailbox) {
+		if (
+			!wantsPermanentDelete &&
+			!options.trashOnly &&
+			trashResolution &&
+			trashMailbox
+		) {
 			const deletesInPlace = messages.some(
 				(message) => message.mailboxId === trashMailbox.mailboxId,
 			);
@@ -458,6 +465,10 @@ export class MessageMoveService {
 			const isInTrash =
 				trashMailbox !== null && message.mailboxId === trashMailbox.mailboxId;
 			const shouldMoveToTrash = trashMailbox !== null && !isInTrash;
+			if (isInTrash && options.trashOnly) {
+				refused.push(message.messageId);
+				continue;
+			}
 
 			const entry = {
 				messageId: message.messageId,

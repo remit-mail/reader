@@ -6,6 +6,7 @@ import {
 	filterRuleTestsClassification,
 	type MessageItem,
 	type OrganizeJobRequestItem,
+	type SentDateRange,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
@@ -55,13 +56,38 @@ export const predicateFromJob = (
 	actionMailboxId: job.actionMailboxId,
 });
 
-/** The folders a snapshot job runs over: its source folder, or every folder. */
+const instantOf = (bound: string): number | undefined =>
+	bound === FILTER_NO_ACTION ? undefined : Date.parse(bound);
+
+/** The date facet a snapshot job runs with, read back from its ISO bounds. */
+export const sentRangeFromJob = (
+	job: Pick<OrganizeJobRequestItem, "sentAfter" | "sentBefore">,
+): SentDateRange => {
+	const sentAfter = instantOf(job.sentAfter);
+	const sentBefore = instantOf(job.sentBefore);
+	return {
+		...(sentAfter === undefined ? {} : { sentAfter }),
+		...(sentBefore === undefined ? {} : { sentBefore }),
+	};
+};
+
+/**
+ * The folders a snapshot job runs over: its source folder, narrowed by its
+ * date facet, or every folder.
+ */
 export const scopeFromJob = (
-	job: Pick<OrganizeJobRequestItem, "sourceMailboxId">,
+	job: Pick<
+		OrganizeJobRequestItem,
+		"sourceMailboxId" | "sentAfter" | "sentBefore"
+	>,
 ): OrganizeMatchScope =>
 	job.sourceMailboxId === FILTER_NO_ACTION
 		? WHOLE_CORPUS
-		: { kind: "SourceFolder", mailboxId: job.sourceMailboxId };
+		: {
+				kind: "SourceFolder",
+				mailboxId: job.sourceMailboxId,
+				sent: sentRangeFromJob(job),
+			};
 
 /**
  * One corpus message projected onto the fields a literal clause matches
@@ -88,6 +114,7 @@ export interface OrganizeCandidateQuery extends RuleNarrowing {
 	limit: number;
 	continuationToken?: string;
 	mailboxIds?: readonly string[];
+	sent?: SentDateRange;
 }
 
 /**
@@ -99,7 +126,7 @@ export interface OrganizeCandidateQuery extends RuleNarrowing {
 export type OrganizeMatchScope =
 	| { kind: "Corpus" }
 	| { kind: "Filter"; filterId: string; mailboxIds: readonly string[] }
-	| { kind: "SourceFolder"; mailboxId: string };
+	| { kind: "SourceFolder"; mailboxId: string; sent: SentDateRange };
 
 export const WHOLE_CORPUS: OrganizeMatchScope = { kind: "Corpus" };
 
@@ -241,6 +268,7 @@ const matchLiteral = async (
 			limit,
 			continuationToken,
 			mailboxIds: scopeMailboxIds(scope),
+			sent: scope.kind === "SourceFolder" ? scope.sent : undefined,
 		});
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
@@ -314,6 +342,7 @@ const listAccountFilterMessagesFromClient =
 				continuationToken: query.continuationToken,
 				excludeDeleted: true,
 				mailboxIds: query.mailboxIds,
+				sent: query.sent,
 			},
 		);
 		const scoresById = new Map(

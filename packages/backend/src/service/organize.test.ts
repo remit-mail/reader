@@ -249,7 +249,7 @@ describe("matchOrganize", () => {
 			ACCOUNT_CONFIG_ID,
 			predicate(),
 			ORGANIZE_MATCH_LIMIT,
-			{ kind: "SourceFolder", mailboxId: "mbox-src" },
+			{ kind: "SourceFolder", mailboxId: "mbox-src", sent: {} },
 		);
 
 		assert.deepEqual(messageIds, ["msg-1", "msg-2"]);

@@ -1,16 +1,22 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { deleteFolder } from "@remit/backend/folder-delete";
 import type { MailboxItem } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
+import { isReservedFolderName } from "@remit/data-ports/folder-role";
+import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
 	changeFolderPath,
 	createFolder,
+	invalid,
+	isRemitRootName,
+	ownedFolder,
 	settledFolder,
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { FolderToolDeps, McpDeps } from "./deps.js";
-import { asJson, refused, toolError } from "./tool-result.js";
+import { asJson, notFoundRefusal, refused, toolError } from "./tool-result.js";
 
 const CREATE_DELIMITER = "/";
 
@@ -28,6 +34,7 @@ const awaitSettled = async (
 	folders: FolderToolDeps,
 	accountId: string,
 	mailboxId: string,
+	inFlight: MailboxItem["syncStatus"] = MailboxSyncStatus.pending,
 ): Promise<Watched> => {
 	const deadline = Date.now() + folders.settleTimeoutMs;
 	for (;;) {
@@ -38,10 +45,7 @@ const awaitSettled = async (
 				throw error;
 			});
 		if (!folder) return { state: "Gone" };
-		if (
-			folder.syncStatus !== MailboxSyncStatus.pending ||
-			Date.now() >= deadline
-		) {
+		if (folder.syncStatus !== inFlight || Date.now() >= deadline) {
 			return { state: "Present", folder };
 		}
 		await folders.sleep(folders.pollIntervalMs);
@@ -115,6 +119,76 @@ const renameOutcome = (watched: Watched, requested: string): CallToolResult => {
 			return settledOrRefused(folder);
 	}
 };
+
+const deleteOutcome = (watched: Watched): CallToolResult => {
+	if (watched.state === "Gone") return asJson({ deleted: true });
+	const { folder } = watched;
+	switch (folder.syncStatus) {
+		case MailboxSyncStatus.deleting:
+			return asJson({
+				...folderState(folder),
+				message:
+					"The mail server has not confirmed this yet. Call delete_folder again with the same arguments to keep waiting; it will not delete twice.",
+			});
+		case MailboxSyncStatus.failed:
+			return toolError(
+				`The mail server refused to delete “${folder.fullPath}”: ${folder.syncFailureReason || "no reason given"}. Call delete_folder again to retry.`,
+			);
+		default:
+			return toolError(
+				`The delete of “${folder.fullPath}” was dropped before the mail server confirmed it. Call list_mailboxes to see what is there now.`,
+			);
+	}
+};
+
+const notFound = notFoundRefusal("");
+
+// Folders the mail app, the mail server or Remit itself depends on. The
+// shared delete refuses INBOX, folders with subfolders and folders a filter or
+// role points at; these are the ones an assistant must not remove on top.
+const keptFolderReason = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	folder: MailboxItem,
+): Promise<string | undefined> => {
+	const leaf = mailboxLeafName(folder);
+	if (folder.fullPath.toUpperCase() === "INBOX") {
+		return "The inbox can't be deleted.";
+	}
+	const specialUse = folder.specialUse ?? [];
+	if (specialUse.length > 0) {
+		return `“${folder.fullPath}” is the account's ${specialUse.join(" and ")} folder, which the mail app relies on.`;
+	}
+	if (isReservedFolderName(leaf)) {
+		return `“${folder.fullPath}” carries a system folder name the mail app relies on.`;
+	}
+	if (isRemitRootName(leaf)) {
+		return `“${folder.fullPath}” holds Remit's label folders.`;
+	}
+	const mapping = (
+		await deps.labelMailbox.listByAccount(folder.accountId)
+	).find((row) => row.mailboxId === folder.mailboxId);
+	if (mapping) {
+		const label = await deps.label.get(accountConfigId, mapping.labelId);
+		return `“${folder.fullPath}” is the folder of the label “${label.name}”. Delete the label instead.`;
+	}
+	return undefined;
+};
+
+const messagesIn = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	folder: MailboxItem,
+): Promise<number> =>
+	Math.max(
+		folder.messageCount,
+		await deps.threadMessage.countByMailbox(
+			accountConfigId,
+			folder.mailboxId,
+			{},
+			{ excludeDeleted: true },
+		),
+	);
 
 export const registerFolderTools = (
 	server: McpServer,
@@ -195,6 +269,65 @@ export const registerFolderTools = (
 			return renameOutcome(
 				await awaitSettled(deps, folders, accountId, mailboxId),
 				fullPath,
+			);
+		},
+	);
+
+	server.registerTool(
+		"delete_folder",
+		{
+			description:
+				"Delete an empty folder on the mail server and in Remit, and wait until the server confirms it. Refuses a folder that still holds messages unless force is true, a folder with subfolders (delete those first), system folders, Remit's label folders and folders a filter or folder role uses. Calling again with the same arguments resumes the wait.",
+			inputSchema: {
+				accountId: z.string().min(1).describe("Account from list_mailboxes"),
+				mailboxId: z.string().min(1).describe("Folder from list_mailboxes"),
+				force: z
+					.boolean()
+					.optional()
+					.describe(
+						"Delete the folder even though it holds messages; they are deleted with it",
+					),
+			},
+			annotations: { ...FOLDER_WRITE, destructiveHint: true },
+		},
+		async ({ accountId, mailboxId, force }) => {
+			const { folders } = deps;
+			const owned = await ownedFolder(
+				deps,
+				accountConfigId,
+				accountId,
+				mailboxId,
+			).catch(notFound);
+			if (!owned.ok) return refused(owned.refusal);
+			const folder = owned.value;
+
+			if (folder.syncStatus !== MailboxSyncStatus.deleting) {
+				const kept = await keptFolderReason(deps, accountConfigId, folder);
+				if (kept) return refused(invalid(kept).refusal);
+				const count = force
+					? 0
+					: await messagesIn(deps, accountConfigId, folder);
+				if (count > 0) {
+					return toolError(
+						`“${folder.fullPath}” still holds ${count} ${count === 1 ? "message" : "messages"}. Move them out first, for example with move_folder_messages, and call delete_folder again once the moves have settled; or pass force: true to delete them with the folder.`,
+					);
+				}
+				const deleted = await deleteFolder(
+					{ ...deps, mailboxQueue: folders.mailboxQueue },
+					accountConfigId,
+					{ accountId, mailboxId },
+				);
+				if (!deleted.ok) return refused(deleted.refusal);
+			}
+
+			return deleteOutcome(
+				await awaitSettled(
+					deps,
+					folders,
+					accountId,
+					mailboxId,
+					MailboxSyncStatus.deleting,
+				),
 			);
 		},
 	);

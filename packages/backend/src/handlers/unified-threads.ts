@@ -9,16 +9,19 @@ import type {
 	MailboxItem,
 	ResultList,
 	SearchOptions,
+	SentDateRange,
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import { MailboxSpecialUse } from "@remit/domain-enums";
+import { sentDateRange } from "@remit/mailbox-service";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";
 import {
 	type EnrichClient,
 	enrichThreadRows,
 } from "../derive/enrichThreadRows.js";
+import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -356,7 +359,9 @@ export const buildUnifiedThreadSearch = (params: {
 	unread?: boolean;
 	attachments?: boolean;
 	muted?: boolean;
+	sent?: SentDateRange;
 }): SearchOptions => ({
+	...params.sent,
 	...(params.searchText ? { query: params.searchText } : {}),
 	...(params.from ? { from: params.from } : {}),
 	...(params.subject ? { subject: params.subject } : {}),
@@ -462,6 +467,7 @@ export type UnifiedThreadParams = {
 	unread?: boolean;
 	attachments?: boolean;
 	muted?: boolean;
+	sent?: SentDateRange;
 	count: boolean;
 	results: boolean;
 };
@@ -645,6 +651,8 @@ export const UnifiedThreadOperations: Record<
 			unread,
 			attachments,
 			muted,
+			before,
+			after,
 			count,
 			results,
 		} = context.request.query as {
@@ -662,6 +670,8 @@ export const UnifiedThreadOperations: Record<
 			unread?: boolean | string;
 			attachments?: boolean | string;
 			muted?: boolean | string;
+			before?: string;
+			after?: string;
 			count?: boolean | string;
 			results?: boolean | string;
 		};
@@ -692,6 +702,7 @@ export const UnifiedThreadOperations: Record<
 			unread: toBoolean(unread),
 			attachments: toBoolean(attachments),
 			muted: toBoolean(muted),
+			sent: unwrap(sentDateRange({ before, after })),
 			count: toBoolean(count) === true,
 			results: toBoolean(results) !== false,
 		});

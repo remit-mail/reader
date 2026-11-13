@@ -51,6 +51,10 @@
       "types": "./src/service/never-spam.ts",
       "default": "./src/service/never-spam.ts"
     },
+    "./folder-delete": {
+      "types": "./src/service/folder-delete.ts",
+      "default": "./src/service/folder-delete.ts"
+    },
     "./organize": {
       "types": "./src/service/organize.ts",
       "default": "./src/service/organize.ts"
@@ -131,6 +135,10 @@
       "./never-spam": {
         "types": "./dist/src/service/never-spam.d.ts",
         "default": "./dist/src/service/never-spam.js"
+      },
+      "./folder-delete": {
+        "types": "./dist/src/service/folder-delete.d.ts",
+        "default": "./dist/src/service/folder-delete.js"
       },
       "./organize": {
         "types": "./dist/src/service/organize.d.ts",

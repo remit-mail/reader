@@ -5,7 +5,6 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import { FILTER_NO_ACTION } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { loadFolderAppointmentsForAccount } from "./folder-role-appointments.js";
 
@@ -85,10 +84,10 @@ const asList = (items: readonly string[]): string =>
  * is not actionable — and this fires on ordinary configurations, since pointing
  * a filter at a folder is what filters are for.
  */
-export const assertNoBindings = (
+export const bindingsRefusal = (
 	mailbox: Pick<MailboxItem, "fullPath">,
 	bindings: MailboxBindings,
-): void => {
+): string | undefined => {
 	const clauses: string[] = [];
 	if (bindings.filterNames.length > 0) {
 		clauses.push(
@@ -104,8 +103,6 @@ export const assertNoBindings = (
 			}`,
 		);
 	}
-	if (clauses.length === 0) return;
-	throw new BadRequestError(
-		`“${mailbox.fullPath}” is used by ${asList(clauses)}.`,
-	);
+	if (clauses.length === 0) return undefined;
+	return `“${mailbox.fullPath}” is used by ${asList(clauses)}.`;
 };

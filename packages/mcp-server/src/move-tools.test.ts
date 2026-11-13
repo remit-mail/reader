@@ -58,6 +58,8 @@ beforeEach(async () => {
 		label: client.label,
 		labelMailbox: client.labelMailbox,
 		mailbox: client.mailbox,
+		accountSetting: client.accountSetting,
+		mailboxSpecialUse: client.mailboxSpecialUse,
 		message: client.message,
 		messageLabel: client.messageLabel,
 		messageMove: client.messageMove,

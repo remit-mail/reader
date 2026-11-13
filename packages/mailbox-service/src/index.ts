@@ -88,6 +88,7 @@ export {
 	type ImapTestConfig,
 	testImapConnection,
 } from "./connection-test.js";
+export { type DateFacet, sentDateRange } from "./date-facet.js";
 export {
 	type CreatedFilter,
 	createFilter,

@@ -3,6 +3,7 @@ import type {
 	IThreadMessageRepository,
 	ResultList,
 	SearchOptions,
+	SentDateRange,
 	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
@@ -16,6 +17,7 @@ import {
 	eq,
 	exists,
 	gt,
+	gte,
 	inArray,
 	lt,
 	not,
@@ -231,6 +233,15 @@ interface SearchConditions {
 	row: SQL[];
 }
 
+const sentDateConditions = (range: SentDateRange): SQL[] => [
+	...(range.sentAfter === undefined
+		? []
+		: [gte(threadMessageTable.sentDate, range.sentAfter)]),
+	...(range.sentBefore === undefined
+		? []
+		: [lt(threadMessageTable.sentDate, range.sentBefore)]),
+];
+
 // Translate SearchOptions into conditions: subject/from/query as indexed text
 // predicates, muted as a subquery over the sender's address, the rest as plain
 // column equalities. A multi-word `query` matches rows where every token
@@ -274,6 +285,7 @@ function buildSearchConditions(search: SearchOptions): SearchConditions {
 	if (search.dkimMismatch !== undefined) {
 		row.push(dkimMismatchIs(search.dkimMismatch));
 	}
+	row.push(...sentDateConditions(search));
 
 	return { text: text.length > 0 ? and(...text) : undefined, row };
 }
@@ -886,6 +898,7 @@ export class DrizzleThreadMessageRepository
 			continuationToken?: string;
 			excludeDeleted?: boolean;
 			mailboxIds?: readonly string[];
+			sent?: SentDateRange;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
 		const limit = clampThreadSearchLimit(options?.limit);
@@ -897,6 +910,7 @@ export class DrizzleThreadMessageRepository
 				options?.excludeDeleted
 					? eq(threadMessageTable.isDeleted, false)
 					: undefined,
+				...sentDateConditions(options?.sent ?? {}),
 			],
 			order: options?.order ?? "desc",
 			after: positionOf(
