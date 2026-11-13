@@ -6,6 +6,7 @@ import {
 	FilterRuleHeader,
 	FilterRuleMatch,
 } from "@remit/domain-enums";
+import { getDomain } from "tldts";
 import { z } from "zod";
 import type {
 	FilterClauseItem,
@@ -13,6 +14,19 @@ import type {
 	FilterRuleV1Item,
 	FilterTestItem,
 } from "./types.js";
+
+type FromDomainPart =
+	| typeof FilterRuleAddressPart.RegistrableDomain
+	| typeof FilterRuleAddressPart.Domain;
+
+// A subdomain value names that exact host: mail from a sibling host of the same
+// registrable domain is often routed elsewhere on purpose.
+export const fromDomainAddressPart = (value: string): FromDomainPart => {
+	const host = value.trim().toLowerCase();
+	return getDomain(host) === host
+		? FilterRuleAddressPart.RegistrableDomain
+		: FilterRuleAddressPart.Domain;
+};
 
 const clauseTest = (clause: FilterClauseItem): FilterTestItem => {
 	switch (clause.field) {
@@ -41,7 +55,7 @@ const clauseTest = (clause: FilterClauseItem): FilterTestItem => {
 			return {
 				test: "address",
 				match: FilterRuleMatch.Is,
-				part: FilterRuleAddressPart.RegistrableDomain,
+				part: fromDomainAddressPart(clause.value),
 				key: clause.value,
 			};
 		case FilterClauseField.HasWords:
@@ -75,7 +89,7 @@ const testClause = (test: FilterTestItem): FilterClauseItem | undefined => {
 		}
 		case "address":
 			return test.match === FilterRuleMatch.Is &&
-				test.part === FilterRuleAddressPart.RegistrableDomain
+				test.part === fromDomainAddressPart(test.key)
 				? { field: FilterClauseField.FromDomain, value: test.key }
 				: undefined;
 		case "hasWords":
@@ -152,6 +166,29 @@ const leavesOf = (test: FilterTestItem): FilterRuleLeafItem[] => {
 			return [test];
 	}
 };
+
+const repairFromDomainTest = (test: FilterTestItem): FilterTestItem => {
+	switch (test.test) {
+		case "allof":
+		case "anyof":
+			return { ...test, tests: test.tests.map(repairFromDomainTest) };
+		case "not":
+			return { ...test, operand: repairFromDomainTest(test.operand) };
+		case "address":
+			return test.match === FilterRuleMatch.Is &&
+				test.part === FilterRuleAddressPart.RegistrableDomain
+				? { ...test, part: fromDomainAddressPart(test.key) }
+				: test;
+		default:
+			return test;
+	}
+};
+
+// Rules compiled before a subdomain FromDomain value kept its exact host widened
+// it to the registrable domain; this narrows those leaves back to the host.
+export const repairFromDomainRule = (
+	rule: FilterRuleV1Item,
+): FilterRuleV1Item => ({ ...rule, test: repairFromDomainTest(rule.test) });
 
 export const filterRuleLeaves = (
 	rule: FilterRuleV1Item,

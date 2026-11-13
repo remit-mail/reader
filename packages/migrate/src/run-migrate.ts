@@ -13,6 +13,12 @@ import {
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
 import {
+	type FilterFromDomainRepairClient,
+	type FilterFromDomainRepairMode,
+	formatFilterFromDomainReport,
+	sweepFilterFromDomain,
+} from "../../drizzle-service/src/repair/filter-from-domain.js";
+import {
 	formatJunkOnlyReport,
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
@@ -50,7 +56,7 @@ installNodeLogger();
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in three places.
+ * DDL objects around them, and rewrites row content in four places.
  *
  * The rule behind that clause still holds: when a column's MEANING changes,
  * rows written under the old meaning are stale rather than convertible, and the
@@ -72,6 +78,10 @@ installNodeLogger();
  *
  * The third marks an address seen only on mail in Junk, so it is not offered
  * as a sender to trust.
+ *
+ * The fourth narrows a filter whose subdomain FromDomain value was compiled to
+ * its registrable domain back to the exact host. The rule is the user's own
+ * config, which no re-sync restores.
  */
 
 /**
@@ -168,6 +178,16 @@ const junkOnlyAddressStep = async (
 	}
 };
 
+const filterFromDomainStep = async (
+	client: FilterFromDomainRepairClient,
+	mode: FilterFromDomainRepairMode,
+): Promise<void> => {
+	const report = await sweepFilterFromDomain(client, mode);
+	for (const line of formatFilterFromDomainReport(report)) {
+		logStep({ step: "filter-from-domain-repair" }, line);
+	}
+};
+
 type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
 	JunkOnlyRepairClient;
@@ -203,6 +223,11 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		run: async (sql, params) =>
 			mailSqlite.sqlite.prepare(sql).run(...params).changes,
 	};
+	const appRepairClient: FilterFromDomainRepairClient = {
+		all: async (sql, params) => appSqlite.sqlite.prepare(sql).all(...params),
+		run: async (sql, params) =>
+			appSqlite.sqlite.prepare(sql).run(...params).changes,
+	};
 	const app = appSqlite.db;
 	const db = mailSqlite.db;
 	const searchDb = searchSqlite.db;
@@ -236,6 +261,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
+			await filterFromDomainStep(appRepairClient, "check");
 			return;
 		}
 
@@ -244,6 +270,8 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		await strandedSentStep(paramRepairClient, "repair");
 
 		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
+
+		await filterFromDomainStep(appRepairClient, "repair");
 
 		// The search index is written after each mail write and never with it,
 		// so it only needs building here when it cannot have followed: a count

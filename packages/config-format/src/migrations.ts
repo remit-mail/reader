@@ -5,6 +5,7 @@ import {
 	FilterRuleHeader,
 	FilterRuleMatch,
 } from "@remit/domain-enums";
+import { getDomain } from "tldts";
 import { z } from "zod";
 import { type ConfigFilterTest, FilterClauseSchema } from "./document.js";
 import { ConfigVersionError } from "./errors.js";
@@ -41,6 +42,18 @@ const dropFilterAnchors: ConfigMigration = {
 	}),
 };
 
+// `fromDomainAddressPart` in @remit/data-ports: a subdomain value keeps its exact host.
+const fromDomainAddressPart = (
+	value: string,
+):
+	| typeof FilterRuleAddressPart.RegistrableDomain
+	| typeof FilterRuleAddressPart.Domain => {
+	const host = value.trim().toLowerCase();
+	return getDomain(host) === host
+		? FilterRuleAddressPart.RegistrableDomain
+		: FilterRuleAddressPart.Domain;
+};
+
 const clauseTest = (
 	clause: z.infer<typeof FilterClauseSchema>,
 ): ConfigFilterTest => {
@@ -70,7 +83,7 @@ const clauseTest = (
 			return {
 				test: "address",
 				match: FilterRuleMatch.Is,
-				part: FilterRuleAddressPart.RegistrableDomain,
+				part: fromDomainAddressPart(clause.value),
 				key: clause.value,
 			};
 		case FilterClauseField.HasWords:

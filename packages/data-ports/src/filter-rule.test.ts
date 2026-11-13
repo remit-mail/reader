@@ -7,6 +7,7 @@ import {
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
 	readStoredFilterRule,
+	repairFromDomainRule,
 } from "./filter-rule.js";
 import type {
 	FilterClauseItem,
@@ -83,6 +84,47 @@ describe("filterRuleFromClauses", () => {
 		assert.deepEqual(
 			filterClausesFromRule(filterRuleFromClauses(clauses)),
 			clauses,
+		);
+	});
+});
+
+describe("a subdomain FromDomain value", () => {
+	it("keeps its exact host when compiled and when repaired", () => {
+		const host: FilterTestItem = {
+			test: "address",
+			match: "Is",
+			part: "Domain",
+			key: "email.triodos.nl",
+		};
+		const registrable: FilterTestItem = {
+			test: "address",
+			match: "Is",
+			part: "RegistrableDomain",
+			key: "triodos.nl",
+		};
+
+		assert.deepEqual(
+			filterRuleFromClauses({
+				matchOperator: "Or",
+				literalClauses: [
+					{ field: "FromDomain", value: "email.triodos.nl" },
+					{ field: "FromDomain", value: "triodos.nl" },
+				],
+			}).test,
+			{ test: "anyof", tests: [host, registrable] },
+		);
+		assert.deepEqual(
+			repairFromDomainRule({
+				version: 1,
+				test: {
+					test: "anyof",
+					tests: [
+						{ test: "not", operand: { ...host, part: "RegistrableDomain" } },
+						registrable,
+					],
+				},
+			}).test,
+			{ test: "anyof", tests: [{ test: "not", operand: host }, registrable] },
 		);
 	});
 });
