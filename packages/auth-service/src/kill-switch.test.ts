@@ -22,7 +22,7 @@ const PASSWORD = "correct horse battery staple";
 
 let dir: string;
 let filename: string;
-let file: SqliteHandle<Record<string, unknown>>;
+let file: SqliteHandle;
 
 const build = async (signInEnabled: boolean): Promise<Auth> =>
 	createAuth(
@@ -74,8 +74,6 @@ before(() => {
 	file = openSqlite({
 		filename,
 		mode: "create",
-		synchronous: "NORMAL",
-		schema: {},
 	});
 	for (const set of ["app", "mcp"]) {
 		migrateSqlite(file, {

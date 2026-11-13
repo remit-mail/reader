@@ -32,7 +32,7 @@ interface Row {
 }
 
 describe("outbox rows stranded at sent", () => {
-	let handle: SqliteHandle<Record<string, unknown>>;
+	let handle: SqliteHandle;
 	let sqlite: SqliteConnection;
 
 	const insert = (
@@ -83,7 +83,7 @@ describe("outbox rows stranded at sent", () => {
 		).n;
 
 	before(() => {
-		handle = openTestSqlite<Record<string, unknown>>({});
+		handle = openTestSqlite();
 		sqlite = handle.sqlite;
 		applyMigrationSet(handle, "mail");
 	});

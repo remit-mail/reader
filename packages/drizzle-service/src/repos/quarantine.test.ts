@@ -1,12 +1,13 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { deriveQuarantineId } from "@remit/data-ports/id";
+import type { Db } from "../db.js";
 import { quarantineTable } from "../schema/quarantine.js";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { QuarantineRepo } from "./quarantine.js";
 
 describe("QuarantineRepo", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: QuarantineRepo;
 

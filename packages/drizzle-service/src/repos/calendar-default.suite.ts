@@ -12,7 +12,7 @@ const ACCOUNT_CONFIG_ID = "account-config-default";
 
 export const calendarDefaultSuite = (open: OpenTestStores): void => {
 	describe("provisioning the default calendar", () => {
-		let db: RepositoryDb<Record<string, unknown>>;
+		let db: RepositoryDb;
 		let close: () => Promise<void>;
 		let store: ICalendarStore;
 

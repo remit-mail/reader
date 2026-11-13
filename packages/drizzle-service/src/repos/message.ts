@@ -63,7 +63,7 @@ import {
 } from "./mappers.js";
 import type { MessageObjects } from "./message-objects.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	return {
@@ -119,10 +119,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	};
 }
 
-export type SubtreeDb = Pick<
-	RepositoryDb<Record<string, unknown>>,
-	"delete" | "select"
->;
+export type SubtreeDb = Pick<RepositoryDb, "delete" | "select">;
 
 export type SubtreeGuard = (messageId: Column) => SQL;
 

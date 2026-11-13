@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
-import {
-	type MessageDataSchema,
-	messageDataSchema,
-} from "../schema/message-data.js";
+import type { Db } from "../db.js";
+import { messageDataSchema } from "../schema/message-data.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
-import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
+import { createSqliteTestDb } from "../test-db-sqlite.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
@@ -16,7 +14,7 @@ import { messageObjectsInMemory } from "./message-objects.js";
 const MESSAGE_ID = "00000000-0000-0000-4444-000000000001";
 
 describe("DrizzleEnvelopeRepository (sqlite)", () => {
-	let db: SqliteTestDb<MessageDataSchema>;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: DrizzleEnvelopeRepository;
 

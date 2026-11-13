@@ -31,7 +31,7 @@ interface AddressRow {
 }
 
 describe("addresses standing only on mail in Junk", () => {
-	let handle: SqliteHandle<Record<string, unknown>>;
+	let handle: SqliteHandle;
 	let sqlite: SqliteConnection;
 	let specialUse: MailboxSpecialUseRepo;
 	let accountSetting: AccountSettingRepo;
@@ -186,7 +186,7 @@ describe("addresses standing only on mail in Junk", () => {
 		).n;
 
 	before(() => {
-		handle = openTestSqlite<Record<string, unknown>>({});
+		handle = openTestSqlite();
 		sqlite = handle.sqlite;
 		const { db } = handle;
 		specialUse = createSqliteRepositories(

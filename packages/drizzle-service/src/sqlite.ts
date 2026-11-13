@@ -16,11 +16,10 @@ export type SqliteMode = "create" | "open" | "readonly";
 
 export type SqliteSynchronous = "OFF" | "NORMAL" | "FULL";
 
-export interface OpenSqliteOptions<TSchema extends Record<string, unknown>> {
+export interface OpenSqliteOptions {
 	filename: string;
 	mode: SqliteMode;
-	synchronous: SqliteSynchronous;
-	schema: TSchema;
+	synchronous?: SqliteSynchronous;
 	logger?: Logger;
 }
 
@@ -37,8 +36,8 @@ export interface SqliteConnection {
 	prepare(source: string): SqliteStatement;
 }
 
-export interface SqliteHandle<TSchema extends Record<string, unknown>> {
-	db: Db<TSchema>;
+export interface SqliteHandle {
+	db: Db;
 	sqlite: SqliteConnection;
 	exec(sql: string): void;
 	immediate<T>(work: () => T): T;
@@ -73,9 +72,7 @@ const statement = (prepared: StatementSync): SqliteStatement => ({
 // switching the file to WAL at startup waits instead of failing busy. node:sqlite
 // enforces foreign keys by default. node:sqlite has no fileMustExist, so a file
 // opened rather than created is checked before the open would create it.
-export function openSqlite<TSchema extends Record<string, unknown>>(
-	options: OpenSqliteOptions<TSchema>,
-): SqliteHandle<TSchema> {
+export function openSqlite(options: OpenSqliteOptions): SqliteHandle {
 	if (options.mode !== "create" && !existsSync(options.filename)) {
 		throw new Error(`SQLite database ${options.filename} does not exist`);
 	}
@@ -84,10 +81,10 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 		timeout: 5000,
 	});
 	if (options.mode !== "readonly") sqlite.exec("PRAGMA journal_mode = WAL");
-	sqlite.exec(`PRAGMA synchronous = ${options.synchronous}`);
+	sqlite.exec(`PRAGMA synchronous = ${options.synchronous ?? "NORMAL"}`);
 
 	const db = drizzle({ client: sqlite, logger: options.logger });
-	const handle: SqliteHandle<TSchema> = {
+	const handle: SqliteHandle = {
 		db,
 		sqlite: { prepare: (source) => statement(sqlite.prepare(source)) },
 		exec: (sql) => {
@@ -104,21 +101,17 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 	return handle;
 }
 
-export function openTestSqlite<TSchema extends Record<string, unknown>>(
-	schema: TSchema,
-	logger?: Logger,
-): SqliteHandle<TSchema> {
+export function openTestSqlite(logger?: Logger): SqliteHandle {
 	return openSqlite({
 		filename: ":memory:",
 		mode: "create",
 		synchronous: "OFF",
-		schema,
 		logger,
 	});
 }
 
-export function migrateSqlite<TSchema extends Record<string, unknown>>(
-	handle: SqliteHandle<TSchema>,
+export function migrateSqlite(
+	handle: SqliteHandle,
 	config: MigrationConfig,
 ): void {
 	const sqlite = drivers.get(handle);

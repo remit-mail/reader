@@ -18,7 +18,7 @@ import { decodeToken, encodeToken, resultList } from "../pagination.js";
 import { accountTable } from "../schema/i4-account-config.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 /**
  * A stored failure is a sentence the account card shows, not a transcript.

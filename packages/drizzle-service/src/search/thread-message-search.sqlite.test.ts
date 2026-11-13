@@ -39,7 +39,7 @@ const input = (
 });
 
 const open = (set: "mail" | "search") => {
-	const handle = openTestSqlite<Record<string, unknown>>({});
+	const handle = openTestSqlite();
 	applyMigrationSet(handle, set);
 	return handle;
 };

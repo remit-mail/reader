@@ -87,13 +87,11 @@ describe("schema version accounting", () => {
 			const handle = openSqlite({
 				filename: join(dir, `${database}.db`),
 				mode: "create",
-				synchronous: "NORMAL",
-				schema: {},
 			});
 			return [database, handle] as const;
 		}),
 	);
-	const sqliteOf = (database: string): SqliteHandle<Record<string, never>> => {
+	const sqliteOf = (database: string): SqliteHandle => {
 		const sqlite = databases.get(database);
 		assert.ok(sqlite, `no database file for ${database}`);
 		return sqlite;

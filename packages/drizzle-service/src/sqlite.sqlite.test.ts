@@ -11,14 +11,11 @@ import { openSqlite, openTestSqlite } from "./sqlite.js";
 import { failedWith } from "./test-error.js";
 
 const counters = sqliteTable("counters", { value: integer("value") });
-const schema = { counters };
-
 describe("openSqlite", () => {
 	const directory = mkdtempSync(join(tmpdir(), "open-sqlite-"));
 	after(() => rmSync(directory, { recursive: true, force: true }));
 
-	const create = (filename: string) =>
-		openSqlite({ filename, mode: "create", synchronous: "NORMAL", schema });
+	const create = (filename: string) => openSqlite({ filename, mode: "create" });
 
 	test("a writable file reports WAL", () => {
 		const handle = create(join(directory, "wal.db"));
@@ -46,8 +43,6 @@ describe("openSqlite", () => {
 			openSqlite({
 				filename: join(directory, "missing.db"),
 				mode: "open",
-				synchronous: "NORMAL",
-				schema,
 			}),
 		);
 	});
@@ -61,8 +56,6 @@ describe("openSqlite", () => {
 		const reader = openSqlite({
 			filename,
 			mode: "readonly",
-			synchronous: "NORMAL",
-			schema,
 		});
 		assert.throws(
 			() => reader.db.insert(counters).values({ value: 1 }).run(),
@@ -79,7 +72,7 @@ describe("a node:sqlite handle", () => {
 	});
 
 	const withPeople = () => {
-		const handle = openTestSqlite({ people });
+		const handle = openTestSqlite();
 		handle.exec(
 			"CREATE TABLE people (person_id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE)",
 		);
@@ -178,7 +171,7 @@ describe("a node:sqlite handle", () => {
 	});
 
 	test("a statement binds the full bound-parameter limit", () => {
-		const handle = openTestSqlite({});
+		const handle = openTestSqlite();
 		const limit = NODE_SQLITE_LIMITS.maxBoundParameters;
 		const params = Array.from({ length: limit }, (_, index) => index);
 		const placeholders = params.map(() => "?").join(",");

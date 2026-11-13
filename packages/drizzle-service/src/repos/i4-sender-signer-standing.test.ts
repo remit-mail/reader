@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { eq } from "drizzle-orm";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { senderSignerStandingTable } from "../schema.js";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { SenderSignerStandingRepo } from "./i4-sender-signer-standing.js";
 
 describe("SenderSignerStandingRepo", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: SenderSignerStandingRepo;
 

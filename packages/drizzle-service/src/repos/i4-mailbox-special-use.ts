@@ -23,7 +23,7 @@ import { randomId } from "../id.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 type AccountReader = Pick<
 	IAccountRepository,

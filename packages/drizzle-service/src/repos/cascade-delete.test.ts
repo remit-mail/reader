@@ -4,6 +4,7 @@ import { MailboxCursorState } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { syncStores } from "../databases.js";
+import type { Db } from "../db.js";
 import {
 	accountSettingTable,
 	accountTable,
@@ -20,7 +21,7 @@ import {
 	quarantineTable,
 	threadMessageTable,
 } from "../schema.js";
-import { createTestDb, type TestDb } from "../test-db.js";
+import { createTestDb } from "../test-db.js";
 import {
 	type CascadeEntity,
 	runDrizzleCascadeDelete,
@@ -45,7 +46,7 @@ const OTHER_MAILBOX_ID = "mbx-cascade-2";
 const QUARANTINE_ID = "quarantine-cascade-1";
 
 describe("runDrizzleCascadeDelete", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 
 	before(async () => {

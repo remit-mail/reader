@@ -15,8 +15,6 @@ const pingSqlite = async (path: string): Promise<void> => {
 	const handle = openSqlite({
 		filename: path,
 		mode: "readonly",
-		synchronous: "NORMAL",
-		schema: {},
 	});
 	try {
 		handle.sqlite.prepare("SELECT 1").get();

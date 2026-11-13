@@ -34,7 +34,7 @@ export const threadMessageSearchTable = sqliteTable("thread_message_fts", {
 	body: text("body").notNull(),
 });
 
-type AnyDb = RepositoryDb<Record<string, unknown>>;
+type AnyDb = RepositoryDb;
 
 type SearchDocument = typeof threadMessageSearchTable.$inferInsert;
 

@@ -44,8 +44,6 @@ const buildAuthAdapter = (config: AuthConfig) => {
 	const { db } = openSqlite({
 		filename: config.connectionString,
 		mode: "create",
-		synchronous: "NORMAL",
-		schema: authSchemaSqlite,
 	});
 	return drizzleAdapter(db, {
 		provider: "sqlite",

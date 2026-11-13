@@ -21,8 +21,6 @@ const createDatabase = async (dir: string, name: string): Promise<string> => {
 	const handle = openSqlite({
 		filename: path,
 		mode: "create",
-		synchronous: "NORMAL",
-		schema: {},
 	});
 	migrateSqlite(handle, { migrationsFolder: MIGRATIONS });
 	handle.close();

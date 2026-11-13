@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
+import type { Db } from "../db.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -8,7 +9,7 @@ import {
 import { messageDataSchema } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
-import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
+import { createSqliteTestDb } from "../test-db-sqlite.js";
 import type { DrizzleMessageRepository } from "./message.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
@@ -19,7 +20,7 @@ const SCHEMA = { ...messageDataSchema, threadMessages: threadMessageTable };
 // unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
 
 describe("DrizzleMessageRepository (sqlite)", () => {
-	let db: SqliteTestDb<typeof SCHEMA>;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: DrizzleMessageRepository;
 

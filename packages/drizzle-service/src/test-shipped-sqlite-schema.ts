@@ -58,7 +58,7 @@ export const migrationStatements = (set: MigrationSet): string[] =>
 
 /** Run every committed migration of a set against an open database. */
 export const applyMigrationSet = (
-	sqlite: Pick<SqliteHandle<Record<string, unknown>>, "exec">,
+	sqlite: Pick<SqliteHandle, "exec">,
 	set: MigrationSet,
 ): void => {
 	for (const statement of migrationStatements(set)) {

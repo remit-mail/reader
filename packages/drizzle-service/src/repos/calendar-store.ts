@@ -23,7 +23,7 @@ import { CalendarEventIndexRepo } from "./calendar-event-index.js";
 import { CalendarFeedTokenRepo } from "./calendar-feed-token.js";
 import { CalendarObjectRepo } from "./calendar-object.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 type CalendarBatchWrite = Exclude<CalendarWrite, SettleCalendarSuggestionWrite>;
 

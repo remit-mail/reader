@@ -12,7 +12,7 @@ import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { accountExportRequestTable } from "../schema/i4-account-export-request.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToItem(
 	row: typeof accountExportRequestTable.$inferSelect,

@@ -27,7 +27,7 @@ export interface RemovedBodyPartRow {
 
 export class MessageObjects {
 	constructor(
-		private readonly db: Pick<RepositoryDb<Record<string, unknown>>, "select">,
+		private readonly db: Pick<RepositoryDb, "select">,
 		private readonly store: MessageObjectStore,
 	) {}
 

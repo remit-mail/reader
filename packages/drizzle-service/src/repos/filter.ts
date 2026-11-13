@@ -18,7 +18,7 @@ import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { filterTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 const RULE_ASSERTION_FIELDS = [
 	"matchOperator",

@@ -70,7 +70,7 @@ const MIGRATIONS = new URL(
 let dir: string;
 let store: Store;
 let filename: string;
-let database: SqliteHandle<Record<string, unknown>>;
+let database: SqliteHandle;
 let deps: McpDeps;
 let mainAuth: Auth;
 let mainStore: IdentityStore;

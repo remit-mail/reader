@@ -48,7 +48,7 @@ import {
 	subjectMatch,
 } from "./thread-search-predicates.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 export const deriveThreadMessageId = (
 	threadId: string,

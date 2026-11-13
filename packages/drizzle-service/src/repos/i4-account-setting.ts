@@ -12,7 +12,7 @@ import type { RepositoryDb } from "../db.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 // The PG store derives its own deterministic id from the composite key. It is
 // stable within this backend but not byte-identical to the DDB base36 UUIDv5

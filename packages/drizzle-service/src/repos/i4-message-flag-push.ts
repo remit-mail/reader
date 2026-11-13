@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 export type { MessageFlagPushItem, PutMessageFlagPushInput };
 export type FlagPushOperation = MessageFlagPushItem["operation"];

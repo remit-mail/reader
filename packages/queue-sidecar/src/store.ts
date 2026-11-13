@@ -53,8 +53,6 @@ const releaseRedrive = sqliteTable("release_redrive", {
 	release: text("release").notNull(),
 });
 
-const schema = { queues, messages, dedup, releaseRedrive };
-
 export interface QueueDefinition {
 	readonly name: string;
 	readonly fifo: boolean;
@@ -130,8 +128,8 @@ const toQueueRecord = (row: QueueRow): QueueRecord => ({
  * here so the behaviour is testable without a running HTTP server.
  */
 export class QueueStore {
-	private readonly handle: SqliteHandle<typeof schema>;
-	private readonly db: SqliteHandle<typeof schema>["db"];
+	private readonly handle: SqliteHandle;
+	private readonly db: SqliteHandle["db"];
 	private sequenceCounter: bigint;
 	private readonly startedAt = Date.now();
 	private readonly lastReceiveAt = new Map<string, number>();
@@ -146,7 +144,6 @@ export class QueueStore {
 			filename,
 			mode: "create",
 			synchronous: "FULL",
-			schema,
 		});
 		this.db = this.handle.db;
 		this.migrate();

@@ -192,7 +192,6 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			filename: path,
 			mode: mode.kind === "check" ? "readonly" : "create",
 			synchronous: "FULL",
-			schema: {},
 		});
 	const appSqlite = open(paths.app);
 	const mailSqlite = open(paths.mail);

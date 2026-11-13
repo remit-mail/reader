@@ -12,7 +12,7 @@ import type { RepositoryDb, SqliteStore } from "../db.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 export class SyncWarningRepo implements ISyncWarningRepository {
 	private readonly db: DB;

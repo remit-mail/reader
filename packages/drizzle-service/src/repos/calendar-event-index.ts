@@ -9,7 +9,7 @@ import { chunkRows } from "../bound-parameters.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import { calendarEventIndexTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToOccurrence(
 	row: typeof calendarEventIndexTable.$inferSelect,

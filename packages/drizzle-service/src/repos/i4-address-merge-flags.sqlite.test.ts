@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { AddressFlags } from "@remit/data-ports";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import type { Db } from "../db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { AddressRepo } from "./i4-address.js";
 
 const FLAG_KEYS = [
@@ -18,7 +19,7 @@ const FLAG_KEYS = [
 const CONCURRENT_CALLS = 50;
 
 describe("concurrent flag merges on one address", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: AddressRepo;
 

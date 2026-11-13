@@ -8,7 +8,7 @@ import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { senderSignerStandingTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToStanding(
 	row: typeof senderSignerStandingTable.$inferSelect,

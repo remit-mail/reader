@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import type { Db } from "../db.js";
 import { calendarTable } from "../schema.js";
-import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
+import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { inList } from "./in-list.js";
 
 const SCHEMA = { calendars: calendarTable };
@@ -23,7 +24,7 @@ const calendar = (calendarId: string): typeof calendarTable.$inferInsert => ({
 });
 
 describe("inList on node:sqlite", () => {
-	let db: SqliteTestDb<typeof SCHEMA>;
+	let db: Db;
 	let close: () => Promise<void>;
 	const allIds = Array.from({ length: 150 }, (_, index) => `calendar-${index}`);
 

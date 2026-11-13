@@ -12,7 +12,7 @@ import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { configImportTable } from "../schema/i4-config-import.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 type StoredRef = Omit<ConfigImportUnresolvedRefItem, "mailboxId"> & {
 	mailboxId?: string;

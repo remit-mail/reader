@@ -54,7 +54,6 @@ const migratedTemplate = (): string => {
 		filename,
 		mode: "create",
 		synchronous: "OFF",
-		schema: {},
 	});
 	applyShippedMigrations(migrating);
 	migrating.close();

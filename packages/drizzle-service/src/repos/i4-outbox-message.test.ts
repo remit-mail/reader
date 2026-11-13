@@ -1,8 +1,9 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { syncBatch } from "../batch.js";
+import type { Db } from "../db.js";
 import { ForbiddenError, NotFoundError } from "../error.js";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { OutboxMessageRepo } from "./i4-outbox-message.js";
 
 function makeOutboxInput(accountId: string, accountConfigId: string) {
@@ -17,7 +18,7 @@ function makeOutboxInput(accountId: string, accountConfigId: string) {
 }
 
 describe("OutboxMessageRepo", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: OutboxMessageRepo;
 
