@@ -68,7 +68,7 @@
     "@kattebak/typespec-drizzle-orm-generator": "^6.3.0",
     "@kattebak/typespec-enum-emitter": "~1.2.3",
     "@kattebak/typespec-openapi-types-emitter": "1.0.2",
-    "@kattebak/typespec-zod-emitter": "^2.4.3",
+    "@kattebak/typespec-zod-emitter": "^2.5.0",
     "@remit/api-openapi-types": "file:build/openapi-types",
     "@remit/api-zod-schemas": "file:build/zod-schemas",
     "@remit/domain-enums": "file:build/ts-enums",
@@ -87,7 +87,7 @@
     "short-uuid": "^6.0.3",
     "tsx": "^4",
     "typescript": "^5.9.3",
-    "typespec-electrodb-emitter": "^5.2.2"
+    "typespec-electrodb-emitter": "^6.1.0"
   },
   "overrides": {
     "ajv": "8.20.0",
