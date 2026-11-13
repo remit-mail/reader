@@ -14,6 +14,7 @@ import type {
 	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterRepository,
+	ILabelMailboxRepository,
 	ILabelRepository,
 	IMailboxLockRepository,
 	IMailboxRepository,
@@ -115,6 +116,7 @@ export interface RemitClientCore {
 	filter: IFilterRepository;
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
+	labelMailbox: ILabelMailboxRepository;
 
 	// How often a sender has been seen arriving under one DKIM signing identity,
 	// per account. Read by the authenticity derivation to tell a familiar
@@ -227,6 +229,7 @@ export interface RemitClientRepositories {
 	filter: IFilterRepository;
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
+	labelMailbox: ILabelMailboxRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
 	calendarCollection: ICalendarCollectionRepository;
 	calendarObject: ICalendarObjectRepository;
@@ -348,6 +351,7 @@ export const createRemitCore = (
 		filter: repositories.filter,
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
+		labelMailbox: repositories.labelMailbox,
 		senderSignerStanding: repositories.senderSignerStanding,
 		calendarCollection: repositories.calendarCollection,
 		calendarObject: repositories.calendarObject,

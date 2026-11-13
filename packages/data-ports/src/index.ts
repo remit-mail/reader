@@ -56,6 +56,7 @@ export type { IConfigImportRepository } from "./interfaces/config-import.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
 export type { ILabelRepository } from "./interfaces/label.js";
+export type { ILabelMailboxRepository } from "./interfaces/label-mailbox.js";
 export type { IMailboxRepository } from "./interfaces/mailbox.js";
 export type {
 	IMailboxLockRepository,
@@ -168,6 +169,7 @@ export type {
 	FilterTestItem,
 	FlagsMergePatch,
 	LabelItem,
+	LabelMailboxItem,
 	ListOptions,
 	MailboxItem,
 	MailboxLockItem,
@@ -198,6 +200,7 @@ export type {
 	PutCalendarObjectInput,
 	PutCalendarSuggestionInput,
 	PutCalendarTaskInput,
+	PutLabelMailboxInput,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,
 	QuarantineItem,

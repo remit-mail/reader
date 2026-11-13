@@ -9,6 +9,7 @@ export {
 	calendarSuggestions,
 	envelopeAddresses,
 	envelopes,
+	labelMailboxes,
 	mailboxAttributeEntries,
 	mailboxes,
 	mailboxFlags,

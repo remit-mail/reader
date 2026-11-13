@@ -69,6 +69,7 @@ export { OutboxAttachmentRepo } from "./repos/i4-outbox-attachment.js";
 export * from "./repos/i4-outbox-message.js";
 export { SenderSignerStandingRepo } from "./repos/i4-sender-signer-standing.js";
 export { LabelRepo } from "./repos/label.js";
+export { LabelMailboxRepo } from "./repos/label-mailbox.js";
 export {
 	DrizzleMessageRepository,
 	deleteMessageSubtree,

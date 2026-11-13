@@ -15,10 +15,13 @@ import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
+	type AdoptLabelFolderDeps,
 	MailboxQueueService,
 	MailboxSyncService,
 	MailConnectionError,
 	type MailCredentials,
+	type RemitRootDeps,
+	reconcileRemitFolders,
 	standardMailboxManagement,
 } from "@remit/mailbox-service";
 import pMap from "p-map";
@@ -37,6 +40,8 @@ import { createImportedFolder } from "./imported-folder.js";
 import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
+
+type RemitFolderDeps = RemitRootDeps & AdoptLabelFolderDeps;
 
 /**
  * Whether this fan-out should enqueue a mailbox.
@@ -73,6 +78,18 @@ export const syncMailboxes = async (
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
 	} = client;
+	const mailboxQueue = new MailboxQueueService({
+		mailboxService,
+		enqueue: standardMailboxManagement(queues.mailboxManagement),
+		logger: log,
+	});
+	const remitFolders: RemitFolderDeps = {
+		mailbox: mailboxService,
+		mailboxQueue,
+		label: client.label,
+		labelMailbox: client.labelMailbox,
+		log,
+	};
 	const binder: ConfigBinderDeps = {
 		repositories: client,
 		appointFolderRole: (configId, accountId, role, mailboxId, lastKnownPath) =>
@@ -84,14 +101,7 @@ export const syncMailboxes = async (
 				mailboxId,
 				lastKnownPath,
 			),
-		createFolder: createImportedFolder(
-			mailboxService,
-			new MailboxQueueService({
-				mailboxService,
-				enqueue: standardMailboxManagement(queues.mailboxManagement),
-				logger: log,
-			}),
-		),
+		createFolder: createImportedFolder(mailboxService, mailboxQueue),
 	};
 
 	const { accountId } = event;
@@ -135,6 +145,7 @@ export const syncMailboxes = async (
 					mailboxSpecialUseService,
 					accountService,
 					binder,
+					remitFolders,
 					log,
 					emitFrom(ctx),
 					ctx.pool,
@@ -171,6 +182,7 @@ const syncMailboxesForAccount = async (
 	mailboxSpecialUseService: IMailboxSpecialUseRepository,
 	accountService: IAccountRepository,
 	binder: ConfigBinderDeps,
+	remitFolders: RemitFolderDeps,
 	log: Logger,
 	emit: EmitEvent,
 	pool: ConnectionPool,
@@ -227,6 +239,18 @@ const syncMailboxesForAccount = async (
 	}
 
 	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
+
+	const adopted = await reconcileRemitFolders(
+		remitFolders,
+		account,
+		await mailboxService.listAllByAccount(accountId),
+	);
+	if (adopted.length > 0) {
+		log.info(
+			{ accountId, adopted: adopted.length },
+			"Mapped label folders under the remit root",
+		);
+	}
 
 	// This fan-out is where an account's IMAP work is decided: one SEARCH per
 	// mailbox per event, on a queue every account shares. `GET /config` fires a

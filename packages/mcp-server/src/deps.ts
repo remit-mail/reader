@@ -3,6 +3,8 @@ import type {
 	IAccountRepository,
 	IAddressRepository,
 	IFilterRepository,
+	ILabelMailboxRepository,
+	ILabelRepository,
 	IMailboxRepository,
 	IMessageRepository,
 	IOrganizeJobRequestRepository,
@@ -38,12 +40,20 @@ export interface FilterToolDeps {
 }
 
 export interface McpDeps {
-	account: Pick<IAccountRepository, "get" | "listAllByAccountConfig">;
+	account: Pick<
+		IAccountRepository,
+		"get" | "listAllByAccountConfig" | "listMailSourcesByAccountConfig"
+	>;
 	mailbox: Pick<
 		IMailboxRepository,
 		"get" | "listAllByAccount" | "findByPath" | "resolveAccountId"
 	>;
 	address: Pick<IAddressRepository, "countCategoryOverridesSince">;
+	label: Pick<
+		ILabelRepository,
+		"create" | "findByNormalizedName" | "listByAccountConfig"
+	>;
+	labelMailbox: Pick<ILabelMailboxRepository, "get" | "put" | "listByAccount">;
 	message: Pick<
 		IMessageRepository,
 		"get" | "describe" | "countClassifiedSince"
@@ -77,6 +87,8 @@ export const mcpDepsOf = (
 	account: client.account,
 	mailbox: client.mailbox,
 	address: client.address,
+	label: client.label,
+	labelMailbox: client.labelMailbox,
 	message: client.message,
 	threadMessage: client.threadMessage,
 	filter: client.filter,

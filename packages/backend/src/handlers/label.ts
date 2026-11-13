@@ -9,7 +9,9 @@ import type {
 	LabelItem,
 	UpdateLabelInput,
 } from "@remit/data-ports";
-import { ownedAccount } from "@remit/mailbox-service";
+import { logger } from "@remit/logger";
+import { createLabelWithFolders, ownedAccount } from "@remit/mailbox-service";
+import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,
@@ -98,7 +100,7 @@ export const deleteLabelWithCascade = async (
 
 export const LabelOperations: Record<
 	LabelOperationIds,
-	OperationHandler<LabelOperationIds>
+	OperationHandler<LabelOperationIds, QueueName>
 > = {
 	LabelOperations_listLabels: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
@@ -132,7 +134,10 @@ export const LabelOperations: Record<
 		};
 	},
 
-	LabelOperations_createLabel: async (context, ctx: HandlerContext) => {
+	LabelOperations_createLabel: async (
+		context,
+		ctx: HandlerContext<QueueName>,
+	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as CreateLabelRequestBody;
@@ -141,12 +146,26 @@ export const LabelOperations: Record<
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 
-		const label = await client.label.create({
+		const { label } = unwrap(
+			await createLabelWithFolders(
+				{
+					account: client.account,
+					mailbox: client.mailbox,
+					label: client.label,
+					labelMailbox: client.labelMailbox,
+					mailboxQueue: client.mailboxQueue,
+					log: logger,
+				},
+				accountConfigId,
+				{ name: input.name, color: input.color },
+			),
+		);
+		const filters = await findFiltersForLabel(
+			client,
 			accountConfigId,
-			name: input.name,
-			color: input.color,
-		});
-		return toLabelResponse(label, 0);
+			label.labelId,
+		);
+		return toLabelResponse(label, filters.length);
 	},
 };
 

@@ -358,10 +358,12 @@ namespace RemitApi {
       | NotFoundError
       | UnauthorizedError;
 
+    @doc("Create a label, or return the one that already has this name, and queue its folder under the remit root of every connected mail account, creating that root when the account has none. Refused with 400 for a name that holds a folder separator or names a system folder.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createLabel(@path accountId: UUID, @body input: CreateLabelInput):
       | LabelResponse
+      | ValidationError
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;

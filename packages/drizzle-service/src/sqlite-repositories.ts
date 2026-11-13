@@ -29,6 +29,7 @@ import { OutboxAttachmentRepo } from "./repos/i4-outbox-attachment.js";
 import { OutboxMessageRepo } from "./repos/i4-outbox-message.js";
 import { SenderSignerStandingRepo } from "./repos/i4-sender-signer-standing.js";
 import { LabelRepo } from "./repos/label.js";
+import { LabelMailboxRepo } from "./repos/label-mailbox.js";
 import { DrizzleMessageRepository } from "./repos/message.js";
 import { DrizzleMessageFlagRepository } from "./repos/message-flag.js";
 import { MessageLabelRepo } from "./repos/message-label.js";
@@ -86,6 +87,7 @@ export const composeSqliteRepositories = (
 		flagPush: new MessageFlagPushRepo(mail.db),
 		filter: new FilterRepo(app.db),
 		label: new LabelRepo(app.db),
+		labelMailbox: new LabelMailboxRepo(mail.db),
 		messageLabel: new MessageLabelRepo(mail.db),
 		senderSignerStanding: new SenderSignerStandingRepo(mail.db),
 		calendarCollection: new CalendarCollectionRepo(app.db),

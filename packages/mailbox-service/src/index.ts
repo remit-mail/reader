@@ -182,6 +182,24 @@ export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
 export { ImapFlowConnection } from "./imapflow-connection.js";
 export {
+	type AdoptLabelFolderDeps,
+	adoptLabelFolders,
+	type CreateLabelDeps,
+	createLabelWithFolders,
+	ensureRemitRoot,
+	type LabelFolder,
+	type LabelFolderReadDeps,
+	type LabelFolderState,
+	type LabelWithFolders,
+	labelFolderOf,
+	listLabelsWithFolders,
+	type NewLabel,
+	type RemitRootDeps,
+	reconcileRemitFolders,
+	remitRootChildren,
+	resolveLabelFolder,
+} from "./label-folders.js";
+export {
 	backfillListIds,
 	type ListIdBackfillCheckpoint,
 	type ListIdBackfillCheckpointStore,
