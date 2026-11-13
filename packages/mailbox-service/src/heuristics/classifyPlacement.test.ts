@@ -1,3 +1,14 @@
+/**
+ * `classifyPlacement` had no dedicated unit test — only the DKIM/DMARC paths
+ * were exercised indirectly through realistic-mail fixtures elsewhere. Issue
+ * #300 (RFC 039 Decision 3/3a) added the user's placement instruction as a
+ * confident move independent of every DKIM/DMARC/provider signal, plus a
+ * `setAt` tie-break against `vip`/`wellknown` (Decision 3a). Issue #605 adds
+ * the other direction, `neverSpam`. These tests cover both instruction
+ * branches and the pre-existing DKIM/DMARC branches, so a regression in any of
+ * them shows up here.
+ */
+
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { MessageItem } from "@remit/data-ports";
@@ -20,8 +31,13 @@ const baseMessage = (overrides: Partial<MessageItem> = {}): MessageItem =>
 
 describe("classifyPlacement", () => {
 	describe("SenderOverride.Blocked (RFC 039 Decision 3)", () => {
-		it("demotes an inbox message from a blocked sender", () => {
+		it("demotes an inbox message from a blocked sender, independent of DKIM/DMARC", () => {
+			const message = baseMessage({
+				providerSpam: undefined,
+				authResult: undefined,
+			});
 			const verdict = classifyPlacement(
+				message,
 				"inbox",
 				SenderTrust.Unknown,
 				SenderOverride.Blocked,
@@ -36,6 +52,7 @@ describe("classifyPlacement", () => {
 
 		it("demotes a message sitting outside junk/inbox (e.g. a custom folder) from a blocked sender", () => {
 			const verdict = classifyPlacement(
+				baseMessage(),
 				"other",
 				SenderTrust.Unknown,
 				SenderOverride.Blocked,
@@ -47,6 +64,7 @@ describe("classifyPlacement", () => {
 
 		it("does not demote when the sender carries no instruction, all else equal", () => {
 			const verdict = classifyPlacement(
+				baseMessage({ providerSpam: undefined, authResult: undefined }),
 				"inbox",
 				SenderTrust.Unknown,
 				SenderOverride.None,
@@ -63,12 +81,31 @@ describe("classifyPlacement", () => {
 	describe("SenderOverride.NeverSpam (issue #605)", () => {
 		it("leaves a never-spam sender's mail filed in a user folder where it is", () => {
 			const verdict = classifyPlacement(
+				baseMessage(),
 				"other",
 				SenderTrust.Unknown,
 				SenderOverride.NeverSpam,
 				false,
 			);
 			assert.equal(verdict.action, "leave");
+		});
+
+		it("still demotes a never-spam sender's inbox mail on dkim-mismatch + dmarc-fail", () => {
+			const verdict = classifyPlacement(
+				baseMessage({
+					authResult: { dmarc: "Fail" },
+					authenticity: { fromDomain: "example.com", dkimMismatch: true },
+				}),
+				"inbox",
+				SenderTrust.Unknown,
+				SenderOverride.NeverSpam,
+				false,
+			);
+			assert.deepEqual(verdict, {
+				action: "move-to-junk",
+				confidence: "confident",
+				reasons: ["dkim-mismatch", "dmarc=fail", "sender=untrusted"],
+			});
 		});
 	});
 
@@ -164,6 +201,26 @@ describe("classifyPlacement", () => {
 			assert.equal(result.senderOverride, SenderOverride.Blocked);
 		});
 	});
+
+	describe("DKIM/DMARC paths (unaffected by SenderOverride.None)", () => {
+		it("demotes an untrusted sender's inbox mail on dkim-mismatch + dmarc-fail", () => {
+			const verdict = classifyPlacement(
+				baseMessage({
+					authResult: { dmarc: "Fail" },
+					authenticity: { fromDomain: "example.com", dkimMismatch: true },
+				}),
+				"inbox",
+				SenderTrust.Unknown,
+				SenderOverride.None,
+				false,
+			);
+			assert.deepEqual(verdict, {
+				action: "move-to-junk",
+				confidence: "confident",
+				reasons: ["dkim-mismatch", "dmarc=fail", "sender=untrusted"],
+			});
+		});
+	});
 });
 
 describe("decidePlacement", () => {
@@ -173,6 +230,22 @@ describe("decidePlacement", () => {
 			"junk",
 			SenderTrust.Unknown,
 			SenderOverride.Blocked,
+			false,
+			false,
+		);
+		assert.equal(decision.verdict.action, "move-to-junk");
+		assert.equal(decision.destination, undefined);
+	});
+
+	it("keeps a spoofed Junk arrival in Junk", () => {
+		const decision = decidePlacement(
+			baseMessage({
+				authResult: { dmarc: "Fail" },
+				authenticity: { fromDomain: "example.com", dkimMismatch: true },
+			}),
+			"junk",
+			SenderTrust.Unknown,
+			SenderOverride.None,
 			false,
 			false,
 		);
@@ -194,6 +267,22 @@ describe("decidePlacement", () => {
 			assert.equal(decision.destination, "inbox");
 		});
 	}
+
+	it("keeps a spoof of a never-spam sender in Junk", () => {
+		const decision = decidePlacement(
+			baseMessage({
+				authResult: { dmarc: "Fail" },
+				authenticity: { fromDomain: "example.com", dkimMismatch: true },
+			}),
+			"junk",
+			SenderTrust.Unknown,
+			SenderOverride.NeverSpam,
+			false,
+			false,
+		);
+		assert.equal(decision.verdict.action, "move-to-junk");
+		assert.equal(decision.destination, undefined);
+	});
 
 	it("files an autoArchive sender's Junk arrival in the Archive", () => {
 		const decision = decidePlacement(

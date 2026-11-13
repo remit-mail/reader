@@ -730,11 +730,10 @@ export type SearchOptions = {
 	 */
 	dkimMismatch?: boolean;
 	/**
-	 * Any-of set over the labels applied to the message (MessageLabel rows),
-	 * by a filter or by Remit's classification labels. An empty or absent set
-	 * means no label filter.
+	 * One label: rows in the label's folders, or rows whose message carries the
+	 * label (a MessageLabel row, applied by a filter or by Remit).
 	 */
-	messageLabelIds?: string[];
+	label?: { labelId: string; folderMailboxIds: string[] };
 	/**
 	 * The message date facet, over the row's `sentDate` in epoch millis:
 	 * `sentAfter` is inclusive, `sentBefore` exclusive, and either alone is an

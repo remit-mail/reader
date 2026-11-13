@@ -353,7 +353,6 @@ export const attachAccountIds = (
 export const buildUnifiedThreadSearch = (params: {
 	starredOnly: boolean;
 	searchText?: string;
-	messageLabelId?: string[];
 	from?: string;
 	subject?: string;
 	category?: MessageCategory[];
@@ -368,9 +367,6 @@ export const buildUnifiedThreadSearch = (params: {
 	...(params.subject ? { subject: params.subject } : {}),
 	...(params.starredOnly ? { starred: true } : {}),
 	...(params.category?.length ? { category: params.category } : {}),
-	...(params.messageLabelId?.length
-		? { messageLabelIds: params.messageLabelId }
-		: {}),
 	...(params.unread !== undefined ? { unread: params.unread } : {}),
 	...(params.attachments !== undefined
 		? { attachments: params.attachments }
@@ -467,7 +463,6 @@ export type UnifiedThreadParams = {
 	accountId?: string;
 	mailboxId?: string;
 	labelId?: string;
-	messageLabelId?: string[];
 	category?: MessageCategory[];
 	unread?: boolean;
 	attachments?: boolean;
@@ -493,10 +488,8 @@ export const executeUnifiedThreadListing = async (
 	accountConfigId: string,
 	params: UnifiedThreadParams,
 ): Promise<ThreadSearchResponse> => {
-	// A label list spans folders as a search does, so it reaches Junk.
 	const searching =
-		(params.searchText !== undefined && params.searchText.length > 0) ||
-		(params.messageLabelId?.length ?? 0) > 0;
+		params.searchText !== undefined && params.searchText.length > 0;
 	const {
 		mailboxIdToAccountId,
 		inboxMailboxIds: everyInboxMailboxId,
@@ -505,39 +498,31 @@ export const executeUnifiedThreadListing = async (
 		virtualCopyMailboxIds,
 	} = await buildInboxMailboxMap(accountConfigId, client);
 
-	const labelMailboxIds =
+	// A label matches the mail in its folders and the mail it was applied to,
+	// as one predicate, so the listing, the search and the count agree.
+	const label =
 		params.labelId === undefined
 			? undefined
-			: new Set(
-					(await client.labelMailbox.listByLabel(params.labelId)).map(
-						(row) => row.mailboxId,
-					),
-				);
-	const inLabel = (mailboxIds: Set<string>): Set<string> =>
-		labelMailboxIds === undefined
-			? mailboxIds
-			: new Set(
-					[...mailboxIds].filter((mailboxId) => labelMailboxIds.has(mailboxId)),
-				);
+			: {
+					labelId: params.labelId,
+					folderMailboxIds: (
+						await client.labelMailbox.listByLabel(params.labelId)
+					).map((row) => row.mailboxId),
+				};
 
-	// The label, account and folder scopes apply before the mode picks a set, so
-	// the listing, the search and the count all narrow by the same rule. Account
+	// The account and folder scopes apply before the mode picks a set, so the
+	// listing, the search and the count all narrow by the same rule. Account
 	// first, folder second: the folder intersects what the account left, so a
 	// folder of another account narrows to nothing rather than reinstating one.
 	const narrow = (mailboxIds: Set<string>): Set<string> =>
 		scopeToMailbox(
-			scopeToAccount(
-				inLabel(mailboxIds),
-				mailboxIdToAccountId,
-				params.accountId,
-			),
+			scopeToAccount(mailboxIds, mailboxIdToAccountId, params.accountId),
 			params.mailboxId,
 		);
-	// A label replaces INBOX as the listing scope: its folders sit outside INBOX.
+	// A label replaces INBOX as the listing scope: its mail sits anywhere a
+	// search reaches, Junk included.
 	const listingMailboxIds = narrow(
-		labelMailboxIds === undefined
-			? everyInboxMailboxId
-			: new Set(mailboxIdToAccountId.keys()),
+		label === undefined ? everyInboxMailboxId : everySearchMailboxId,
 	);
 	const starredMailboxIds = narrow(everyStarredMailboxId);
 	const searchMailboxIds = narrow(everySearchMailboxId);
@@ -551,7 +536,10 @@ export const executeUnifiedThreadListing = async (
 			? starredMailboxIds
 			: listingMailboxIds;
 
-	const search = buildUnifiedThreadSearch(params);
+	const search = {
+		...buildUnifiedThreadSearch(params),
+		...(label ? { label } : {}),
+	};
 	const page = {
 		continuationToken: params.continuationToken,
 		order: params.order,
@@ -654,7 +642,6 @@ export const UnifiedThreadOperations: Record<
 			accountId,
 			mailboxId,
 			labelId,
-			messageLabelId,
 			category,
 			unread,
 			attachments,
@@ -674,7 +661,6 @@ export const UnifiedThreadOperations: Record<
 			accountId?: string;
 			mailboxId?: string;
 			labelId?: string;
-			messageLabelId?: string | string[];
 			category?: MessageCategory | MessageCategory[];
 			unread?: boolean | string;
 			attachments?: boolean | string;
@@ -707,7 +693,6 @@ export const UnifiedThreadOperations: Record<
 			accountId: accountId || undefined,
 			mailboxId: mailboxId || undefined,
 			labelId: labelId || undefined,
-			messageLabelId: toArray(messageLabelId),
 			category: toArray(category),
 			unread: toBoolean(unread),
 			attachments: toBoolean(attachments),

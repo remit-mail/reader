@@ -1089,13 +1089,9 @@ namespace RemitApi {
       @query(#{ explode: true })
       mailboxId?: UUID,
 
-      @doc("List one label across every account: replaces the INBOX scope with that label's folder in each non-muted account. Composes with `query`, the field and row filters, `accountId`, `mailboxId` and `count` as a further narrowing of the same scope. A label the caller does not own matches nothing.")
+      @doc("List one label across every account: replaces the INBOX scope with the mail in that label's folder in each non-muted account, plus the mail the label was applied to, by a filter or by Remit (`Spam`, `Phishing`), in any folder a search reaches. Composes with `query`, the field and row filters, `accountId`, `mailboxId` and `count` as a further narrowing of the same scope. A label the caller does not own matches nothing.")
       @query(#{ explode: true })
       labelId?: UUID,
-
-      @doc("Only messages carrying any of these labels as applied to the message: by a filter's label action, or by Remit's classification labels such as `Spam` and `Phishing`. Repeated once per label, as a union. Like `query`, it widens the scope past INBOX to every folder a search reaches, Junk included, so one list holds the mail labelled `Spam` or `Phishing` wherever it sits. A label the caller does not own matches nothing.")
-      @query(#{ explode: true })
-      messageLabelId?: UUID[],
 
       @doc("Filter by whether the From address is muted. `false` excludes muted senders, `true` returns only them, and omitting it filters nothing. Muting lives on the Address rather than on the row, so this is evaluated against the sender's flags; it narrows the `count` exactly as it narrows the listing.")
       @query(#{ explode: true })

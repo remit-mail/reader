@@ -123,8 +123,7 @@ export {
 } from "./sender-mute.js";
 export {
 	readResolvedSpamSettings,
-	resolveSpamSettings,
-	SPAM_SETTING_NAMES,
+	SPAM_PLACEMENT_SETTINGS,
 	type SpamSettingsDeps,
 } from "./spam-settings.js";
 export {

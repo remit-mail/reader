@@ -12,6 +12,7 @@ import {
 	type IAccountRepository,
 	type IAccountSettingRepository,
 	readResolvedSpamSettings,
+	SPAM_PLACEMENT_SETTINGS,
 	type SpamDeployment,
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
@@ -102,10 +103,6 @@ export const readUserSettings = async (
 	};
 };
 
-const SPAM_PLACEMENT_SETTINGS = [
-	["spamPlacementSpam", AccountSettingName.SpamPlacementSpam],
-	["spamPlacementPhishing", AccountSettingName.SpamPlacementPhishing],
-] as const;
 
 export type UserSettingsOutcome =
 	| { ok: true; value: UserSettingsResponse }

@@ -56,10 +56,7 @@ import {
 	parsePartSource,
 } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
-import {
-	type ClassificationLabels,
-	ensureClassificationLabels,
-} from "./classification-labels.js";
+import { ensureLabel } from "./classification-labels.js";
 import { consultClassifier } from "./classifier/classifier-consult.js";
 import {
 	CLASSIFIER_OFF,
@@ -355,7 +352,6 @@ interface BatchLookups {
 	classifierGate: () => Promise<ClassifierGate>;
 	ownAddresses: () => Promise<string[]>;
 	spamSettings: () => Promise<SpamSettingsItem>;
-	spamLabels: () => Promise<ClassificationLabels>;
 }
 
 // A failed load is forgotten, so the next message retries it rather than the
@@ -968,7 +964,7 @@ export class BodySyncService {
 			arrival,
 			verdict.kind === "Junk" || spamPlacement.action === "Junk",
 			senderPlacement,
-			!filterDecision.move && spamPlacement.action !== "Warn",
+			!filterDecision.move,
 		);
 
 		// Additive label actions (RFC 034 Decision 3.1): every matching filter's
@@ -992,7 +988,6 @@ export class BodySyncService {
 		);
 
 		await this.applySpamLabel(
-			lookups,
 			messageId,
 			accountConfigId,
 			spamPlacement,
@@ -1425,16 +1420,19 @@ export class BodySyncService {
 	 * move that gives up leaves the message where it was, still suspect.
 	 */
 	private async applySpamLabel(
-		lookups: BatchLookups,
 		messageId: string,
 		accountConfigId: string,
 		placement: SpamPlacement,
 	): Promise<void> {
 		if (placement.action === "None") return;
-		const labels = await lookups.spamLabels();
+		const label = await ensureLabel(
+			this.spamConfig.labelService,
+			accountConfigId,
+			placement.label,
+		);
 		await this.spamConfig.messageLabelService.apply({
 			messageId,
-			labelId: labels[placement.label].labelId,
+			labelId: label.labelId,
 			accountConfigId,
 		});
 	}
@@ -1741,12 +1739,6 @@ export class BodySyncService {
 			spamSettings: once(() =>
 				readResolvedSpamSettings(this.spamConfig, accountConfigId),
 			),
-			spamLabels: once(() =>
-				ensureClassificationLabels(
-					this.spamConfig.labelService,
-					accountConfigId,
-				),
-			),
 		};
 	}
 
@@ -1755,7 +1747,7 @@ export class BodySyncService {
 		account: { accountId: string; accountConfigId: string },
 		message: MessageItem,
 		arrival: Arrival,
-		classifierJunk: boolean,
+		junk: boolean,
 		senderPlacement: () => Promise<SenderPlacement>,
 		move: boolean,
 	): Promise<PlacementUpdate> {
@@ -1777,7 +1769,7 @@ export class BodySyncService {
 				placement,
 				roles,
 				sender: await senderPlacement(),
-				classifierJunk,
+				junk,
 				move,
 				now: Date.now(),
 			},
