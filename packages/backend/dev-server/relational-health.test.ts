@@ -4,17 +4,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
-import Database from "better-sqlite3";
+import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { checkRelationalStore } from "./relational-health.js";
 
 const DATABASE_ENV = Object.values(SQLITE_DATABASE_ENV);
+
+const createFile = (filename: string): void => {
+	openSqlite({
+		filename,
+		mode: "create",
+		synchronous: "OFF",
+		schema: {},
+	}).close();
+};
 
 // Each database beside the one under test is a healthy file in the same
 // directory, so a test speaks about `path` alone.
 const pointAt = (path: string, directory: string): void => {
 	for (const name of DATABASE_ENV) {
 		const sibling = join(directory, `${name}.db`);
-		new Database(sibling).close();
+		createFile(sibling);
 		process.env[name] = sibling;
 	}
 	process.env[SQLITE_DATABASE_ENV.mail] = path;
@@ -51,7 +60,7 @@ describe("checkRelationalStore", () => {
 	it("is true when every SQLite file is reachable", async () => {
 		dir = mkdtempSync(join(tmpdir(), "remit-health-"));
 		const dbPath = join(dir, "mail.db");
-		new Database(dbPath).close();
+		createFile(dbPath);
 
 		process.env.DATA_BACKEND = "sqlite";
 		pointAt(dbPath, dir);
@@ -70,7 +79,7 @@ describe("checkRelationalStore", () => {
 	it("is false when the SQLite file exists but is unreadable", async () => {
 		dir = mkdtempSync(join(tmpdir(), "remit-health-"));
 		const dbPath = join(dir, "mail.db");
-		new Database(dbPath).close();
+		createFile(dbPath);
 		chmodSync(dbPath, 0o000);
 
 		process.env.DATA_BACKEND = "sqlite";
@@ -82,7 +91,7 @@ describe("checkRelationalStore", () => {
 	it("is false when the file is readable but no longer writable", async () => {
 		dir = mkdtempSync(join(tmpdir(), "remit-health-"));
 		const dbPath = join(dir, "mail.db");
-		new Database(dbPath).close();
+		createFile(dbPath);
 
 		process.env.DATA_BACKEND = "sqlite";
 		pointAt(dbPath, dir);

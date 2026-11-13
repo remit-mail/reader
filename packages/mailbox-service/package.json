@@ -62,9 +62,7 @@
     "test": "npm run test:typecheck && npm run test:run"
   },
   "devDependencies": {
-    "@remit/drizzle-service": "*",
-    "@types/better-sqlite3": "^7.6.13",
-    "better-sqlite3": "^12.11.1"
+    "@remit/drizzle-service": "*"
   },
   "dependencies": {
     "imapflow": "^2.9.1",
