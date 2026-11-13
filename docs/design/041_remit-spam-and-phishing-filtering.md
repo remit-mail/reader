@@ -45,6 +45,7 @@ type SpamRequest = {
     knownSender: boolean; // the owner has sent mail to this address
     senderMessagesSeen: number; // earlier messages from this address
     senderDomainMessagesSeen: number; // earlier messages from its registrable domain
+    senderDomainRegisteredAt?: string; // ISO 8601 from RDAP; absent when the registry publishes none
     classifierScores: ClassifierScoreItem[]; // the category classifier's answer, or empty
     modelAllowed: boolean; // the account has a model and is under its daily cap
   };
@@ -52,6 +53,8 @@ type SpamRequest = {
 ```
 
 Remit parses the message once, so a backend needs no MIME parser. The raw message travels too, for a backend that does its own parsing. Remit fills the authentication fields with `extractAuthResult` and the provider fields with `extractProviderSpam`.
+
+Remit fetches `senderDomainRegisteredAt` over RDAP while it gathers the evidence, in `mailbox-service`. It caches the answer in one row per registrable domain, because the date never changes. A registry that publishes no date leaves the field absent, and Remit never fills in a placeholder. DENIC's RDAP answer for a .de domain carries no registration event, so a missing date weighs lightly in the judge's score.
 
 ### Response
 
@@ -89,7 +92,7 @@ Remit makes no call for a message in any of these cases:
 3. One of the owner's filters matched the message.
 4. The message is a newsletter from a known sender. It carries List-Unsubscribe, passes DMARC and comes from a sender with earlier mail. All three must hold, because a phisher can add an unsubscribe header too.
 
-A sender the owner reported takes the fast track to Junk, with no call. Report spam sets the sender's `blocked` flag today, and `classifyPlacement` already sends a blocked sender to Junk. Remit keeps that list itself. Detected spam never adds a sender to it, and the spam service never sees it. Remit sends every other message to the spam service.
+Report spam sets the sender's `blocked` flag, and a blocked sender goes straight to Junk with no call. That flag lives on the user's own `Address` row, so the list is per user and never pooled across a deployment. Detected spam never sets it, and the spam service never sees it. Every other message goes to the spam service.
 
 ### Stage 2 runs mechanical checks, in the service
 
@@ -102,10 +105,10 @@ The inline engine runs these checks as a pure function of the request, with no l
 5. A domain label is punycode or mixes scripts, or two domains in the message share a UTS #39 skeleton without being equal.
 6. Rich HTML carries a single link or button, and it points to a domain other than the sender's.
 7. A domain or the address's local part has high character entropy, as a generated name does.
-8. The sender's domain has sent this account nothing before.
+8. The sender's domain has sent this account nothing before, or was registered recently.
 9. The category classifier gave `Spam` or `Phishing` a confident score.
 10. The provider calls the message spam. The engine trusts it least, since the owner's provider misjudges mail both ways.
-11. The display name spells out an email at another domain, or sits at a short edit distance from a label of the sender or link domains (today's `ForeignAddress` and `Lookalike`).
+11. The display name spells out an email at another domain, or sits a short edit distance from a sender or link domain label (today's `ForeignAddress` and `Lookalike`).
 
 Link checks count only for a sender with no earlier mail. The engine turns the checks into one score, for example with a fixed weight per check. A score under `cleanBelow` means `None`, and a score from `spamAt` up means `Junk`. Between those two thresholds the message is ambiguous, and goes to stage 3.
 
@@ -134,7 +137,7 @@ The owner's mail provider checks URL blocklists, authenticates the message and a
 
 ## Cost per message
 
-Stage 1 reads the sender's row that body sync already reads for placement, and counts the earlier mail the request reports. Stage 2 makes no network call. Stage 3 makes one model call, which counts against the account's daily cap of 500 (`DEFAULT_CLASSIFICATION_DAILY_LIMIT`), shared with the category classifier. No count exists yet of the mail that reaches stage 3.
+Stage 1 reads the sender's row that body sync already reads for placement, and counts the earlier mail the request reports. Remit makes one RDAP query per registrable domain it has not cached yet. Stage 2 makes no network call. Stage 3 makes one model call, which counts against the account's daily cap of 500 (`DEFAULT_CLASSIFICATION_DAILY_LIMIT`), shared with the category classifier. No count exists yet of the mail that reaches stage 3.
 
 ## Rescan
 
@@ -224,7 +227,7 @@ Each stage is one PR. Placement uses the verdicts from stage 7 on.
 
 1. The contract, the inline engine with checks 1, 2 and 10, `Message.spamVerdict`, and the stage 1 screens. Body sync records the response and moves nothing. Packages: `typespec`, `data-ports`, `drizzle-service`, `mailbox-service`.
 2. The link checks, gated by sender history, and the link half of cleanup item 1. Package: `mailbox-service`.
-3. Checks 5, 7 and 11, and the display-name part of cleanup item 1. Packages: `typespec`, `mailbox-service`.
+3. Checks 5, 7 and 11, the registration date in check 8 with its RDAP lookup and cache, and the display-name part of cleanup item 1. Packages: `typespec`, `drizzle-service`, `mailbox-service`.
 4. Stage 3: the model call and the shared daily cap. Package: `mailbox-service`.
 5. The rescan operation, the `rescan_messages` tool and cleanup item 6. Packages: `typespec`, `backend`, `mailbox-service`, `mcp-server`.
 6. Calibration: the rescan of the existing mailboxes, and the two thresholds in config. Package: `mailbox-service`.
@@ -234,8 +237,7 @@ Each stage is one PR. Placement uses the verdicts from stage 7 on.
 
 ## Open questions
 
-1. Whether Remit passes a domain's registration date as a fact, and where it gets it.
-2. Whether Remit passes ARC results, so that a trusted forwarder's seal excuses a DMARC failure (RFC 8617).
+1. Whether Remit passes ARC results, so that a trusted forwarder's seal excuses a DMARC failure (RFC 8617).
 
 ## FAQ
 
