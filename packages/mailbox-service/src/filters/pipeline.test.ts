@@ -1,15 +1,23 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import type { AccountItem, CreateFilterInput } from "@remit/data-ports";
+import {
+	type AccountItem,
+	type CreateFilterInput,
+	FILTER_NO_ACTION,
+	type FilterItem,
+	filterRuleFromClauses,
+} from "@remit/data-ports";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	ConnectionState,
 	FilterClauseField,
+	FilterDisabledReason,
 	FilterMatchOperator,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
+import { getDomain } from "tldts";
 import { PlacementMoveService } from "../placement-move.js";
 import {
 	openStore,
@@ -17,8 +25,8 @@ import {
 	seedAccount,
 	seedMailbox,
 } from "../test-helpers/test-store.js";
-import type { FilterMessage } from "./match.js";
 import { FilterPipeline } from "./pipeline.js";
+import type { FilterMessage } from "./rule.js";
 
 const ACCOUNT = "cfg-1";
 
@@ -60,11 +68,13 @@ const senders = (actionMailboxId: string) =>
 		accountConfigId: ACCOUNT,
 		name: "rule",
 		scope: FilterScope.Standing,
-		matchOperator: FilterMatchOperator.Or,
-		literalClauses: [
-			{ field: FilterClauseField.From, value: "npm@github.com" },
-			{ field: FilterClauseField.From, value: "notifications@github.com" },
-		],
+		rule: filterRuleFromClauses({
+			matchOperator: FilterMatchOperator.Or,
+			literalClauses: [
+				{ field: FilterClauseField.From, value: "npm@github.com" },
+				{ field: FilterClauseField.From, value: "notifications@github.com" },
+			],
+		}),
 		actionMailboxId,
 	});
 
@@ -141,8 +151,10 @@ describe("FilterPipeline over a filter with no rules", () => {
 			accountConfigId: ACCOUNT,
 			name: "Notifications npm",
 			scope: FilterScope.Standing,
-			matchOperator: FilterMatchOperator.And,
-			literalClauses: [],
+			rule: filterRuleFromClauses({
+				matchOperator: FilterMatchOperator.And,
+				literalClauses: [],
+			}),
 			actionMailboxId: archive,
 		});
 
@@ -193,5 +205,100 @@ describe("FilterPipeline scopes a filter to its folder's account", () => {
 		const stored = await store.filter.get(ACCOUNT, filter.filterId);
 		assert.equal(stored.state, "Disabled");
 		assert.equal(stored.disabledReason, "FolderMissing");
+	});
+});
+
+describe("FilterPipeline.decide by priority and stop", () => {
+	const github = filterRuleFromClauses({
+		matchOperator: FilterMatchOperator.And,
+		literalClauses: [{ field: FilterClauseField.From, value: "github.com" }],
+	});
+
+	const filter = (
+		filterId: string,
+		over: Partial<FilterItem> = {},
+	): FilterItem => ({
+		filterId,
+		accountConfigId: ACCOUNT,
+		name: filterId,
+		scope: FilterScope.Standing,
+		state: FilterState.Active,
+		disabledReason: FilterDisabledReason.None,
+		ruleChangedAt: 1,
+		actionChangedAt: 1,
+		rule: github,
+		priority: 0,
+		stop: false,
+		actionLabelId: FILTER_NO_ACTION,
+		actionMailboxId: FILTER_NO_ACTION,
+		createdAt: 1,
+		updatedAt: 1,
+		...over,
+	});
+
+	const decide = async (filters: FilterItem[]) =>
+		pipeline().decide({ filters, getDomain }, fromGithub);
+
+	it("gives the move to the lower priority before the newer action", async () => {
+		const decision = await decide([
+			filter("newer", { actionChangedAt: 9, actionMailboxId: projects }),
+			filter("first", { priority: -1, actionMailboxId: archive }),
+		]);
+
+		assert.deepEqual(decision.move, {
+			destinationMailboxId: archive,
+			filterId: "first",
+		});
+	});
+
+	it("keeps labels adding up while the first move wins", async () => {
+		const decision = await decide([
+			filter("a", { actionLabelId: "lbl-a", actionMailboxId: archive }),
+			filter("b", {
+				priority: 1,
+				actionLabelId: "lbl-b",
+				actionMailboxId: projects,
+			}),
+		]);
+
+		assert.deepEqual(decision, {
+			labels: [
+				{ labelId: "lbl-a", filterId: "a" },
+				{ labelId: "lbl-b", filterId: "b" },
+			],
+			move: { destinationMailboxId: archive, filterId: "a" },
+		});
+	});
+
+	it("stops after a matching filter's own label, before a later move", async () => {
+		const decision = await decide([
+			filter("label", { actionLabelId: "lbl-a", stop: true }),
+			filter("move", { priority: 1, actionMailboxId: projects }),
+		]);
+
+		assert.deepEqual(decision, {
+			labels: [{ labelId: "lbl-a", filterId: "label" }],
+		});
+	});
+
+	it("does not stop on a filter that did not match", async () => {
+		const decision = await decide([
+			filter("other", {
+				stop: true,
+				actionLabelId: "lbl-a",
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.And,
+					literalClauses: [
+						{ field: FilterClauseField.From, value: "stripe.com" },
+					],
+				}),
+			}),
+			filter("move", { priority: 1, actionMailboxId: projects }),
+		]);
+
+		assert.deepEqual(decision, {
+			labels: [],
+			move: { destinationMailboxId: projects, filterId: "move" },
+		});
 	});
 });

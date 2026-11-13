@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { AccountItem, FilterItem, MailboxItem } from "@remit/data-ports";
+import {
+	type AccountItem,
+	type FilterItem,
+	type FilterRuleV1Item,
+	filterRuleFromClauses,
+	type MailboxItem,
+} from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	type RecordingQueue,
@@ -76,8 +82,10 @@ beforeEach(async () => {
 		accountConfigId: theirAccount.accountConfigId,
 		name: "Theirs",
 		scope: FilterScope.Standing,
-		matchOperator: FilterMatchOperator.And,
-		literalClauses: [{ field: "Subject", value: "private" }],
+		rule: filterRuleFromClauses({
+			matchOperator: FilterMatchOperator.And,
+			literalClauses: [{ field: "Subject", value: "private" }],
+		}),
 		actionLabelId: "None",
 		actionMailboxId: "None",
 	});
@@ -102,6 +110,34 @@ type FilterView = {
 	name: string;
 	state: string;
 	actionMailboxId: string;
+	literalClauses: unknown[];
+	rule: FilterRuleV1Item;
+	priority: number;
+	stop: boolean;
+};
+
+const githubRule: FilterRuleV1Item = {
+	version: 1,
+	test: {
+		test: "allof",
+		tests: [
+			{
+				test: "address",
+				match: "Is",
+				part: "RegistrableDomain",
+				key: "github.com",
+			},
+			{
+				test: "not",
+				operand: {
+					test: "header",
+					match: "Contains",
+					header: "Subject",
+					key: "security",
+				},
+			},
+		],
+	},
 };
 
 type FilterOutcome = { filter: FilterView; organizeJobId?: string };
@@ -252,6 +288,28 @@ describe("create_filter", () => {
 		);
 		assert.deepEqual(await myFilters(), []);
 		assert.equal(capture.sent.length, 0);
+	});
+});
+
+describe("create_filter with a rule", () => {
+	it("stores the rule, priority and stop, and lists them", async () => {
+		await callToolJson<FilterOutcome>("create_filter", {
+			accountId: account.accountId,
+			name: "Quiet GitHub",
+			rule: githubRule,
+			priority: 2,
+			stop: true,
+			actionMailboxId: receipts.mailboxId,
+		});
+
+		const page = await callToolJson<{ items: FilterView[] }>("list_filters", {
+			accountId: account.accountId,
+		});
+		const [listed] = page.items;
+		assert.deepEqual(listed?.rule, githubRule);
+		assert.deepEqual(listed?.literalClauses, []);
+		assert.equal(listed?.priority, 2);
+		assert.equal(listed?.stop, true);
 	});
 });
 

@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { FilterItem } from "@remit/data-ports";
+import {
+	type FilterClauses,
+	type FilterItem,
+	filterRuleFromClauses,
+} from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
+import {
+	FilterDisabledReason,
+	FilterMatchOperator,
+	FilterScope,
+	FilterState,
+} from "@remit/domain-enums";
 import type { RemitClient } from "./data-client.js";
 import {
 	applyOrganize,
@@ -17,20 +26,21 @@ import {
 
 const ACCOUNT_CONFIG_ID = "cfg-1";
 
-const predicate = (
-	over: Partial<OrganizePredicate> = {},
-): OrganizePredicate => ({
-	matchOperator: FilterMatchOperator.And,
-	literalClauses: [],
+type ClausePredicate = Partial<FilterClauses & Omit<OrganizePredicate, "rule">>;
+
+const predicate = ({
+	matchOperator = FilterMatchOperator.And,
+	literalClauses = [],
+	...over
+}: ClausePredicate = {}): OrganizePredicate => ({
+	rule: filterRuleFromClauses({ matchOperator, literalClauses }),
 	actionLabelId: "None",
 	actionMailboxId: "None",
 	...over,
 });
 
 /** A predicate that matches every corpus row whose subject says "reservation". */
-const reservations = (
-	over: Partial<OrganizePredicate> = {},
-): OrganizePredicate =>
+const reservations = (over: ClausePredicate = {}): OrganizePredicate =>
 	predicate({
 		literalClauses: [{ field: "Subject", value: "reservation" }],
 		...over,
@@ -58,14 +68,17 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 	filterId: "filter-other",
 	accountConfigId: ACCOUNT_CONFIG_ID,
 	name: "other filter",
-	scope: "Standing",
+	scope: FilterScope.Standing,
 	state: FilterState.Active,
-	disabledReason: "None",
+	disabledReason: FilterDisabledReason.None,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,
-	matchOperator: FilterMatchOperator.And,
-	literalClauses: [],
-	rule: { version: 1, test: { test: "allof", tests: [] } },
+	rule: filterRuleFromClauses({
+		matchOperator: FilterMatchOperator.And,
+		literalClauses: [],
+	}),
+	priority: 0,
+	stop: false,
 	actionLabelId: "None",
 	actionMailboxId: "None",
 	createdAt: 0,
@@ -439,7 +452,10 @@ describe("a user-initiated apply outranks every standing filter (reader #497)", 
 			ruleChangedAt: 1_000,
 			actionChangedAt: 1_000,
 			actionMailboxId: "mbox-archive",
-			literalClauses: [{ field: "Subject", value: "reservation" }],
+			rule: filterRuleFromClauses({
+				matchOperator: FilterMatchOperator.And,
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			}),
 		});
 
 		const { messageIds: matched } = await matchAccepted(
@@ -494,10 +510,13 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			candidate("msg-3", {}),
 		]);
 
-		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
-			...predicate(),
-			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
-		});
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
+			}),
+		);
 
 		assert.deepEqual(messageIds, ["msg-1"]);
 	});
@@ -509,10 +528,13 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			candidate("msg-3", { from: "attacker@github.com.evil.example" }),
 		]);
 
-		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
-			...predicate(),
-			literalClauses: [{ field: "FromDomain", value: "github.com" }],
-		});
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				literalClauses: [{ field: "FromDomain", value: "github.com" }],
+			}),
+		);
 
 		assert.deepEqual(messageIds, ["msg-1", "msg-2"]);
 	});
@@ -675,6 +697,46 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 		);
 
 		assert.equal(messageIds.length, ORGANIZE_MATCH_LIMIT);
+	});
+
+	it("pages a nested rule it cannot narrow until the match cap fills", async () => {
+		const corpus = Array.from({ length: ORGANIZE_MATCH_LIMIT * 3 }, (_, i) =>
+			candidate(`mail-${i}`, {
+				from: "noreply@bank.example",
+				subject: i % 2 === 0 ? "Statement" : "Daily digest",
+			}),
+		);
+		const deps = storeBackedDeps(corpus);
+
+		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			rule: {
+				version: 1,
+				test: {
+					test: "allof",
+					tests: [
+						{
+							test: "address",
+							match: "Is",
+							part: "RegistrableDomain",
+							key: "bank.example",
+						},
+						{
+							test: "not",
+							operand: {
+								test: "header",
+								match: "Contains",
+								header: "Subject",
+								key: "digest",
+							},
+						},
+					],
+				},
+			},
+		});
+
+		assert.equal(messageIds.length, ORGANIZE_MATCH_LIMIT);
+		assert.equal(deps.pagesRead(), 2);
 	});
 
 	it("never queries for clauses nothing can satisfy", async () => {

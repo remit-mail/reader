@@ -1,19 +1,19 @@
-import type {
-	FilterItem,
-	IFilterRepository,
-	IMailboxRepository,
-	IMessageLabelRepository,
+import {
+	FILTER_NO_ACTION,
+	type FilterItem,
+	type IFilterRepository,
+	type IMailboxRepository,
+	type IMessageLabelRepository,
 } from "@remit/data-ports";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
 import type { FolderPlacement } from "../heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
+	evaluateRule,
 	type FilterMessage,
 	type GetDomain,
-	literalClausesMatch,
-	NO_ACTION,
-	selectMoveWinner,
-} from "./match.js";
+	orderFilters,
+} from "./rule.js";
 
 export interface FilterLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -70,40 +70,31 @@ export class FilterPipeline {
 	) {}
 
 	decide(prepared: PreparedFilters, msg: FilterMessage): FilterDecision {
-		const matched = prepared.filters.filter((filter) =>
-			literalClausesMatch(
-				filter.literalClauses,
-				filter.matchOperator,
-				msg,
-				prepared.getDomain,
-			),
-		);
-		if (matched.length === 0) return EMPTY_DECISION;
-
 		const labels: FilterDecision["labels"] = [];
 		const seenLabels = new Set<string>();
-		for (const filter of matched) {
-			if (filter.actionLabelId === NO_ACTION) continue;
-			if (seenLabels.has(filter.actionLabelId)) continue;
-			seenLabels.add(filter.actionLabelId);
-			labels.push({ labelId: filter.actionLabelId, filterId: filter.filterId });
+		let move: FilterDecision["move"];
+		for (const filter of orderFilters(prepared.filters)) {
+			if (!evaluateRule(filter.rule, msg, prepared.getDomain)) continue;
+			if (
+				filter.actionLabelId !== FILTER_NO_ACTION &&
+				!seenLabels.has(filter.actionLabelId)
+			) {
+				seenLabels.add(filter.actionLabelId);
+				labels.push({
+					labelId: filter.actionLabelId,
+					filterId: filter.filterId,
+				});
+			}
+			if (!move && filter.actionMailboxId !== FILTER_NO_ACTION) {
+				move = {
+					destinationMailboxId: filter.actionMailboxId,
+					filterId: filter.filterId,
+				};
+			}
+			if (filter.stop) break;
 		}
-
-		const winner = selectMoveWinner(
-			matched.filter((filter) => filter.actionMailboxId !== NO_ACTION),
-		);
-
-		return {
-			labels,
-			...(winner
-				? {
-						move: {
-							destinationMailboxId: winner.actionMailboxId,
-							filterId: winner.filterId,
-						},
-					}
-				: {}),
-		};
+		if (labels.length === 0 && !move) return EMPTY_DECISION;
+		return { labels, ...(move ? { move } : {}) };
 	}
 
 	/**
@@ -117,7 +108,7 @@ export class FilterPipeline {
 		accountId: string,
 		filter: FilterItem,
 	): Promise<boolean> {
-		if (filter.actionMailboxId === NO_ACTION) return true;
+		if (filter.actionMailboxId === FILTER_NO_ACTION) return true;
 		const owner = await this.config.mailboxService.resolveAccountId(
 			filter.actionMailboxId,
 		);

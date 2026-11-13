@@ -197,7 +197,7 @@ test("a configuration exports as a document the current schema accepts", async (
 
 	assert.equal(ReaderConfigDocumentSchema.safeParse(document).success, true);
 	assert.equal(document.kind, "reader.config");
-	assert.equal(document.schemaVersion, 2);
+	assert.equal(document.schemaVersion, 3);
 	assert.deepEqual(document.provenance, {
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		instance: "reader.ischen.nl",
@@ -379,11 +379,26 @@ test("a filter names its label and its folder, never their ids", async () => {
 	const [invoices, release] = document.filters;
 
 	assert.equal(invoices?.actionLabelName, "Facturen");
-	assert.equal(invoices?.matchOperator, "Or");
-	assert.deepEqual(invoices?.literalClauses, [
-		{ field: "Subject", value: "factuur" },
-		{ field: "FromDomain", value: "moneybird.com" },
-	]);
+	assert.deepEqual(invoices?.rule, {
+		version: 1,
+		test: {
+			test: "anyof",
+			tests: [
+				{
+					test: "header",
+					match: "Contains",
+					header: "Subject",
+					key: "factuur",
+				},
+				{
+					test: "address",
+					match: "Is",
+					part: "RegistrableDomain",
+					key: "moneybird.com",
+				},
+			],
+		},
+	});
 	assert.equal(invoices?.expiresAt, null);
 
 	assert.equal(release?.actionLabelName, null);

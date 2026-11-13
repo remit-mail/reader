@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import type { MailboxItem } from "@remit/data-ports";
+import { filterRuleFromClauses, type MailboxItem } from "@remit/data-ports";
 import {
 	FilterClauseField,
+	FilterMatchOperator,
 	FilterScope,
 	MailboxCursorState,
 	MessageStatus,
@@ -149,9 +150,12 @@ const arrangeFiling = async () => {
 		accountConfigId: w.account.accountConfigId,
 		name: "From a friend",
 		scope: FilterScope.Standing,
-		literalClauses: [
-			{ field: FilterClauseField.From, value: "friend@example.com" },
-		],
+		rule: filterRuleFromClauses({
+			matchOperator: FilterMatchOperator.And,
+			literalClauses: [
+				{ field: FilterClauseField.From, value: "friend@example.com" },
+			],
+		}),
 		actionMailboxId: travel.mailboxId,
 	});
 	// Delivered after the filter was set, the only mail a filter files.

@@ -87,7 +87,7 @@ Any write through either API stores version 1. Every migration adds a column wit
 
 `create_filter`, `update_filter` and `/accounts/{accountId}/filters` take either a `rule` field or the clause fields. A rule of leaves under one `allof` or `anyof` maps back to clauses, and reads return the clause fields for such a rule. A rule that maps to no clause list reads with empty `literalClauses`, so `Filter.literalClauses` drops `@minItems(1)`. Update refuses a clause edit to such a filter and points the caller at `rule`.
 
-The narrowing query that `literalClauseTerms` builds today reads only the rule's top node. A single leaf, or a flat `allof` or `anyof`, becomes the flat term list that `listByFieldTerms` takes, as an and-query or an or-query. Any other rule narrows nothing.
+The narrowing query that `ruleNarrowing` builds reads only the rule's top node and its direct children. A single leaf, or the leaf children of an `allof` or `anyof`, becomes the flat term list that `listByFieldTerms` takes, as an and-query or an or-query. In an `allof`, a child that cannot narrow (a nested node, a `not` or `hasWords`) is skipped and its siblings' terms are kept, because and-ing a subset of the terms returns a superset of the matches. An `anyof` with such a child narrows nothing, and so does a top `not`. A `not` never becomes a positive term.
 
 ### Which account lists a filter
 

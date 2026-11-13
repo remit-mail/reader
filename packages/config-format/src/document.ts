@@ -2,7 +2,9 @@ import {
 	AccountAuthType,
 	CanonicalMailboxRole,
 	FilterClauseField,
-	FilterMatchOperator,
+	FilterRuleAddressPart,
+	FilterRuleHeader,
+	FilterRuleMatch,
 	FilterScope,
 	LabelColor,
 	MessageCategory,
@@ -209,13 +211,74 @@ export const FolderRefSchema = z.strictObject({
 	folderPath: ImapPath,
 });
 
+const RuleKey = z.string().max(256);
+const RuleMatch = z.enum(FilterRuleMatch);
+const RuleHeader = z.enum(FilterRuleHeader);
+const RuleAddressPart = z.enum(FilterRuleAddressPart);
+
+export type ConfigFilterTest =
+	| { test: "allof"; tests: ConfigFilterTest[] }
+	| { test: "anyof"; tests: ConfigFilterTest[] }
+	| { test: "not"; operand: ConfigFilterTest }
+	| {
+			test: "header";
+			match: z.infer<typeof RuleMatch>;
+			header: z.infer<typeof RuleHeader>;
+			key: string;
+	  }
+	| {
+			test: "address";
+			match: z.infer<typeof RuleMatch>;
+			part: z.infer<typeof RuleAddressPart>;
+			key: string;
+	  }
+	| { test: "hasWords"; words: string[] };
+
+export const FilterTestSchema: z.ZodType<ConfigFilterTest> = z
+	.lazy(() =>
+		z.discriminatedUnion("test", [
+			z.strictObject({
+				test: z.literal("allof"),
+				tests: z.array(FilterTestSchema).min(1).max(50),
+			}),
+			z.strictObject({
+				test: z.literal("anyof"),
+				tests: z.array(FilterTestSchema).min(1).max(50),
+			}),
+			z.strictObject({ test: z.literal("not"), operand: FilterTestSchema }),
+			z.strictObject({
+				test: z.literal("header"),
+				match: RuleMatch,
+				header: RuleHeader,
+				key: RuleKey,
+			}),
+			z.strictObject({
+				test: z.literal("address"),
+				match: RuleMatch,
+				part: RuleAddressPart,
+				key: RuleKey,
+			}),
+			z.strictObject({
+				test: z.literal("hasWords"),
+				words: z.array(RuleKey),
+			}),
+		]),
+	)
+	.meta({ id: "FilterTest" });
+
+export const FilterRuleSchema = z.strictObject({
+	version: z.literal(1),
+	test: FilterTestSchema,
+});
+
 export const FilterSchema = z.strictObject({
 	name: z.string().min(1).max(256),
 	scope: z.enum(FilterScope),
 	/** ISO 8601 with offset when the scope is Temporary, otherwise null. */
 	expiresAt: IsoDateTime.nullable(),
-	matchOperator: z.enum(FilterMatchOperator),
-	literalClauses: z.array(FilterClauseSchema).min(1),
+	rule: FilterRuleSchema,
+	priority: z.int(),
+	stop: z.boolean(),
 	/** The label this filter applies, by name — ids are local to an instance. */
 	actionLabelName: z.string().min(1).max(140).nullable(),
 	actionFolder: FolderRefSchema.nullable(),

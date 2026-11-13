@@ -757,6 +757,58 @@ test("a filter's label travels by name, and the imported filter points at the ne
 	assert.equal(filter?.actionLabelId, label?.labelId);
 });
 
+test("a nested rule with its priority and stop survives an export and an import", async () => {
+	const rule: FilterItem["rule"] = {
+		version: 1,
+		test: {
+			test: "allof",
+			tests: [
+				{
+					test: "address",
+					match: "Is",
+					part: "RegistrableDomain",
+					key: "github.com",
+				},
+				{
+					test: "not",
+					operand: {
+						test: "anyof",
+						tests: [
+							{
+								test: "header",
+								match: "Contains",
+								header: "Subject",
+								key: "security",
+							},
+							{ test: "hasWords", words: ["urgent"] },
+						],
+					},
+				},
+			],
+		},
+	};
+	const fixture = sourceFixture();
+	fixture.filters = [
+		makeFilter({
+			filterId: "flt-github",
+			name: "Quiet GitHub",
+			rule,
+			priority: 4,
+			stop: true,
+		}),
+	];
+	const document = await exportSource(fixture);
+	const store = emptyStore();
+
+	const report = reportOf(await apply(store, document));
+
+	assert.deepEqual(report.errors, []);
+	const [imported] = store.filters;
+	assert.deepEqual(imported?.rule, rule);
+	assert.equal(imported?.priority, 4);
+	assert.equal(imported?.stop, true);
+});
+
 test("a flagged sender arrives ahead of its mail, keyed on the email string", async () => {
 	const document = await exportSource();
 	const store = emptyStore();

@@ -5,8 +5,15 @@ export {
 } from "./classifier-scores.js";
 export type { TestResult } from "./connection-test.js";
 export {
+	type FilterRuleLeafItem,
+	FilterRuleV1Schema,
 	filterClausesFromRule,
 	filterRuleFromClauses,
+	filterRuleHasClauses,
+	filterRuleLeaves,
+	filterRuleLimitRefusal,
+	MAX_FILTER_RULE_DEPTH,
+	MAX_FILTER_RULE_LEAVES,
 	readStoredFilterRule,
 } from "./filter-rule.js";
 export { deriveFilterTtl } from "./filter-ttl.js";

@@ -12,6 +12,7 @@ import {
 	type ConfigImportUnresolvedRefItem,
 	deriveFilterTtl,
 	type FilterItem,
+	filterRuleLimitRefusal,
 	type LabelItem,
 } from "@remit/data-ports";
 import { ensureAccountConfig } from "@remit/data-ports/account-config";
@@ -218,6 +219,14 @@ const validateDocument = (
 	]);
 
 	for (const filter of document.filters) {
+		const ruleRefusal = filterRuleLimitRefusal(filter.rule);
+		if (ruleRefusal !== null) {
+			errors.push(
+				problem("invalid_rule", `Filter "${filter.name}": ${ruleRefusal}`, {
+					filter: filter.name,
+				}),
+			);
+		}
 		if (
 			filter.actionLabelName !== null &&
 			!labelNames.has(filter.actionLabelName)
@@ -498,8 +507,9 @@ const applyDocument = async (
 			scope: filter.scope,
 			expiresAt: filter.expiresAt ?? undefined,
 			ttl: deriveFilterTtl(filter.scope, filter.expiresAt ?? undefined),
-			matchOperator: filter.matchOperator,
-			literalClauses: filter.literalClauses,
+			rule: filter.rule,
+			priority: filter.priority,
+			stop: filter.stop,
 			actionLabelId:
 				filter.actionLabelName === null
 					? NO_ACTION

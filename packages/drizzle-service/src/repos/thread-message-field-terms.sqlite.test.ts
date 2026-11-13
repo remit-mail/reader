@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type { CreateThreadMessageInput } from "@remit/data-ports";
+import {
+	type CreateThreadMessageInput,
+	MAX_FILTER_RULE_LEAVES,
+} from "@remit/data-ports";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { selectsIssuedDuring } from "../test-query-plan.js";
 import { sharedDatabases } from "../test-sqlite.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 import {
@@ -285,5 +289,38 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 			first.items.some((seen) => seen.messageId === item.messageId),
 		);
 		assert.deepEqual(overlap, [], "pages do not repeat a row");
+	});
+
+	test("a flat rule at the leaf cap binds at most 100 parameters per statement", async () => {
+		const terms = Array.from(
+			{ length: MAX_FILTER_RULE_LEAVES },
+			(_, index) => ({
+				field: "sender" as const,
+				contains: `sender-${index}.example`,
+			}),
+		);
+		const first = await repo.listByFieldTerms(
+			ACCOUNT,
+			[{ field: "sender", contains: "other.example" }],
+			{ limit: 2 },
+		);
+
+		for (const operator of ["and", "or"] as const) {
+			const selects = await selectsIssuedDuring(() =>
+				repo.listByFieldTerms(ACCOUNT, terms, {
+					operator,
+					limit: THREAD_SEARCH_MAX_LIMIT,
+					continuationToken: first.continuationToken,
+					excludeDeleted: true,
+					mailboxIds: [MAILBOX, ARCHIVE],
+				}),
+			);
+			for (const source of selects) {
+				assert.ok(
+					(source.match(/\?/g) ?? []).length <= 100,
+					`${operator}: ${source}`,
+				);
+			}
+		}
 	});
 });

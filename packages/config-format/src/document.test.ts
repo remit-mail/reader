@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
 	AccountAuthType,
 	CanonicalMailboxRole,
-	FilterClauseField,
 	LabelColor,
 	MessageCategory,
 } from "@remit/domain-enums";
@@ -90,8 +89,17 @@ test("a filter names its label by name and its folder by account and path", () =
 		name: "keep",
 		scope: "Standing",
 		expiresAt: null,
-		matchOperator: "And",
-		literalClauses: [{ field: FilterClauseField.ListId, value: "x.example" }],
+		rule: {
+			version: 1,
+			test: {
+				test: "header",
+				match: "Is",
+				header: "ListId",
+				key: "x.example",
+			},
+		},
+		priority: 0,
+		stop: false,
 		actionLabelName: "Facturen",
 		actionFolder: {
 			accountId: "6f4c2c309a2c4a7f9f9f1f2c3",

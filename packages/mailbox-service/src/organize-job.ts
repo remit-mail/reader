@@ -1,12 +1,12 @@
-import type {
-	CreateOrganizeJobRequestInput,
-	IOrganizeJobRequestRepository,
-	OrganizeJobEvent,
-	OrganizeJobRequestItem,
-	QueueProducer,
+import {
+	type CreateOrganizeJobRequestInput,
+	FILTER_NO_ACTION,
+	type IOrganizeJobRequestRepository,
+	type OrganizeJobEvent,
+	type OrganizeJobRequestItem,
+	type QueueProducer,
 } from "@remit/data-ports";
 import { FilterMatchOperator } from "@remit/domain-enums";
-import { NO_ACTION } from "./filters/match.js";
 
 const ORGANIZE_JOB_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -41,11 +41,11 @@ const jobColumns = (
 			filterId: request.filterId,
 			matchOperator: FilterMatchOperator.And,
 			literalClauses: [],
-			actionLabelId: NO_ACTION,
-			actionMailboxId: NO_ACTION,
+			actionLabelId: FILTER_NO_ACTION,
+			actionMailboxId: FILTER_NO_ACTION,
 		};
 	}
-	return { filterId: NO_ACTION, ...request.predicate };
+	return { filterId: FILTER_NO_ACTION, ...request.predicate };
 };
 
 // A filter job names only the filter; the worker reads it when it runs.

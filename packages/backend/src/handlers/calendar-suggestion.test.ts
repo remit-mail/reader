@@ -14,6 +14,10 @@ import type {
 	PutCalendarSuggestionInput,
 	SettleCalendarSuggestionInput,
 } from "@remit/data-ports";
+import {
+	filterClausesFromRule,
+	filterRuleFromClauses,
+} from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	CalendarAnswerOvertaken,
@@ -138,8 +142,10 @@ const muteRule = (sender: string): FilterItem =>
 		name: `Muted invitations from ${sender}`,
 		scope: "Standing",
 		state: "Active",
-		matchOperator: "And",
-		literalClauses: [{ field: "From", value: sender }],
+		rule: filterRuleFromClauses({
+			matchOperator: "And",
+			literalClauses: [{ field: "From", value: sender }],
+		}),
 		actionLabelId: "None",
 		actionMailboxId: "None",
 	}) as unknown as FilterItem;
@@ -258,9 +264,20 @@ describe("muteSender", () => {
 		assert.equal(created.length, 1);
 		assert.equal(created[0]?.accountConfigId, ACCOUNT_CONFIG_ID);
 		assert.equal(created[0]?.scope, "Standing");
-		assert.deepEqual(created[0]?.literalClauses, [
-			{ field: "From", value: "organizer@example.test" },
-		]);
+		assert.deepEqual(created[0]?.rule, {
+			version: 1,
+			test: {
+				test: "allof",
+				tests: [
+					{
+						test: "header",
+						match: "Contains",
+						header: "From",
+						key: "organizer@example.test",
+					},
+				],
+			},
+		});
 		assert.match(created[0]?.name ?? "", /organizer@example\.test/);
 	});
 
@@ -692,9 +709,10 @@ describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
 			FilterState.Active,
 		);
 		assert.equal(rules.length, 1);
-		assert.deepEqual(rules[0]?.literalClauses, [
-			{ field: "From", value: "organizer@example.test" },
-		]);
+		assert.deepEqual(
+			rules.map((rule) => filterClausesFromRule(rule.rule).literalClauses),
+			[[{ field: "From", value: "organizer@example.test" }]],
+		);
 	});
 
 	test("writes no rule when the request does not ask to mute", async () => {
@@ -1109,7 +1127,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			FilterState.Active,
 		);
 		assert.deepEqual(
-			rules.map((rule) => rule.literalClauses),
+			rules.map((rule) => filterClausesFromRule(rule.rule).literalClauses),
 			[[{ field: "From", value: "organizer@example.test" }]],
 		);
 	});

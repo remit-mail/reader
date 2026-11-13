@@ -10,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import type { MailboxItem } from "@remit/data-ports";
+import { filterRuleFromClauses, type MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
@@ -24,6 +24,11 @@ import { FolderRoleOperations } from "./folder-role.js";
 import { MessageBulkOperations } from "./message.js";
 
 let client: RemitClient;
+
+const RULE = filterRuleFromClauses({
+	matchOperator: "And",
+	literalClauses: [{ field: "From", value: "billing@example.com" }],
+});
 
 const SUB = "cognito-sub-365";
 const ACCOUNT_ID = "acc-365";
@@ -73,15 +78,15 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 			get: async () => ({ mailboxId: "mbx-source" }),
 		},
 		filter: {
-			get: async () => ({ filterId: "flt-1", scope: "Standing" }),
+			get: async () => ({ filterId: "flt-1", scope: "Standing", rule: RULE }),
 			update: async (...args: unknown[]) => {
 				writes.filterPatches.push(args);
-				return { filterId: "flt-1" };
+				return { filterId: "flt-1", rule: RULE };
 			},
 			listByAccountConfig: async () => [],
 			create: async (input: unknown) => {
 				writes.filters.push(input);
-				return { filterId: "flt-1" };
+				return { filterId: "flt-1", rule: RULE };
 			},
 		},
 		organizeJobRequest: {
@@ -139,6 +144,7 @@ const createFilter = () =>
 		requestBody: {
 			name: "Invoices",
 			scope: "Standing",
+			literalClauses: [{ field: "From", value: "billing@example.com" }],
 			actionMailboxId: TARGET,
 		},
 	});
@@ -238,6 +244,7 @@ describe("a write that binds to a folder requires a settled folder", () => {
 			requestBody: {
 				name: "Just a label",
 				scope: "Standing",
+				literalClauses: [{ field: "From", value: "billing@example.com" }],
 				actionMailboxId: "None",
 			},
 		});

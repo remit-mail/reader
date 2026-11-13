@@ -1,4 +1,12 @@
+import {
+	FilterClauseField,
+	FilterMatchOperator,
+	FilterRuleAddressPart,
+	FilterRuleHeader,
+	FilterRuleMatch,
+} from "@remit/domain-enums";
 import { z } from "zod";
+import { type ConfigFilterTest, FilterClauseSchema } from "./document.js";
 import { ConfigVersionError } from "./errors.js";
 import { CURRENT_SCHEMA_VERSION } from "./version.js";
 
@@ -33,12 +41,88 @@ const dropFilterAnchors: ConfigMigration = {
 	}),
 };
 
+const clauseTest = (
+	clause: z.infer<typeof FilterClauseSchema>,
+): ConfigFilterTest => {
+	switch (clause.field) {
+		case FilterClauseField.From:
+			return {
+				test: "header",
+				match: FilterRuleMatch.Contains,
+				header: FilterRuleHeader.From,
+				key: clause.value,
+			};
+		case FilterClauseField.Subject:
+			return {
+				test: "header",
+				match: FilterRuleMatch.Contains,
+				header: FilterRuleHeader.Subject,
+				key: clause.value,
+			};
+		case FilterClauseField.ListId:
+			return {
+				test: "header",
+				match: FilterRuleMatch.Is,
+				header: FilterRuleHeader.ListId,
+				key: clause.value,
+			};
+		case FilterClauseField.FromDomain:
+			return {
+				test: "address",
+				match: FilterRuleMatch.Is,
+				part: FilterRuleAddressPart.RegistrableDomain,
+				key: clause.value,
+			};
+		case FilterClauseField.HasWords:
+			return {
+				test: "hasWords",
+				words: clause.value.split(/\s+/).filter(Boolean),
+			};
+	}
+};
+
+const V2FiltersSchema = z.array(
+	z.looseObject({
+		matchOperator: z.enum(FilterMatchOperator),
+		literalClauses: z.array(FilterClauseSchema),
+	}),
+);
+
+const filterClausesToRule: ConfigMigration = {
+	from: 2,
+	to: 3,
+	migrate: (document) => ({
+		...document,
+		schemaVersion: 3,
+		filters: V2FiltersSchema.parse(document.filters).map(
+			({ matchOperator, literalClauses, ...filter }) => {
+				const tests = literalClauses.map(clauseTest);
+				return {
+					...filter,
+					rule: {
+						version: 1,
+						test:
+							matchOperator === FilterMatchOperator.Or
+								? { test: "anyof", tests }
+								: { test: "allof", tests },
+					},
+					priority: 0,
+					stop: false,
+				};
+			},
+		),
+	}),
+};
+
 /**
  * The golden v1 fixture is the seed that keeps the chain honest: every step
  * has a committed v1 document to lift, so the chain is exercised by the same
  * test that proves v1 still reads.
  */
-export const configMigrations: readonly ConfigMigration[] = [dropFilterAnchors];
+export const configMigrations: readonly ConfigMigration[] = [
+	dropFilterAnchors,
+	filterClausesToRule,
+];
 
 /**
  * Apply the chain from `fromVersion` up to the current version. A gap in the

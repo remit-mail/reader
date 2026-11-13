@@ -6,7 +6,11 @@ import {
 	buildOrganizeMatchDeps,
 	type OrganizeMatchDeps,
 } from "@remit/backend/organize";
-import type { FilterItem } from "@remit/data-ports";
+import {
+	type FilterClauses,
+	type FilterItem,
+	filterRuleFromClauses,
+} from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
@@ -42,7 +46,7 @@ const event: OrganizeJobEvent = {
 
 const jobClient = (
 	updates: Update[],
-	literalClauses: Array<{ field: string; value: string }>,
+	literalClauses: FilterClauses["literalClauses"],
 ): RemitClient =>
 	({
 		queues: { messageManagement: recordingQueue() },
@@ -53,6 +57,7 @@ const jobClient = (
 				filterId: "None",
 				matchOperator: "And",
 				literalClauses,
+				rule: filterRuleFromClauses({ matchOperator: "And", literalClauses }),
 				actionLabelId: "lbl-1",
 				actionMailboxId: "None",
 			}),
@@ -134,22 +139,12 @@ const standingFilter = (over: Partial<FilterItem> = {}): FilterItem => ({
 	disabledReason: "None",
 	ruleChangedAt: 1,
 	actionChangedAt: 1,
-	matchOperator: "And",
-	literalClauses: [{ field: "From", value: "billing@example.com" }],
-	rule: {
-		version: 1,
-		test: {
-			test: "allof",
-			tests: [
-				{
-					test: "header",
-					match: "Contains",
-					header: "From",
-					key: "billing@example.com",
-				},
-			],
-		},
-	},
+	priority: 0,
+	stop: false,
+	rule: filterRuleFromClauses({
+		matchOperator: "And",
+		literalClauses: [{ field: "From", value: "billing@example.com" }],
+	}),
 	actionLabelId: "None",
 	actionMailboxId: "mbx-invoices",
 	createdAt: 0,
@@ -337,7 +332,10 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 	it("matches a free-text rule from search on the stored preview", async () => {
 		current = await world([
 			standingFilter({
-				literalClauses: [{ field: "HasWords", value: "overdue" }],
+				rule: filterRuleFromClauses({
+					matchOperator: "And",
+					literalClauses: [{ field: "HasWords", value: "overdue" }],
+				}),
 			}),
 		]);
 

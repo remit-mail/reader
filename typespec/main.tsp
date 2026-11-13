@@ -317,7 +317,7 @@ namespace RemitApi {
       | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
-    @patch(#{ implicitOptionality: true })
+    @patch(#{ implicitOptionality: false })
     op updateFilter(
       @path accountId: UUID,
       @path filterId: UUID,

@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { filterRuleFromClauses } from "./filter-rule.js";
 import { isSenderMuted, isSenderMuteFilter } from "./sender-mute.js";
-import type { FilterItem } from "./types.js";
+import type { FilterClauseItem, FilterItem } from "./types.js";
 
-const rule = (overrides: Partial<FilterItem> = {}): FilterItem =>
+const rule = (
+	overrides: Partial<FilterItem> = {},
+	literalClauses: FilterClauseItem[] = [
+		{ field: "From", value: "ada@example.test" },
+	],
+): FilterItem =>
 	({
 		scope: "Standing",
-		literalClauses: [{ field: "From", value: "ada@example.test" }],
+		rule: filterRuleFromClauses({ matchOperator: "And", literalClauses }),
 		actionLabelId: "None",
 		actionMailboxId: "None",
 		...overrides,
@@ -30,17 +36,13 @@ describe("isSenderMuteFilter", () => {
 
 	it("declines a rule that matches on something other than the sender", () => {
 		assert.equal(
-			isSenderMuteFilter(
-				rule({
-					literalClauses: [{ field: "Subject", value: "invitation" }],
-				} as Partial<FilterItem>),
-			),
+			isSenderMuteFilter(rule({}, [{ field: "Subject", value: "invitation" }])),
 			false,
 		);
 	});
 
 	it("declines a rule with no clauses, which would mute everybody", () => {
-		assert.equal(isSenderMuteFilter(rule({ literalClauses: [] })), false);
+		assert.equal(isSenderMuteFilter(rule({}, [])), false);
 	});
 
 	it("declines a temporary rule", () => {

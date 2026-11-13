@@ -8,7 +8,7 @@
 		},
 		"schemaVersion": {
 			"type": "number",
-			"const": 2
+			"const": 3
 		},
 		"generator": {
 			"type": "object",
@@ -421,41 +421,30 @@
 							}
 						]
 					},
-					"matchOperator": {
-						"type": "string",
-						"enum": [
-							"And",
-							"Or"
-						]
-					},
-					"literalClauses": {
-						"minItems": 1,
-						"type": "array",
-						"items": {
-							"type": "object",
-							"properties": {
-								"field": {
-									"type": "string",
-									"enum": [
-										"From",
-										"Subject",
-										"HasWords",
-										"ListId",
-										"FromDomain"
-									]
-								},
-								"value": {
-									"type": "string",
-									"minLength": 1,
-									"maxLength": 256
-								}
+					"rule": {
+						"type": "object",
+						"properties": {
+							"version": {
+								"type": "number",
+								"const": 1
 							},
-							"required": [
-								"field",
-								"value"
-							],
-							"additionalProperties": false
-						}
+							"test": {
+								"$ref": "#/$defs/FilterTest"
+							}
+						},
+						"required": [
+							"version",
+							"test"
+						],
+						"additionalProperties": false
+					},
+					"priority": {
+						"type": "integer",
+						"minimum": -9007199254740991,
+						"maximum": 9007199254740991
+					},
+					"stop": {
+						"type": "boolean"
 					},
 					"actionLabelName": {
 						"anyOf": [
@@ -501,8 +490,9 @@
 					"name",
 					"scope",
 					"expiresAt",
-					"matchOperator",
-					"literalClauses",
+					"rule",
+					"priority",
+					"stop",
 					"actionLabelName",
 					"actionFolder"
 				],
@@ -821,6 +811,165 @@
 		"addressFlags"
 	],
 	"additionalProperties": false,
-	"$id": "https://schemas.remit.email/reader-config.v2.schema.json",
-	"title": "reader configuration document, v2"
+	"$defs": {
+		"FilterTest": {
+			"oneOf": [
+				{
+					"type": "object",
+					"properties": {
+						"test": {
+							"type": "string",
+							"const": "allof"
+						},
+						"tests": {
+							"minItems": 1,
+							"maxItems": 50,
+							"type": "array",
+							"items": {
+								"$ref": "#/$defs/FilterTest"
+							}
+						}
+					},
+					"required": [
+						"test",
+						"tests"
+					],
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"properties": {
+						"test": {
+							"type": "string",
+							"const": "anyof"
+						},
+						"tests": {
+							"minItems": 1,
+							"maxItems": 50,
+							"type": "array",
+							"items": {
+								"$ref": "#/$defs/FilterTest"
+							}
+						}
+					},
+					"required": [
+						"test",
+						"tests"
+					],
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"properties": {
+						"test": {
+							"type": "string",
+							"const": "not"
+						},
+						"operand": {
+							"$ref": "#/$defs/FilterTest"
+						}
+					},
+					"required": [
+						"test",
+						"operand"
+					],
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"properties": {
+						"test": {
+							"type": "string",
+							"const": "header"
+						},
+						"match": {
+							"type": "string",
+							"enum": [
+								"Is",
+								"Contains"
+							]
+						},
+						"header": {
+							"type": "string",
+							"enum": [
+								"From",
+								"Subject",
+								"ListId"
+							]
+						},
+						"key": {
+							"type": "string",
+							"maxLength": 256
+						}
+					},
+					"required": [
+						"test",
+						"match",
+						"header",
+						"key"
+					],
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"properties": {
+						"test": {
+							"type": "string",
+							"const": "address"
+						},
+						"match": {
+							"type": "string",
+							"enum": [
+								"Is",
+								"Contains"
+							]
+						},
+						"part": {
+							"type": "string",
+							"enum": [
+								"All",
+								"Localpart",
+								"Domain",
+								"RegistrableDomain"
+							]
+						},
+						"key": {
+							"type": "string",
+							"maxLength": 256
+						}
+					},
+					"required": [
+						"test",
+						"match",
+						"part",
+						"key"
+					],
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"properties": {
+						"test": {
+							"type": "string",
+							"const": "hasWords"
+						},
+						"words": {
+							"type": "array",
+							"items": {
+								"type": "string",
+								"maxLength": 256
+							}
+						}
+					},
+					"required": [
+						"test",
+						"words"
+					],
+					"additionalProperties": false
+				}
+			]
+		}
+	},
+	"$id": "https://schemas.remit.email/reader-config.v3.schema.json",
+	"title": "reader configuration document, v3"
 }

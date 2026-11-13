@@ -7,12 +7,12 @@
 export const CONFIG_KIND = "reader.config";
 
 /** The document version this package writes and can read up to. */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /** `$id` of the emitted JSON Schema artifact. */
 export const CONFIG_SCHEMA_ID =
-	"https://schemas.remit.email/reader-config.v2.schema.json";
+	"https://schemas.remit.email/reader-config.v3.schema.json";
 
 /** Path of the emitted JSON Schema artifact, relative to the repository root. */
 export const CONFIG_SCHEMA_ARTIFACT_PATH =
-	"build/config-schema/reader-config.v2.schema.json";
+	"build/config-schema/reader-config.v3.schema.json";
