@@ -178,16 +178,16 @@ export const organizePredicateRejection = (
 ): OrganizeRejection | null => bodyContentRejection(predicate.rule);
 
 // A rule with no tests sweeps a folder only when the pass is scoped to one;
-// over the whole corpus it still matches nothing.
-const folderSweep = (
+// over the whole corpus, and at index time, it still matches nothing.
+const isFolderSweep = (
 	rule: FilterRuleV1Item,
 	scope: OrganizeMatchScope,
-): RuleNarrowing | null =>
+): boolean =>
 	rule.test.test === "allof" &&
 	filterRuleLeaves(rule).length === 0 &&
-	scope.mailboxIds?.length === 1
-		? { terms: [], operator: "and" }
-		: null;
+	scope.mailboxIds?.length === 1;
+
+const FOLDER_SWEEP: RuleNarrowing = { terms: [], operator: "and" };
 
 /**
  * The store selects on the clause terms, this refines what it returned and
@@ -209,9 +209,10 @@ const matchLiteral = async (
 	scope: OrganizeMatchScope,
 ): Promise<string[]> => {
 	const { getDomain } = await import("tldts");
-	const narrowing =
-		ruleNarrowing(predicate.rule, getDomain) ??
-		folderSweep(predicate.rule, scope);
+	const sweep = isFolderSweep(predicate.rule, scope);
+	const narrowing = sweep
+		? FOLDER_SWEEP
+		: ruleNarrowing(predicate.rule, getDomain);
 	if (!narrowing) return [];
 
 	const matched: string[] = [];
@@ -228,7 +229,9 @@ const matchLiteral = async (
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
 			seen.add(messageId);
-			if (!evaluateRule(predicate.rule, message, getDomain)) continue;
+			if (!sweep && !evaluateRule(predicate.rule, message, getDomain)) {
+				continue;
+			}
 			matched.push(messageId);
 			if (matched.length >= limit) return matched;
 		}
