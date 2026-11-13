@@ -16,7 +16,8 @@ import { z } from "zod";
 import type { McpDeps } from "./deps.js";
 
 export const MAX_BODY_BYTES = 20 * 1024;
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 50;
 
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
 
@@ -28,9 +29,11 @@ const pageSize = z
 	.number()
 	.int()
 	.min(1)
-	.max(100)
+	.max(MAX_PAGE_SIZE)
 	.optional()
-	.describe(`Page size, default ${DEFAULT_PAGE_SIZE}`);
+	.describe(
+		`Page size, default ${DEFAULT_PAGE_SIZE}, at most ${MAX_PAGE_SIZE}`,
+	);
 
 const continuationToken = z
 	.string()
