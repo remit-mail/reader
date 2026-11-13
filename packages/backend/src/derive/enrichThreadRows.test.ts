@@ -41,7 +41,7 @@ const threadRow = (
 
 const ownership: Pick<EnrichClient, "account" | "mailbox"> = {
 	account: {
-		listMailSourcesByAccountConfig: async () =>
+		listAllByAccountConfig: async () =>
 			[{ accountId: "account-1" }] as AccountItem[],
 	},
 	mailbox: {

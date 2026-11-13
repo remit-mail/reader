@@ -415,6 +415,7 @@ export const scopeToMailbox = (
  * filters and the count are testable with an in-memory fake.
  */
 export interface UnifiedThreadClient extends EnrichClient, InboxMapClient {
+	account: EnrichClient["account"] & InboxMapClient["account"];
 	mailbox: EnrichClient["mailbox"] & InboxMapClient["mailbox"];
 	labelMailbox: Pick<ILabelMailboxRepository, "listByLabel">;
 	threadMessage: {

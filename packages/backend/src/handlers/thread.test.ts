@@ -32,7 +32,7 @@ const row = (
 
 const ownership = {
 	account: {
-		listMailSourcesByAccountConfig: async () =>
+		listAllByAccountConfig: async () =>
 			[{ accountId: "account-1" }] as AccountItem[],
 	},
 	mailbox: {

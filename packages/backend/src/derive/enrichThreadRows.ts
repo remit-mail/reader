@@ -43,9 +43,7 @@ export interface EnrichClient {
 		listByAccountConfig(accountConfigId: string): Promise<LabelItem[]>;
 	};
 	account: {
-		listMailSourcesByAccountConfig(
-			accountConfigId: string,
-		): Promise<AccountItem[]>;
+		listAllByAccountConfig(accountConfigId: string): Promise<AccountItem[]>;
 	};
 	mailbox: {
 		get(accountId: string, mailboxIds: string[]): Promise<MailboxItem[]>;
@@ -134,8 +132,7 @@ const resolveMailboxAccounts = async (
 	accountConfigId: string,
 	mailboxIds: string[],
 ): Promise<Map<string, string>> => {
-	const accounts =
-		await client.account.listMailSourcesByAccountConfig(accountConfigId);
+	const accounts = await client.account.listAllByAccountConfig(accountConfigId);
 	const mailboxes = await Promise.all(
 		accounts.map((account) =>
 			client.mailbox.get(account.accountId, mailboxIds),
