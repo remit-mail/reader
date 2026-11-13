@@ -3,6 +3,7 @@ import "../enums/ProviderSpamVerdict.tsp";
 import "../enums/SpamAction.tsp";
 import "../enums/SpamFailureKind.tsp";
 import "../enums/SpamKind.tsp";
+import "../enums/SpamLabelPlacement.tsp";
 import "../enums/SpamReasonName.tsp";
 import "../enums/SpamSenderScreenRule.tsp";
 import "../scalars/string.tsp";
@@ -180,4 +181,61 @@ union MessageSpamVerdict {
   screenedOut: SpamVerdictScreenedOut,
   checked: SpamChecked,
   failed: SpamFailed,
+}
+
+@doc("No thresholds are set, so every verdict's action is `None` and nothing moves.")
+model SpamThresholdsUnset {
+  state: "Unset";
+}
+
+@doc("The two scores that turn a spam score into an action: below `cleanBelow` nothing happens, from `spamAt` up the message goes to Junk, and between the two the owner is warned.")
+model SpamThresholdsSet {
+  state: "Set";
+
+  @minValue(0)
+  @maxValue(1)
+  cleanBelow: float64;
+
+  @minValue(0)
+  @maxValue(1)
+  spamAt: float64;
+}
+
+@doc("The thresholds a spam service compares a score with (RFC 041). Calibration sets them.")
+union SpamThresholds {
+  unset: SpamThresholdsUnset,
+  set: SpamThresholdsSet,
+}
+
+@doc("How Remit acts on spam verdicts for the caller.")
+model SpamSettings {
+  @doc("The thresholds in effect. They come from the deployment (`SPAM_CLEAN_BELOW` and `SPAM_AT`).")
+  thresholds: SpamThresholds;
+
+  @doc("What a `Junk` verdict of kind `Spam` does.")
+  spamPlacement: SpamLabelPlacement;
+
+  @doc("What a `Junk` verdict of kind `Phishing` does.")
+  phishingPlacement: SpamLabelPlacement;
+}
+
+@doc("Spam verdicts on mail that arrived on one day, for one action and kind.")
+model SpamDayCount {
+  @doc("The arrival day, YYYY-MM-DD, in the zone offset of `since`.")
+  date: string;
+
+  @doc("`Warn` or `Junk`: the judge's action, before the owner's per-label setting.")
+  action: SpamAction;
+
+  kind: SpamKind;
+  count: int32;
+}
+
+@doc("Checked messages whose spam score falls in one band, `from` inclusive to `from + 0.05` exclusive; the last band includes 1.")
+model SpamScoreBand {
+  @minValue(0)
+  @maxValue(1)
+  from: float64;
+
+  count: int32;
 }

@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type {
 	AccountItem,
+	AddressItem,
 	MailboxItem,
 	SpamRequest,
 	SpamService,
+	SpamThresholds,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
-import { SpamAction, SpamReasonName } from "@remit/domain-enums";
+import {
+	AccountSettingName,
+	SpamAction,
+	SpamLabelPlacement,
+	SpamReasonName,
+} from "@remit/domain-enums";
 import { BodySyncService } from "./body-sync.js";
 import { PlacementMoveService } from "./placement-move.js";
 import { InlineSpamService } from "./spam/index.js";
@@ -36,8 +43,15 @@ interface World {
 	queue: RecordingQueue;
 	account: AccountItem;
 	inbox: MailboxItem;
+	junk: MailboxItem;
 	requests: SpamRequest[];
 }
+
+const JUNK_FROM_A_SCORE_OF_005: SpamThresholds = {
+	state: "Set",
+	cleanBelow: 0,
+	spamAt: 0.05,
+};
 
 let world: World;
 
@@ -61,6 +75,7 @@ beforeEach(async () => {
 		queue: recordingQueue(),
 		account,
 		inbox,
+		junk,
 		requests: [],
 	};
 });
@@ -69,13 +84,9 @@ afterEach(async () => {
 	await world.store.close();
 });
 
-const bodySync = (): BodySyncService => {
+const bodySync = (thresholds: SpamThresholds): BodySyncService => {
 	const { store } = world;
-	const inline = new InlineSpamService({
-		state: "Set",
-		cleanBelow: 0,
-		spamAt: 0.05,
-	});
+	const inline = new InlineSpamService(thresholds);
 	const spamService: SpamService = {
 		check: (request) => {
 			world.requests.push(request);
@@ -100,9 +111,13 @@ const bodySync = (): BodySyncService => {
 		new SyncWarningService(store.syncWarning),
 		{
 			spamService,
+			spamDeployment: { thresholds },
 			domainRegistration: store.domainRegistration,
 			rdap: { lookup: async () => ({ state: "Unpublished" }) },
 			accountService: store.account,
+			accountSetting: store.accountSetting,
+			labelService: store.label,
+			messageLabelService: store.messageLabel,
 			logger: silentLog,
 		},
 		silentLog,
@@ -110,14 +125,17 @@ const bodySync = (): BodySyncService => {
 	);
 };
 
-const arriveAndSync = async (raw: Buffer): Promise<string> => {
+const arriveAndSync = async (
+	raw: Buffer,
+	thresholds: SpamThresholds,
+): Promise<string> => {
 	const { store, account, inbox } = world;
 	const uid = world.imap.deliver(inbox.fullPath, raw, {
 		internalDate: new Date(Date.now() + 60_000),
 	});
 	await syncFolder(store, account, inbox, world.imap);
 	const { messageId } = await messageAtUid(store, inbox, uid);
-	await bodySync().syncBodies(
+	await bodySync(thresholds).syncBodies(
 		[messageId],
 		account.accountId,
 		account.accountConfigId,

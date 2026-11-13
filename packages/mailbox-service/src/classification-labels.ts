@@ -1,6 +1,11 @@
 import type { ILabelRepository, LabelItem } from "@remit/data-ports";
 
-export const CLASSIFICATION_LABEL_NAMES = ["Priority", "Personal"] as const;
+export const CLASSIFICATION_LABEL_NAMES = [
+	"Priority",
+	"Personal",
+	"Spam",
+	"Phishing",
+] as const;
 
 export type ClassificationLabelName =
 	(typeof CLASSIFICATION_LABEL_NAMES)[number];
@@ -28,10 +33,9 @@ const ensureLabel = async (
 export const ensureClassificationLabels = async (
 	label: ClassificationLabelDeps,
 	accountConfigId: string,
-): Promise<ClassificationLabels> => {
-	const [priority, personal] = CLASSIFICATION_LABEL_NAMES;
-	return {
-		[priority]: await ensureLabel(label, accountConfigId, priority),
-		[personal]: await ensureLabel(label, accountConfigId, personal),
-	};
-};
+): Promise<ClassificationLabels> => ({
+	Priority: await ensureLabel(label, accountConfigId, "Priority"),
+	Personal: await ensureLabel(label, accountConfigId, "Personal"),
+	Spam: await ensureLabel(label, accountConfigId, "Spam"),
+	Phishing: await ensureLabel(label, accountConfigId, "Phishing"),
+});

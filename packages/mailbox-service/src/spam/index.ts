@@ -3,11 +3,14 @@ import type {
 	IAccountRepository,
 	IAddressRepository,
 	IDomainRegistrationRepository,
+	IMessageLabelRepository,
 	MessageSpamVerdict,
 	SpamService,
+	SpamSettingsDeps,
 } from "@remit/data-ports";
 import type { AuthResultVerdict } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
+import type { ClassificationLabelDeps } from "../classification-labels.js";
 import type { FilterDecision } from "../filters/pipeline.js";
 import type { SenderPlacement } from "../sender-placement.js";
 import { buildSpamRequest } from "./evidence.js";
@@ -19,14 +22,17 @@ import {
 import { screen } from "./screen.js";
 
 export { InlineSpamService, judge } from "./judge.js";
+export { type SpamPlacement, spamPlacementOf } from "./placement.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";
 
-/** What body sync needs to record a spam verdict (RFC 041). */
-export interface SpamConfig {
+/** What body sync needs to record a spam verdict and act on it (RFC 041). */
+export interface SpamConfig extends SpamSettingsDeps {
 	spamService: SpamService;
 	domainRegistration: IDomainRegistrationRepository;
 	rdap: Pick<RdapClient, "lookup">;
 	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
+	labelService: ClassificationLabelDeps;
+	messageLabelService: Pick<IMessageLabelRepository, "apply">;
 	logger: RdapLogger;
 }
 

@@ -391,9 +391,13 @@ export const createRemitCore = (
 		classificationDefault,
 		spam: {
 			spamService: new InlineSpamService(spamDeployment.thresholds),
+			spamDeployment,
 			domainRegistration: repositories.domainRegistration,
 			rdap: new RdapClient(fetch),
 			accountService: repositories.account,
+			accountSetting: repositories.accountSetting,
+			labelService: repositories.label,
+			messageLabelService: repositories.messageLabel,
 			logger,
 		},
 	};

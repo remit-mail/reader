@@ -73,12 +73,21 @@ export interface IMessageRepository {
 			"placementDecidedAt" | "placementVerdict"
 		>,
 	): Promise<boolean>;
-	/** Examined mail in `mailboxIds` that arrived on or after `since`, grouped by category and confident label, plus its spam reports no confident junk score predicted. */
+	/**
+	 * Examined mail in `mailboxIds` that arrived on or after `since`, grouped
+	 * by category and confident label, plus its spam reports no confident junk
+	 * score predicted, its spam verdicts per arrival day (days counted at
+	 * `utcOffsetMinutes`) and its spam scores per band.
+	 */
 	countClassifiedSince(
 		mailboxIds: string[],
 		since: number,
+		utcOffsetMinutes: number,
 	): Promise<
-		Pick<ClassifierStatsItem, "byCategory" | "byLabel"> &
+		Pick<
+			ClassifierStatsItem,
+			"byCategory" | "byLabel" | "spamByDay" | "spamScoreBands"
+		> &
 			Pick<ClassifierStatsItem["corrections"], "spamReportedNotJunk">
 	>;
 	describe(messageId: string): Promise<MessageDescription>;

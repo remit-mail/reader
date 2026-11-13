@@ -67,4 +67,10 @@ enum AccountSettingName {
 
   @doc("Today's classification calls for a single mail account. Stored per-account: the persisted name is composed as `ClassificationUsage#<accountId>`. DailyCount-valued: the UTC date and the calls made on it; an earlier date reads as zero calls.")
   ClassificationUsage,
+
+  @doc("What a `Junk` verdict of kind `Spam` does (`SpamLabelPlacement`). String-valued; absent means `MoveToSpam`.")
+  SpamPlacementSpam,
+
+  @doc("What a `Junk` verdict of kind `Phishing` does (`SpamLabelPlacement`). String-valued; absent means `MoveToSpam`.")
+  SpamPlacementPhishing,
 }

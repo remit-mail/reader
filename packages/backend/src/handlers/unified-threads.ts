@@ -353,6 +353,7 @@ export const attachAccountIds = (
 export const buildUnifiedThreadSearch = (params: {
 	starredOnly: boolean;
 	searchText?: string;
+	messageLabelId?: string[];
 	from?: string;
 	subject?: string;
 	category?: MessageCategory[];
@@ -367,6 +368,9 @@ export const buildUnifiedThreadSearch = (params: {
 	...(params.subject ? { subject: params.subject } : {}),
 	...(params.starredOnly ? { starred: true } : {}),
 	...(params.category?.length ? { category: params.category } : {}),
+	...(params.messageLabelId?.length
+		? { messageLabelIds: params.messageLabelId }
+		: {}),
 	...(params.unread !== undefined ? { unread: params.unread } : {}),
 	...(params.attachments !== undefined
 		? { attachments: params.attachments }
@@ -463,6 +467,7 @@ export type UnifiedThreadParams = {
 	accountId?: string;
 	mailboxId?: string;
 	labelId?: string;
+	messageLabelId?: string[];
 	category?: MessageCategory[];
 	unread?: boolean;
 	attachments?: boolean;
@@ -488,8 +493,10 @@ export const executeUnifiedThreadListing = async (
 	accountConfigId: string,
 	params: UnifiedThreadParams,
 ): Promise<ThreadSearchResponse> => {
+	// A label list spans folders as a search does, so it reaches Junk.
 	const searching =
-		params.searchText !== undefined && params.searchText.length > 0;
+		(params.searchText !== undefined && params.searchText.length > 0) ||
+		(params.messageLabelId?.length ?? 0) > 0;
 	const {
 		mailboxIdToAccountId,
 		inboxMailboxIds: everyInboxMailboxId,
@@ -647,6 +654,7 @@ export const UnifiedThreadOperations: Record<
 			accountId,
 			mailboxId,
 			labelId,
+			messageLabelId,
 			category,
 			unread,
 			attachments,
@@ -666,6 +674,7 @@ export const UnifiedThreadOperations: Record<
 			accountId?: string;
 			mailboxId?: string;
 			labelId?: string;
+			messageLabelId?: string | string[];
 			category?: MessageCategory | MessageCategory[];
 			unread?: boolean | string;
 			attachments?: boolean | string;
@@ -698,6 +707,7 @@ export const UnifiedThreadOperations: Record<
 			accountId: accountId || undefined,
 			mailboxId: mailboxId || undefined,
 			labelId: labelId || undefined,
+			messageLabelId: toArray(messageLabelId),
 			category: toArray(category),
 			unread: toBoolean(unread),
 			attachments: toBoolean(attachments),

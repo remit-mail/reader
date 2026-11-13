@@ -22,6 +22,8 @@ import {
 	type MailboxItem,
 	type MessageItem,
 	type MessageSpamVerdict,
+	readResolvedSpamSettings,
+	type SpamSettingsItem,
 	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
@@ -54,6 +56,10 @@ import {
 	parsePartSource,
 } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
+import {
+	type ClassificationLabels,
+	ensureClassificationLabels,
+} from "./classification-labels.js";
 import { consultClassifier } from "./classifier/classifier-consult.js";
 import {
 	CLASSIFIER_OFF,
@@ -100,7 +106,12 @@ import {
 	type SenderPlacement,
 } from "./sender-placement.js";
 import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
-import { decideSpamVerdict, type SpamConfig } from "./spam/index.js";
+import {
+	decideSpamVerdict,
+	type SpamConfig,
+	type SpamPlacement,
+	spamPlacementOf,
+} from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -330,6 +341,8 @@ interface ClassifierDecision {
 	scores: ClassifierScoreItem[];
 }
 
+const NO_SPAM_PLACEMENT: SpamPlacement = { action: "None" };
+
 const NO_CLASSIFIER_DECISION: ClassifierDecision = {
 	verdict: { kind: "None" },
 	scores: [],
@@ -341,6 +354,8 @@ interface BatchLookups {
 	usableFilters: () => Promise<PreparedFilters>;
 	classifierGate: () => Promise<ClassifierGate>;
 	ownAddresses: () => Promise<string[]>;
+	spamSettings: () => Promise<SpamSettingsItem>;
+	spamLabels: () => Promise<ClassificationLabels>;
 }
 
 // A failed load is forgotten, so the next message retries it rather than the
@@ -877,6 +892,9 @@ export class BodySyncService {
 			classification,
 			senderPlacement,
 		});
+		const spamPlacement = spamVerdict
+			? spamPlacementOf(spamVerdict, await lookups.spamSettings())
+			: NO_SPAM_PLACEMENT;
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
@@ -948,9 +966,9 @@ export class BodySyncService {
 			{ accountId, accountConfigId },
 			{ ...decidedRow, ...classification },
 			arrival,
-			verdict.kind === "Junk",
+			verdict.kind === "Junk" || spamPlacement.action === "Junk",
 			senderPlacement,
-			!filterDecision.move,
+			!filterDecision.move && spamPlacement.action !== "Warn",
 		);
 
 		// Additive label actions (RFC 034 Decision 3.1): every matching filter's
@@ -971,6 +989,13 @@ export class BodySyncService {
 			messageId,
 			accountConfigId,
 			verdict,
+		);
+
+		await this.applySpamLabel(
+			lookups,
+			messageId,
+			accountConfigId,
+			spamPlacement,
 		);
 
 		// Read once for the two write-once guards below — the auto-read decision
@@ -1359,9 +1384,9 @@ export class BodySyncService {
 	}
 
 	/**
-	 * RFC 041 stages 1 and 2, recorded and acted on by nothing yet. Runs on the
-	 * same new mail the category classifier does, after it, so check 9 sees its
-	 * scores; a folder's first sync of old mail records no verdict.
+	 * RFC 041 stages 1 and 2. Runs on the same new mail the category classifier
+	 * does, after it, so check 9 sees its scores; a folder's first sync of old
+	 * mail records no verdict.
 	 */
 	private async decideSpam(
 		lookups: BatchLookups,
@@ -1391,6 +1416,26 @@ export class BodySyncService {
 			modelAllowed: gate.state === "On",
 			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
 			dmarc: message.classification.authResult?.dmarc,
+		});
+	}
+
+	/**
+	 * The label rides on the messageId, which a placement move keeps, so it
+	 * neither waits for the move to settle nor needs reconciling after it: a
+	 * move that gives up leaves the message where it was, still suspect.
+	 */
+	private async applySpamLabel(
+		lookups: BatchLookups,
+		messageId: string,
+		accountConfigId: string,
+		placement: SpamPlacement,
+	): Promise<void> {
+		if (placement.action === "None") return;
+		const labels = await lookups.spamLabels();
+		await this.spamConfig.messageLabelService.apply({
+			messageId,
+			labelId: labels[placement.label].labelId,
+			accountConfigId,
 		});
 	}
 
@@ -1692,6 +1737,15 @@ export class BodySyncService {
 						accountConfigId,
 					)
 				).map((account) => account.email),
+			),
+			spamSettings: once(() =>
+				readResolvedSpamSettings(this.spamConfig, accountConfigId),
+			),
+			spamLabels: once(() =>
+				ensureClassificationLabels(
+					this.spamConfig.labelService,
+					accountConfigId,
+				),
 			),
 		};
 	}

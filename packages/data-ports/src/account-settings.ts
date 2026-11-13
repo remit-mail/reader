@@ -1,3 +1,4 @@
+import { SpamLabelPlacementSchema } from "@remit/api-zod-schemas";
 import { AccountSettingName } from "@remit/domain-enums";
 import { z } from "zod";
 
@@ -17,6 +18,10 @@ export const BooleanSettingSchema = z.object({
 export const StringSettingSchema = z.object({
 	kind: z.literal("String"),
 	value: z.string(),
+});
+export const SpamLabelPlacementSettingSchema = z.object({
+	kind: z.literal("String"),
+	value: SpamLabelPlacementSchema,
 });
 export const NumberSettingSchema = z.object({
 	kind: z.literal("Number"),
@@ -106,6 +111,8 @@ export const accountSettingRegistry = {
 	[AccountSettingName.ClassificationEnabled]: BooleanSettingSchema,
 	[AccountSettingName.ClassificationDailyLimit]: NumberSettingSchema,
 	[AccountSettingName.ClassificationUsage]: DailyCountSettingSchema,
+	[AccountSettingName.SpamPlacementSpam]: SpamLabelPlacementSettingSchema,
+	[AccountSettingName.SpamPlacementPhishing]: SpamLabelPlacementSettingSchema,
 } as const satisfies Record<AccountSettingNameValue, z.ZodTypeAny>;
 
 export type AccountSettingRegistry = typeof accountSettingRegistry;

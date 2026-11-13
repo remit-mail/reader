@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { MessageItem } from "@remit/data-ports";
-import {
-	MessageCategory,
-	SenderOverride,
-	SenderTrust,
-} from "@remit/domain-enums";
+import { MessageCategory } from "@remit/domain-enums";
 import { type ParsedMail, simpleParser } from "mailparser";
 import {
 	classifyByHeaders,
@@ -14,7 +9,6 @@ import {
 	extractHasListUnsubscribe,
 	extractProviderSpam,
 } from "./classifyByHeaders.js";
-import { classifyPlacement } from "./classifyPlacement.js";
 
 const buildEml = (lines: string[]): Buffer => Buffer.from(lines.join("\r\n"));
 
@@ -54,7 +48,7 @@ describe("classifyByHeaders", () => {
 			"",
 			"body",
 		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
+		assert.equal(classifyByHeaders(parsed), MessageCategory.uncategorized);
 	});
 
 	it("returns automated for Precedence: bulk", async () => {
@@ -162,30 +156,6 @@ describe("classifyByHeaders", () => {
 		assert.equal(classifyByHeaders(parsed), MessageCategory.marketing);
 	});
 
-	it("returns automated when DKIM d= mismatches the From domain", async () => {
-		const parsed = await parse([
-			"From: alice@personal.example.com",
-			"To: bob@example.com",
-			"Subject: forwarded",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.automated);
-	});
-
-	it("does NOT flag DKIM d= as mismatched when domains share a common root", async () => {
-		const parsed = await parse([
-			"From: alice@mail.example.com",
-			"To: bob@example.com",
-			"Subject: ok",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
-	});
-
 	it("returns social for a sender on the social allow-list (linkedin.com)", async () => {
 		const parsed = await parse([
 			"From: notifications@linkedin.com",
@@ -208,7 +178,7 @@ describe("classifyByHeaders", () => {
 		assert.equal(classifyByHeaders(parsed), MessageCategory.social);
 	});
 
-	it("returns personal for plain mail with no special headers", async () => {
+	it("leaves mail no header rule matches uncategorized", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
@@ -216,34 +186,7 @@ describe("classifyByHeaders", () => {
 			"",
 			"hi bob, lunch on friday?",
 		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
-	});
-
-	it("returns personal when From has no parseable address", async () => {
-		const parsed = await parse([
-			"From: ",
-			"To: bob@example.com",
-			"Subject: weird",
-			"",
-			"body",
-		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
-	});
-
-	it("category stays automated for DKIM mismatch even when extractAuthenticity also reports mismatch", async () => {
-		const parsed = await parse([
-			"From: alice@personal.example.com",
-			"To: bob@example.com",
-			"Subject: forwarded",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		// Both must agree — category heuristic and structured field
-		assert.equal(classifyByHeaders(parsed), MessageCategory.automated);
-		const auth = extractAuthenticity(parsed);
-		assert.ok(auth, "authenticity should be present");
-		assert.equal(auth.dkimMismatch, true);
+		assert.equal(classifyByHeaders(parsed), MessageCategory.uncategorized);
 	});
 
 	it("transactional rule wins over List-Unsubscribe", async () => {
@@ -391,38 +334,6 @@ describe("extractAuthenticity", () => {
 		assert.ok(auth, "expected authenticity object");
 		assert.equal(auth.dkimMismatch, true);
 		assert.equal(auth.dkimDomain, "relay-a.net");
-	});
-
-	it("category and dkimMismatch always agree (mismatch case)", async () => {
-		const parsed = await parse([
-			"From: alice@personal.example.com",
-			"To: bob@example.com",
-			"Subject: forwarded",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		const category = classifyByHeaders(parsed);
-		const auth = extractAuthenticity(parsed);
-		assert.equal(category, MessageCategory.automated);
-		assert.ok(auth, "expected authenticity object");
-		assert.equal(auth.dkimMismatch, true);
-	});
-
-	it("category and dkimMismatch always agree (aligned case)", async () => {
-		const parsed = await parse([
-			"From: alice@example.com",
-			"To: bob@example.com",
-			"Subject: aligned",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		const category = classifyByHeaders(parsed);
-		const auth = extractAuthenticity(parsed);
-		assert.equal(category, MessageCategory.personal);
-		assert.ok(auth, "expected authenticity object");
-		assert.equal(auth.dkimMismatch, false);
 	});
 });
 
@@ -583,41 +494,6 @@ describe("extractHasListUnsubscribe", () => {
 	});
 });
 
-const messageFrom = (parsed: ParsedMail): MessageItem => ({
-	messageId: "m-1",
-	mailboxId: "mb-1",
-	uid: 1,
-	sequenceNumber: 1,
-	rfc822Size: 1,
-	internalDate: 1,
-	envelopeId: "e-1",
-	rootBodyPartId: "bp-1",
-	status: "active",
-	syncStatus: "synced",
-	abandonedMutation: "none",
-	category: "uncategorized",
-	classificationState: "NotExamined",
-	classifierScores: [],
-	spamVerdict: { state: "NotChecked" },
-	authenticityVerdict: "NotEvaluated",
-	hasListUnsubscribe: false,
-	movedByRemit: false,
-	createdAt: 1,
-	updatedAt: 1,
-	providerSpam: extractProviderSpam(parsed) ?? undefined,
-	authResult: extractAuthResult(parsed) ?? undefined,
-	authenticity: extractAuthenticity(parsed) ?? undefined,
-});
-
-const inboxVerdict = (parsed: ParsedMail) =>
-	classifyPlacement(
-		messageFrom(parsed),
-		"inbox",
-		SenderTrust.Unknown,
-		SenderOverride.None,
-		false,
-	);
-
 const withBody = (lines: string[]): string[] => [...lines, "", "body"];
 
 const verdictsOf = (parsed: ParsedMail) => {
@@ -655,8 +531,6 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 		const without = await header("");
 		const withEsp = await header("dkim=pass header.d=esp-mailer.example; ");
 		assert.deepEqual(verdictsOf(withEsp), verdictsOf(without));
-		assert.deepEqual(inboxVerdict(withEsp), inboxVerdict(without));
-		assert.equal(inboxVerdict(withEsp).action, "leave");
 	});
 
 	it("never junks list mail whose relay stripped the original signature", async () => {
@@ -670,7 +544,6 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 			]),
 		);
 		assert.equal(extractAuthenticity(parsed), null);
-		assert.equal(inboxVerdict(parsed).action, "leave");
 	});
 
 	it("never lets a prepended header override the raw signing domain", async () => {
@@ -708,7 +581,6 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 		for (const order of ["forged-first", "real-first"] as const) {
 			const parsed = await parse(lines(order));
 			assert.equal(extractAuthResult(parsed)?.dmarc, "Fail", order);
-			assert.equal(inboxVerdict(parsed).action, "move-to-junk", order);
 		}
 	});
 

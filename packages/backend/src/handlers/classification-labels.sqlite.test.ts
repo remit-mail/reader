@@ -36,6 +36,7 @@ const enable = async (): Promise<void> => {
 			accountSetting: repos.accountSetting,
 			accountConfig: repos.accountConfig,
 			classificationDefault: { state: "None" },
+			spamDeployment: { thresholds: { state: "Unset" } },
 			accounts: repos.account,
 			secrets,
 			label: repos.label,
@@ -71,17 +72,27 @@ beforeEach(async () => {
 afterEach(() => close());
 
 describe("switching classification on", () => {
-	it("creates the Priority and Personal labels", async () => {
+	it("creates the Priority, Personal, Spam and Phishing labels", async () => {
 		await enable();
 
-		assert.deepEqual(await labelNames(), ["Personal", "Priority"]);
+		assert.deepEqual(await labelNames(), [
+			"Personal",
+			"Phishing",
+			"Priority",
+			"Spam",
+		]);
 	});
 
 	it("creates no duplicate when switched on twice", async () => {
 		await enable();
 		await enable();
 
-		assert.deepEqual(await labelNames(), ["Personal", "Priority"]);
+		assert.deepEqual(await labelNames(), [
+			"Personal",
+			"Phishing",
+			"Priority",
+			"Spam",
+		]);
 	});
 
 	it("reuses a label the user already named Priority", async () => {
@@ -93,7 +104,7 @@ describe("switching classification on", () => {
 		await enable();
 
 		const labels = await repos.label.listByAccountConfig(ACCOUNT_CONFIG_ID);
-		assert.equal(labels.length, 2);
+		assert.equal(labels.length, 4);
 		assert.ok(labels.some((label) => label.labelId === own.labelId));
 		assert.ok(labels.some((label) => label.name === "Personal"));
 	});

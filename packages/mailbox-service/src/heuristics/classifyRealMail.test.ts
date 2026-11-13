@@ -194,8 +194,8 @@ describe("classifyByHeaders on realistic mail", () => {
 		});
 	});
 
-	describe("personal mail stays personal", () => {
-		it("classifies a person writing from Gmail as personal", async () => {
+	describe("personal mail stays uncategorized for the classifier", () => {
+		it("leaves a person writing from Gmail to the classifier", async () => {
 			const category = await classify([
 				"From: Alice <alice@gmail.com>",
 				"To: me@example.com",
@@ -205,7 +205,7 @@ describe("classifyByHeaders on realistic mail", () => {
 				"",
 				"lunch tomorrow?",
 			]);
-			assert.equal(category, MessageCategory.personal);
+			assert.equal(category, MessageCategory.uncategorized);
 		});
 
 		it("does not treat a human support mailbox as a machine sender", async () => {
@@ -219,7 +219,7 @@ describe("classifyByHeaders on realistic mail", () => {
 				"",
 				"answering your question",
 			]);
-			assert.equal(category, MessageCategory.personal);
+			assert.equal(category, MessageCategory.uncategorized);
 		});
 
 		it("classifies a calendar invite from a colleague as transactional", async () => {
