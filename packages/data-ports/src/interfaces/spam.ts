@@ -16,6 +16,6 @@ export type SpamThresholds =
 	| { state: "Unset" }
 	| { state: "Set"; cleanBelow: number; spamAt: number };
 
-export interface SpamDeployment {
-	thresholds: SpamThresholds;
-}
+export type SpamDeployment =
+	| { name: "Inline"; thresholds: SpamThresholds }
+	| { name: "Rspamd"; url: string };
