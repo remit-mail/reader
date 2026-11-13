@@ -30,6 +30,7 @@ import {
 	CalendarTaskDetailOperations,
 	CalendarTaskOperations,
 } from "./calendar-task.js";
+import { ClassificationStatsOperations } from "./classification-stats.js";
 import { ConfigOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
@@ -78,6 +79,7 @@ export const handlers = {
 	...CalendarEventDetailOperations,
 	...CalendarFreeBusyOperations,
 	...UserSettingsOperations,
+	...ClassificationStatsOperations,
 	...CalendarTaskOperations,
 	...CalendarTaskDetailOperations,
 	...TrashOperations,

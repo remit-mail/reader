@@ -22,4 +22,7 @@ enum MessageCategory {
 
   @doc("Notification from a known social platform")
   social: "social",
+
+  @doc("Unsolicited sales or recruiting mail, as the classification provider judged it")
+  coldOutreach: "coldOutreach",
 }

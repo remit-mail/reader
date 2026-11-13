@@ -1,6 +1,7 @@
 import type { RemitClient } from "@remit/backend/client";
 import type {
 	IAccountRepository,
+	IAddressRepository,
 	IFilterRepository,
 	IMailboxRepository,
 	IMessageRepository,
@@ -42,7 +43,11 @@ export interface McpDeps {
 		IMailboxRepository,
 		"get" | "listAllByAccount" | "findByPath" | "resolveAccountId"
 	>;
-	message: Pick<IMessageRepository, "get" | "describe">;
+	address: Pick<IAddressRepository, "countCategoryOverridesSince">;
+	message: Pick<
+		IMessageRepository,
+		"get" | "describe" | "countClassifiedSince"
+	>;
 	threadMessage: Pick<
 		IThreadMessageRepository,
 		"listByMailbox" | "listByThread" | "searchByDate"
@@ -71,6 +76,7 @@ export const mcpDepsOf = (
 ): McpDeps => ({
 	account: client.account,
 	mailbox: client.mailbox,
+	address: client.address,
 	message: client.message,
 	threadMessage: client.threadMessage,
 	filter: client.filter,

@@ -161,6 +161,40 @@ describe("every adapter shape", () => {
 	});
 });
 
+describe("the cold outreach label", () => {
+	it("is offered to the provider and read back from every adapter shape", async () => {
+		const decision = await run(ClassificationAdapterShape.DecisionApi, () =>
+			decisionAnswer("ColdOutreach", 0.91),
+		);
+		assert.ok(
+			Object.keys(JSON.parse(sent().body).questions.label.criteria).includes(
+				"ColdOutreach",
+			),
+		);
+		const chat = await run(ClassificationAdapterShape.ChatJsonSchema, () =>
+			chatAnswer(JSON.stringify({ label: "ColdOutreach", confidence: 0.84 })),
+		);
+		const jina = await run(ClassificationAdapterShape.JinaClassify, () =>
+			jinaAnswer("ColdOutreach", 0.66),
+		);
+
+		assert.ok(decision.ok);
+		assert.equal(
+			decision.scores.find((score) => score.label === "ColdOutreach")
+				?.confidence,
+			0.91,
+		);
+		assert.ok(chat.ok);
+		assert.deepEqual(chat.scores, [
+			{ label: "ColdOutreach", confidence: 0.84 },
+		]);
+		assert.ok(jina.ok);
+		assert.deepEqual(jina.scores, [
+			{ label: "ColdOutreach", confidence: 0.66 },
+		]);
+	});
+});
+
 describe("an answer the adapter cannot use", () => {
 	const unparseable = (result: ClassifierResult): void => {
 		assert.equal(result.ok, false);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { sql } from "drizzle-orm";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { Db } from "../db.js";
 import {
@@ -334,5 +335,15 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 			missing.some((row) => row.messageId === copy),
 			false,
 		);
+	});
+
+	test("a row written without classifier scores reads an empty list", async () => {
+		const messageId = "00000000-0000-0000-5555-000000000001";
+		await db.run(
+			sql`insert into message (message_id, mailbox_id, uid, sequence_number, rfc822_size, internal_date, envelope_id, root_body_part_id, created_at, updated_at) values (${messageId}, ${MAILBOX_ID}, 301, 1, 10, ${NOW}, ${deriveEnvelopeId(messageId)}, ${deriveRootBodyPartId(messageId)}, ${NOW}, ${NOW})`,
+		);
+
+		const item = await repo.get(messageId);
+		assert.deepEqual(item.classifierScores, []);
 	});
 });

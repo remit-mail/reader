@@ -6,6 +6,7 @@ import {
 } from "@remit/calendar-service";
 import {
 	type BodyPartItem,
+	type ClassifierScoreItem,
 	type FilterItem,
 	type IAccountRepository,
 	type IAddressRepository,
@@ -317,7 +318,15 @@ const internalDateOf = (
 	return internalDate;
 };
 
-const NO_CLASSIFIER_VERDICT: ClassifierVerdict = { kind: "None" };
+interface ClassifierDecision {
+	verdict: ClassifierVerdict;
+	scores: ClassifierScoreItem[];
+}
+
+const NO_CLASSIFIER_DECISION: ClassifierDecision = {
+	verdict: { kind: "None" },
+	scores: [],
+};
 
 interface BatchLookups {
 	roleMailboxes: () => Promise<FolderRoleMailboxes>;
@@ -846,7 +855,7 @@ export class BodySyncService {
 			this.senderPlacementOf(accountConfigId, parsed),
 		);
 
-		const verdict = await this.decideClassifierVerdict(
+		const { verdict, scores: classifierScores } = await this.decideClassifier(
 			lookups,
 			{ accountId, accountConfigId },
 			parsed,
@@ -1020,6 +1029,7 @@ export class BodySyncService {
 			...classification,
 			category: finalCategory,
 			classificationState: MessageClassificationState.Examined,
+			classifierScores,
 			...placementUpdate,
 			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -1235,21 +1245,21 @@ export class BodySyncService {
 		);
 	}
 
-	private async decideClassifierVerdict(
+	private async decideClassifier(
 		lookups: BatchLookups,
 		account: { accountId: string; accountConfigId: string },
 		parsed: ParsedMail,
 		arrival: Arrival,
 		userRuleApplies: boolean,
 		senderPlacement: () => Promise<SenderPlacement>,
-	): Promise<ClassifierVerdict> {
+	): Promise<ClassifierDecision> {
 		const { classifierConfig } = this;
 		if (!classifierConfig || !arrival.folderSynced || userRuleApplies) {
-			return NO_CLASSIFIER_VERDICT;
+			return NO_CLASSIFIER_DECISION;
 		}
 		const gate = await lookups.classifierGate();
 		if (gate.state === "Off" || arrival.internalDate <= gate.classifiesAfter) {
-			return NO_CLASSIFIER_VERDICT;
+			return NO_CLASSIFIER_DECISION;
 		}
 		const consulted = await consultClassifier(
 			classifierConfig,
@@ -1260,8 +1270,8 @@ export class BodySyncService {
 			Date.now(),
 		);
 		return consulted.state === "Answered"
-			? consulted.verdict
-			: NO_CLASSIFIER_VERDICT;
+			? { verdict: consulted.verdict, scores: consulted.scores }
+			: NO_CLASSIFIER_DECISION;
 	}
 
 	private async applyClassifierLabel(

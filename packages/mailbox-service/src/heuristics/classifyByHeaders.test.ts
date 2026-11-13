@@ -597,6 +597,7 @@ const messageFrom = (parsed: ParsedMail): MessageItem => ({
 	abandonedMutation: "none",
 	category: "uncategorized",
 	classificationState: "NotExamined",
+	classifierScores: [],
 	authenticityVerdict: "NotEvaluated",
 	hasListUnsubscribe: false,
 	movedByRemit: false,

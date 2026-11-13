@@ -11,4 +11,5 @@ enum ClassificationLabel {
   Automated: "Automated",
   Transactional: "Transactional",
   Social: "Social",
+  ColdOutreach: "ColdOutreach",
 }

@@ -79,6 +79,7 @@ export type CreateOutboxSchedulingPartInput = Pick<
 	"calendarObjectId" | "recipient" | "method" | "sequence" | "icalData"
 >;
 export type MessageItem = z.infer<typeof MessageRecordSchema>;
+export type ClassifierScoreItem = MessageItem["classifierScores"][number];
 export type MessageFlagItem = z.infer<typeof MessageFlagSchema>;
 export type BodyPartItem = z.infer<typeof BodyPartSchema>;
 export type MessageReferenceItem = {
@@ -518,6 +519,7 @@ export type CreateMessageInput = Omit<
 	| "authenticityVerdict"
 	| "hasListUnsubscribe"
 	| "movedByRemit"
+	| "classifierScores"
 > & {
 	messageId: string;
 	status?: MessageItem["status"];
@@ -528,6 +530,7 @@ export type CreateMessageInput = Omit<
 	authenticityVerdict?: MessageItem["authenticityVerdict"];
 	hasListUnsubscribe?: MessageItem["hasListUnsubscribe"];
 	movedByRemit?: MessageItem["movedByRemit"];
+	classifierScores?: MessageItem["classifierScores"];
 };
 
 /**

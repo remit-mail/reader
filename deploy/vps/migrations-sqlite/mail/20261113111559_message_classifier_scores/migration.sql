@@ -1,0 +1,1 @@
+ALTER TABLE `message` ADD `classifier_scores` text DEFAULT '[]' NOT NULL;

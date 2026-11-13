@@ -358,7 +358,10 @@ describe("a v0.9.22 remit.db migrated in place", () => {
 		assert.deepEqual(
 			after,
 			(beforeMessages as Array<Record<string, unknown>>).map(
-				({ message_id_header: _, ...kept }) => kept,
+				({ message_id_header: _, ...kept }) => ({
+					...kept,
+					classifier_scores: "[]",
+				}),
 			),
 		);
 		assert.equal(rows(path, "SELECT * FROM message_placement_move").length, 1);

@@ -17,6 +17,7 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 	openSqliteDatabases,
+	type SqliteLimits,
 } from "@remit/drizzle-service";
 import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
@@ -62,7 +63,7 @@ const migratedTemplate = (): string => {
 	return filename;
 };
 
-export const openStore = async () => {
+export const openStore = async (limits: SqliteLimits = NODE_SQLITE_LIMITS) => {
 	const dir = mkdtempSync(join(tmpdir(), "mbx-store-"));
 	const filename = join(dir, "store.sqlite");
 	copyFileSync(migratedTemplate(), filename);
@@ -73,11 +74,7 @@ export const openStore = async () => {
 	});
 	let storages = 0;
 	return {
-		...createSqliteRepositories(
-			databases,
-			NODE_SQLITE_LIMITS,
-			messageObjectsInMemory(),
-		),
+		...createSqliteRepositories(databases, limits, messageObjectsInMemory()),
 		storage: (): StorageService =>
 			createFilesystemStorageService(
 				join(dir, `storage-${++storages}`),

@@ -3,17 +3,24 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
 	BodyPartItem,
 	EnvelopeAddressItem,
+	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	AddressRole,
+	AuthResultVerdict,
 	ContentDisposition,
 	MediaType,
 } from "@remit/domain-enums";
-import { materializeBodyParts, ownedMessages } from "@remit/mailbox-service";
+import {
+	materializeBodyParts,
+	ownedMessages,
+	readClassifierStats,
+} from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
+import { toolError } from "./tool-result.js";
 
 export const MAX_BODY_BYTES = 20 * 1024;
 const DEFAULT_PAGE_SIZE = 50;
@@ -42,7 +49,18 @@ const continuationToken = z
 
 const order = z.enum(["asc", "desc"]).optional().describe("Sort order by date");
 
-const toThreadRow = (row: ThreadMessageItem) => ({
+const classificationOf = (message: MessageItem) => ({
+	category: message.category,
+	scores: message.classifierScores,
+});
+
+const authOf = (message: MessageItem) => ({
+	dmarc: message.authResult?.dmarc ?? AuthResultVerdict.None,
+	spf: message.authResult?.spf ?? AuthResultVerdict.None,
+	dkim: message.authResult?.dkim ?? AuthResultVerdict.None,
+});
+
+const toThreadRow = (row: ThreadMessageItem, message: MessageItem) => ({
 	threadId: row.threadId,
 	messageId: row.messageId,
 	mailboxId: row.mailboxId,
@@ -54,15 +72,30 @@ const toThreadRow = (row: ThreadMessageItem) => ({
 	isRead: row.isRead,
 	hasAttachment: row.hasAttachment,
 	hasStars: row.hasStars,
+	classification: classificationOf(message),
+	auth: authOf(message),
 });
 
-const toPage = (result: {
-	items: ThreadMessageItem[];
-	continuationToken?: string;
-}) => ({
-	items: result.items.map(toThreadRow),
-	continuationToken: result.continuationToken,
-});
+const toPage = async (
+	deps: McpDeps,
+	result: {
+		items: ThreadMessageItem[];
+		continuationToken?: string;
+	},
+) => {
+	const messages = new Map(
+		(await deps.message.get(result.items.map((row) => row.messageId))).map(
+			(message) => [message.messageId, message],
+		),
+	);
+	return {
+		items: result.items.flatMap((row) => {
+			const message = messages.get(row.messageId);
+			return message === undefined ? [] : [toThreadRow(row, message)];
+		}),
+		continuationToken: result.continuationToken,
+	};
+};
 
 const addressesByRole = (addresses: EnvelopeAddressItem[], role: string) =>
 	addresses
@@ -167,7 +200,8 @@ export const registerReadTools = (
 		},
 		async (args) =>
 			asJson(
-				toPage(
+				await toPage(
+					deps,
 					await deps.threadMessage.listByMailbox(
 						accountConfigId,
 						args.mailboxId,
@@ -206,7 +240,8 @@ export const registerReadTools = (
 		},
 		async (args) =>
 			asJson(
-				toPage(
+				await toPage(
+					deps,
 					await deps.threadMessage.searchByDate(
 						accountConfigId,
 						{
@@ -245,7 +280,8 @@ export const registerReadTools = (
 		},
 		async (args) =>
 			asJson(
-				toPage(
+				await toPage(
+					deps,
 					await deps.threadMessage.listByThread(
 						args.threadId,
 						accountConfigId,
@@ -258,6 +294,32 @@ export const registerReadTools = (
 					),
 				),
 			),
+	);
+
+	server.registerTool(
+		"classifier_stats",
+		{
+			description:
+				"Count what the classifier decided for mail that arrived on or after a date: messages examined, messages per category, confident scores per label, and how often the user corrected it.",
+			inputSchema: {
+				since: z
+					.string()
+					.min(1)
+					.describe(
+						"Start of the window, an ISO 8601 date-time with zone offset, such as 2026-11-01T00:00:00+01:00",
+					),
+			},
+			annotations: READ_ONLY,
+		},
+		async (args) => {
+			const stats = await readClassifierStats(
+				deps,
+				accountConfigId,
+				args.since,
+			);
+			if (!stats.ok) return toolError(`${stats.message}.`);
+			return asJson(stats.value);
+		},
 	);
 
 	server.registerTool(

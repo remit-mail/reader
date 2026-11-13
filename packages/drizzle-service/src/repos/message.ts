@@ -1,10 +1,14 @@
-import type {
-	CreateMessageInput,
-	IMessageRepository,
-	MessageDescription,
-	MessageItem,
-	PlacementPredicate,
+import {
+	type ClassifierFolderCounts,
+	type CreateMessageInput,
+	emptyFolderCounts,
+	type IMessageRepository,
+	type MessageDescription,
+	type MessageItem,
+	type PlacementPredicate,
+	readStoredClassifierScores,
 } from "@remit/data-ports";
+import { ClassificationLabel } from "@remit/domain-enums";
 import {
 	and,
 	asc,
@@ -13,6 +17,7 @@ import {
 	eq,
 	exists,
 	gt,
+	gte,
 	inArray,
 	isNotNull,
 	isNull,
@@ -83,6 +88,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		authenticityVerdict: row.authenticityVerdict,
 		hasListUnsubscribe: row.hasListUnsubscribe,
 		movedByRemit: row.movedByRemit,
+		classifierScores: readStoredClassifierScores(row.classifierScores),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		...(row.bodyStorageKey !== null
@@ -348,6 +354,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				input.authenticityVerdict ?? ("NotEvaluated" as const),
 			hasListUnsubscribe: input.hasListUnsubscribe ?? false,
 			movedByRemit: input.movedByRemit ?? false,
+			classifierScores: input.classifierScores ?? [],
 			bodyStorageKey: input.bodyStorageKey ?? null,
 			originalMailboxId: input.originalMailboxId ?? null,
 			originalUid: input.originalUid ?? null,
@@ -418,6 +425,59 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			throw new NotFoundError(`Message not found: ${messageId}`);
 		}
 		return toMessageItem(rows[0]);
+	}
+
+	async countClassifiedSince(
+		mailboxId: string,
+		since: number,
+	): Promise<ClassifierFolderCounts> {
+		const arrived = and(
+			eq(messageTable.mailboxId, mailboxId),
+			gte(messageTable.internalDate, since),
+		);
+		const examined = and(
+			arrived,
+			eq(messageTable.classificationState, "Examined"),
+		);
+		const counts = emptyFolderCounts();
+
+		const categories = await this.db
+			.select({
+				category: messageTable.category,
+				count: sql<number>`cast(count(*) as int)`,
+			})
+			.from(messageTable)
+			.where(examined)
+			.groupBy(messageTable.category);
+		for (const row of categories) {
+			counts.byCategory[row.category] = row.count;
+			counts.examined += row.count;
+		}
+
+		const labels = await this.db.all<{ label: unknown; count: unknown }>(
+			sql`select json_extract(score.value, '$.label') as label, count(*) as count from ${messageTable}, json_each(${messageTable.classifierScores}) as score where ${messageTable.mailboxId} = ${mailboxId} and ${messageTable.internalDate} >= ${since} and ${messageTable.classificationState} = 'Examined' and json_extract(score.value, '$.confident') = 1 group by label`,
+		);
+		for (const row of labels) {
+			const label = Object.values(ClassificationLabel).find(
+				(candidate) => candidate === row.label,
+			);
+			if (label !== undefined && typeof row.count === "number") {
+				counts.byLabel[label] = row.count;
+			}
+		}
+
+		const [reported] = await this.db
+			.select({ count: sql<number>`cast(count(*) as int)` })
+			.from(messageTable)
+			.where(
+				and(
+					arrived,
+					isNotNull(messageTable.spamReport),
+					sql`not exists (select 1 from json_each(${messageTable.classifierScores}) as score where json_extract(score.value, '$.label') in ('Spam', 'Phishing') and json_extract(score.value, '$.confident') = 1)`,
+				),
+			);
+		counts.spamReportedNotJunk = reported.count;
+		return counts;
 	}
 
 	async describe(messageId: string): Promise<MessageDescription> {
@@ -509,6 +569,9 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				: {}),
 			...(input.movedByRemit !== undefined
 				? { movedByRemit: input.movedByRemit }
+				: {}),
+			...(input.classifierScores !== undefined
+				? { classifierScores: input.classifierScores }
 				: {}),
 			...(input.authenticity !== undefined
 				? { authenticity: input.authenticity }

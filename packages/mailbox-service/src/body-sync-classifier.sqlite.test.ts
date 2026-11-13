@@ -22,6 +22,7 @@ import {
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { BodySyncService } from "./body-sync.js";
+import { CLASSIFIER_LABELS } from "./classifier/index.js";
 import { PlacementMoveService } from "./placement-move.js";
 import { SyncWarningService } from "./sync-warning.js";
 import {
@@ -308,6 +309,7 @@ describe("body sync with a saved classification provider", () => {
 		assert.equal(world.provider.requests.length, 0);
 		assert.equal(row.category, expected);
 		assert.equal(row.classificationState, MessageClassificationState.Examined);
+		assert.deepEqual(row.classifierScores, []);
 	});
 
 	it("makes no call while classification is switched off", async () => {
@@ -339,6 +341,28 @@ describe("body sync with a saved classification provider", () => {
 		const sent = world.provider.requests[0].body;
 		assert.match(sent, /Contract due today/);
 		assert.match(sent, /sign the contract/);
+	});
+
+	it("stores every score with whether it was confident, and files cold outreach", async () => {
+		await saveProvider();
+		world.reply = decision([
+			[ClassificationLabel.ColdOutreach, 0.9],
+			[ClassificationLabel.Marketing, 0.69],
+		]);
+		const messageId = await arrive(COLLEAGUE);
+
+		await sync(bodySync(), [messageId]);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.category, "coldOutreach");
+		assert.equal(row.classifierScores.length, CLASSIFIER_LABELS.length);
+		assert.deepEqual(
+			row.classifierScores.filter((score) => score.confidence > 0),
+			[
+				{ label: "Marketing", confidence: 0.69, confident: false },
+				{ label: "ColdOutreach", confidence: 0.9, confident: true },
+			],
+		);
 	});
 
 	it("skips mail that arrived before the provider was saved", async () => {

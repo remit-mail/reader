@@ -1,3 +1,4 @@
+import type { ClassifierFolderCounts } from "../classifier-scores.js";
 import type {
 	CreateMessageInput,
 	MessageDescription,
@@ -72,6 +73,10 @@ export interface IMessageRepository {
 			"placementDecidedAt" | "placementVerdict"
 		>,
 	): Promise<boolean>;
+	countClassifiedSince(
+		mailboxId: string,
+		since: number,
+	): Promise<ClassifierFolderCounts>;
 	describe(messageId: string): Promise<MessageDescription>;
 	updateUid(
 		messageId: string,

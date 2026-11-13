@@ -796,6 +796,22 @@ export class AddressRepo implements IAddressRepository {
 		return rows.map(rowToAddress);
 	}
 
+	async countCategoryOverridesSince(
+		accountConfigId: string,
+		since: number,
+	): Promise<number> {
+		const [row] = await this.db
+			.select({ count: sql<number>`cast(count(*) as int)` })
+			.from(addressTable)
+			.where(
+				and(
+					eq(addressTable.accountConfigId, accountConfigId),
+					sql`json_extract(${addressTable.flags}, '$.category.setAt') >= ${since}`,
+				),
+			);
+		return row.count;
+	}
+
 	async createEnvelopeAddress(
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem> {

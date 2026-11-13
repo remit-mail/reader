@@ -756,6 +756,18 @@ namespace RemitApi {
       | UnauthorizedError;
   }
 
+  @route("/classification-stats")
+  namespace ClassificationStatsOperations {
+    @doc("Count what the classifier decided for mail that arrived on or after `since`, and how often the reader corrected it. Refused with 400 when `since` is not an ISO 8601 date-time with zone offset.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getClassificationStats(
+      @doc("Start of the window, an ISO 8601 date-time with zone offset. Inclusive.")
+      @query(#{ explode: true })
+      since: string,
+    ): ClassifierStats | ValidationError | UnauthorizedError;
+  }
+
   @route("/calendar-tasks")
   namespace CalendarTaskOperations {
     @doc("Tasks due in a window, across every task collection the caller holds, in due order. Refused with 400 on the same window rules as the event listing.")

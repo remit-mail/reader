@@ -85,6 +85,7 @@ export type OperationIds =
 	| "UserSettingsOperations_clearDefaultInvitationSender"
 	| "UserSettingsOperations_clearClassificationProvider"
 	| "UserSettingsOperations_testClassificationProvider"
+	| "ClassificationStatsOperations_getClassificationStats"
 	| "CalendarTaskOperations_listCalendarTasks"
 	| "CalendarTaskOperations_createCalendarTask"
 	| "CalendarTaskDetailOperations_getCalendarTask"
@@ -260,6 +261,11 @@ export type AddressDetailOperationIds = MatchPrefix<
 
 export type MicrosoftOAuthOperationIds = MatchPrefix<
 	"MicrosoftOAuthOperations_",
+	OperationIds
+>;
+
+export type ClassificationStatsOperationIds = MatchPrefix<
+	"ClassificationStatsOperations_",
 	OperationIds
 >;
 

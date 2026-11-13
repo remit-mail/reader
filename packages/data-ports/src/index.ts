@@ -1,3 +1,13 @@
+export {
+	type ClassifierCategoryCounts,
+	type ClassifierFolderCounts,
+	type ClassifierLabelCounts,
+	type ClassifierStatsItem,
+	emptyCategoryCounts,
+	emptyFolderCounts,
+	emptyLabelCounts,
+	readStoredClassifierScores,
+} from "./classifier-scores.js";
 export type { TestResult } from "./connection-test.js";
 export {
 	filterClausesFromRule,
@@ -123,6 +133,7 @@ export type {
 	CalendarSuggestionItem,
 	CalendarTaskItem,
 	ClaimDailyCountInput,
+	ClassifierScoreItem,
 	ConfigImportItem,
 	ConfigImportUnresolvedRefItem,
 	CreateAccountConfigInput,

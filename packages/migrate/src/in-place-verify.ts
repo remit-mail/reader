@@ -37,6 +37,7 @@ export const FILLED_COLUMNS: ReadonlyMap<string, string> = new Map([
 	["auth_user.last_sign_in_at", "app 0002"],
 	["filter.rule", "app 0003"],
 	["organize_job_request.rule", "mail 0009"],
+	["message.classifier_scores", "mail 0010"],
 ]);
 
 /**
