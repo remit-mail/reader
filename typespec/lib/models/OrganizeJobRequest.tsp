@@ -88,6 +88,10 @@ model OrganizeJobRequest {
   @visibility(Lifecycle.Read)
   literalClauses: FilterClause[] = #[];
 
+  @doc("Snapshot of the rule. A version 0 row predates rules and its literalClauses are the truth.")
+  @visibility(Lifecycle.Read)
+  rule: FilterRule = #{ version: 0 };
+
   @doc("Snapshot of the additive label action, or `\"None\"`")
   @visibility(Lifecycle.Read)
   actionLabelId: string = "None";

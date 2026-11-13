@@ -1,9 +1,11 @@
-import type {
-	CreateOrganizeJobRequestInput,
-	IOrganizeJobRequestRepository,
-	OrganizeJobRequestItem,
-	ResultList,
-	UpdateOrganizeJobRequestInput,
+import {
+	type CreateOrganizeJobRequestInput,
+	filterRuleFromClauses,
+	type IOrganizeJobRequestRepository,
+	type OrganizeJobRequestItem,
+	type ResultList,
+	readStoredFilterRule,
+	type UpdateOrganizeJobRequestInput,
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
@@ -23,9 +25,11 @@ function rowToItem(
 		userId: row.userId,
 		state: row.state as OrganizeJobRequestItem["state"],
 		filterId: row.filterId,
-		matchOperator: row.matchOperator as OrganizeJobRequestItem["matchOperator"],
-		literalClauses:
-			row.literalClauses as OrganizeJobRequestItem["literalClauses"],
+		...readStoredFilterRule(row.rule, {
+			matchOperator: row.matchOperator,
+			literalClauses:
+				row.literalClauses as OrganizeJobRequestItem["literalClauses"],
+		}),
 		actionLabelId: row.actionLabelId,
 		actionMailboxId: row.actionMailboxId,
 		matchedCount: row.matchedCount,
@@ -54,7 +58,8 @@ export class OrganizeJobRequestRepo implements IOrganizeJobRequestRepository {
 				state: input.state ?? "Pending",
 				filterId: input.filterId,
 				matchOperator: input.matchOperator,
-				literalClauses: input.literalClauses,
+				literalClauses: [],
+				rule: filterRuleFromClauses(input),
 				actionLabelId: input.actionLabelId,
 				actionMailboxId: input.actionMailboxId,
 				matchedCount: 0,

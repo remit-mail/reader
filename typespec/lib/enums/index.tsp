@@ -66,6 +66,9 @@ import "./FilterState.tsp";
 import "./FilterDisabledReason.tsp";
 import "./FilterMatchOperator.tsp";
 import "./FilterClauseField.tsp";
+import "./FilterRuleMatch.tsp";
+import "./FilterRuleHeader.tsp";
+import "./FilterRuleAddressPart.tsp";
 import "./LabelColor.tsp";
 import "./LabelAction.tsp";
 

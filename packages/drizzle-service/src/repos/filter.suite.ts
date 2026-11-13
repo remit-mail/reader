@@ -1,13 +1,18 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { filterRuleFromClauses } from "@remit/data-ports";
 import {
 	FilterClauseField,
 	FilterDisabledReason,
+	FilterMatchOperator,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
+import { eq } from "drizzle-orm";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
+import { filterTable } from "../schema.js";
 import type { OpenTestStores } from "../test-stores.js";
 import { FilterRepo } from "./filter.js";
 
@@ -17,11 +22,24 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 	describe("FilterRepo", () => {
 		let close: () => Promise<void>;
 		let repo: FilterRepo;
+		let db: RepositoryDb;
+
+		const storedRule = async (filterId: string) => {
+			const [row] = await db
+				.select({
+					rule: filterTable.rule,
+					literalClauses: filterTable.literalClauses,
+				})
+				.from(filterTable)
+				.where(eq(filterTable.filterId, filterId));
+			return row;
+		};
 
 		before(async () => {
 			const opened = await open();
 			close = opened.close;
-			repo = new FilterRepo(opened.stores.app.db);
+			db = opened.stores.app.db;
+			repo = new FilterRepo(db);
 		});
 
 		after(async () => {
@@ -119,6 +137,81 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 			});
 
 			assert.deepEqual(filter.literalClauses, literalClauses);
+		});
+
+		test("a version 0 row reads as version 1 and stays version 0 (#1621)", async () => {
+			const accountConfigId = randomId();
+			const filterId = randomId();
+			const literalClauses = [
+				{ field: FilterClauseField.From, value: "billing@example.com" },
+				{ field: FilterClauseField.FromDomain, value: "example.com" },
+			];
+			await db.insert(filterTable).values({
+				filterId,
+				accountConfigId,
+				name: "Billing",
+				scope: FilterScope.Standing,
+				matchOperator: FilterMatchOperator.Or,
+				literalClauses,
+				ruleChangedAt: 0,
+				actionChangedAt: 0,
+				createdAt: 0,
+				updatedAt: 0,
+			});
+
+			const filter = await repo.get(accountConfigId, filterId);
+
+			assert.equal(filter.matchOperator, FilterMatchOperator.Or);
+			assert.deepEqual(filter.literalClauses, literalClauses);
+			assert.deepEqual(
+				filter.rule,
+				filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.Or,
+					literalClauses,
+				}),
+			);
+			assert.deepEqual(await storedRule(filterId), {
+				rule: { version: 0 },
+				literalClauses,
+			});
+		});
+
+		test("create and a clause update store version 1 with empty clauses (#1621)", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Booking confirmations",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			assert.deepEqual(filter.literalClauses, CLAUSES);
+			assert.deepEqual(await storedRule(filter.filterId), {
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.And,
+					literalClauses: CLAUSES,
+				}),
+				literalClauses: [],
+			});
+
+			const literalClauses = [
+				{ field: FilterClauseField.ListId, value: "news.example.com" },
+				{ field: FilterClauseField.HasWords, value: "weekly digest" },
+			];
+			await repo.update(accountConfigId, filter.filterId, { literalClauses });
+			const updated = await repo.update(accountConfigId, filter.filterId, {
+				matchOperator: FilterMatchOperator.Or,
+			});
+
+			assert.equal(updated.matchOperator, FilterMatchOperator.Or);
+			assert.deepEqual(updated.literalClauses, literalClauses);
+			assert.deepEqual(await storedRule(filter.filterId), {
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.Or,
+					literalClauses,
+				}),
+				literalClauses: [],
+			});
 		});
 
 		test("get throws NotFoundError for a missing filter", async () => {

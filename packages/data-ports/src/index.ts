@@ -1,4 +1,9 @@
 export type { TestResult } from "./connection-test.js";
+export {
+	filterClausesFromRule,
+	filterRuleFromClauses,
+	readStoredFilterRule,
+} from "./filter-rule.js";
 export { deriveFilterTtl } from "./filter-ttl.js";
 export type { IAccountRepository } from "./interfaces/account.js";
 export type { IAccountConfigRepository } from "./interfaces/account-config.js";
@@ -143,7 +148,11 @@ export type {
 	DailyCountClaim,
 	EnvelopeAddressItem,
 	EnvelopeItem,
+	FilterClauseItem,
+	FilterClauses,
 	FilterItem,
+	FilterRuleV1Item,
+	FilterTestItem,
 	FlagsMergePatch,
 	LabelItem,
 	ListOptions,

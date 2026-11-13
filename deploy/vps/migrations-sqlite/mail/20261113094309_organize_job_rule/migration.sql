@@ -1,0 +1,1 @@
+ALTER TABLE `organize_job_request` ADD `rule` text DEFAULT '{"version":0}' NOT NULL;

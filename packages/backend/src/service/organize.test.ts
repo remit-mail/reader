@@ -65,6 +65,7 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 	actionChangedAt: 0,
 	matchOperator: FilterMatchOperator.And,
 	literalClauses: [],
+	rule: { version: 1, test: { test: "allof", tests: [] } },
 	actionLabelId: "None",
 	actionMailboxId: "None",
 	createdAt: 0,
