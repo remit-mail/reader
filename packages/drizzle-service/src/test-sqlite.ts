@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { SQLITE_DATABASE_ENV, type SqliteDatabasePaths } from "./databases.js";
 import { openSqlite, openTestSqlite, type SqliteHandle } from "./sqlite.js";
+import { statementLog } from "./test-query-plan.js";
 import {
 	applyMigrationSet,
 	MIGRATION_SETS,
@@ -29,7 +30,7 @@ export const applyShippedMigrations = (
 export const createShippedSqliteDb = (): SqliteHandle<
 	Record<string, unknown>
 > => {
-	const handle = openTestSqlite<Record<string, unknown>>({});
+	const handle = openTestSqlite<Record<string, unknown>>({}, statementLog);
 	applyShippedMigrations(handle);
 	return handle;
 };

@@ -27,8 +27,8 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	NODE_SQLITE_LIMITS,
 	openSqliteDatabases,
 	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
@@ -118,7 +118,7 @@ export const openStore = async (): Promise<{
 	const storage = createStorageService();
 	const repositories = createSqliteRepositories(
 		await openSqliteDatabases(sqliteDatabasePathsFromEnv()),
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		{ storage },
 	);
 	const queuesOn = (queue: RecordingQueue) => ({

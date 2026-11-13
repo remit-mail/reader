@@ -1,5 +1,5 @@
 import { accountRepositoryConformance } from "@remit/data-ports/conformance";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { accountTable } from "../schema.js";
@@ -21,7 +21,7 @@ accountRepositoryConformance({
 				mail: db,
 				search: db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).account;
 	},

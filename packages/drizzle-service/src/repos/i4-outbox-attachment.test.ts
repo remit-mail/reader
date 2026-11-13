@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
 import type { OutboxAttachmentRepo } from "./i4-outbox-attachment.js";
@@ -36,7 +36,7 @@ before(async () => {
 			mail: harness.db,
 			search: harness.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).outboxAttachment;
 });

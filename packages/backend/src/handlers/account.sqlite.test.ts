@@ -18,9 +18,9 @@ import {
 } from "@remit/domain-enums";
 import {
 	type AccountRepo,
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
@@ -136,7 +136,7 @@ beforeEach(async () => {
 			mail: store.db,
 			search: store.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 	accounts = repos.account;

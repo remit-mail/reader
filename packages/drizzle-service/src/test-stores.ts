@@ -1,4 +1,4 @@
-import { BETTER_SQLITE3_LIMITS } from "./bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "./bound-parameters.js";
 import { type SqliteStores, syncStores } from "./databases.js";
 import {
 	calendarEventIndexTable,
@@ -18,10 +18,7 @@ export type OpenTestStores = () => Promise<{
 export const openSqliteTestStores: OpenTestStores = async () => {
 	const { db, close } = await createTestDb();
 	return {
-		stores: syncStores(
-			{ app: db, mail: db, search: db },
-			BETTER_SQLITE3_LIMITS,
-		),
+		stores: syncStores({ app: db, mail: db, search: db }, NODE_SQLITE_LIMITS),
 		close,
 	};
 };
@@ -34,10 +31,7 @@ export const openCalendarSqliteTestStores: OpenTestStores = async () => {
 		calendarEventIndexes: calendarEventIndexTable,
 	});
 	return {
-		stores: syncStores(
-			{ app: db, mail: db, search: db },
-			BETTER_SQLITE3_LIMITS,
-		),
+		stores: syncStores({ app: db, mail: db, search: db }, NODE_SQLITE_LIMITS),
 		close,
 	};
 };

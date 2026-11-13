@@ -1,6 +1,6 @@
 import { auth_user } from "@remit/auth-service/schema";
 import {
-	BETTER_SQLITE3_LIMITS,
+	NODE_SQLITE_LIMITS,
 	openSqliteDatabases,
 	runDrizzleAccountConfigErase,
 	runDrizzleCascadeDelete,
@@ -38,7 +38,7 @@ let storesPromise: Promise<SqliteStores> | undefined;
 
 const getStores = (): Promise<SqliteStores> => {
 	storesPromise ??= openSqliteDatabases(sqliteDatabasePathsFromEnv()).then(
-		(databases) => syncStores(databases, BETTER_SQLITE3_LIMITS),
+		(databases) => syncStores(databases, NODE_SQLITE_LIMITS),
 	);
 	return storesPromise;
 };

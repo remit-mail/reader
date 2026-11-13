@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { SqliteConnection } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, type TestDb } from "../test-db.js";
@@ -134,7 +134,7 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 				mail: db,
 				search: db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailboxSpecialUse;
 	});

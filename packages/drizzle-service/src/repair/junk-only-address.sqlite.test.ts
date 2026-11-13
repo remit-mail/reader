@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
 import type { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
 import { messageObjectsInMemory } from "../repos/message-objects.js";
@@ -195,7 +195,7 @@ describe("addresses standing only on mail in Junk", () => {
 				mail: db,
 				search: db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailboxSpecialUse;
 		accountSetting = new AccountSettingRepo(db as never);

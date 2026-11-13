@@ -6,9 +6,9 @@ import { ensureAccountConfig } from "@remit/data-ports/account-config";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -73,7 +73,7 @@ beforeEach(() => {
 			mail: store.db,
 			search: store.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 });

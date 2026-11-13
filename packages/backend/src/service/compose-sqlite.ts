@@ -1,7 +1,7 @@
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	NODE_SQLITE_LIMITS,
 	openSqliteDatabases,
 	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
@@ -23,7 +23,7 @@ export const composeSqliteClient = async (
 ): Promise<RemitClient> => {
 	const databases = await openSqliteDatabases(sqliteDatabasePathsFromEnv());
 	return createRemitClient({
-		repositories: createSqliteRepositories(databases, BETTER_SQLITE3_LIMITS, {
+		repositories: createSqliteRepositories(databases, NODE_SQLITE_LIMITS, {
 			storage: shared.storage,
 		}),
 		...shared,

@@ -5,7 +5,7 @@ import type {
 	IMessageRepository,
 } from "@remit/data-ports";
 import { base36uuid } from "@remit/data-ports/id";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
@@ -101,7 +101,7 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 				mail: harness.db,
 				search: harness.db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;
 	});
@@ -411,7 +411,7 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 				mail: harness.db,
 				search: harness.db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);
 		repo = repositories.threadMessage;
@@ -950,7 +950,7 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 				mail: harness.db,
 				search: harness.db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;
 	});
@@ -1130,7 +1130,7 @@ describe("DrizzleThreadMessageRepository — core CRUD", () => {
 				mail: harness.db,
 				search: harness.db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;
 	});

@@ -5,9 +5,9 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
-	BETTER_SQLITE3_LIMITS,
 	composeSqliteRepositories,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 	openSqliteDatabases,
 	syncStores,
 } from "@remit/drizzle-service";
@@ -48,7 +48,7 @@ describe("account delete on a host that runs the finalize step from its own queu
 		);
 		close = databases.close;
 		repositories = composeSqliteRepositories(
-			syncStores(databases, BETTER_SQLITE3_LIMITS),
+			syncStores(databases, NODE_SQLITE_LIMITS),
 			messageObjectsInMemory(),
 		);
 	});

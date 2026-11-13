@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import {
 	DatabaseSync,
-	type SQLInputValue,
 	type SQLOutputValue,
 	type StatementSync,
 } from "node:sqlite";
+import type { Logger } from "drizzle-orm/logger";
 import type { MigrationConfig } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
@@ -21,13 +21,16 @@ export interface OpenSqliteOptions<TSchema extends Record<string, unknown>> {
 	mode: SqliteMode;
 	synchronous: SqliteSynchronous;
 	schema: TSchema;
+	logger?: Logger;
 }
 
+export type SqliteValue = null | number | bigint | string | Uint8Array;
+
 export interface SqliteStatement {
-	all(...params: unknown[]): unknown[];
-	get(...params: unknown[]): unknown;
-	run(...params: unknown[]): { changes: number };
-	iterate(...params: unknown[]): IterableIterator<unknown>;
+	all(...params: SqliteValue[]): unknown[];
+	get(...params: SqliteValue[]): unknown;
+	run(...params: SqliteValue[]): { changes: number };
+	iterate(...params: SqliteValue[]): IterableIterator<unknown>;
 }
 
 export interface SqliteConnection {
@@ -44,19 +47,6 @@ export interface SqliteHandle<TSchema extends Record<string, unknown>> {
 
 const drivers = new WeakMap<object, DatabaseSync>();
 
-const isSqlInput = (value: unknown): value is SQLInputValue =>
-	value === null ||
-	typeof value === "number" ||
-	typeof value === "bigint" ||
-	typeof value === "string" ||
-	ArrayBuffer.isView(value);
-
-const bind = (params: unknown[]): SQLInputValue[] =>
-	params.map((value) => {
-		if (isSqlInput(value)) return value;
-		throw new TypeError(`SQLite cannot bind a ${typeof value} parameter`);
-	});
-
 const plain = (
 	row: Record<string, SQLOutputValue> | undefined,
 ): Record<string, SQLOutputValue> | undefined => (row ? { ...row } : row);
@@ -70,16 +60,18 @@ function* plainRows(
 }
 
 const statement = (prepared: StatementSync): SqliteStatement => ({
-	all: (...params) => prepared.all(...bind(params)).map((row) => ({ ...row })),
-	get: (...params) => plain(prepared.get(...bind(params))),
+	all: (...params) => prepared.all(...params).map((row) => ({ ...row })),
+	get: (...params) => plain(prepared.get(...params)),
 	run: (...params) => ({
-		changes: Number(prepared.run(...bind(params)).changes),
+		changes: Number(prepared.run(...params).changes),
 	}),
-	iterate: (...params) => plainRows(prepared.iterate(...bind(params))),
+	iterate: (...params) => plainRows(prepared.iterate(...params)),
 });
 
 // A writable database runs in WAL mode, and every handle waits up to 5 s on a
-// lock another connection holds. node:sqlite has no fileMustExist, so a file
+// lock another connection holds, from the open on, so a second process
+// switching the file to WAL at startup waits instead of failing busy. node:sqlite
+// enforces foreign keys by default. node:sqlite has no fileMustExist, so a file
 // opened rather than created is checked before the open would create it.
 export function openSqlite<TSchema extends Record<string, unknown>>(
 	options: OpenSqliteOptions<TSchema>,
@@ -89,34 +81,19 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 	}
 	const sqlite = new DatabaseSync(options.filename, {
 		readOnly: options.mode === "readonly",
+		timeout: 5000,
 	});
 	if (options.mode !== "readonly") sqlite.exec("PRAGMA journal_mode = WAL");
-	sqlite.exec("PRAGMA busy_timeout = 5000");
 	sqlite.exec(`PRAGMA synchronous = ${options.synchronous}`);
-	sqlite.exec("PRAGMA foreign_keys = ON");
 
-	const db = drizzle({ client: sqlite });
-	const connection: SqliteConnection = {
-		prepare: (source) => statement(sqlite.prepare(source)),
-	};
-	drivers.set(connection, sqlite);
+	const db = drizzle({ client: sqlite, logger: options.logger });
 	const handle: SqliteHandle<TSchema> = {
 		db,
-		sqlite: connection,
+		sqlite: { prepare: (source) => statement(sqlite.prepare(source)) },
 		exec: (sql) => {
 			sqlite.exec(sql);
 		},
-		immediate: (work) => {
-			sqlite.exec("BEGIN IMMEDIATE");
-			try {
-				const result = work();
-				sqlite.exec("COMMIT");
-				return result;
-			} catch (error) {
-				if (sqlite.isTransaction) sqlite.exec("ROLLBACK");
-				throw error;
-			}
-		},
+		immediate: (work) => db.transaction(work, { behavior: "immediate" }),
 		close: () => {
 			sqlite.close();
 		},
@@ -127,26 +104,22 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 
 export function openTestSqlite<TSchema extends Record<string, unknown>>(
 	schema: TSchema,
+	logger?: Logger,
 ): SqliteHandle<TSchema> {
 	return openSqlite({
 		filename: ":memory:",
 		mode: "create",
 		synchronous: "OFF",
 		schema,
+		logger,
 	});
-}
-
-// The driver behind a handle or its connection, for a test that watches the
-// statements drizzle prepares.
-export function sqliteDriver(owner: object): DatabaseSync {
-	const sqlite = drivers.get(owner);
-	if (!sqlite) throw new Error("sqliteDriver takes a handle from openSqlite");
-	return sqlite;
 }
 
 export function migrateSqlite<TSchema extends Record<string, unknown>>(
 	handle: SqliteHandle<TSchema>,
 	config: MigrationConfig,
 ): void {
-	migrate(drizzle({ client: sqliteDriver(handle) }), config);
+	const sqlite = drivers.get(handle);
+	if (!sqlite) throw new Error("migrateSqlite takes a handle from openSqlite");
+	migrate(drizzle({ client: sqlite }), config);
 }

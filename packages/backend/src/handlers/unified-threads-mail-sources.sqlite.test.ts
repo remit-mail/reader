@@ -12,10 +12,10 @@ import {
 	PlacementConfidence,
 } from "@remit/domain-enums";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type MailboxRepo,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Context } from "openapi-backend";
@@ -44,7 +44,7 @@ beforeEach(() => {
 			mail: store.db,
 			search: store.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 	client = {

@@ -5,7 +5,7 @@ export interface SqliteLimits {
 	maxBoundParameters: number;
 }
 
-export const BETTER_SQLITE3_LIMITS: SqliteLimits = {
+export const NODE_SQLITE_LIMITS: SqliteLimits = {
 	maxBoundParameters: 32766,
 };
 

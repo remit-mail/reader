@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import {
 	createSqliteRepositories,
 	type SqliteRepositories,
@@ -57,7 +57,7 @@ describe("message objects follow the last row that references them", () => {
 		};
 		repos = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			{ storage: counted },
 		);
 	});

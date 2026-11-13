@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { mailboxTable } from "../schema.js";
 import { openTestSqlite } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
@@ -49,7 +49,7 @@ describe("MailboxRepo (sqlite)", () => {
 				mail: testDb.db,
 				search: testDb.db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
 	});
@@ -225,7 +225,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 				mail: db,
 				search: db,
 			},
-			BETTER_SQLITE3_LIMITS,
+			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
 		close = async () => {

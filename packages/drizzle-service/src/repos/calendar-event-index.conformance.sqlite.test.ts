@@ -1,5 +1,5 @@
 import { calendarEventIndexRepositoryConformance } from "@remit/data-ports/conformance";
-import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { syncStore } from "../databases.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
@@ -15,7 +15,7 @@ calendarEventIndexRepositoryConformance({
 			calendarEventIndexes: calendarEventIndexTable,
 		});
 		close = closeDb;
-		return new CalendarEventIndexRepo(syncStore(db, BETTER_SQLITE3_LIMITS));
+		return new CalendarEventIndexRepo(syncStore(db, NODE_SQLITE_LIMITS));
 	},
 	teardown: async () => {
 		await close?.();

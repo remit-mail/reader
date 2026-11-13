@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, describe, test } from "node:test";
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { BETTER_SQLITE3_LIMITS } from "./bound-parameters.js";
+import { NODE_SQLITE_LIMITS } from "./bound-parameters.js";
 import { isUniqueViolation } from "./error.js";
 import { openSqlite, openTestSqlite } from "./sqlite.js";
 import { failedWith } from "./test-error.js";
@@ -25,6 +25,19 @@ describe("openSqlite", () => {
 		assert.deepEqual(handle.db.get(sql`PRAGMA journal_mode`), {
 			journal_mode: "wal",
 		});
+		handle.close();
+	});
+
+	test("an opened file enforces foreign keys", () => {
+		const handle = create(join(directory, "foreign-keys.db"));
+		handle.exec(
+			"CREATE TABLE parent (id TEXT PRIMARY KEY); CREATE TABLE child (parent_id TEXT NOT NULL REFERENCES parent (id))",
+		);
+		assert.throws(
+			() =>
+				handle.sqlite.prepare("INSERT INTO child VALUES (?)").run("missing"),
+			/FOREIGN KEY constraint failed/,
+		);
 		handle.close();
 	});
 
@@ -146,7 +159,7 @@ describe("a node:sqlite handle", () => {
 
 	test("a statement binds the full bound-parameter limit", () => {
 		const handle = openTestSqlite({});
-		const limit = BETTER_SQLITE3_LIMITS.maxBoundParameters;
+		const limit = NODE_SQLITE_LIMITS.maxBoundParameters;
 		const params = Array.from({ length: limit }, (_, index) => index);
 		const placeholders = params.map(() => "?").join(",");
 		assert.deepEqual(

@@ -1,6 +1,7 @@
 import { pushSchema } from "drizzle-kit/payload/sqlite";
 import type { Db } from "./db.js";
 import { openSqlite, openTestSqlite, type SqliteConnection } from "./sqlite.js";
+import { statementLog } from "./test-query-plan.js";
 import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
 
 // A real SQLite database (in-memory by default) with the schema pushed
@@ -26,8 +27,9 @@ export async function createSqliteTestDb<
 				mode: "create",
 				synchronous: "OFF",
 				schema,
+				logger: statementLog,
 			})
-		: openTestSqlite(schema);
+		: openTestSqlite(schema, statementLog);
 
 	const db: SqliteTestDb<TSchema> = sqlite.db;
 

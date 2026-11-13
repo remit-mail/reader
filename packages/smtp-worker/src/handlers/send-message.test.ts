@@ -16,9 +16,9 @@ import {
 	OutboxMessageStatus,
 } from "@remit/domain-enums";
 import {
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { MailFailureKind } from "@remit/logger";
@@ -71,7 +71,7 @@ const openWorld = async (smtpOptions: FakeSmtpOptions = {}): Promise<World> => {
 			mail: store.db,
 			search: store.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 	const smtp = await startFakeSmtp(smtpOptions);

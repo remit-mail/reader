@@ -12,12 +12,12 @@ import {
 } from "@remit/domain-enums";
 import {
 	type AccountRepo,
-	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type DrizzleMessageRepository,
 	MailboxLockRepo,
 	type MailboxRepo,
 	messageObjectsInMemory,
+	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
@@ -61,7 +61,7 @@ beforeEach(() => {
 			mail: store.db,
 			search: store.db,
 		},
-		BETTER_SQLITE3_LIMITS,
+		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);
 	accounts = repos.account;
