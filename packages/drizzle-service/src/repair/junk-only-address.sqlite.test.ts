@@ -14,14 +14,14 @@ import {
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import { sharedDatabases } from "../test-sqlite.js";
+import type { SqliteRepairClient } from "./client.js";
 import {
-	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
 	type JunkOnlyReport,
 	sweepJunkOnlyAddresses,
 } from "./junk-only-address.js";
 
-const clientOver = (sqlite: SqliteConnection): JunkOnlyRepairClient => ({
+const clientOver = (sqlite: SqliteConnection): SqliteRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
 	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 });

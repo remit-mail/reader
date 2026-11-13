@@ -7,26 +7,23 @@ import {
 	syncStore,
 } from "../../drizzle-service/src/databases.js";
 import {
-	type DisplayNameRepairClient,
 	type DisplayNameRepairMode,
 	formatDisplayNameReport,
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
+import type { SqliteRepairClient } from "../../drizzle-service/src/repair/client.js";
 import {
-	type FilterFromDomainRepairClient,
 	type FilterFromDomainRepairMode,
 	formatFilterFromDomainReport,
-	sweepFilterFromDomain,
+	repairFilterFromDomain,
 } from "../../drizzle-service/src/repair/filter-from-domain.js";
 import {
 	formatJunkOnlyReport,
-	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
 	sweepJunkOnlyAddresses,
 } from "../../drizzle-service/src/repair/junk-only-address.js";
 import {
 	formatStrandedSentReport,
-	type StrandedSentRepairClient,
 	type StrandedSentRepairMode,
 	sweepStrandedSentOutbox,
 } from "../../drizzle-service/src/repair/stranded-sent-outbox.js";
@@ -128,7 +125,7 @@ const parseMode = (argv: readonly string[]): Mode => {
  * one repair is that none of them needs rewriting — a read, never a write lock.
  */
 const displayNameStep = async (
-	client: DisplayNameRepairClient,
+	client: SqliteRepairClient,
 	mode: DisplayNameRepairMode,
 	search?: SearchIndex,
 ): Promise<void> => {
@@ -151,7 +148,7 @@ const displayNameStep = async (
  * every boot but the first one after the fix ships.
  */
 const strandedSentStep = async (
-	client: StrandedSentRepairClient,
+	client: SqliteRepairClient,
 	mode: StrandedSentRepairMode,
 ): Promise<void> => {
 	const report = await sweepStrandedSentOutbox(client, mode);
@@ -167,7 +164,7 @@ const strandedSentStep = async (
  * harvested the address. The predicate below only compares mailbox ids.
  */
 const junkOnlyAddressStep = async (
-	client: JunkOnlyRepairClient,
+	client: SqliteRepairClient,
 	specialUse: MailboxSpecialUseRepo,
 	mode: JunkOnlyRepairMode,
 ): Promise<void> => {
@@ -179,18 +176,14 @@ const junkOnlyAddressStep = async (
 };
 
 const filterFromDomainStep = async (
-	client: FilterFromDomainRepairClient,
+	client: SqliteRepairClient,
 	mode: FilterFromDomainRepairMode,
 ): Promise<void> => {
-	const report = await sweepFilterFromDomain(client, mode);
+	const report = await repairFilterFromDomain(client, mode);
 	for (const line of formatFilterFromDomainReport(report)) {
 		logStep({ step: "filter-from-domain-repair" }, line);
 	}
 };
-
-type ParamRepairClient = DisplayNameRepairClient &
-	StrandedSentRepairClient &
-	JunkOnlyRepairClient;
 
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const paths = sqliteDatabasePathsFromEnv();
@@ -218,12 +211,12 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const searchSqlite = open(paths.search);
 	// One handle, both parameterised repairs: the two clients are the same
 	// three lines, and a second copy is a second thing to keep in step.
-	const paramRepairClient: ParamRepairClient = {
+	const paramRepairClient: SqliteRepairClient = {
 		all: async (sql, params) => mailSqlite.sqlite.prepare(sql).all(...params),
 		run: async (sql, params) =>
 			mailSqlite.sqlite.prepare(sql).run(...params).changes,
 	};
-	const appRepairClient: FilterFromDomainRepairClient = {
+	const appRepairClient: SqliteRepairClient = {
 		all: async (sql, params) => appSqlite.sqlite.prepare(sql).all(...params),
 		run: async (sql, params) =>
 			appSqlite.sqlite.prepare(sql).run(...params).changes,

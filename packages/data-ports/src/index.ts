@@ -13,11 +13,11 @@ export {
 	filterRuleLeaves,
 	filterRuleLimitRefusal,
 	filterRuleTestsClassification,
-	fromDomainAddressPart,
+	fromDomainTest,
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
+	narrowFromDomainRule,
 	readStoredFilterRule,
-	repairFromDomainRule,
 } from "./filter-rule.js";
 export { deriveFilterTtl } from "./filter-ttl.js";
 export type { IAccountRepository } from "./interfaces/account.js";

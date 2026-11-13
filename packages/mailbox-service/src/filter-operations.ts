@@ -14,9 +14,11 @@ import {
 	type ILabelRepository,
 	type IMailboxRepository,
 	type MailboxItem,
+	narrowFromDomainRule,
 	type OrganizeJobRequestItem,
 	type UpdateFilterInput,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	FilterDisabledReason,
 	FilterScope,
@@ -82,7 +84,7 @@ interface ActionFolderDeps {
 }
 
 interface ActionLabelDeps {
-	label: Pick<ILabelRepository, "listByAccountConfig">;
+	label: Pick<ILabelRepository, "get">;
 }
 
 interface LabelFolderDeps {
@@ -198,7 +200,7 @@ const NOT_CLAUSES_MESSAGE =
 
 const checkedRule = (rule: FilterRuleV1Item): Refusable<FilterRuleV1Item> => {
 	const refusal = filterRuleLimitRefusal(rule);
-	return refusal ? invalid(refusal) : accept(rule);
+	return refusal ? invalid(refusal) : accept(narrowFromDomainRule(rule));
 };
 
 const patchedRule = (
@@ -350,8 +352,14 @@ const existingActionLabel = async (
 	if (actionLabelId === undefined || actionLabelId === FILTER_NO_ACTION) {
 		return accept(actionLabelId);
 	}
-	const labels = await deps.label.listByAccountConfig(accountConfigId);
-	if (!labels.some((label) => label.labelId === actionLabelId)) {
+	const exists = await deps.label
+		.get(accountConfigId, actionLabelId)
+		.then(() => true)
+		.catch((err: unknown) => {
+			if (err instanceof NotFoundError) return false;
+			throw err;
+		});
+	if (!exists) {
 		return invalid(
 			`No label with id ${actionLabelId} exists. Pass the labelId of an existing label, or "None" to apply no label.`,
 		);

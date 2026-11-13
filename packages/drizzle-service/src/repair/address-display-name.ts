@@ -1,10 +1,6 @@
 import { storedDisplayName } from "@remit/data-ports/display-name";
 import type { SqliteValue } from "../sqlite.js";
-
-export interface DisplayNameRepairClient {
-	all(sql: string, params: readonly SqliteValue[]): Promise<unknown[]>;
-	run(sql: string, params: readonly SqliteValue[]): Promise<number>;
-}
+import type { SqliteRepairClient } from "./client.js";
 
 export type DisplayNameRepairMode = "check" | "repair";
 
@@ -71,7 +67,7 @@ const isCandidateRow = (row: unknown): row is CandidateRow =>
 	typeof (row as { id: unknown }).id === "string";
 
 const candidates = async (
-	client: DisplayNameRepairClient,
+	client: SqliteRepairClient,
 	site: RepairSite,
 ): Promise<CandidateRow[]> => {
 	const rows = await client.all(
@@ -84,7 +80,7 @@ const candidates = async (
 };
 
 const rewrite = async (
-	client: DisplayNameRepairClient,
+	client: SqliteRepairClient,
 	site: RepairSite,
 	row: CandidateRow,
 	stored: string,
@@ -107,7 +103,7 @@ const rewrite = async (
 };
 
 export const sweepDisplayNames = async (
-	client: DisplayNameRepairClient,
+	client: SqliteRepairClient,
 	mode: DisplayNameRepairMode,
 ): Promise<DisplayNameReport> => {
 	const sites: SiteResult[] = [];

@@ -1,3 +1,4 @@
+import type { SqliteRepairClient } from "./client.js";
 /**
  * The repair against the shape a deployment actually runs: the committed
  * `CREATE TABLE` block, not a schema pushed from the drizzle table objects.
@@ -17,11 +18,10 @@ import {
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
 	STRANDED_AFTER_MILLIS,
-	type StrandedSentRepairClient,
 	sweepStrandedSentOutbox,
 } from "./stranded-sent-outbox.js";
 
-const clientOver = (sqlite: SqliteConnection): StrandedSentRepairClient => ({
+const clientOver = (sqlite: SqliteConnection): SqliteRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
 	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 });

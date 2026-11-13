@@ -42,16 +42,27 @@ const dropFilterAnchors: ConfigMigration = {
 	}),
 };
 
-// `fromDomainAddressPart` in @remit/data-ports: a subdomain value keeps its exact host.
-const fromDomainAddressPart = (
-	value: string,
-):
-	| typeof FilterRuleAddressPart.RegistrableDomain
-	| typeof FilterRuleAddressPart.Domain => {
-	const host = value.trim().toLowerCase();
-	return getDomain(host) === host
-		? FilterRuleAddressPart.RegistrableDomain
-		: FilterRuleAddressPart.Domain;
+// `fromDomainTest` in @remit/data-ports: the value is read as a bare host, and a
+// subdomain keeps that exact host.
+const fromDomainTest = (value: string): ConfigFilterTest => {
+	const trimmed =
+		value
+			.trim()
+			.toLowerCase()
+			.replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+			.split("/")[0] ?? "";
+	const host = trimmed
+		.slice(trimmed.lastIndexOf("@") + 1)
+		.replace(/^\.+|\.+$/g, "");
+	return {
+		test: "address",
+		match: FilterRuleMatch.Is,
+		part:
+			getDomain(host) === host
+				? FilterRuleAddressPart.RegistrableDomain
+				: FilterRuleAddressPart.Domain,
+		key: host,
+	};
 };
 
 const clauseTest = (
@@ -80,12 +91,7 @@ const clauseTest = (
 				key: clause.value,
 			};
 		case FilterClauseField.FromDomain:
-			return {
-				test: "address",
-				match: FilterRuleMatch.Is,
-				part: fromDomainAddressPart(clause.value),
-				key: clause.value,
-			};
+			return fromDomainTest(clause.value);
 		case FilterClauseField.HasWords:
 			return {
 				test: "hasWords",

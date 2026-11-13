@@ -1,18 +1,5 @@
-import { FilterRuleV1Schema, repairFromDomainRule } from "@remit/data-ports";
-import type { SqliteValue } from "../sqlite.js";
-
-/**
- * A FromDomain clause holding a subdomain such as `email.gamma.nl` was compiled
- * to a registrable-domain test, which widened it to every `gamma.nl` sender and
- * filed mail the owner routes elsewhere on purpose. The compiler now keeps the
- * exact host; this applies the same decision to rules already stored, once per
- * affected row, at boot. A row still at version 0 compiles on read and needs
- * nothing here, and holds no address test to match the scan.
- */
-export interface FilterFromDomainRepairClient {
-	all(sql: string, params: readonly SqliteValue[]): Promise<unknown[]>;
-	run(sql: string, params: readonly SqliteValue[]): Promise<number>;
-}
+import { FilterRuleV1Schema, narrowFromDomainRule } from "@remit/data-ports";
+import type { SqliteRepairClient } from "./client.js";
 
 export type FilterFromDomainRepairMode = "check" | "repair";
 
@@ -30,20 +17,20 @@ const REPAIR_SQL = "UPDATE filter SET rule = ? WHERE filter_id = ?";
 type CandidateRow = { filter_id: string; rule: string };
 
 const widenedRules = async (
-	client: FilterFromDomainRepairClient,
+	client: SqliteRepairClient,
 ): Promise<{ filterId: string; rule: string }[]> => {
 	const rows = (await client.all(CANDIDATES_SQL, [])) as CandidateRow[];
 	return rows.flatMap((row) => {
 		const stored = FilterRuleV1Schema.parse(JSON.parse(row.rule));
-		const rule = JSON.stringify(repairFromDomainRule(stored));
+		const rule = JSON.stringify(narrowFromDomainRule(stored));
 		return rule === JSON.stringify(stored)
 			? []
 			: [{ filterId: row.filter_id, rule }];
 	});
 };
 
-export const sweepFilterFromDomain = async (
-	client: FilterFromDomainRepairClient,
+export const repairFilterFromDomain = async (
+	client: SqliteRepairClient,
 	mode: FilterFromDomainRepairMode,
 ): Promise<FilterFromDomainReport> => {
 	const widened = await widenedRules(client);

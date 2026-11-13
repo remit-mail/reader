@@ -51,7 +51,7 @@ export interface McpDeps {
 	address: Pick<IAddressRepository, "countCategoryOverridesSince">;
 	label: Pick<
 		ILabelRepository,
-		"create" | "findByNormalizedName" | "listByAccountConfig"
+		"create" | "findByNormalizedName" | "get" | "listByAccountConfig"
 	>;
 	labelMailbox: Pick<
 		ILabelMailboxRepository,

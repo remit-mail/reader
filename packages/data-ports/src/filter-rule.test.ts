@@ -6,8 +6,8 @@ import {
 	filterRuleLimitRefusal,
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
+	narrowFromDomainRule,
 	readStoredFilterRule,
-	repairFromDomainRule,
 } from "./filter-rule.js";
 import type {
 	FilterClauseItem,
@@ -88,45 +88,55 @@ describe("filterRuleFromClauses", () => {
 	});
 });
 
-describe("a subdomain FromDomain value", () => {
-	it("keeps its exact host when compiled and when repaired", () => {
-		const host: FilterTestItem = {
-			test: "address",
-			match: "Is",
-			part: "Domain",
-			key: "email.triodos.nl",
-		};
-		const registrable: FilterTestItem = {
+const FROM_DOMAIN_VALUES: [string, FilterTestItem][] = [
+	...[
+		"gamma.nl.",
+		"@gamma.nl",
+		"user@gamma.nl",
+		".gamma.nl",
+		"https://gamma.nl",
+	].map((value): [string, FilterTestItem] => [
+		value,
+		{
 			test: "address",
 			match: "Is",
 			part: "RegistrableDomain",
-			key: "triodos.nl",
-		};
+			key: "gamma.nl",
+		},
+	]),
+	[
+		"email.triodos.nl",
+		{ test: "address", match: "Is", part: "Domain", key: "email.triodos.nl" },
+	],
+];
 
-		assert.deepEqual(
-			filterRuleFromClauses({
-				matchOperator: "Or",
-				literalClauses: [
-					{ field: "FromDomain", value: "email.triodos.nl" },
-					{ field: "FromDomain", value: "triodos.nl" },
-				],
-			}).test,
-			{ test: "anyof", tests: [host, registrable] },
-		);
-		assert.deepEqual(
-			repairFromDomainRule({
-				version: 1,
-				test: {
-					test: "anyof",
-					tests: [
-						{ test: "not", operand: { ...host, part: "RegistrableDomain" } },
-						registrable,
-					],
-				},
-			}).test,
-			{ test: "anyof", tests: [{ test: "not", operand: host }, registrable] },
-		);
-	});
+describe("a FromDomain value", () => {
+	for (const [value, test] of FROM_DOMAIN_VALUES) {
+		it(`reads ${value} as a bare host when compiled and when narrowed`, () => {
+			assert.deepEqual(
+				filterRuleFromClauses({
+					matchOperator: "And",
+					literalClauses: [{ field: "FromDomain", value }],
+				}).test,
+				{ test: "allof", tests: [test] },
+			);
+			assert.deepEqual(
+				narrowFromDomainRule({
+					version: 1,
+					test: {
+						test: "not",
+						operand: {
+							test: "address",
+							match: "Is",
+							part: "RegistrableDomain",
+							key: value,
+						},
+					},
+				}).test,
+				{ test: "not", operand: test },
+			);
+		});
+	}
 });
 
 describe("filterClausesFromRule", () => {
