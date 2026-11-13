@@ -47,7 +47,6 @@ import {
 	FlagQueueService,
 	fifoMailboxManagement,
 	type ImapTransport,
-	InlineSpamService,
 	MailboxQueueService,
 	MessageMoveService,
 	OutboxAttachmentService,
@@ -58,6 +57,7 @@ import {
 	type SpamConfig,
 	SpamReportService,
 	SyncWarningService,
+	spamServiceFor,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import {
@@ -392,7 +392,7 @@ export const createRemitCore = (
 		mailTransports,
 		classificationDefault,
 		spam: {
-			spamService: new InlineSpamService(spamDeployment.thresholds),
+			spamService: spamServiceFor(spamDeployment),
 			domainRegistration: repositories.domainRegistration,
 			rdap: new RdapClient(fetch),
 			accountService: repositories.account,

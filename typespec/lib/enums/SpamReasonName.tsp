@@ -65,17 +65,8 @@ enum SpamReasonName {
   @doc("Stage 3: the model judged the message legitimate. `options` quotes the model's reason.")
   ModelClean: "ModelClean",
 
-  @doc("Stage 3 was skipped: the account has no model configured.")
-  ModelNotConfigured: "ModelNotConfigured",
-
-  @doc("Stage 3 was skipped: the account reached its daily model limit.")
-  ModelDailyLimit: "ModelDailyLimit",
-
-  @doc("Stage 3 was skipped: the model provider refused the call for its rate limit.")
-  ModelRateLimited: "ModelRateLimited",
-
-  @doc("Stage 3 was skipped: the model call failed or its answer could not be read.")
-  ModelFailed: "ModelFailed",
+  @doc("A link points to a URL a phishing feed lists. Only a backend reports it.")
+  ListedPhishingLink: "ListedPhishingLink",
 
   @doc("A backend symbol with no name of its own here, such as an rspamd rule. The reason's `symbol` carries it.")
   BackendSymbol: "BackendSymbol",

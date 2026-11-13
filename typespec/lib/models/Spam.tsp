@@ -40,11 +40,14 @@ model SpamRequestEnvelope {
   @doc("The account's own addresses.")
   rcpt: string[];
 
-  @doc("The connecting IP from the receiving server's Received header, or empty.")
+  @doc("The sending server's IP: the hop the provider's SPF check judged, else the first hop from a public address, or empty.")
   ip: string;
 
-  @doc("The HELO name from the receiving server's Received header, or empty.")
+  @doc("The HELO name the sending server gave, or empty.")
   helo: string;
+
+  @doc("The sending server's reverse DNS name as the receiving server recorded it, or empty.")
+  hostname: string;
 }
 
 @doc("The provider's authentication results, read from its Authentication-Results.")
