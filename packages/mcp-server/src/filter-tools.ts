@@ -13,8 +13,10 @@ import {
 	FilterState,
 } from "@remit/domain-enums";
 import {
+	accept,
 	createFilter,
 	listFilters,
+	ownedAccount,
 	queueOrganizeJob,
 	type Refused,
 	refuse,
@@ -249,6 +251,37 @@ export const registerFilterTools = (
 				);
 			}
 			return asJson(toOrganizeJob(job));
+		},
+	);
+
+	server.registerTool(
+		"apply_filter",
+		{
+			description:
+				"Apply a filter to existing mail now, without changing the filter. Queues the same job create_filter queues and returns its organizeJobId.",
+			inputSchema: {
+				accountId,
+				filterId: z.string().min(1).describe("Filter from list_filters"),
+			},
+			annotations: FILTER_WRITE,
+		},
+		async ({ accountId, filterId }) => {
+			const owned = await deps.account
+				.get(accountId)
+				.then((account) => ownedAccount(account, accountConfigId, "act"))
+				.catch(notFound);
+			if (!owned.ok) return refused(owned.refusal);
+			const filter = await deps.filter
+				.get(accountConfigId, filterId)
+				.then(accept)
+				.catch(notFound);
+			if (!filter.ok) return refused(filter.refusal);
+			const job = await queueOrganizeJob(organizeDeps, {
+				accountConfigId,
+				userId,
+				filterId,
+			});
+			return asJson({ organizeJobId: job.organizeJobId, state: job.state });
 		},
 	);
 };
