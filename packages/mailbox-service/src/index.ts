@@ -105,6 +105,7 @@ export {
 	type FilterDecision,
 	type FilterLogger,
 	FilterPipeline,
+	moveDestination,
 	type PreparedFilters,
 } from "./filters/pipeline.js";
 export {
@@ -184,21 +185,15 @@ export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 export { ImapFlowConnection } from "./imapflow-connection.js";
 export {
 	type AdoptLabelFolderDeps,
-	adoptLabelFolders,
 	type CreateLabelDeps,
 	createLabelWithFolders,
-	ensureRemitRoot,
 	type LabelFolder,
 	type LabelFolderReadDeps,
-	type LabelFolderState,
 	type LabelWithFolders,
-	labelFolderOf,
 	listLabelsWithFolders,
 	type NewLabel,
 	type RemitRootDeps,
 	reconcileRemitFolders,
-	remitRootChildren,
-	resolveLabelFolder,
 } from "./label-folders.js";
 export {
 	backfillListIds,

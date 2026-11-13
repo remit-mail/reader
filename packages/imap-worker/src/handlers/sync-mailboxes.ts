@@ -9,6 +9,7 @@ import type {
 	IAccountRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
+	MailboxItem,
 } from "@remit/data-ports";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { SyncPhase } from "@remit/domain-enums";
@@ -238,13 +239,10 @@ const syncMailboxesForAccount = async (
 		);
 	}
 
-	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
+	const stored = await mailboxService.listAllByAccount(accountId);
+	const allMailboxes = collectAllMailboxes(stored);
 
-	const adopted = await reconcileRemitFolders(
-		remitFolders,
-		account,
-		await mailboxService.listAllByAccount(accountId),
-	);
+	const adopted = await reconcileRemitFolders(remitFolders, account, stored);
 	if (adopted.length > 0) {
 		log.info(
 			{ accountId, adopted: adopted.length },
@@ -383,29 +381,14 @@ type MailboxSortEntry = {
  * Junk/Spam and Trash last (issue #567). Real mail dispatches ahead of bulk
  * folders so a fresh account fills its inbox before its spam.
  */
-const collectAllMailboxes = async (
-	accountId: string,
-	mailboxService: IMailboxRepository,
-): Promise<MailboxSortEntry[]> => {
-	const mailboxes: MailboxSortEntry[] = [];
-	let continuationToken: string | undefined;
-
-	do {
-		const result = await mailboxService.listByAccount(accountId, {
-			continuationToken,
-		});
-
-		for (const mailbox of result.items) {
-			mailboxes.push({
-				mailboxId: mailbox.mailboxId,
-				fullPath: mailbox.fullPath,
-				lastMessageSyncAt: mailbox.lastMessageSyncAt,
-				specialUse: mailbox.specialUse,
-			});
-		}
-
-		continuationToken = result.continuationToken ?? undefined;
-	} while (continuationToken);
-
-	return orderMailboxesForSync(mailboxes);
-};
+const collectAllMailboxes = (
+	mailboxes: readonly MailboxItem[],
+): MailboxSortEntry[] =>
+	orderMailboxesForSync(
+		mailboxes.map((mailbox) => ({
+			mailboxId: mailbox.mailboxId,
+			fullPath: mailbox.fullPath,
+			lastMessageSyncAt: mailbox.lastMessageSyncAt,
+			specialUse: mailbox.specialUse,
+		})),
+	);

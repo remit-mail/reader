@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { AccountItem, MailboxItem } from "@remit/data-ports";
-import { MailboxSyncStatus } from "@remit/domain-enums";
+import type { AccountItem } from "@remit/data-ports";
 import {
 	type AdoptLabelFolderDeps,
 	type CreateLabelDeps,
@@ -9,7 +8,6 @@ import {
 	type LabelWithFolders,
 	listLabelsWithFolders,
 	reconcileRemitFolders,
-	resolveLabelFolder,
 } from "./label-folders.js";
 import { fifoMailboxManagement, MailboxQueueService } from "./mailbox-queue.js";
 import { remitRootName } from "./remit-root.js";
@@ -78,13 +76,6 @@ const secondAccount = (): Promise<AccountItem> =>
 		isActive: true,
 		connectionState: account.connectionState,
 		accountConfigId: account.accountConfigId,
-	});
-
-const settle = (mailbox: Pick<MailboxItem, "mailboxId">) =>
-	store.mailbox.transition(account.accountId, mailbox.mailboxId, {
-		from: [MailboxSyncStatus.pending],
-		wherePendingPath: null,
-		to: MailboxSyncStatus.synced,
 	});
 
 describe("createLabelWithFolders", () => {
@@ -157,39 +148,6 @@ describe("createLabelWithFolders", () => {
 		);
 		assert.equal(outcome.ok, false);
 		assert.deepEqual(createdPaths(), []);
-	});
-});
-
-describe("resolveLabelFolder", () => {
-	it("follows the mapping to the folder and its state", async () => {
-		const { label, folders } = await created("Receipts");
-		const [folder] = folders;
-		assert.ok(folder && folder.state === "Pending");
-		assert.equal(
-			(await resolveLabelFolder(store, account.accountId, label.labelId)).state,
-			"Pending",
-		);
-		await settle(folder);
-		assert.deepEqual(
-			await resolveLabelFolder(store, account.accountId, label.labelId),
-			{ ...folder, state: "Present" },
-		);
-	});
-
-	it("is missing for an account without a mapping or whose folder is gone", async () => {
-		const { label, folders } = await created("Receipts");
-		const other = await secondAccount();
-		assert.equal(
-			(await resolveLabelFolder(store, other.accountId, label.labelId)).state,
-			"Missing",
-		);
-		const [folder] = folders;
-		assert.ok(folder && folder.state !== "Missing");
-		await store.mailbox.delete(account.accountId, folder.mailboxId);
-		assert.equal(
-			(await resolveLabelFolder(store, account.accountId, label.labelId)).state,
-			"Missing",
-		);
 	});
 });
 

@@ -14,6 +14,7 @@ import {
 	evaluateRule,
 	type FilterMessage,
 	FilterPipeline,
+	moveDestination,
 	PlacementMoveService,
 	type PreparedFilters,
 	type RuleNarrowing,
@@ -628,10 +629,7 @@ export const backApplyFilter = async (
 		if (!prepared.filters.some((usable) => usable.filterId === filterId)) {
 			continue;
 		}
-		const destination =
-			filter.actionMailboxId !== FILTER_NO_ACTION
-				? filter.actionMailboxId
-				: (prepared.labelFolders.get(filter.actionLabelId) ?? FILTER_NO_ACTION);
+		const destination = moveDestination(prepared, filter) ?? FILTER_NO_ACTION;
 		const decision = pipeline.decide(prepared, message);
 		const move = (decision.move?.filterId ?? filterId) === filterId;
 		if (!move && filter.actionLabelId === FILTER_NO_ACTION) continue;

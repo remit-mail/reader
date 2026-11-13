@@ -54,7 +54,7 @@ export interface FilterDecision {
 
 const EMPTY_DECISION: FilterDecision = { labels: [] };
 
-const moveDestination = (
+export const moveDestination = (
 	prepared: Pick<PreparedFilters, "labelFolders">,
 	filter: Pick<FilterItem, "actionMailboxId" | "actionLabelId">,
 ): string | undefined =>

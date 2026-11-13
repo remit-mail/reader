@@ -342,17 +342,3 @@ export const reconcileRemitFolders = async (
 	if (!root) return [];
 	return adoptLabelFolders(deps, account, root, mailboxes);
 };
-
-export const resolveLabelFolder = async (
-	deps: {
-		labelMailbox: Pick<ILabelMailboxRepository, "get">;
-		mailbox: Pick<IMailboxRepository, "get">;
-	},
-	accountId: string,
-	labelId: string,
-): Promise<LabelFolder> => {
-	const mapped = await deps.labelMailbox.get(labelId, accountId);
-	if (!mapped) return { accountId, state: "Missing" };
-	const [mailbox] = await deps.mailbox.get(accountId, [mapped.mailboxId]);
-	return labelFolderOf(accountId, mailbox);
-};

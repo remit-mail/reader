@@ -2,13 +2,7 @@ import "typespec-electrodb-emitter";
 
 namespace RemitImap;
 
-@doc("""
-  The folder a label maps to in one account (RFC 040): the child of that
-  account's remit root whose case-folded name is the label's normalizedName.
-  Keyed by a deterministic id derived from `labelId` + `accountId`, so a label
-  holds at most one folder per account and a single `get` resolves it. The
-  folder's own row carries its state.
-  """)
+@doc("The folder a label maps to in one account, keyed by labelId + accountId (RFC 040).")
 @entity("labelMailbox", "remit")
 @index(
   "LabelMailbox",
