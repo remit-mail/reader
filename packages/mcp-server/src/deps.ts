@@ -53,7 +53,10 @@ export interface McpDeps {
 		ILabelRepository,
 		"create" | "findByNormalizedName" | "listByAccountConfig"
 	>;
-	labelMailbox: Pick<ILabelMailboxRepository, "get" | "put" | "listByAccount">;
+	labelMailbox: Pick<
+		ILabelMailboxRepository,
+		"get" | "put" | "listByAccount" | "listByLabel"
+	>;
 	message: Pick<
 		IMessageRepository,
 		"get" | "describe" | "countClassifiedSince"
@@ -64,7 +67,7 @@ export interface McpDeps {
 	>;
 	filter: Pick<
 		IFilterRepository,
-		"listPageByAccountConfig" | "refreshExpiry" | "create" | "get" | "update"
+		"listByAccountConfig" | "refreshExpiry" | "create" | "get" | "update"
 	>;
 	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create" | "get">;
 	storage: Pick<StorageService, "retrieveBodyPart">;

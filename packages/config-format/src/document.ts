@@ -1,6 +1,7 @@
 import {
 	AccountAuthType,
 	CanonicalMailboxRole,
+	ClassificationLabel,
 	FilterClauseField,
 	FilterRuleAddressPart,
 	FilterRuleHeader,
@@ -215,6 +216,7 @@ const RuleKey = z.string().max(256);
 const RuleMatch = z.enum(FilterRuleMatch);
 const RuleHeader = z.enum(FilterRuleHeader);
 const RuleAddressPart = z.enum(FilterRuleAddressPart);
+const RuleClassification = z.enum(ClassificationLabel);
 
 export type ConfigFilterTest =
 	| { test: "allof"; tests: ConfigFilterTest[] }
@@ -232,7 +234,8 @@ export type ConfigFilterTest =
 			part: z.infer<typeof RuleAddressPart>;
 			key: string;
 	  }
-	| { test: "hasWords"; words: string[] };
+	| { test: "hasWords"; words: string[] }
+	| { test: "classification"; label: z.infer<typeof RuleClassification> };
 
 export const FilterTestSchema: z.ZodType<ConfigFilterTest> = z
 	.lazy(() =>
@@ -261,6 +264,10 @@ export const FilterTestSchema: z.ZodType<ConfigFilterTest> = z
 			z.strictObject({
 				test: z.literal("hasWords"),
 				words: z.array(RuleKey),
+			}),
+			z.strictObject({
+				test: z.literal("classification"),
+				label: RuleClassification,
 			}),
 		]),
 	)

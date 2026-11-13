@@ -2,10 +2,15 @@ import {
 	FILTER_NO_ACTION,
 	type FilterItem,
 	type IFilterRepository,
+	type ILabelMailboxRepository,
 	type IMailboxRepository,
 	type IMessageLabelRepository,
 } from "@remit/data-ports";
-import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
+import {
+	FilterDisabledReason,
+	FilterState,
+	MailboxSyncStatus,
+} from "@remit/domain-enums";
 import type { FolderPlacement } from "../heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
@@ -31,7 +36,9 @@ export interface FilterConfig {
 	filterService: IFilterRepository;
 	messageLabelService: IMessageLabelRepository;
 	/** Names the account a filter's folder belongs to. */
-	mailboxService: Pick<IMailboxRepository, "resolveAccountId">;
+	mailboxService: Pick<IMailboxRepository, "resolveAccountId" | "get">;
+	/** The folder each label maps to in each account (RFC 040). */
+	labelMailboxService: Pick<ILabelMailboxRepository, "listByLabel">;
 	placementMoveService: PlacementMoveService;
 }
 
@@ -47,10 +54,24 @@ export interface FilterDecision {
 
 const EMPTY_DECISION: FilterDecision = { labels: [] };
 
+const moveDestination = (
+	prepared: Pick<PreparedFilters, "labelFolders">,
+	filter: Pick<FilterItem, "actionMailboxId" | "actionLabelId">,
+): string | undefined =>
+	filter.actionMailboxId !== FILTER_NO_ACTION
+		? filter.actionMailboxId
+		: prepared.labelFolders.get(filter.actionLabelId);
+
 export interface PreparedFilters {
 	filters: readonly FilterItem[];
 	getDomain: GetDomain;
+	labelFolders: ReadonlyMap<string, string>;
 }
+
+type LabelFolderFit =
+	| { kind: "TagOnly" }
+	| { kind: "Folder"; mailboxId: string }
+	| { kind: "Unavailable" };
 
 /**
  * Evaluates a synced message against the account's active filters and resolves
@@ -85,11 +106,9 @@ export class FilterPipeline {
 					filterId: filter.filterId,
 				});
 			}
-			if (!move && filter.actionMailboxId !== FILTER_NO_ACTION) {
-				move = {
-					destinationMailboxId: filter.actionMailboxId,
-					filterId: filter.filterId,
-				};
+			const destinationMailboxId = moveDestination(prepared, filter);
+			if (!move && destinationMailboxId !== undefined) {
+				move = { destinationMailboxId, filterId: filter.filterId };
 			}
 			if (filter.stop) break;
 		}
@@ -103,12 +122,37 @@ export class FilterPipeline {
 	 * act on, exactly as if it had not matched. A folder no account holds any
 	 * more turns the filter off, with the reason the filter list shows.
 	 */
+	private async labelFolderFit(
+		accountId: string,
+		labelId: string,
+	): Promise<LabelFolderFit> {
+		const mappings = await this.config.labelMailboxService.listByLabel(labelId);
+		if (mappings.length === 0) return { kind: "TagOnly" };
+		const mapping = mappings.find((row) => row.accountId === accountId);
+		if (!mapping) return { kind: "Unavailable" };
+		const [folder] = await this.config.mailboxService.get(accountId, [
+			mapping.mailboxId,
+		]);
+		if (folder?.syncStatus !== MailboxSyncStatus.synced) {
+			return { kind: "Unavailable" };
+		}
+		return { kind: "Folder", mailboxId: folder.mailboxId };
+	}
+
 	private async appliesTo(
 		accountConfigId: string,
 		accountId: string,
 		filter: FilterItem,
+		labelFolders: Map<string, string>,
 	): Promise<boolean> {
-		if (filter.actionMailboxId === FILTER_NO_ACTION) return true;
+		if (filter.actionMailboxId === FILTER_NO_ACTION) {
+			if (filter.actionLabelId === FILTER_NO_ACTION) return true;
+			const fit = await this.labelFolderFit(accountId, filter.actionLabelId);
+			if (fit.kind === "Folder") {
+				labelFolders.set(filter.actionLabelId, fit.mailboxId);
+			}
+			return fit.kind !== "Unavailable";
+		}
 		const owner = await this.config.mailboxService.resolveAccountId(
 			filter.actionMailboxId,
 		);
@@ -131,16 +175,26 @@ export class FilterPipeline {
 	): Promise<PreparedFilters> {
 		const { getDomain } = await import("tldts");
 		const filters: FilterItem[] = [];
+		const labelFolders = new Map<string, string>();
 		for (const filter of active) {
 			// Lazy expiry (RFC 034 Decision 1.2): reading a Temporary filter past
 			// its expiresAt patches it to Expired on this read and drops it from
 			// evaluation, independent of whether the TTL delete has run.
 			const usable = await this.config.filterService.refreshExpiry(filter);
 			if (usable.state !== FilterState.Active) continue;
-			if (!(await this.appliesTo(accountConfigId, accountId, usable))) continue;
+			if (
+				!(await this.appliesTo(
+					accountConfigId,
+					accountId,
+					usable,
+					labelFolders,
+				))
+			) {
+				continue;
+			}
 			filters.push(usable);
 		}
-		return { filters, getDomain };
+		return { filters, getDomain, labelFolders };
 	}
 }
 

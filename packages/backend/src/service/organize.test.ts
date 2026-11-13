@@ -213,6 +213,7 @@ const candidate = (
 		subject: "",
 		text: "",
 		listId: "",
+		classifierScores: [],
 		...over,
 	},
 });

@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "4f50e6da-2ca1-423f-bea6-05e2217ffbac",
+  "id": "e6a21c2b-24c9-43c1-b77d-bdef7f4bc13c",
   "prevIds": [
     "1a84bf54-1be4-4bbb-97f9-e71d31957ee5"
   ],
@@ -3708,6 +3708,24 @@
         },
         {
           "value": "envelope_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "label_mailbox",
+      "name": "label_mailbox_by_label_id",
+      "columns": [
+        {
+          "value": "label_id",
+          "isExpression": false
+        },
+        {
+          "value": "account_id",
           "isExpression": false
         }
       ],

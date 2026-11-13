@@ -7,4 +7,5 @@ CREATE TABLE `label_mailbox` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX `label_mailbox_by_label_id` ON `label_mailbox` (`label_id`,`account_id`);--> statement-breakpoint
 CREATE INDEX `label_mailbox_by_account_id` ON `label_mailbox` (`account_id`,`label_id`);

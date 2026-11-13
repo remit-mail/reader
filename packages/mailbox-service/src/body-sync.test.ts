@@ -210,6 +210,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 					filterService: store.filter,
 					messageLabelService: store.messageLabel,
 					mailboxService: store.mailbox,
+					labelMailboxService: store.labelMailbox,
 					placementMoveService,
 				}
 			: undefined,

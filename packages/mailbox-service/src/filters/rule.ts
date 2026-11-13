@@ -1,4 +1,5 @@
 import type {
+	ClassifierScoreItem,
 	FilterItem,
 	FilterRuleV1Item,
 	FilterTestItem,
@@ -19,11 +20,13 @@ export interface FilterMessage {
 	subject: string;
 	text: string;
 	listId: string;
+	classifierScores: readonly ClassifierScoreItem[];
 }
 
 type HeaderTest = Extract<FilterTestItem, { test: "header" }>;
 type AddressTest = Extract<FilterTestItem, { test: "address" }>;
 type HasWordsTest = Extract<FilterTestItem, { test: "hasWords" }>;
+type ClassificationTest = Extract<FilterTestItem, { test: "classification" }>;
 type FilterTestMatch = HeaderTest["match"];
 
 const fold = (value: string): string => value.toLowerCase();
@@ -112,6 +115,14 @@ const hasWordsMatches = (test: HasWordsTest, msg: FilterMessage): boolean => {
 	);
 };
 
+const classificationMatches = (
+	test: ClassificationTest,
+	msg: FilterMessage,
+): boolean =>
+	msg.classifierScores.some(
+		(score) => score.confident && score.label === test.label,
+	);
+
 export const evaluateTest = (
 	test: FilterTestItem,
 	msg: FilterMessage,
@@ -133,6 +144,8 @@ export const evaluateTest = (
 			return addressMatches(test, msg, getDomain);
 		case "hasWords":
 			return hasWordsMatches(test, msg);
+		case "classification":
+			return classificationMatches(test, msg);
 	}
 };
 

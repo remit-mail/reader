@@ -93,6 +93,7 @@ export {
 	createFilter,
 	type FilterPage,
 	type FilterPatch,
+	listAccountFilters,
 	listFilters,
 	type NewFilter,
 	resolveFilterUpdate,

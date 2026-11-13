@@ -25,6 +25,14 @@ namespace RemitImap;
     sk: [LabelMailbox.labelId],
   }
 )
+@index(
+  "byLabelId",
+  {
+    index: "gsi1",
+    pk: [LabelMailbox.labelId],
+    sk: [LabelMailbox.accountId],
+  }
+)
 model LabelMailbox {
   @doc("Deterministic id derived from labelId + accountId")
   @visibility(Lifecycle.Read)

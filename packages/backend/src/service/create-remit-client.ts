@@ -298,6 +298,7 @@ export const buildReadPathFilterConfig = (
 		| "placementMove"
 		| "address"
 		| "mailboxSpecialUse"
+		| "labelMailbox"
 	>,
 	queues: Pick<RemitClientQueues, "messageManagement">,
 ): FilterConfig => {
@@ -306,6 +307,7 @@ export const buildReadPathFilterConfig = (
 		filterService: repositories.filter,
 		messageLabelService: repositories.messageLabel,
 		mailboxService: repositories.mailbox,
+		labelMailboxService: repositories.labelMailbox,
 		placementMoveService: new PlacementMoveService({
 			messageService: repositories.message,
 			threadMessageService: repositories.threadMessage,

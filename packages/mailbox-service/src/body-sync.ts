@@ -8,6 +8,7 @@ import {
 	type BodyPartItem,
 	type ClassifierScoreItem,
 	type FilterItem,
+	filterRuleTestsClassification,
 	type IAccountRepository,
 	type IAddressRepository,
 	type ICalendarStore,
@@ -141,12 +142,16 @@ const isConnectionDrop = (error: unknown): boolean => {
  * the literal-clause targets. Kept
  * separate from `ParsedMail` so {@link FilterPipeline} stays parser-agnostic.
  */
-const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
+const toFilterMessage = (
+	parsed: ParsedMail,
+	classifierScores: readonly ClassifierScoreItem[],
+): FilterMessage => ({
 	from: extractPrimaryFromEmail(parsed) ?? "",
 	fromName: parsed.from?.value?.[0]?.name ?? "",
 	subject: parsed.subject ?? "",
 	text: parsed.text ?? "",
 	listId: extractListId(parsed),
+	classifierScores,
 });
 
 const SNIPPET_LENGTH = 256;
@@ -844,27 +849,20 @@ export class BodySyncService {
 		const { fields: classification, categoryOverridden } =
 			await classifyParsedMessage(this.addressService, accountConfigId, parsed);
 
-		const filterDecision = await this.evaluateFilters(
-			lookups,
-			messageId,
-			parsed,
-			arrival,
-		);
-
 		const senderPlacement = once(() =>
 			this.senderPlacementOf(accountConfigId, parsed),
 		);
 
-		const { verdict, scores: classifierScores } = await this.decideClassifier(
-			lookups,
-			{ accountId, accountConfigId },
-			parsed,
-			arrival,
-			filterDecision.labels.length > 0 ||
-				filterDecision.move !== undefined ||
+		const { filterDecision, verdict, classifierScores } =
+			await this.decideFiltersAndClassifier(
+				lookups,
+				{ accountId, accountConfigId },
+				messageId,
+				parsed,
+				arrival,
 				categoryOverridden,
-			senderPlacement,
-		);
+				senderPlacement,
+			);
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
@@ -1245,6 +1243,77 @@ export class BodySyncService {
 		);
 	}
 
+	private async classifierRunsFirst(lookups: BatchLookups): Promise<boolean> {
+		if (!this.filterPipeline || !this.classifierConfig) return false;
+		const usable = await lookups.usableFilters().catch(() => undefined);
+		return (
+			usable?.filters.some((filter) =>
+				filterRuleTestsClassification(filter.rule),
+			) ?? false
+		);
+	}
+
+	private async decideFiltersAndClassifier(
+		lookups: BatchLookups,
+		account: { accountId: string; accountConfigId: string },
+		messageId: string,
+		parsed: ParsedMail,
+		arrival: Arrival,
+		categoryOverridden: boolean,
+		senderPlacement: () => Promise<SenderPlacement>,
+	): Promise<{
+		filterDecision: FilterDecision;
+		verdict: ClassifierVerdict;
+		classifierScores: ClassifierScoreItem[];
+	}> {
+		const matched = (decision: FilterDecision): boolean =>
+			decision.labels.length > 0 || decision.move !== undefined;
+		if (await this.classifierRunsFirst(lookups)) {
+			const classified = await this.decideClassifier(
+				lookups,
+				account,
+				parsed,
+				arrival,
+				categoryOverridden,
+				senderPlacement,
+			);
+			const filterDecision = await this.evaluateFilters(
+				lookups,
+				messageId,
+				parsed,
+				arrival,
+				classified.scores,
+			);
+			return {
+				filterDecision,
+				verdict: matched(filterDecision)
+					? NO_CLASSIFIER_DECISION.verdict
+					: classified.verdict,
+				classifierScores: classified.scores,
+			};
+		}
+		const filterDecision = await this.evaluateFilters(
+			lookups,
+			messageId,
+			parsed,
+			arrival,
+			[],
+		);
+		const classified = await this.decideClassifier(
+			lookups,
+			account,
+			parsed,
+			arrival,
+			matched(filterDecision) || categoryOverridden,
+			senderPlacement,
+		);
+		return {
+			filterDecision,
+			verdict: classified.verdict,
+			classifierScores: classified.scores,
+		};
+	}
+
 	private async decideClassifier(
 		lookups: BatchLookups,
 		account: { accountId: string; accountConfigId: string },
@@ -1500,6 +1569,7 @@ export class BodySyncService {
 		messageId: string,
 		parsed: ParsedMail,
 		arrival: Arrival,
+		classifierScores: readonly ClassifierScoreItem[],
 	): Promise<FilterDecision> {
 		const { filterPipeline } = this;
 		if (!filterPipeline) return { labels: [] };
@@ -1508,7 +1578,7 @@ export class BodySyncService {
 			.then((usable) =>
 				filterPipeline.decide(
 					filtersForArrival(usable, arrival),
-					toFilterMessage(parsed),
+					toFilterMessage(parsed, classifierScores),
 				),
 			)
 			.catch((error: unknown): FilterDecision => {

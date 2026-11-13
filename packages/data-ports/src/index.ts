@@ -12,6 +12,7 @@ export {
 	filterRuleHasClauses,
 	filterRuleLeaves,
 	filterRuleLimitRefusal,
+	filterRuleTestsClassification,
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
 	readStoredFilterRule,

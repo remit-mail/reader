@@ -76,6 +76,7 @@ export const FilterOperations = {
 				{
 					account: client.account,
 					mailbox: client.mailbox,
+					labelMailbox: client.labelMailbox,
 					filter: client.filter,
 					organizeJobRequest: client.organizeJobRequest,
 					queue: client.queues.accountFanout,

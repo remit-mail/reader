@@ -5,6 +5,7 @@ import "../enums/FilterMatchOperator.tsp";
 import "../enums/FilterScope.tsp";
 import "../enums/FilterState.tsp";
 import "../enums/FilterDisabledReason.tsp";
+import "../enums/ClassificationLabel.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -64,6 +65,12 @@ model FilterHasWordsTest {
   words: String256[];
 }
 
+@doc("Matches when the classifier gave the message a confident score for `label`. A message with no scores fails it.")
+model FilterClassificationTest {
+  test: "classification";
+  label: ClassificationLabel;
+}
+
 @doc("A node of a filter rule's test tree (RFC 040).")
 union FilterTest {
   allof: FilterAllOfTest,
@@ -72,6 +79,7 @@ union FilterTest {
   header: FilterHeaderTest,
   address: FilterAddressTest,
   hasWords: FilterHasWordsTest,
+  classification: FilterClassificationTest,
 }
 
 @doc("A row written before rules existed: the filter's literal clauses are the truth.")

@@ -10,6 +10,7 @@ import {
 	filterRuleLimitRefusal,
 	type IAccountRepository,
 	type IFilterRepository,
+	type ILabelMailboxRepository,
 	type IMailboxRepository,
 	type MailboxItem,
 	type OrganizeJobRequestItem,
@@ -78,6 +79,27 @@ interface ActionFolderDeps {
 		get(accountId: string, mailboxId: string): Promise<MailboxItem>;
 	};
 }
+
+interface LabelFolderDeps {
+	labelMailbox: Pick<ILabelMailboxRepository, "listByLabel">;
+}
+
+const BOTH_MOVES_MESSAGE =
+	'This label has folders, so a filter that applies it already moves mail into the label\'s folder. Set actionMailboxId to "None", or pick a label without folders.';
+
+const singleMove = async (
+	deps: LabelFolderDeps,
+	actions: Pick<FilterItem, "actionLabelId" | "actionMailboxId">,
+): Promise<Refusable<null>> => {
+	if (
+		actions.actionMailboxId === FILTER_NO_ACTION ||
+		actions.actionLabelId === FILTER_NO_ACTION
+	) {
+		return accept(null);
+	}
+	const folders = await deps.labelMailbox.listByLabel(actions.actionLabelId);
+	return folders.length === 0 ? accept(null) : invalid(BOTH_MOVES_MESSAGE);
+};
 
 // Only these keys reach the repo, and a key absent from the body stays absent,
 // so a rename never bumps ruleChangedAt and a smuggled ttl is dropped.
@@ -356,9 +378,53 @@ export const listFilters = async (
 	return accept({ items, continuationToken: page.continuationToken });
 };
 
+export const listAccountFilters = async (
+	deps: AccountDeps & {
+		mailbox: Pick<IMailboxRepository, "resolveAccountId">;
+		filter: Pick<IFilterRepository, "listByAccountConfig" | "refreshExpiry">;
+	},
+	accountConfigId: string,
+	accountId: string,
+): Promise<Refusable<FilterItem[]>> => {
+	const owned = ownedAccount(
+		await deps.account.get(accountId),
+		accountConfigId,
+		"read",
+	);
+	if (!owned.ok) return owned;
+	const filters = await Promise.all(
+		(await deps.filter.listByAccountConfig(accountConfigId)).map((item) =>
+			deps.filter.refreshExpiry(item),
+		),
+	);
+	const folders = [
+		...new Set(
+			filters
+				.map((filter) => filter.actionMailboxId)
+				.filter((mailboxId) => mailboxId !== FILTER_NO_ACTION),
+		),
+	];
+	const owners = new Map(
+		await Promise.all(
+			folders.map(
+				async (mailboxId) =>
+					[mailboxId, await deps.mailbox.resolveAccountId(mailboxId)] as const,
+			),
+		),
+	);
+	return accept(
+		filters.filter(
+			(filter) =>
+				filter.actionMailboxId === FILTER_NO_ACTION ||
+				owners.get(filter.actionMailboxId) === accountId,
+		),
+	);
+};
+
 export const createFilter = async (
 	deps: AccountDeps &
 		ActionFolderDeps &
+		LabelFolderDeps &
 		OrganizeJobDeps & { filter: Pick<IFilterRepository, "create"> },
 	owner: OrganizeJobOwner,
 	input: { accountId: string; filter: NewFilter },
@@ -384,6 +450,8 @@ export const createFilter = async (
 		rule.actionMailboxId,
 	);
 	if (!target.ok) return target;
+	const single = await singleMove(deps, rule);
+	if (!single.ok) return single;
 
 	const filter = await deps.filter.create({
 		accountConfigId,
@@ -408,7 +476,8 @@ export const createFilter = async (
 
 export const updateFilter = async (
 	deps: AccountDeps &
-		ActionFolderDeps & {
+		ActionFolderDeps &
+		LabelFolderDeps & {
 			filter: Pick<IFilterRepository, "get" | "update">;
 		},
 	accountConfigId: string,
@@ -430,6 +499,11 @@ export const updateFilter = async (
 	);
 	if (!target.ok) return target;
 	const current = await deps.filter.get(accountConfigId, filterId);
+	const single = await singleMove(deps, {
+		actionLabelId: patch.actionLabelId ?? current.actionLabelId,
+		actionMailboxId: patch.actionMailboxId ?? current.actionMailboxId,
+	});
+	if (!single.ok) return single;
 	const resolved = resolveFilterUpdate(current, patch);
 	if (!resolved.ok) return resolved;
 	if (

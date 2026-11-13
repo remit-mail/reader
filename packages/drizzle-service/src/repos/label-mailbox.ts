@@ -72,4 +72,12 @@ export class LabelMailboxRepo implements ILabelMailboxRepository {
 			.where(eq(labelMailboxTable.accountId, accountId));
 		return rows.map(rowToLabelMailbox);
 	}
+
+	async listByLabel(labelId: string): Promise<LabelMailboxItem[]> {
+		const rows = await this.db
+			.select()
+			.from(labelMailboxTable)
+			.where(eq(labelMailboxTable.labelId, labelId));
+		return rows.map(rowToLabelMailbox);
+	}
 }

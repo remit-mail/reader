@@ -49,6 +49,7 @@ const repos = (): FilterConfigDeps => ({
 	filterService: store.filter,
 	messageLabelService: store.messageLabel,
 	mailboxService: store.mailbox,
+	labelMailboxService: store.labelMailbox,
 	placementMoveService: new PlacementMoveService({
 		messageService: store.message,
 		threadMessageService: store.threadMessage,
@@ -66,6 +67,7 @@ const message: FilterMessage = {
 	subject: "Your receipt",
 	text: "Thanks for your payment",
 	listId: "",
+	classifierScores: [],
 };
 
 describe("buildFilterConfig", () => {
