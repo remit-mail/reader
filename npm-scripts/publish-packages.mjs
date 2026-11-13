@@ -174,7 +174,7 @@ const release = async ({ paths, rootFiles, branch, env }) =>
 		{
 			dryRun,
 			branches: [branch],
-			deps: { bump: "satisfy" },
+			deps: { bump: "override" },
 			rootFiles,
 		},
 	);
