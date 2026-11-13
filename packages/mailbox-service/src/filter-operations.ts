@@ -30,14 +30,9 @@ import { accept, invalid, type Refusable } from "./refusal.js";
 
 export type NewFilter = Pick<
 	FilterItem,
-	| "name"
-	| "scope"
-	| "expiresAt"
-	| "priority"
-	| "stop"
-	| "actionLabelId"
-	| "actionMailboxId"
+	"name" | "scope" | "expiresAt" | "actionLabelId" | "actionMailboxId"
 > &
+	Partial<Pick<FilterItem, "priority" | "stop">> &
 	Pick<FilterClauses, "matchOperator"> & {
 		literalClauses?: FilterClauses["literalClauses"];
 		rule?: FilterRuleV1Item;
@@ -397,8 +392,8 @@ export const createFilter = async (
 		expiresAt: scoped.value.expiresAt,
 		ttl: scoped.value.ttl,
 		rule: filterRule.value,
-		priority: rule.priority,
-		stop: rule.stop,
+		priority: rule.priority ?? 0,
+		stop: rule.stop ?? false,
 		actionLabelId: rule.actionLabelId,
 		actionMailboxId: rule.actionMailboxId,
 	});

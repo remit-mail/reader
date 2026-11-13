@@ -182,6 +182,25 @@ describe("createFilter", () => {
 			[],
 		);
 	});
+
+	it("stores priority 0 and stop false when the request omits them", async () => {
+		const { priority: _priority, stop: _stop, ...filter } = rule("None");
+
+		const outcome = await createFilter(
+			deps(),
+			{ accountConfigId: account.accountConfigId, userId: "user-1" },
+			{ accountId: account.accountId, filter },
+		);
+
+		assert.equal(outcome.ok, true);
+		if (!outcome.ok) return;
+		const stored = await store.filter.get(
+			account.accountConfigId,
+			outcome.value.filter.filterId,
+		);
+		assert.equal(stored.priority, 0);
+		assert.equal(stored.stop, false);
+	});
 });
 
 describe("updateFilter", () => {

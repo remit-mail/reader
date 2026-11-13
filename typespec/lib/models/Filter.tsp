@@ -203,7 +203,16 @@ model Filter {
   all server-derived and excluded by their Read-only visibility.
   """)
 model CreateFilterInput {
-  ...OmitProperties<Create<Filter>, "ttl" | "literalClauses">;
+  ...OmitProperties<
+    Create<Filter>,
+    "ttl" | "literalClauses" | "priority" | "stop"
+  >;
+
+  @doc("Evaluation order (RFC 040). Lower runs first. Defaults to 0.")
+  priority?: int32;
+
+  @doc("When set, a match ends evaluation for that message after this filter's own actions (RFC 040, Sieve `stop`). Defaults to false.")
+  stop?: boolean;
 
   @doc("Literal clauses combined by matchOperator. Send these or rule, never both.")
   literalClauses?: FilterClause[];
