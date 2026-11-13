@@ -363,6 +363,16 @@ export {
 	refuse,
 } from "./refusal.js";
 export {
+	discoverRemitRoot,
+	generateRemitRootName,
+	isRemitRootName,
+	REMIT_ROOT_ALPHABET,
+	REMIT_ROOT_SUFFIX,
+	type RemitRootCandidate,
+	type RemitRootLogger,
+	remitRootName,
+} from "./remit-root.js";
+export {
 	type RestoreSourcePlacementDeps,
 	type RestoreSourcePlacementInput,
 	type RestoreSourcePlacementOutcome,
