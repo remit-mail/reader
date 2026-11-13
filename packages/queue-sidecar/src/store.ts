@@ -1,5 +1,59 @@
 import { createHash, randomUUID } from "node:crypto";
-import Database from "better-sqlite3";
+import { openSqlite, type SqliteHandle } from "@remit/drizzle-service/sqlite";
+import { and, asc, count, eq, gt, lt, lte, sql } from "drizzle-orm";
+import {
+	integer,
+	primaryKey,
+	sqliteTable,
+	text,
+} from "drizzle-orm/sqlite-core";
+
+const queues = sqliteTable("queues", {
+	name: text("name").primaryKey(),
+	fifo: integer("fifo").notNull().default(0),
+	visibilityTimeoutSeconds: integer("visibility_timeout_seconds")
+		.notNull()
+		.default(30),
+	deadLetterTargetName: text("dead_letter_target_name"),
+	maxReceiveCount: integer("max_receive_count"),
+	contentBasedDeduplication: integer("content_based_deduplication")
+		.notNull()
+		.default(0),
+});
+
+const messages = sqliteTable("messages", {
+	id: integer("id").primaryKey({ autoIncrement: true }),
+	messageId: text("message_id").notNull(),
+	queueName: text("queue_name").notNull(),
+	body: text("body").notNull(),
+	md5Body: text("md5_body").notNull(),
+	groupId: text("group_id"),
+	dedupId: text("dedup_id"),
+	sequenceNumber: text("sequence_number"),
+	receiveCount: integer("receive_count").notNull().default(0),
+	visibleAt: integer("visible_at").notNull().default(0),
+	receiptHandle: text("receipt_handle"),
+	sentAt: integer("sent_at").notNull(),
+	firstReceivedAt: integer("first_received_at"),
+});
+
+const dedup = sqliteTable(
+	"dedup",
+	{
+		queueName: text("queue_name").notNull(),
+		dedupId: text("dedup_id").notNull(),
+		messageId: text("message_id").notNull(),
+		createdAt: integer("created_at").notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.queueName, table.dedupId] })],
+);
+
+const releaseRedrive = sqliteTable("release_redrive", {
+	id: integer("id").primaryKey(),
+	release: text("release").notNull(),
+});
+
+const schema = { queues, messages, dedup, releaseRedrive };
 
 export interface QueueDefinition {
 	readonly name: string;
@@ -46,32 +100,13 @@ export interface QueueAttributes {
 	readonly redrivePolicy: string | null;
 }
 
-interface QueueRow {
-	name: string;
-	fifo: number;
-	visibility_timeout_seconds: number;
-	dead_letter_target_name: string | null;
-	max_receive_count: number | null;
-	content_based_deduplication: number;
-}
+type QueueRow = typeof queues.$inferSelect;
 
-interface MessageRow {
-	id: number;
-	message_id: string;
-	queue_name: string;
-	body: string;
-	md5_body: string;
-	group_id: string | null;
-	dedup_id: string | null;
-	sequence_number: string | null;
-	receive_count: number;
-	visible_at: number;
-	receipt_handle: string | null;
-	sent_at: number;
-	first_received_at: number | null;
-}
+type MessageRow = typeof messages.$inferSelect;
 
 const DEDUP_WINDOW_MS = 5 * 60 * 1000;
+
+const IMMEDIATE = { behavior: "immediate" } as const;
 
 const md5Hex = (value: string): string =>
 	createHash("md5").update(value, "utf8").digest("hex");
@@ -79,10 +114,10 @@ const md5Hex = (value: string): string =>
 const toQueueRecord = (row: QueueRow): QueueRecord => ({
 	name: row.name,
 	fifo: row.fifo === 1,
-	visibilityTimeoutSeconds: row.visibility_timeout_seconds,
-	deadLetterTargetName: row.dead_letter_target_name,
-	maxReceiveCount: row.max_receive_count,
-	contentBasedDeduplication: row.content_based_deduplication === 1,
+	visibilityTimeoutSeconds: row.visibilityTimeoutSeconds,
+	deadLetterTargetName: row.deadLetterTargetName,
+	maxReceiveCount: row.maxReceiveCount,
+	contentBasedDeduplication: row.contentBasedDeduplication === 1,
 });
 
 /**
@@ -95,27 +130,31 @@ const toQueueRecord = (row: QueueRow): QueueRecord => ({
  * here so the behaviour is testable without a running HTTP server.
  */
 export class QueueStore {
-	private readonly db: Database.Database;
+	private readonly handle: SqliteHandle<typeof schema>;
+	private readonly db: SqliteHandle<typeof schema>["db"];
 	private sequenceCounter: bigint;
 	private readonly startedAt = Date.now();
 	private readonly lastReceiveAt = new Map<string, number>();
 
 	constructor(filename: string) {
-		this.db = new Database(filename);
-		this.db.pragma("journal_mode = WAL");
-		this.db.pragma("busy_timeout = 5000");
 		// FULL, not NORMAL: the outbox path makes durability non-negotiable
 		// (ADR constraint 5) — a queued send lost is a mail the user believes
 		// left but never did. FULL flushes the WAL on every commit, so a
 		// committed send survives host power-loss, not only a process restart.
 		// At this queue's write volume the extra fsync cost is irrelevant.
-		this.db.pragma("synchronous = FULL");
+		this.handle = openSqlite({
+			filename,
+			mode: "create",
+			synchronous: "FULL",
+			schema,
+		});
+		this.db = this.handle.db;
 		this.migrate();
 		this.sequenceCounter = this.readMaxSequence();
 	}
 
 	private migrate(): void {
-		this.db.exec(`
+		this.handle.exec(`
 			CREATE TABLE IF NOT EXISTS queues (
 				name TEXT PRIMARY KEY,
 				fifo INTEGER NOT NULL DEFAULT 0,
@@ -159,11 +198,14 @@ export class QueueStore {
 
 	private readMaxSequence(): bigint {
 		const row = this.db
-			.prepare(
-				"SELECT MAX(CAST(sequence_number AS INTEGER)) AS max FROM messages",
-			)
-			.get() as { max: number | null };
-		return BigInt(row.max ?? 0);
+			.select({
+				max: sql<
+					number | null
+				>`MAX(CAST(${messages.sequenceNumber} AS INTEGER))`,
+			})
+			.from(messages)
+			.get();
+		return BigInt(row?.max ?? 0);
 	}
 
 	private nextSequence(): string {
@@ -172,32 +214,22 @@ export class QueueStore {
 	}
 
 	close(): void {
-		this.db.close();
+		this.handle.close();
 	}
 
 	upsertQueue(def: QueueDefinition): QueueRecord {
+		const settings = {
+			fifo: def.fifo ? 1 : 0,
+			visibilityTimeoutSeconds: def.visibilityTimeoutSeconds,
+			deadLetterTargetName: def.deadLetterTargetName ?? null,
+			maxReceiveCount: def.maxReceiveCount ?? null,
+			contentBasedDeduplication: def.contentBasedDeduplication ? 1 : 0,
+		};
 		this.db
-			.prepare(
-				`INSERT INTO queues (
-					name, fifo, visibility_timeout_seconds,
-					dead_letter_target_name, max_receive_count,
-					content_based_deduplication
-				) VALUES (?, ?, ?, ?, ?, ?)
-				ON CONFLICT(name) DO UPDATE SET
-					fifo = excluded.fifo,
-					visibility_timeout_seconds = excluded.visibility_timeout_seconds,
-					dead_letter_target_name = excluded.dead_letter_target_name,
-					max_receive_count = excluded.max_receive_count,
-					content_based_deduplication = excluded.content_based_deduplication`,
-			)
-			.run(
-				def.name,
-				def.fifo ? 1 : 0,
-				def.visibilityTimeoutSeconds,
-				def.deadLetterTargetName ?? null,
-				def.maxReceiveCount ?? null,
-				def.contentBasedDeduplication ? 1 : 0,
-			);
+			.insert(queues)
+			.values({ name: def.name, ...settings })
+			.onConflictDoUpdate({ target: queues.name, set: settings })
+			.run();
 		const created = this.getQueue(def.name);
 		if (!created) throw new Error(`queue ${def.name} vanished after upsert`);
 		return created;
@@ -205,15 +237,15 @@ export class QueueStore {
 
 	getQueue(name: string): QueueRecord | undefined {
 		const row = this.db
-			.prepare("SELECT * FROM queues WHERE name = ?")
-			.get(name) as QueueRow | undefined;
+			.select()
+			.from(queues)
+			.where(eq(queues.name, name))
+			.get();
 		return row ? toQueueRecord(row) : undefined;
 	}
 
 	listQueues(): QueueRecord[] {
-		const rows = this.db
-			.prepare("SELECT * FROM queues ORDER BY name")
-			.all() as QueueRow[];
+		const rows = this.db.select().from(queues).orderBy(asc(queues.name)).all();
 		return rows.map(toQueueRecord);
 	}
 
@@ -236,26 +268,29 @@ export class QueueStore {
 				(queue.contentBasedDeduplication ? md5 : undefined))
 			: undefined;
 
-		const send = this.db.transaction((): SendResult => {
+		return this.db.transaction((): SendResult => {
 			if (dedupId) {
 				this.pruneDedup(input.queueName, now);
 				const existing = this.db
-					.prepare(
-						"SELECT message_id FROM dedup WHERE queue_name = ? AND dedup_id = ?",
+					.select({ messageId: dedup.messageId })
+					.from(dedup)
+					.where(
+						and(
+							eq(dedup.queueName, input.queueName),
+							eq(dedup.dedupId, dedupId),
+						),
 					)
-					.get(input.queueName, dedupId) as { message_id: string } | undefined;
+					.get();
 				if (existing) {
 					const seq = this.db
-						.prepare(
-							"SELECT sequence_number FROM messages WHERE message_id = ?",
-						)
-						.get(existing.message_id) as
-						| { sequence_number: string | null }
-						| undefined;
+						.select({ sequenceNumber: messages.sequenceNumber })
+						.from(messages)
+						.where(eq(messages.messageId, existing.messageId))
+						.get();
 					return {
-						messageId: existing.message_id,
+						messageId: existing.messageId,
 						md5OfBody: md5,
-						sequenceNumber: seq?.sequence_number ?? null,
+						sequenceNumber: seq?.sequenceNumber ?? null,
 						deduplicated: true,
 					};
 				}
@@ -263,31 +298,27 @@ export class QueueStore {
 
 			const messageId = randomUUID();
 			const sequenceNumber = queue.fifo ? this.nextSequence() : null;
-			this.db
-				.prepare(
-					`INSERT INTO messages (
-						message_id, queue_name, body, md5_body, group_id,
-						dedup_id, sequence_number, receive_count, visible_at,
-						receipt_handle, sent_at, first_received_at
-					) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, NULL)`,
-				)
-				.run(
-					messageId,
-					input.queueName,
-					input.body,
-					md5,
-					input.groupId ?? null,
-					dedupId ?? null,
-					sequenceNumber,
-					now,
-				);
+			this.insertMessage({
+				messageId,
+				queueName: input.queueName,
+				body: input.body,
+				md5Body: md5,
+				groupId: input.groupId ?? null,
+				dedupId: dedupId ?? null,
+				sequenceNumber,
+				sentAt: now,
+			});
 
 			if (dedupId) {
 				this.db
-					.prepare(
-						"INSERT INTO dedup (queue_name, dedup_id, message_id, created_at) VALUES (?, ?, ?, ?)",
-					)
-					.run(input.queueName, dedupId, messageId, now);
+					.insert(dedup)
+					.values({
+						queueName: input.queueName,
+						dedupId,
+						messageId,
+						createdAt: now,
+					})
+					.run();
 			}
 
 			return {
@@ -296,9 +327,11 @@ export class QueueStore {
 				sequenceNumber,
 				deduplicated: false,
 			};
-		});
+		}, IMMEDIATE);
+	}
 
-		return send();
+	private insertMessage(message: typeof messages.$inferInsert): void {
+		this.db.insert(messages).values(message).run();
 	}
 
 	receiveMessages(input: {
@@ -312,7 +345,7 @@ export class QueueStore {
 		const visibilityTimeout =
 			input.visibilityTimeoutSeconds ?? queue.visibilityTimeoutSeconds;
 
-		const receive = this.db.transaction((): ReceivedMessage[] => {
+		const received = this.db.transaction((): ReceivedMessage[] => {
 			const picked: ReceivedMessage[] = [];
 
 			for (const candidate of this.nextCandidates(
@@ -323,49 +356,46 @@ export class QueueStore {
 				if (
 					queue.maxReceiveCount !== null &&
 					queue.deadLetterTargetName !== null &&
-					candidate.receive_count >= queue.maxReceiveCount
+					candidate.receiveCount >= queue.maxReceiveCount
 				) {
 					this.db
-						.prepare("UPDATE messages SET queue_name = ? WHERE id = ?")
-						.run(queue.deadLetterTargetName, candidate.id);
+						.update(messages)
+						.set({ queueName: queue.deadLetterTargetName })
+						.where(eq(messages.id, candidate.id))
+						.run();
 					continue;
 				}
 
 				const receiptHandle = randomUUID();
-				const receiveCount = candidate.receive_count + 1;
-				const firstReceived = candidate.first_received_at ?? now;
+				const receiveCount = candidate.receiveCount + 1;
+				const firstReceived = candidate.firstReceivedAt ?? now;
 				this.db
-					.prepare(
-						`UPDATE messages SET
-							receive_count = ?, visible_at = ?, receipt_handle = ?,
-							first_received_at = ?
-						WHERE id = ?`,
-					)
-					.run(
+					.update(messages)
+					.set({
 						receiveCount,
-						now + visibilityTimeout * 1000,
+						visibleAt: now + visibilityTimeout * 1000,
 						receiptHandle,
-						firstReceived,
-						candidate.id,
-					);
+						firstReceivedAt: firstReceived,
+					})
+					.where(eq(messages.id, candidate.id))
+					.run();
 
 				picked.push({
-					messageId: candidate.message_id,
+					messageId: candidate.messageId,
 					body: candidate.body,
-					md5OfBody: candidate.md5_body,
+					md5OfBody: candidate.md5Body,
 					receiptHandle,
 					receiveCount,
-					sentTimestamp: candidate.sent_at,
+					sentTimestamp: candidate.sentAt,
 					firstReceivedTimestamp: firstReceived,
-					groupId: candidate.group_id,
-					sequenceNumber: candidate.sequence_number,
+					groupId: candidate.groupId,
+					sequenceNumber: candidate.sequenceNumber,
 				});
 			}
 
 			return picked;
-		});
+		}, IMMEDIATE);
 
-		const received = receive();
 		if (received.length > 0) this.lastReceiveAt.set(input.queueName, now);
 		return received;
 	}
@@ -379,33 +409,41 @@ export class QueueStore {
 	deleteMessage(queueName: string, receiptHandle: string): void {
 		this.requireQueue(queueName);
 		this.db
-			.prepare(
-				"DELETE FROM messages WHERE queue_name = ? AND receipt_handle = ?",
+			.delete(messages)
+			.where(
+				and(
+					eq(messages.queueName, queueName),
+					eq(messages.receiptHandle, receiptHandle),
+				),
 			)
-			.run(queueName, receiptHandle);
+			.run();
 	}
 
 	purgeQueue(queueName: string): void {
 		this.requireQueue(queueName);
-		this.db.prepare("DELETE FROM messages WHERE queue_name = ?").run(queueName);
+		this.db.delete(messages).where(eq(messages.queueName, queueName)).run();
 	}
 
 	getQueueAttributes(queueName: string, now = Date.now()): QueueAttributes {
 		const queue = this.requireQueue(queueName);
 		const visible = this.db
-			.prepare(
-				"SELECT COUNT(*) AS n FROM messages WHERE queue_name = ? AND visible_at <= ?",
+			.select({ n: count() })
+			.from(messages)
+			.where(
+				and(eq(messages.queueName, queueName), lte(messages.visibleAt, now)),
 			)
-			.get(queueName, now) as { n: number };
+			.get();
 		const notVisible = this.db
-			.prepare(
-				"SELECT COUNT(*) AS n FROM messages WHERE queue_name = ? AND visible_at > ?",
+			.select({ n: count() })
+			.from(messages)
+			.where(
+				and(eq(messages.queueName, queueName), gt(messages.visibleAt, now)),
 			)
-			.get(queueName, now) as { n: number };
+			.get();
 
 		return {
-			approximateNumberOfMessages: visible.n,
-			approximateNumberOfMessagesNotVisible: notVisible.n,
+			approximateNumberOfMessages: visible?.n ?? 0,
+			approximateNumberOfMessagesNotVisible: notVisible?.n ?? 0,
 			visibilityTimeout: queue.visibilityTimeoutSeconds,
 			fifoQueue: queue.fifo,
 			redrivePolicy:
@@ -425,34 +463,42 @@ export class QueueStore {
 	): MessageRow[] {
 		if (!queue.fifo) {
 			return this.db
-				.prepare(
-					`SELECT * FROM messages
-					WHERE queue_name = ? AND visible_at <= ?
-					ORDER BY id ASC LIMIT ?`,
+				.select()
+				.from(messages)
+				.where(
+					and(eq(messages.queueName, queue.name), lte(messages.visibleAt, now)),
 				)
-				.all(queue.name, now, limit) as MessageRow[];
+				.orderBy(asc(messages.id))
+				.limit(limit)
+				.all();
 		}
 
-		return this.db
-			.prepare(
-				`WITH RECURSIVE g(gid) AS (
-					SELECT MIN(group_id) FROM messages WHERE queue_name = @queue
-					UNION ALL
-					SELECT (
-						SELECT MIN(group_id) FROM messages
-						WHERE queue_name = @queue AND group_id > g.gid
-					)
-					FROM g WHERE g.gid IS NOT NULL
-				)
-				SELECT m.* FROM g
-				JOIN messages m ON m.id = (
-					SELECT MIN(id) FROM messages
-					WHERE queue_name = @queue AND group_id = g.gid
-				)
-				WHERE m.visible_at <= @now
-				ORDER BY m.id ASC LIMIT @limit`,
+		const groupHeads = sql`WITH RECURSIVE g(gid) AS (
+			SELECT MIN(group_id) FROM messages WHERE queue_name = ${queue.name}
+			UNION ALL
+			SELECT (
+				SELECT MIN(group_id) FROM messages
+				WHERE queue_name = ${queue.name} AND group_id > g.gid
 			)
-			.all({ queue: queue.name, now, limit }) as MessageRow[];
+			FROM g WHERE g.gid IS NOT NULL
+		)
+		SELECT (
+			SELECT MIN(id) FROM messages
+			WHERE queue_name = ${queue.name} AND group_id = g.gid
+		) FROM g`;
+
+		return this.db
+			.select()
+			.from(messages)
+			.where(
+				and(
+					sql`${messages.id} IN (${groupHeads})`,
+					lte(messages.visibleAt, now),
+				),
+			)
+			.orderBy(asc(messages.id))
+			.limit(limit)
+			.all();
 	}
 
 	/**
@@ -473,29 +519,33 @@ export class QueueStore {
 		}
 		const destination = source.name;
 
-		const redrive = this.db.transaction((): number => {
+		return this.db.transaction((): number => {
 			const rows = this.db
-				.prepare("SELECT * FROM messages WHERE queue_name = ? ORDER BY id ASC")
-				.all(deadLetterName) as MessageRow[];
+				.select()
+				.from(messages)
+				.where(eq(messages.queueName, deadLetterName))
+				.orderBy(asc(messages.id))
+				.all();
 			for (const row of rows) this.moveToQueue(row, destination, now);
 			return rows.length;
-		});
-		return redrive();
+		}, IMMEDIATE);
 	}
 
 	redriveForRelease(release: string, deadLetterNames: string[]): void {
 		this.db.transaction((): void => {
 			const marker = this.db
-				.prepare("SELECT release FROM release_redrive WHERE id = 1")
-				.get() as { release: string } | undefined;
+				.select({ release: releaseRedrive.release })
+				.from(releaseRedrive)
+				.where(eq(releaseRedrive.id, 1))
+				.get();
 			if (marker?.release === release) return;
 			for (const name of deadLetterNames) this.redriveDeadLetters(name);
 			this.db
-				.prepare(
-					"INSERT INTO release_redrive (id, release) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET release = excluded.release",
-				)
-				.run(release);
-		})();
+				.insert(releaseRedrive)
+				.values({ id: 1, release })
+				.onConflictDoUpdate({ target: releaseRedrive.id, set: { release } })
+				.run();
+		}, IMMEDIATE);
 	}
 
 	private moveToQueue(
@@ -503,31 +553,29 @@ export class QueueStore {
 		targetName: string,
 		now: number,
 	): void {
-		this.db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
-		this.db
-			.prepare(
-				`INSERT INTO messages (
-					message_id, queue_name, body, md5_body, group_id, dedup_id,
-					sequence_number, receive_count, visible_at, receipt_handle,
-					sent_at, first_received_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, NULL)`,
-			)
-			.run(
-				message.message_id,
-				targetName,
-				message.body,
-				message.md5_body,
-				message.group_id,
-				message.dedup_id,
-				message.sequence_number,
-				now,
-			);
+		this.db.delete(messages).where(eq(messages.id, message.id)).run();
+		this.insertMessage({
+			messageId: message.messageId,
+			queueName: targetName,
+			body: message.body,
+			md5Body: message.md5Body,
+			groupId: message.groupId,
+			dedupId: message.dedupId,
+			sequenceNumber: message.sequenceNumber,
+			sentAt: now,
+		});
 	}
 
 	private pruneDedup(queueName: string, now: number): void {
 		this.db
-			.prepare("DELETE FROM dedup WHERE queue_name = ? AND created_at < ?")
-			.run(queueName, now - DEDUP_WINDOW_MS);
+			.delete(dedup)
+			.where(
+				and(
+					eq(dedup.queueName, queueName),
+					lt(dedup.createdAt, now - DEDUP_WINDOW_MS),
+				),
+			)
+			.run();
 	}
 
 	private requireQueue(name: string): QueueRecord {
