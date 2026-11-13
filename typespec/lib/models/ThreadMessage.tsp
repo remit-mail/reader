@@ -264,8 +264,8 @@ model ThreadMessageResponse {
   @doc("Which mutation gave up on the underlying Message, projected at read time. Read it only where `syncStatus` is `abandoned`; `none` otherwise. This is what lets a surface name the operation that actually failed — before it existed, a move that handed back and a delete that was refused were the same two values on the wire, and the client called both a failed delete.")
   abandonedMutation: MessageMutation;
 
-  @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")
-  accountId?: UUID;
+  @doc("The account that owns the message, resolved at read time from the row's mailbox. The ThreadMessage row has no column of its own.")
+  accountId: UUID;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
   autoMoved?: AutoMovedInfo;
@@ -281,6 +281,9 @@ model ThreadMessageResponse {
 
   @doc("The spam outcome of the underlying Message (RFC 041), projected at read time. `NotChecked` when the Message row is missing from the batch.")
   spamVerdict: MessageSpamVerdict;
+
+  @doc("True once the owner marked the underlying Message Not spam, projected at read time. While true, `spamVerdict` raises no warning. `false` when the Message row is missing from the batch.")
+  spamCleared: boolean;
 }
 
 @doc("""

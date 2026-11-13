@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import { parseMessageBody } from "./body-parse.js";
 import {
 	classifyParsedMessage,
@@ -29,18 +28,6 @@ const LIST_EML = Buffer.from(
 		"Content-Type: text/plain",
 		"",
 		"this week in news",
-	].join("\r\n"),
-);
-
-const IMPERSONATION_EML = Buffer.from(
-	[
-		"From: InfoMedics <billing@serviceupdatebank.atlassian.net>",
-		"To: me@example.com",
-		"Subject: Openstaande factuur",
-		"DKIM-Signature: v=1; a=rsa-sha256; d=atlassian.net; s=sel; b=xxx",
-		"Content-Type: text/html",
-		"",
-		'<a href="https://betaal-vordering.example.org/pay">Betaal uw factuur</a>',
 	].join("\r\n"),
 );
 
@@ -84,26 +71,6 @@ describe("classifyParsedMessage", () => {
 		);
 
 		assert.equal(classification.category, "uncategorized");
-	});
-});
-
-describe("classifyParsedMessage sender mismatch", () => {
-	it("flags an unrelated display name and an off-domain link", async () => {
-		const parsed = await parseMessageBody(IMPERSONATION_EML);
-
-		const { fields: classification } = await classifyParsedMessage(
-			store.address,
-			"acc-1",
-			parsed,
-		);
-
-		assert.equal(
-			classification.authenticity?.displayNameCorrespondence,
-			DisplayNameCorrespondence.Unrelated,
-		);
-		assert.deepEqual(classification.authenticity?.offDomainLinkDomains, [
-			"example.org",
-		]);
 	});
 });
 

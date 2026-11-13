@@ -1,13 +1,15 @@
 import type {
 	IAccountRepository,
 	IAddressRepository,
+	ILabelRepository,
 	IMailboxSpecialUseRepository,
+	IMessageLabelRepository,
 	IMessageRepository,
 	MessageItem,
 	SenderNeverSpamBackApplyEvent,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
-import { AddressRole, MessageKeywordFlag } from "@remit/domain-enums";
+import { AddressRole, MessageKeywordFlag, SpamKind } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
 import type { MessageMoveService } from "./message-move.js";
 
@@ -42,6 +44,11 @@ export interface SpamReportConfig {
 	addressService: IAddressRepository;
 	accountService: IAccountRepository;
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
+	labelService: Pick<ILabelRepository, "findByNormalizedName">;
+	messageLabelService: Pick<
+		IMessageLabelRepository,
+		"listByMessageId" | "remove"
+	>;
 	messageMoveService: MessageMoveService;
 	flagPushService: FlagPushService;
 	logger?: SpamReportLogger;
@@ -61,6 +68,8 @@ export class SpamReportService {
 	private addressService: IAddressRepository;
 	private accountService: IAccountRepository;
 	private mailboxSpecialUseService: IMailboxSpecialUseRepository;
+	private labelService: SpamReportConfig["labelService"];
+	private messageLabelService: SpamReportConfig["messageLabelService"];
 	private messageMoveService: MessageMoveService;
 	private flagPushService: FlagPushService;
 	private log: SpamReportLogger;
@@ -70,6 +79,8 @@ export class SpamReportService {
 		this.addressService = config.addressService;
 		this.accountService = config.accountService;
 		this.mailboxSpecialUseService = config.mailboxSpecialUseService;
+		this.labelService = config.labelService;
+		this.messageLabelService = config.messageLabelService;
 		this.messageMoveService = config.messageMoveService;
 		this.flagPushService = config.flagPushService;
 		this.log = config.logger ?? noopLogger;
@@ -196,6 +207,7 @@ export class SpamReportService {
 
 		await this.messageService.update(messageId, {
 			spamReport: { reportedAt: now },
+			spamCleared: false,
 		});
 
 		const alreadyInJunk = before.mailboxId === junkMailbox.mailboxId;
@@ -319,12 +331,38 @@ export class SpamReportService {
 		});
 
 		await this.messageService.clearSpamReport(messageId);
+		await this.messageService.update(messageId, { spamCleared: true });
+		await this.removeSpamLabels(accountConfigId, messageId);
 
 		this.log.info(
 			{ accountId, messageId, addressId: from.addressId },
 			"Undid spam report",
 		);
 		return grant;
+	};
+
+	/**
+	 * Labels are Remit-local, never pushed to the mail server, so dropping one
+	 * is a plain row delete rather than an IMAP mutation.
+	 */
+	private removeSpamLabels = async (
+		accountConfigId: string,
+		messageId: string,
+	): Promise<void> => {
+		const applied = new Set(
+			(await this.messageLabelService.listByMessageId(messageId)).map(
+				(row) => row.labelId,
+			),
+		);
+		for (const kind of Object.values(SpamKind)) {
+			const label = await this.labelService.findByNormalizedName(
+				accountConfigId,
+				kind.toLowerCase(),
+			);
+			if (label && applied.has(label.labelId)) {
+				await this.messageLabelService.remove(messageId, label.labelId);
+			}
+		}
 	};
 
 	private isInJunk = async (

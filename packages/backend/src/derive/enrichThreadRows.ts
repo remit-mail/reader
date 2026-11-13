@@ -1,7 +1,9 @@
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import {
+	type AccountItem,
 	type AddressItem,
 	type LabelItem,
+	type MailboxItem,
 	type MessageItem,
 	type MessageLabelItem,
 	NOT_CHECKED,
@@ -40,13 +42,23 @@ export interface EnrichClient {
 	label: {
 		listByAccountConfig(accountConfigId: string): Promise<LabelItem[]>;
 	};
+	account: {
+		listAllByAccountConfig(accountConfigId: string): Promise<AccountItem[]>;
+	};
+	mailbox: {
+		get(accountId: string, mailboxIds: string[]): Promise<MailboxItem[]>;
+	};
 }
 
-const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
+const toResponse = (
+	item: ThreadMessageItem,
+	accountId: string,
+): ThreadMessageResponse => ({
 	threadMessageId: item.threadMessageId,
 	threadId: item.threadId,
 	messageId: item.messageId,
 	accountConfigId: item.accountConfigId,
+	accountId,
 	mailboxId: item.mailboxId,
 	fromEmail: item.fromEmail,
 	fromName: item.fromName,
@@ -67,6 +79,7 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
 	syncStatus: MessageSyncStatus.pending,
 	abandonedMutation: MessageMutation.none,
 	spamVerdict: NOT_CHECKED,
+	spamCleared: false,
 });
 
 /**
@@ -84,17 +97,20 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
  */
 export interface BatchPlan {
 	messageIds: string[];
+	mailboxIds: string[];
 	addressIds: string[];
 	addressIdByRow: Map<string, string>;
 }
 
 export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 	const messageIds = new Set<string>();
+	const mailboxIds = new Set<string>();
 	const addressIds = new Set<string>();
 	const addressIdByRow = new Map<string, string>();
 
 	for (const row of rows) {
 		messageIds.add(row.messageId);
+		mailboxIds.add(row.mailboxId);
 
 		if (!row.fromEmail) continue;
 
@@ -105,9 +121,26 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 
 	return {
 		messageIds: [...messageIds],
+		mailboxIds: [...mailboxIds],
 		addressIds: [...addressIds],
 		addressIdByRow,
 	};
+};
+
+const resolveMailboxAccounts = async (
+	client: Pick<EnrichClient, "account" | "mailbox">,
+	accountConfigId: string,
+	mailboxIds: string[],
+): Promise<Map<string, string>> => {
+	const accounts = await client.account.listAllByAccountConfig(accountConfigId);
+	const mailboxes = await Promise.all(
+		accounts.map((account) =>
+			client.mailbox.get(account.accountId, mailboxIds),
+		),
+	);
+	return new Map(
+		mailboxes.flat().map((mailbox) => [mailbox.mailboxId, mailbox.accountId]),
+	);
 };
 
 /**
@@ -160,6 +193,11 @@ export const enrichThreadRows = async (
 		client.messageLabel.listByMessageIds(plan.messageIds),
 		client.label.listByAccountConfig(accountConfigId),
 	]);
+	const accountIdByMailboxId = await resolveMailboxAccounts(
+		client,
+		accountConfigId,
+		plan.mailboxIds,
+	);
 
 	const labelById = new Map(labels.map((label) => [label.labelId, label]));
 	const labelsByMessageId = new Map<
@@ -197,6 +235,9 @@ export const enrichThreadRows = async (
 	const spamVerdictByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.spamVerdict]),
 	);
+	const spamClearedByMessageId = new Map(
+		messages.map((m) => [m.messageId, m.spamCleared]),
+	);
 	const settlementByMessageId = new Map(
 		messages.map((m) => [
 			m.messageId,
@@ -215,7 +256,13 @@ export const enrichThreadRows = async (
 	);
 
 	return rows.map((row) => {
-		const base = toResponse(row);
+		const accountId = accountIdByMailboxId.get(row.mailboxId);
+		if (!accountId) {
+			throw new Error(
+				`Thread row ${row.threadMessageId} names mailbox ${row.mailboxId}, which no account of ${accountConfigId} owns`,
+			);
+		}
+		const base = toResponse(row, accountId);
 		const authenticity = authenticityByMessageId.get(row.messageId);
 		const autoMoved = autoMovedByMessageId.get(row.messageId);
 		const spamReport = spamReportByMessageId.get(row.messageId);
@@ -238,6 +285,7 @@ export const enrichThreadRows = async (
 			...(spamReport !== undefined ? { spamReport } : {}),
 			...(placementVerdict !== undefined ? { placementVerdict } : {}),
 			spamVerdict: spamVerdictByMessageId.get(row.messageId) ?? NOT_CHECKED,
+			spamCleared: spamClearedByMessageId.get(row.messageId) ?? false,
 			senderTrust,
 			muted,
 		};

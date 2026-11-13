@@ -3,7 +3,6 @@ import "typespec-electrodb-emitter";
 
 import "../enums/AuthResultVerdict.tsp";
 import "../enums/ClassificationLabel.tsp";
-import "../enums/DisplayNameCorrespondence.tsp";
 import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
 import "../enums/MessageClassificationState.tsp";
@@ -31,12 +30,6 @@ model MessageAuthenticity {
 
   @doc("True when DKIM signing domain(s) are present and none aligns with the From domain")
   dkimMismatch: boolean;
-
-  @doc("How the From display name relates to the From domain. Display-only: it never decides placement. Present only when the sender is not bulk-shaped (no List-Unsubscribe) — absence means the comparison was never made, never that it found nothing.")
-  displayNameCorrespondence?: DisplayNameCorrespondence;
-
-  @doc("Registrable domains (eTLD+1) the body's links point at, excluding the From address's own registrable domain. Display-only: it never decides placement. An empty array means every link stayed on the sender's domain, absence means the comparison was never made.")
-  offDomainLinkDomains?: string[];
 
   @doc("Registrable domain of the first verified DKIM `header.d` in trusted Authentication-Results order, or the reserved literal `unverified` when no identity could be established. Unlike `dkimDomain`, which is the unverified `d=` claim the sender wrote, this is only set from a signature the trusted Authentication-Results reported as passing. Absent for messages classified before the field existed.")
   signerDomain?: string;
@@ -297,6 +290,10 @@ model MessageRecord {
   @visibility(Lifecycle.Read)
   spamVerdict: MessageSpamVerdict = #{ state: "NotChecked" };
 
+  @doc("True once the owner marked this message Not spam, until they report it as spam again. A cleared message carries no Spam or Phishing label, and a rescan records its verdict without labelling or moving it, so clients read this before `spamVerdict` and raise no warning while it is true.")
+  @visibility(Lifecycle.Read)
+  spamCleared: boolean = false;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -378,6 +375,7 @@ model MessageSummaryResponse {
     | "syncStatus"
     | "abandonedMutation"
     | "spamVerdict"
+    | "spamCleared"
   >;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")

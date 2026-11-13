@@ -108,8 +108,6 @@ export interface ThreadMessage {
 	authenticity?: {
 		fromDomain: string;
 		dkimMismatch: boolean;
-		displayNameCorrespondence?: string;
-		offDomainLinkDomains?: string[];
 	};
 }
 

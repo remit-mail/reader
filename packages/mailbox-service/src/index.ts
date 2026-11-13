@@ -162,12 +162,6 @@ export {
 	type PlacementDestination,
 	type PlacementVerdict,
 } from "./heuristics/classifyPlacement.js";
-export {
-	extractOffDomainLinkDomains,
-	extractSenderMismatch,
-	type SenderMismatchContext,
-	type SenderMismatchSignals,
-} from "./heuristics/senderMismatch.js";
 export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
 export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
