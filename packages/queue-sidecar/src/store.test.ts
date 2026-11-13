@@ -326,7 +326,6 @@ describe("QueueStore", () => {
 			filename: path,
 			mode: "open",
 			synchronous: "FULL",
-			schema: {},
 		});
 		seed.sqlite
 			.prepare(

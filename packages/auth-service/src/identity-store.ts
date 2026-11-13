@@ -32,7 +32,7 @@ const mcp_session = sqliteTable("mcp_session", {
 	userId: text("user_id"),
 });
 
-export type IdentityDb = Db<Record<string, unknown>>;
+export type IdentityDb = Db;
 
 export interface IdentityStore {
 	db: IdentityDb;
@@ -73,8 +73,6 @@ export const openIdentityStore = async (
 	const handle = openSqlite({
 		filename,
 		mode: "create",
-		synchronous: "NORMAL",
-		schema: {},
 	});
 	const { db } = handle;
 	let pending: AuditRecord[] | null = null;

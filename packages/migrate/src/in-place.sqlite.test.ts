@@ -40,7 +40,7 @@ const ROOT = fileURLToPath(new URL("../../../deploy/vps", import.meta.url));
 const fixture = (name: string): string =>
 	readFileSync(new URL(`fixtures/${name}`, import.meta.url), "utf8");
 
-type Handle = SqliteHandle<Record<string, never>>;
+type Handle = SqliteHandle;
 const quiet = (): void => {};
 
 const dir = mkdtempSync(join(tmpdir(), "remit-in-place-"));
@@ -585,9 +585,9 @@ const shape = (sqlite: Handle): Map<string, string[]> =>
 
 describe("the spec's delta table", () => {
 	test("names every table and column the v0.9.22 and v0.10 schemas differ in", () => {
-		const old = openTestSqlite({});
+		const old = openTestSqlite();
 		old.exec(fixture("remit-v0.9.22.sql"));
-		const fresh = openTestSqlite({});
+		const fresh = openTestSqlite();
 		applyMigrationSets(
 			{
 				app: fresh,
@@ -638,7 +638,7 @@ describe("the spec's delta table", () => {
 	});
 
 	test("applies only the legacy tail to a v0.9.22 file: entities 0040 to 0044 and auth 0001", () => {
-		const sqlite = openTestSqlite({});
+		const sqlite = openTestSqlite();
 		sqlite.exec(fixture("remit-v0.9.22.sql"));
 		journalRows(sqlite);
 		for (const set of LEGACY_SETS) {

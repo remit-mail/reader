@@ -70,7 +70,7 @@ class FailingLastWriteStore implements ICalendarStore {
 
 export const calendarPutSuite = (open: OpenTestStores): void => {
 	describe("the calendar write path against sqlite", () => {
-		let db: RepositoryDb<Record<string, unknown>>;
+		let db: RepositoryDb;
 		let close: () => Promise<void>;
 		let store: ICalendarStore;
 		let calendarId: string;

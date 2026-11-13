@@ -10,7 +10,7 @@ import type { RepositoryDb } from "../db.js";
 import { randomId } from "../id.js";
 import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 const LEASE_SECONDS = 60;
 

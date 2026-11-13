@@ -143,8 +143,6 @@ describe("createSqliteCascadeDeleter", () => {
 		const handle = openSqlite({
 			filename,
 			mode: "open",
-			synchronous: "NORMAL",
-			schema: {},
 		});
 		const count = (table: string, column: string, value: string): number =>
 			(

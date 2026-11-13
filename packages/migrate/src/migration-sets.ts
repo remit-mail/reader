@@ -43,7 +43,7 @@ export const MIGRATION_SETS = [
 
 export type MigrationDatabases = Record<
 	keyof SqliteDatabasePaths,
-	SqliteHandle<Record<string, unknown>>
+	SqliteHandle
 >;
 
 /** Apply each database's committed migrations, forward only. */

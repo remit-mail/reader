@@ -25,7 +25,7 @@ const collection = (calendarId: string): typeof calendarTable.$inferInsert => ({
 });
 
 describe("a batch on node:sqlite", () => {
-	let db: SqliteTestDb<typeof SCHEMA>;
+	let db: SqliteTestDb;
 	let close: () => Promise<void>;
 
 	before(async () => {

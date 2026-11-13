@@ -18,7 +18,7 @@ import {
  * overlap, so nothing collides.
  */
 export const applyShippedMigrations = (
-	sqlite: Pick<SqliteHandle<Record<string, unknown>>, "exec">,
+	sqlite: Pick<SqliteHandle, "exec">,
 ): void => {
 	for (const set of MIGRATION_SETS) applyMigrationSet(sqlite, set);
 };
@@ -27,10 +27,8 @@ export const applyShippedMigrations = (
  * A migrated in-memory database and a drizzle handle over it, for a test that
  * wants one repo and no file to clean up.
  */
-export const createShippedSqliteDb = (): SqliteHandle<
-	Record<string, unknown>
-> => {
-	const handle = openTestSqlite<Record<string, unknown>>({}, statementLog);
+export const createShippedSqliteDb = (): SqliteHandle => {
+	const handle = openTestSqlite(statementLog);
 	applyShippedMigrations(handle);
 	return handle;
 };
@@ -52,8 +50,6 @@ export const createShippedSqliteFiles = (
 		const handle = openSqlite({
 			filename: paths[set],
 			mode: "create",
-			synchronous: "NORMAL",
-			schema: {},
 		});
 		applyMigrationSet(handle, set);
 		handle.close();

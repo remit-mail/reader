@@ -20,7 +20,7 @@ const clientOver = (sqlite: SqliteConnection): DisplayNameRepairClient => ({
 	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 });
 
-const seed = (handle: SqliteHandle<Record<string, unknown>>): void => {
+const seed = (handle: SqliteHandle): void => {
 	handle.exec(shippedTableDdl("address"));
 	handle.exec(shippedTableDdl("envelope_address"));
 	handle.exec(shippedTableDdl("thread_message"));
@@ -82,12 +82,12 @@ const seed = (handle: SqliteHandle<Record<string, unknown>>): void => {
 };
 
 describe("rewriting display names that claim another address", () => {
-	let handle: SqliteHandle<Record<string, unknown>>;
+	let handle: SqliteHandle;
 	let sqlite: SqliteConnection;
 	let client: DisplayNameRepairClient;
 
 	before(() => {
-		handle = openTestSqlite<Record<string, unknown>>({});
+		handle = openTestSqlite();
 		sqlite = handle.sqlite;
 		seed(handle);
 		client = clientOver(sqlite);
@@ -229,7 +229,7 @@ describe("rewriting display names that claim another address", () => {
 
 describe("the SQL narrowing is a superset of the rule", () => {
 	test("selects every name the rule rewrites", () => {
-		const handle = openTestSqlite<Record<string, unknown>>({});
+		const handle = openTestSqlite();
 		handle.exec("CREATE TABLE probe (name text)");
 		const { sqlite } = handle;
 		const insert = sqlite.prepare("INSERT INTO probe VALUES (?)");

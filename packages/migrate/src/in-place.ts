@@ -29,10 +29,10 @@ import { applyMigrationSets, MIGRATION_SETS } from "./migration-sets.js";
 
 type Handle = SqliteConnection;
 
-type SqliteFile = SqliteHandle<Record<string, never>>;
+type SqliteFile = SqliteHandle;
 
 export const openFile = (filename: string, mode: SqliteMode): SqliteFile =>
-	openSqlite({ filename, mode, synchronous: "FULL", schema: {} });
+	openSqlite({ filename, mode, synchronous: "FULL" });
 
 export type MigrateLog = (fields: Record<string, unknown>, msg: string) => void;
 
@@ -113,7 +113,7 @@ const baselineTables = (
 	root: string,
 	database: "app" | "mail",
 ): Set<string> => {
-	const memory = openTestSqlite({});
+	const memory = openTestSqlite();
 	try {
 		const [baseline] = migrationsOf(root, setOf(database).migrationsFolder);
 		applyStatements(memory, baseline.sql);
@@ -369,8 +369,8 @@ const adoptBaselines = (
 		const [first] = migrationsOf(root, set.migrationsFolder);
 		return { table: set.migrationsTable, migration: first };
 	});
-	const mcpTables = openTestSqlite({});
-	const expected = openTestSqlite({});
+	const mcpTables = openTestSqlite();
+	const expected = openTestSqlite();
 	try {
 		for (const set of MIGRATION_SETS) {
 			if (set.migrationsTable !== "__drizzle_migrations_mcp") continue;

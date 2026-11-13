@@ -8,7 +8,7 @@ import { and, asc, eq, gte, lt } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { calendarTaskTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 const rowToTask = (
 	row: typeof calendarTaskTable.$inferSelect,

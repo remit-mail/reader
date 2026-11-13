@@ -46,7 +46,7 @@ import type { DrizzleMessageRepository } from "./message.js";
 
 const generateMailboxId = () => base36uuid();
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 /**
  * Message subtrees removed per batch by {@link MailboxRepo.deleteMailboxWithMail},

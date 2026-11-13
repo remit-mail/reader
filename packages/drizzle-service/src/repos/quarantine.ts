@@ -9,7 +9,7 @@ import { desc, eq } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { quarantineTable } from "../schema/quarantine.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToItem(row: typeof quarantineTable.$inferSelect): QuarantineItem {
 	return {

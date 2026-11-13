@@ -19,7 +19,7 @@ const SCHEMA = { ...messageDataSchema, threadMessages: threadMessageTable };
 // unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
 
 describe("DrizzleMessageRepository (sqlite)", () => {
-	let db: SqliteTestDb<typeof SCHEMA>;
+	let db: SqliteTestDb;
 	let close: () => Promise<void>;
 	let repo: DrizzleMessageRepository;
 

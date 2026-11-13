@@ -1,13 +1,10 @@
 import type { CreateMailboxResult, MailboxItem } from "@remit/data-ports";
 import type { Db } from "../db.js";
-import {
-	type MessageDataSchema,
-	messageDataSchema,
-} from "../schema/message-data.js";
+import { messageDataSchema } from "../schema/message-data.js";
 import type { SqliteConnection } from "../sqlite.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 
-export type TestDb = Db<MessageDataSchema>;
+export type TestDb = Db;
 
 /**
  * The message-data tables on a throwaway in-memory SQLite database — the

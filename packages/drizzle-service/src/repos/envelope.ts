@@ -43,7 +43,7 @@ import {
 	toRawMessageStorageItem,
 } from "./mappers.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function dedupeById<T>(rows: T[], getId: (row: T) => string): T[] {
 	const byId = new Map<string, T>();

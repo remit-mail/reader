@@ -64,8 +64,6 @@ const accountConfigIdForUser = async (email: string): Promise<string> => {
 	const { db, close } = openSqlite({
 		filename: env.SQLITE_APP_DB_PATH,
 		mode: "readonly",
-		synchronous: "NORMAL",
-		schema: { auth_user },
 	});
 	try {
 		const users = await db

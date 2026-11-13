@@ -55,7 +55,7 @@ const emptyResponse = <
  * Durable Object's `durable-sqlite` handle it is one `transactionSync`.
  */
 export const syncBatch =
-	<TSchema extends Record<string, unknown>>(db: Db<TSchema>): WriteBatch =>
+	(db: Db): WriteBatch =>
 	async (items) => {
 		if (items.length === 0) return emptyResponse();
 		const results = db.transaction(() => items.map(runSync), {

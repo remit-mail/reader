@@ -12,7 +12,7 @@ import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { labelTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 const normalize = (name: string): string => name.trim().toLowerCase();
 

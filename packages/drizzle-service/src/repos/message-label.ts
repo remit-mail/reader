@@ -9,7 +9,7 @@ import { deterministicBase36Id } from "../id.js";
 import { messageLabelTable } from "../schema.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToMessageLabel(
 	row: typeof messageLabelTable.$inferSelect,

@@ -14,7 +14,7 @@ import { decodeToken, resultList } from "../pagination.js";
 import { calendarSuggestionTable } from "../schema.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToCalendarSuggestion(
 	row: typeof calendarSuggestionTable.$inferSelect,

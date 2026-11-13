@@ -8,7 +8,7 @@ import { and, eq } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { calendarFeedTokenTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToFeedToken(
 	row: typeof calendarFeedTokenTable.$inferSelect,

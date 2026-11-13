@@ -6,10 +6,7 @@ import type { WriteBatch } from "./batch.js";
  * Object's `durable-sqlite`. Only `syncBatch` and the node:sqlite
  * composition name it; a repository never does.
  */
-export type Db<_TSchema extends Record<string, unknown>> = SQLiteAsyncDatabase<
-	"sync",
-	unknown
->;
+export type Db = SQLiteAsyncDatabase<"sync", unknown>;
 
 /**
  * The handle a repository runs on: any SQLite driver, synchronous or not
@@ -17,13 +14,13 @@ export type Db<_TSchema extends Record<string, unknown>> = SQLiteAsyncDatabase<
  * `transaction` and no `batch`, so a repository writes a set through the
  * injected `WriteBatch` and cannot open an interactive transaction (C5).
  */
-export type RepositoryDb<_TSchema extends Record<string, unknown>> = Omit<
+export type RepositoryDb = Omit<
 	SQLiteAsyncDatabase<"sync" | "async", unknown>,
 	"transaction" | "batch"
 >;
 
-export interface SqliteStore<TSchema extends Record<string, unknown>> {
-	db: RepositoryDb<TSchema>;
+export interface SqliteStore<_TSchema extends Record<string, unknown>> {
+	db: RepositoryDb;
 	batch: WriteBatch;
 	maxBoundParameters: number;
 }

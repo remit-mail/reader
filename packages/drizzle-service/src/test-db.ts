@@ -3,7 +3,7 @@ import * as schema from "./schema.js";
 import type { SqliteConnection } from "./sqlite.js";
 import { createSqliteTestDb } from "./test-db-sqlite.js";
 
-export type TestDb = Db<typeof schema>;
+export type TestDb = Db;
 
 /**
  * The whole app schema on a throwaway in-memory SQLite database, with the FTS5

@@ -44,7 +44,7 @@ import {
 } from "./address-search-predicates.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 type AddressUpdate = Partial<{
 	[K in keyof typeof addressTable.$inferInsert]:

@@ -7,7 +7,7 @@ import type { RepositoryDb } from "../db.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { outboxSchedulingPartTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 const rowToPart = (
 	row: typeof outboxSchedulingPartTable.$inferSelect,

@@ -59,8 +59,6 @@ describe("relational deletion capabilities — login user erase", () => {
 		const { db, close } = openSqlite({
 			filename,
 			mode: "readonly",
-			synchronous: "NORMAL",
-			schema: {},
 		});
 		const users = db
 			.select({ id: auth_user.id })
@@ -91,8 +89,6 @@ describe("relational deletion capabilities — login user erase", () => {
 		const migrating = openSqlite({
 			filename,
 			mode: "create",
-			synchronous: "NORMAL",
-			schema: {},
 		});
 		for (const set of ["app", "mcp"]) {
 			migrateSqlite(migrating, {
@@ -118,8 +114,6 @@ describe("relational deletion capabilities — login user erase", () => {
 		const seeding = openSqlite({
 			filename,
 			mode: "open",
-			synchronous: "NORMAL",
-			schema: {},
 		});
 		seeding.db
 			.insert(mcp_device_code)

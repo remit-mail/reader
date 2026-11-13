@@ -9,7 +9,7 @@ import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { calendarObjectTable } from "../schema.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToCalendarObject(
 	row: typeof calendarObjectTable.$inferSelect,

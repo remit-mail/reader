@@ -14,7 +14,6 @@ const createFile = (filename: string): void => {
 		filename,
 		mode: "create",
 		synchronous: "OFF",
-		schema: {},
 	}).close();
 };
 

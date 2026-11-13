@@ -19,7 +19,7 @@ import {
 import { rowToAccount } from "./i4-account.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 type AddressReader = Pick<IAddressRepository, "listAllByAccountConfig">;
 

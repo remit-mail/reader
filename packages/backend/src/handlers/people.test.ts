@@ -41,8 +41,7 @@ const closedConfig: ApiConfig = testApiConfig({
 	corsAllowedOrigins: [ORIGIN],
 });
 
-const openApp = () =>
-	openSqlite({ filename, mode: "open", synchronous: "NORMAL", schema: {} });
+const openApp = () => openSqlite({ filename, mode: "open" });
 
 const rows = (statement: string, ...params: SqliteValue[]): unknown[] => {
 	const handle = openApp();
@@ -181,8 +180,6 @@ before(async () => {
 	const sqlite = openSqlite({
 		filename,
 		mode: "create",
-		synchronous: "NORMAL",
-		schema: {},
 	});
 	for (const set of ["app", "mcp"]) {
 		migrateSqlite(sqlite, {

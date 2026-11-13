@@ -16,7 +16,7 @@ import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { outboxSchedulingPartTable } from "../schema.js";
 import { inList } from "./in-list.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToOutboxMessage(
 	row: typeof outboxMessageTable.$inferSelect,

@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 export type { MessagePlacementMoveItem, PutMessagePlacementMoveInput };
 export type MessagePlacementMoveState = MessagePlacementMoveItem["state"];

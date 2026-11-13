@@ -12,7 +12,7 @@ import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { organizeJobRequestTable } from "../schema/i4-organize-job-request.js";
 
-type DB = RepositoryDb<Record<string, unknown>>;
+type DB = RepositoryDb;
 
 function rowToItem(
 	row: typeof organizeJobRequestTable.$inferSelect,

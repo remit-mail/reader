@@ -216,7 +216,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 	let repo: MailboxRepo;
 
 	before(() => {
-		const sqlite = openTestSqlite({ mailbox: mailboxTable });
+		const sqlite = openTestSqlite();
 		applyMigrationSet(sqlite, "mail");
 		const { db } = sqlite;
 		repo = createSqliteRepositories(

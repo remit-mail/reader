@@ -1,7 +1,6 @@
 import { syncBatch } from "./batch.js";
 import type { SqliteLimits } from "./bound-parameters.js";
 import type { Db, SqliteStore } from "./db.js";
-import { messageDataSchema } from "./schema/message-data.js";
 
 // The three databases an instance runs on (#1420), each on the file its
 // SQLITE_*_DB_PATH names; a self-host points all three at one remit.db. The app
@@ -11,9 +10,9 @@ import { messageDataSchema } from "./schema/message-data.js";
 // full-text index, rebuilt from the mail database, so it never commits together
 // with it.
 export interface SqliteDatabases {
-	app: Db<Record<string, unknown>>;
-	mail: Db<Record<string, unknown>>;
-	search: Db<Record<string, unknown>>;
+	app: Db;
+	mail: Db;
+	search: Db;
 }
 
 export interface SqliteStores {
@@ -22,10 +21,14 @@ export interface SqliteStores {
 	search: SqliteStore<Record<string, unknown>>;
 }
 
-export const syncStore = <TSchema extends Record<string, unknown>>(
-	db: Db<TSchema>,
+export const syncStore = (
+	db: Db,
 	{ maxBoundParameters }: SqliteLimits,
-): SqliteStore<TSchema> => ({ db, batch: syncBatch(db), maxBoundParameters });
+): SqliteStore<Record<string, unknown>> => ({
+	db,
+	batch: syncBatch(db),
+	maxBoundParameters,
+});
 
 export const syncStores = (
 	{ app, mail, search }: SqliteDatabases,
@@ -75,13 +78,10 @@ export const openSqliteDatabases = async (
 	paths: SqliteDatabasePaths,
 ): Promise<SqliteDatabases & { close: () => Promise<void> }> => {
 	const { openSqlite } = await import("./sqlite.js");
-	const open = <TSchema extends Record<string, unknown>>(
-		filename: string,
-		schema: TSchema,
-	) => openSqlite({ filename, mode: "create", synchronous: "NORMAL", schema });
-	const app = open(paths.app, {});
-	const mail = open(paths.mail, messageDataSchema);
-	const search = open(paths.search, {});
+	const open = (filename: string) => openSqlite({ filename, mode: "create" });
+	const app = open(paths.app);
+	const mail = open(paths.mail);
+	const search = open(paths.search);
 	return {
 		app: app.db,
 		mail: mail.db,

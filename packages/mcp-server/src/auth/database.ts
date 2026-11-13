@@ -5,7 +5,7 @@ import {
 	type SqliteHandle,
 } from "@remit/drizzle-service/sqlite";
 
-export type McpAuthDb = Db<Record<string, unknown>>;
+export type McpAuthDb = Db;
 
 const SHARED_TABLES: ReadonlySet<unknown> = new Set([auth_user, auth_account]);
 const WRITES: ReadonlySet<PropertyKey> = new Set([
@@ -30,7 +30,5 @@ export const refuseSharedTableWrites = (db: McpAuthDb): McpAuthDb =>
 		},
 	});
 
-export const openMcpAuthDatabase = (
-	filename: string,
-): SqliteHandle<Record<string, unknown>> =>
-	openSqlite({ filename, mode: "create", synchronous: "NORMAL", schema: {} });
+export const openMcpAuthDatabase = (filename: string): SqliteHandle =>
+	openSqlite({ filename, mode: "create" });
