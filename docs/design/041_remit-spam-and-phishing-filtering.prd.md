@@ -211,7 +211,7 @@ Each criterion maps to one test. Unit tests feed their own inputs. Playwright te
 | N1.4 | Unit | retry picks only retryable ids, web-client |
 | N1.5 | Story | `Playground/Proposed/Spam check again` `PartialFailure` |
 | N1.6 | Unit | threshold validation |
-| N1.7 | Story | `Playground/Shipped/Mail/ErrorBanner` `NoJunkFolder` (existing) |
+| N1.7 | Story | `Playground/Shipped/Mail/ErrorBanner` `ReportSpamFailed` |
 | N1.8 | Story | `Playground/Proposed/Spam settings` `SignedOut` |
 | N2.1 | Playwright | `spam-warning.spec.ts`: Tab order |
 | N2.2 | Story | `Design System/Spam/SpamWarningBanner` `ReadingOrder` |
