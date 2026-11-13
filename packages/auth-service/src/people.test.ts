@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import {
+	migrateSqlite,
+	openSqlite,
+	type SqliteHandle,
+} from "@remit/drizzle-service/sqlite";
 import { type Auth, CLIENT_IP_HEADER, createAuth } from "./auth.js";
 import { openIdentityStore } from "./identity-store.js";
 import {
@@ -26,6 +28,7 @@ const PEER = "198.51.100.23";
 
 let dir: string;
 let filename: string;
+let file: SqliteHandle<Record<string, unknown>>;
 let auth: Auth;
 let people: PeopleAdmin;
 let operatorId: string;
@@ -77,13 +80,11 @@ const signUp = async (email: string): Promise<string> => {
 	return ((await response.json()) as { user: { id: string } }).user.id;
 };
 
-const sql = (statement: string, ...params: unknown[]): unknown[] => {
-	const sqlite = new Database(filename);
-	const prepared = sqlite.prepare(statement);
-	const found = prepared.reader ? prepared.all(...params) : [];
-	if (!prepared.reader) prepared.run(...params);
-	sqlite.close();
-	return found;
+const rows = (statement: string, ...params: unknown[]): unknown[] =>
+	file.sqlite.prepare(statement).all(...params);
+
+const run = (statement: string, ...params: unknown[]): void => {
+	file.sqlite.prepare(statement).run(...params);
 };
 
 const stepUp = async (
@@ -107,16 +108,18 @@ const codeOf = async (response: Response): Promise<string | undefined> =>
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "remit-people-"));
 	filename = join(dir, "app.db");
-	const sqlite = new Database(filename);
-	sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("foreign_keys = ON");
+	file = openSqlite({
+		filename,
+		mode: "create",
+		synchronous: "NORMAL",
+		schema: {},
+	});
 	for (const set of ["app", "mcp"]) {
-		migrate(drizzle({ client: sqlite }), {
+		migrateSqlite(file, {
 			migrationsFolder: join(MIGRATIONS, set),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});
 	}
-	sqlite.close();
 
 	const store = await openIdentityStore(filename);
 	auth = await createAuth(
@@ -139,6 +142,7 @@ before(async () => {
 
 after(() => {
 	people.close();
+	file.close();
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -166,7 +170,7 @@ describe("a disabled account", () => {
 		assert.equal(await codeOf(right), "ACCOUNT_DISABLED");
 		assert.equal(right.headers.getSetCookie().length, 0);
 		assert.ok(
-			sql(
+			rows(
 				"SELECT 1 FROM identity_audit_event WHERE action = 'SignInRefusedDisabled' AND outcome = 'RefusedDisabled' AND target = ?",
 				userId,
 			).length > 0,
@@ -180,7 +184,7 @@ describe("a disabled account", () => {
 		const signedIn = await signIn(EMAIL);
 		assert.equal(signedIn.status, 200);
 		const cookie = cookiesOf(signedIn);
-		sql("UPDATE auth_user SET disabled = 1 WHERE id = ?", userId);
+		run("UPDATE auth_user SET disabled = 1 WHERE id = ?", userId);
 
 		const minted = await auth.handler(
 			new Request(`${ORIGIN}/api/auth/token`, { headers: { cookie } }),
@@ -188,7 +192,7 @@ describe("a disabled account", () => {
 		assert.equal(minted.status, 403);
 		assert.equal(await codeOf(minted), "ACCOUNT_DISABLED");
 		assert.deepEqual(
-			sql("SELECT id FROM auth_session WHERE user_id = ?", userId),
+			rows("SELECT id FROM auth_session WHERE user_id = ?", userId),
 			[],
 		);
 	});
@@ -236,10 +240,10 @@ describe("a password reset link", () => {
 	});
 
 	it("is stored only as a digest", () => {
-		const stored = JSON.stringify(sql("SELECT * FROM auth_verification"));
+		const stored = JSON.stringify(rows("SELECT * FROM auth_verification"));
 		assert.ok(!stored.includes(token));
 		assert.equal(
-			sql(
+			rows(
 				"SELECT 1 FROM auth_verification WHERE identifier = ? AND value = ?",
 				resetIdentifierOf(token),
 				userId,
@@ -268,13 +272,13 @@ describe("a password reset link", () => {
 		const again = await redeem(token, "yet another long passphrase");
 		assert.equal(again.status, 400);
 		assert.deepEqual(
-			sql(
+			rows(
 				"SELECT actor, target, client_ip AS clientIp FROM identity_audit_event WHERE action = 'PasswordResetRefused'",
 			),
 			[{ actor: "unknown", target: "unknown", clientIp: PEER }],
 		);
 		assert.equal(
-			sql(
+			rows(
 				"SELECT 1 FROM identity_audit_event WHERE action = 'PasswordResetRedeemed' AND target = ? AND client_ip = ?",
 				userId,
 				PEER,
@@ -286,7 +290,7 @@ describe("a password reset link", () => {
 	it("is refused past its expiry", async () => {
 		const issued = await people.resetByEmail(EMAIL);
 		assert.ok(issued.ok);
-		sql(
+		run(
 			"UPDATE auth_verification SET expires_at = ? WHERE value = ?",
 			Math.floor(Date.now() / 1000) - 60,
 			userId,
@@ -300,7 +304,7 @@ describe("a password reset link", () => {
 		assert.ok(older.ok && newer.ok);
 		const newerToken = tokenOf(newer.value.resetUrl);
 		assert.deepEqual(
-			sql("SELECT identifier FROM auth_verification WHERE value = ?", userId),
+			rows("SELECT identifier FROM auth_verification WHERE value = ?", userId),
 			[{ identifier: resetIdentifierOf(newerToken) }],
 		);
 		assert.equal((await redeem(tokenOf(older.value.resetUrl))).status, 400);

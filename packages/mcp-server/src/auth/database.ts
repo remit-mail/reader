@@ -1,14 +1,11 @@
 import { auth_account, auth_user } from "@remit/auth-service/schema";
-import Database from "better-sqlite3";
 import {
-	type BetterSQLite3Database,
-	drizzle,
-} from "drizzle-orm/better-sqlite3";
+	type Db,
+	openSqlite,
+	type SqliteHandle,
+} from "@remit/drizzle-service/sqlite";
 
-export interface McpAuthDatabase {
-	db: BetterSQLite3Database;
-	close: () => void;
-}
+export type McpAuthDb = Db<Record<string, unknown>>;
 
 const SHARED_TABLES: ReadonlySet<unknown> = new Set([auth_user, auth_account]);
 const WRITES: ReadonlySet<PropertyKey> = new Set([
@@ -17,9 +14,7 @@ const WRITES: ReadonlySet<PropertyKey> = new Set([
 	"delete",
 ]);
 
-export const refuseSharedTableWrites = (
-	db: BetterSQLite3Database,
-): BetterSQLite3Database =>
+export const refuseSharedTableWrites = (db: McpAuthDb): McpAuthDb =>
 	new Proxy(db, {
 		get(target, property, receiver) {
 			const value: unknown = Reflect.get(target, property, receiver);
@@ -35,14 +30,7 @@ export const refuseSharedTableWrites = (
 		},
 	});
 
-export const openMcpAuthDatabase = (filename: string): McpAuthDatabase => {
-	const sqlite = new Database(filename);
-	sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("busy_timeout = 5000");
-	sqlite.pragma("synchronous = NORMAL");
-	sqlite.pragma("foreign_keys = ON");
-	return {
-		db: drizzle({ client: sqlite }),
-		close: () => sqlite.close(),
-	};
-};
+export const openMcpAuthDatabase = (
+	filename: string,
+): SqliteHandle<Record<string, unknown>> =>
+	openSqlite({ filename, mode: "create", synchronous: "NORMAL", schema: {} });

@@ -78,12 +78,17 @@ const capture = async (emit: () => Promise<void>): Promise<Line[]> => {
 
 const createDatabase = async (dir: string, name: string): Promise<string> => {
 	const path = join(dir, `${name}.db`);
-	const { default: Database } = await import("better-sqlite3");
-	const { drizzle } = await import("drizzle-orm/better-sqlite3");
-	const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
-	const sqlite = new Database(path);
-	migrate(drizzle({ client: sqlite }), { migrationsFolder: MIGRATIONS });
-	sqlite.close();
+	const { migrateSqlite, openSqlite } = await import(
+		"@remit/drizzle-service/sqlite"
+	);
+	const handle = openSqlite({
+		filename: path,
+		mode: "create",
+		synchronous: "NORMAL",
+		schema: {},
+	});
+	migrateSqlite(handle, { migrationsFolder: MIGRATIONS });
+	handle.close();
 	return path;
 };
 

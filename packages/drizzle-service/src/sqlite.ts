@@ -4,6 +4,8 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import type { MigrationConfig } from "drizzle-orm/migrator";
 import type { Db } from "./db.js";
 
+export type { Db } from "./db.js";
+
 export type SqliteMode = "create" | "open" | "readonly";
 
 export type SqliteSynchronous = "OFF" | "NORMAL" | "FULL";
@@ -29,6 +31,7 @@ export interface SqliteHandle<TSchema extends Record<string, unknown>> {
 	db: Db<TSchema>;
 	sqlite: SqliteConnection;
 	exec(sql: string): void;
+	immediate<T>(work: () => T): T;
 	close(): void;
 }
 
@@ -55,6 +58,7 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 		exec: (sql) => {
 			sqlite.exec(sql);
 		},
+		immediate: (work) => sqlite.transaction(work).immediate(),
 		close: () => {
 			sqlite.close();
 		},

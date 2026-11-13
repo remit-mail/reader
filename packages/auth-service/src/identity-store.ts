@@ -1,10 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { Db } from "@remit/drizzle-service/sqlite";
 import { logger } from "@remit/logger";
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
-import type {
-	BetterSQLite3Database,
-	drizzle,
-} from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { AuditAction, AuditRecord } from "./constants.js";
 import {
@@ -35,9 +32,7 @@ const mcp_session = sqliteTable("mcp_session", {
 	userId: text("user_id"),
 });
 
-export type IdentityDb = ReturnType<typeof drizzle>;
-
-type SqliteDb = BetterSQLite3Database;
+export type IdentityDb = Db<Record<string, unknown>>;
 
 export interface IdentityStore {
 	db: IdentityDb;
@@ -52,7 +47,7 @@ const logAudit = (record: AuditRecord): void => {
 	logger.info({ audit: record }, "Identity audit event");
 };
 
-const insertAudit = (db: SqliteDb, record: AuditRecord): string => {
+const insertAudit = (db: IdentityDb, record: AuditRecord): string => {
 	const now = Date.now();
 	const auditEventId = randomUUID();
 	db.delete(identity_audit_event)
@@ -66,14 +61,23 @@ const insertAudit = (db: SqliteDb, record: AuditRecord): string => {
 	return auditEventId;
 };
 
-export const writeAudit = (db: SqliteDb, record: AuditRecord): void => {
+export const writeAudit = (db: IdentityDb, record: AuditRecord): void => {
 	insertAudit(db, record);
 	logAudit(record);
 };
 
-export const identityStore = (db: IdentityDb): IdentityStore => {
+export const openIdentityStore = async (
+	filename: string,
+): Promise<IdentityStore> => {
+	const { openSqlite } = await import("@remit/drizzle-service/sqlite");
+	const handle = openSqlite({
+		filename,
+		mode: "create",
+		synchronous: "NORMAL",
+		schema: {},
+	});
+	const { db } = handle;
 	let pending: AuditRecord[] | null = null;
-	const sqlite = db.$client;
 
 	const log = (record: AuditRecord): void => {
 		if (pending) pending.push(record);
@@ -99,7 +103,7 @@ export const identityStore = (db: IdentityDb): IdentityStore => {
 		const written = pending;
 		const result = (() => {
 			try {
-				return sqlite.transaction(work).immediate();
+				return handle.immediate(work);
 			} finally {
 				pending = null;
 			}
@@ -108,20 +112,7 @@ export const identityStore = (db: IdentityDb): IdentityStore => {
 		return result;
 	};
 
-	return { db, immediate, audit, relabel, close: () => sqlite.close() };
-};
-
-export const openIdentityStore = async (
-	filename: string,
-): Promise<IdentityStore> => {
-	const { default: Database } = await import("better-sqlite3");
-	const { drizzle } = await import("drizzle-orm/better-sqlite3");
-	const sqlite = new Database(filename);
-	sqlite.pragma("journal_mode = WAL");
-	sqlite.pragma("busy_timeout = 5000");
-	sqlite.pragma("synchronous = NORMAL");
-	sqlite.pragma("foreign_keys = ON");
-	return identityStore(drizzle({ client: sqlite }));
+	return { db, immediate, audit, relabel, close: handle.close };
 };
 
 export interface UserRow {
@@ -148,7 +139,7 @@ export const findUser = (
 		.where(eq(auth_user.id, userId))
 		.get();
 
-export const isUserDisabled = (db: SqliteDb, userId: string): boolean =>
+export const isUserDisabled = (db: IdentityDb, userId: string): boolean =>
 	db
 		.select({ disabled: auth_user.disabled })
 		.from(auth_user)

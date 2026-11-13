@@ -207,8 +207,9 @@ const stepUpRefusal = (
 				gt(identity_step_up.expiresAt, new Date()),
 			),
 		)
-		.run();
-	if (spent.changes === 1) return undefined;
+		.returning({ digest: identity_step_up.digest })
+		.all();
+	if (spent.length === 1) return undefined;
 	store.audit({
 		actor: request.callerId,
 		target: request.targetId,

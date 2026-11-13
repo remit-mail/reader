@@ -21,6 +21,10 @@ import {
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
 import {
+	migrateSqlite,
+	type SqliteHandle,
+} from "@remit/drizzle-service/sqlite";
+import {
 	BodySyncQueueService,
 	BodySyncService,
 	SyncWarningService,
@@ -30,9 +34,6 @@ import {
 	type Store,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
@@ -48,7 +49,7 @@ import {
 	type McpAuthConfig,
 	type McpAuthServer,
 } from "./authorization-server.js";
-import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
+import { openMcpAuthDatabase } from "./database.js";
 import { mcpDatabase } from "./mcp-database.js";
 import { createSqliteMcpAuth } from "./node-auth.js";
 
@@ -68,7 +69,7 @@ const MIGRATIONS = new URL(
 let dir: string;
 let store: Store;
 let filename: string;
-let database: McpAuthDatabase;
+let database: SqliteHandle<Record<string, unknown>>;
 let deps: McpDeps;
 let mainAuth: Auth;
 let mainStore: IdentityStore;
@@ -87,13 +88,10 @@ let ownerId: string;
 let mainJwt: string;
 
 const sharedRows = (): unknown[] => {
-	const sqlite = new Database(filename, { readonly: true });
-	const rows = [
-		...sqlite.prepare("SELECT * FROM auth_user ORDER BY id").all(),
-		...sqlite.prepare("SELECT * FROM auth_account ORDER BY id").all(),
+	return [
+		...database.sqlite.prepare("SELECT * FROM auth_user ORDER BY id").all(),
+		...database.sqlite.prepare("SELECT * FROM auth_account ORDER BY id").all(),
 	];
-	sqlite.close();
-	return rows;
 };
 
 const MCP_CONFIG: McpAuthConfig = {
@@ -117,16 +115,13 @@ const buildApp = (
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "mcp-auth-"));
 	filename = join(dir, "app.db");
-	const migrating = new Database(filename);
-	migrating.pragma("journal_mode = WAL");
-	migrating.pragma("foreign_keys = ON");
+	database = openMcpAuthDatabase(filename);
 	for (const set of ["app", "mcp"]) {
-		migrate(drizzle({ client: migrating }), {
+		migrateSqlite(database, {
 			migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS)),
 			migrationsTable: `__drizzle_migrations_${set}`,
 		});
 	}
-	migrating.close();
 
 	mainStore = await openIdentityStore(filename);
 	mainAuth = await createAuth(
@@ -162,7 +157,6 @@ before(async () => {
 
 	store = await openStore();
 	const storage = store.storage();
-	database = openMcpAuthDatabase(filename);
 	deps = {
 		...store,
 		storage,
@@ -738,11 +732,9 @@ describe("a host that authenticates the browser itself", () => {
 			new Request(`${MCP_ORIGIN}/apps`, { headers: asSubject("host-user") }),
 		);
 		assert.equal(signedIn.status, 200);
-		const sqlite = new Database(filename, { readonly: true });
-		const row = sqlite
+		const row = database.sqlite
 			.prepare("SELECT email FROM mcp_user WHERE id = ?")
 			.get("host-user");
-		sqlite.close();
 		assert.deepEqual(row, { email: "host-user@subject.invalid" });
 		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
 		assert.equal(anonymous.status, 401);
@@ -842,9 +834,7 @@ describe("device authorization (RFC 8628)", () => {
 		);
 
 	const updateDeviceCode = (sql: string, ...params: unknown[]): void => {
-		const sqlite = new Database(filename);
-		sqlite.prepare(sql).run(...params);
-		sqlite.close();
+		database.sqlite.prepare(sql).run(...params);
 	};
 
 	const elapse = (userCode: string, ms: number): void =>
@@ -1022,11 +1012,9 @@ describe("the People operations reach the connector (#1519)", () => {
 	});
 
 	const userIdOf = (email: string): string => {
-		const sqlite = new Database(filename, { readonly: true });
-		const row = sqlite
+		const row = database.sqlite
 			.prepare("SELECT id FROM auth_user WHERE email = ?")
 			.get(email) as { id: string };
-		sqlite.close();
 		return row.id;
 	};
 
