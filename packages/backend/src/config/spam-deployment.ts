@@ -1,7 +1,13 @@
-import type { SpamDeployment, SpamThresholds } from "@remit/data-ports";
+import type {
+	SpamBackend,
+	SpamDeployment,
+	SpamThresholds,
+} from "@remit/data-ports";
 
 const CLEAN_BELOW = "SPAM_CLEAN_BELOW";
 const SPAM_AT = "SPAM_AT";
+const BACKEND = "SPAM_BACKEND";
+const RSPAMD_URL = "SPAM_RSPAMD_URL";
 
 const refuse = (message: string): never => {
 	throw new Error(`Refusing to start: ${message}`);
@@ -36,12 +42,37 @@ const thresholdsOf = (env: NodeJS.ProcessEnv): SpamThresholds => {
 	return thresholds;
 };
 
+const rspamdUrlOf = (raw: string): string => {
+	if (raw === "")
+		return refuse(`${RSPAMD_URL} is not set. ${BACKEND}=Rspamd needs it.`);
+	if (!URL.canParse(raw) || !/^https?:$/.test(new URL(raw).protocol)) {
+		return refuse(`${RSPAMD_URL}=${raw} must be an http or https URL.`);
+	}
+	return raw;
+};
+
+const backendOf = (env: NodeJS.ProcessEnv): SpamBackend => {
+	const backend = envValue(env, BACKEND);
+	const url = envValue(env, RSPAMD_URL);
+	if (backend === "" || backend === "Inline") {
+		if (url !== "")
+			return refuse(`${RSPAMD_URL} set without ${BACKEND}=Rspamd.`);
+		return { name: "Inline" };
+	}
+	if (backend === "Rspamd") return { name: "Rspamd", url: rspamdUrlOf(url) };
+	return refuse(
+		`${BACKEND}=${backend} is not a known backend. Use Inline or Rspamd.`,
+	);
+};
+
 /**
  * The two thresholds that turn a spam score into an action (RFC 041). Both
  * stay unset until calibration measures them, and while unset nothing moves.
+ * The inline judge is the backend unless `SPAM_BACKEND` names rspamd.
  */
 export const spamDeploymentFromEnv = (
 	env: NodeJS.ProcessEnv,
 ): SpamDeployment => ({
 	thresholds: thresholdsOf(env),
+	backend: backendOf(env),
 });

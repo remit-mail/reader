@@ -1,0 +1,15 @@
+{
+	"is_skipped": false,
+	"score": 9,
+	"required_score": 15,
+	"action": "rewrite subject",
+	"thresholds": { "reject": 15, "rewrite subject": 8, "add header": 6, "greylist": 4 },
+	"symbols": {
+		"BAYES_SPAM": { "name": "BAYES_SPAM", "score": 5.1, "metric_score": 5.1, "description": "Message probably spam, probability: ", "options": ["97.99%"] },
+		"DMARC_POLICY_SOFTFAIL": { "name": "DMARC_POLICY_SOFTFAIL", "score": 0.1, "metric_score": 0.1, "description": "DMARC failed", "options": ["example.net : No valid SPF, No valid DKIM", "none"] },
+		"SUBJ_ALL_CAPS": { "name": "SUBJ_ALL_CAPS", "score": 3.8, "metric_score": 3.8, "description": "Subject contains mostly capital letters", "options": ["5"] }
+	},
+	"messages": {},
+	"message-id": "synthetic-4@example.net",
+	"time_real": 0.157
+}

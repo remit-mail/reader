@@ -42,7 +42,10 @@ export const WEIGHTS: Readonly<Record<CheckName, number>> = {
 	DisplayNameLookalike: 0.4,
 };
 
-const IMPERSONATION: ReadonlySet<CheckName> = new Set([
+/** Reasons that say the message impersonates someone. */
+export const IMPERSONATION: ReadonlySet<
+	(typeof SpamReasonName)[keyof typeof SpamReasonName]
+> = new Set([
 	SpamReasonName.LinkTextMismatch,
 	SpamReasonName.MixedScriptDomain,
 	SpamReasonName.ConfusableDomains,

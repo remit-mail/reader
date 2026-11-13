@@ -4,6 +4,7 @@ import type {
 	IAddressRepository,
 	IDomainRegistrationRepository,
 	MessageSpamVerdict,
+	SpamDeployment,
 	SpamService,
 } from "@remit/data-ports";
 import type { AuthResultVerdict } from "@remit/domain-enums";
@@ -11,15 +12,27 @@ import type { ParsedMail } from "mailparser";
 import type { FilterDecision } from "../filters/pipeline.js";
 import type { SenderPlacement } from "../sender-placement.js";
 import { buildSpamRequest } from "./evidence.js";
+import { InlineSpamService } from "./judge.js";
 import {
 	domainRegisteredAt,
 	type RdapClient,
 	type RdapLogger,
 } from "./rdap.js";
+import { type RspamdFetch, RspamdSpamService } from "./rspamd.js";
 import { screen } from "./screen.js";
 
 export { InlineSpamService, judge } from "./judge.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";
+export { fromRspamd, type RspamdFetch, RspamdSpamService } from "./rspamd.js";
+
+/** The spam service the deployment config names; the inline judge by default. */
+export const spamServiceFor = (
+	deployment: SpamDeployment,
+	fetch: RspamdFetch,
+): SpamService =>
+	deployment.backend.name === "Rspamd"
+		? new RspamdSpamService(deployment.backend.url, fetch)
+		: new InlineSpamService(deployment.thresholds);
 
 /** What body sync needs to record a spam verdict (RFC 041). */
 export interface SpamConfig {

@@ -26,7 +26,7 @@ export const createCalendarSqliteClient = async (): Promise<{
 	return {
 		client: await buildSqliteClient(
 			{ state: "None" },
-			{ thresholds: { state: "Unset" } },
+			{ thresholds: { state: "Unset" }, backend: { name: "Inline" } },
 		),
 		cleanup: () => rmSync(directory, { recursive: true, force: true }),
 	};

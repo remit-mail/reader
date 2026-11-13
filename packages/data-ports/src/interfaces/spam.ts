@@ -16,6 +16,10 @@ export type SpamThresholds =
 	| { state: "Unset" }
 	| { state: "Set"; cleanBelow: number; spamAt: number };
 
+/** Which spam service body sync asks: the inline judge, or an rspamd at `url`. */
+export type SpamBackend = { name: "Inline" } | { name: "Rspamd"; url: string };
+
 export interface SpamDeployment {
 	thresholds: SpamThresholds;
+	backend: SpamBackend;
 }

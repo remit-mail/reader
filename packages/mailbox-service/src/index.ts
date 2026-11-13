@@ -422,6 +422,7 @@ export {
 	RdapClient,
 	type RdapFetch,
 	type SpamConfig,
+	spamServiceFor,
 } from "./spam/index.js";
 export {
 	type NeverSpamGrant,

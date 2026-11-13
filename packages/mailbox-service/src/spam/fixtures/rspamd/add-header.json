@@ -1,0 +1,15 @@
+{
+	"is_skipped": false,
+	"score": 7.5,
+	"required_score": 15,
+	"action": "add header",
+	"thresholds": { "reject": 15, "add header": 6, "greylist": 4 },
+	"symbols": {
+		"PHISHING": { "name": "PHISHING", "score": 4.5, "metric_score": 4.5, "description": "Phished URL", "options": ["bank.example->login.example.net"] },
+		"HAS_REPLYTO": { "name": "HAS_REPLYTO", "score": 0, "metric_score": 0, "description": "Has Reply-To header", "options": ["help@example.org"] },
+		"R_SPF_SOFTFAIL": { "name": "R_SPF_SOFTFAIL", "score": 3, "metric_score": 0, "description": "SPF verification soft-failed", "options": ["~all"] }
+	},
+	"messages": {},
+	"message-id": "synthetic-3@example.net",
+	"time_real": 0.112
+}

@@ -102,6 +102,7 @@ export {
 } from "./interfaces/queue.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type {
+	SpamBackend,
 	SpamDeployment,
 	SpamService,
 	SpamThresholds,
