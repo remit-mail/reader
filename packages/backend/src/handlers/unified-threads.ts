@@ -5,6 +5,7 @@ import type {
 import type {
 	AccountItem,
 	IAccountSettingRepository,
+	ILabelMailboxRepository,
 	MailboxItem,
 	ResultList,
 	SearchOptions,
@@ -423,6 +424,7 @@ export const scopeToMailbox = (
  * filters and the count are testable with an in-memory fake.
  */
 export interface UnifiedThreadClient extends EnrichClient, InboxMapClient {
+	labelMailbox: Pick<ILabelMailboxRepository, "listByLabel">;
 	threadMessage: {
 		listByDate(
 			accountConfigId: string,
@@ -455,6 +457,7 @@ export type UnifiedThreadParams = {
 	subject?: string;
 	accountId?: string;
 	mailboxId?: string;
+	labelId?: string;
 	category?: MessageCategory[];
 	unread?: boolean;
 	attachments?: boolean;
@@ -489,16 +492,43 @@ export const executeUnifiedThreadListing = async (
 		virtualCopyMailboxIds,
 	} = await buildInboxMailboxMap(accountConfigId, client);
 
-	// The account and folder scopes apply before the mode picks a set, so the
-	// listing, the search and the count all narrow by the same rule. Account
+	// A label's folders come from label_mailbox, keyed by label alone; the
+	// intersection with this config's non-muted mailboxes below is what makes a
+	// label of another config, or its folder in a muted account, match nothing.
+	const labelMailboxIds =
+		params.labelId === undefined
+			? undefined
+			: new Set(
+					(await client.labelMailbox.listByLabel(params.labelId)).map(
+						(row) => row.mailboxId,
+					),
+				);
+	const inLabel = (mailboxIds: Set<string>): Set<string> =>
+		labelMailboxIds === undefined
+			? mailboxIds
+			: new Set(
+					[...mailboxIds].filter((mailboxId) => labelMailboxIds.has(mailboxId)),
+				);
+
+	// The label, account and folder scopes apply before the mode picks a set, so
+	// the listing, the search and the count all narrow by the same rule. Account
 	// first, folder second: the folder intersects what the account left, so a
 	// folder of another account narrows to nothing rather than reinstating one.
 	const narrow = (mailboxIds: Set<string>): Set<string> =>
 		scopeToMailbox(
-			scopeToAccount(mailboxIds, mailboxIdToAccountId, params.accountId),
+			scopeToAccount(
+				inLabel(mailboxIds),
+				mailboxIdToAccountId,
+				params.accountId,
+			),
 			params.mailboxId,
 		);
-	const inboxMailboxIds = narrow(everyInboxMailboxId);
+	// A label replaces INBOX as the listing scope: its folders sit outside INBOX.
+	const inboxMailboxIds = narrow(
+		labelMailboxIds === undefined
+			? everyInboxMailboxId
+			: new Set(mailboxIdToAccountId.keys()),
+	);
 	const starredMailboxIds = narrow(everyStarredMailboxId);
 	const searchMailboxIds = narrow(everySearchMailboxId);
 
@@ -613,6 +643,7 @@ export const UnifiedThreadOperations: Record<
 			subject,
 			accountId,
 			mailboxId,
+			labelId,
 			category,
 			unread,
 			attachments,
@@ -629,6 +660,7 @@ export const UnifiedThreadOperations: Record<
 			subject?: string;
 			accountId?: string;
 			mailboxId?: string;
+			labelId?: string;
 			category?: MessageCategory | MessageCategory[];
 			unread?: boolean | string;
 			attachments?: boolean | string;
@@ -658,6 +690,7 @@ export const UnifiedThreadOperations: Record<
 			subject: subjectText || undefined,
 			accountId: accountId || undefined,
 			mailboxId: mailboxId || undefined,
+			labelId: labelId || undefined,
 			category: toArray(category),
 			unread: toBoolean(unread),
 			attachments: toBoolean(attachments),

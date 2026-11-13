@@ -1048,6 +1048,8 @@ namespace RemitApi {
       
       Folder scope: `mailboxId` narrows the same scope to one folder, and composes with `accountId` as a further AND — a folder of another account leaves the scope empty and matches nothing. It is how a caller asks what one folder holds of a cross-account search, counted in the same conversations the unscoped listing renders. A folder the scope already excludes — Trash, a muted one, one of a muted account — stays excluded.
       
+      Label scope: `labelId` lists one label across every account. Its folder in each non-muted account replaces INBOX as the listing scope; with `query` or `starred=true` it narrows that mode's scope to the label's folders instead. Muted folders and the folders of muted accounts stay excluded.
+      
       Muted senders: `muted=false` excludes rows whose From address is muted, `muted=true` returns only those, and omitting it filters nothing. Muting is a property of the address rather than a column on the row, so this is the one predicate that reaches outside the ThreadMessage table; it applies to the listing and the `count` alike, which is what lets a caller that hides muted mail state a number that is the size of what it renders.
       
       Counting: `count=true` answers how many CONVERSATIONS match, over the whole scope and independent of `limit`. `results=false` omits the rows, which is how a header total is read without also paying for a page of mail. Conversations rather than rows because that is what this listing renders: a row is per mailbox, so the same mail filed in two folders is two rows sharing a `threadId`, and clients collapse by it. Counting rows would put a third number beside a list that shows a second one.
@@ -1088,6 +1090,10 @@ namespace RemitApi {
       @doc("Narrow every mode to one folder. Applied to the same scope `accountId` narrows, and after it, so the two compose and a folder of another account matches nothing. A folder outside the scope — Trash, a muted folder, one of a muted account — matches nothing either. The listing, the search and the `count` all read the narrowed scope, which is what lets a caller ask how much of a cross-account search one folder holds and get the conversations that folder would render, not a page's share of them.")
       @query(#{ explode: true })
       mailboxId?: UUID,
+
+      @doc("List one label across every account: replaces the INBOX scope with that label's folder in each non-muted account. Composes with `query`, the field and row filters, `accountId`, `mailboxId` and `count` as a further narrowing of the same scope. A label the caller does not own matches nothing.")
+      @query(#{ explode: true })
+      labelId?: UUID,
 
       @doc("Filter by whether the From address is muted. `false` excludes muted senders, `true` returns only them, and omitting it filters nothing. Muting lives on the Address rather than on the row, so this is evaluated against the sender's flags; it narrows the `count` exactly as it narrows the listing.")
       @query(#{ explode: true })
