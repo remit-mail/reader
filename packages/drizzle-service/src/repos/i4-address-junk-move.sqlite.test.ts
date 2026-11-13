@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
+import type { Db } from "../db.js";
 import type { SqliteConnection } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
-import { createTestDb, type TestDb } from "../test-db.js";
+import { createTestDb } from "../test-db.js";
 import { AddressRepo } from "./i4-address.js";
 import type { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
 import { messageObjectsInMemory } from "./message-objects.js";
@@ -11,7 +12,7 @@ import { messageObjectsInMemory } from "./message-objects.js";
 const CONFIG = "cfg-1";
 
 describe("reconciling one message's addresses at the moment it moves", () => {
-	let db: TestDb;
+	let db: Db;
 	let sqlite: SqliteConnection;
 	let exec: (sql: string) => void;
 	let close: () => Promise<void>;

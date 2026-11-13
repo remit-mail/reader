@@ -12,11 +12,12 @@ import { after, before, describe, test } from "node:test";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
+import type { Db } from "../db.js";
 import {
 	createSqliteRepositories,
 	type SqliteRepositories,
 } from "../sqlite-repositories.js";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 const ACCOUNT_CONFIG_ID = "cfg-objects";
@@ -33,7 +34,7 @@ const bodyPart = (partPath: string) => ({
 });
 
 describe("message objects follow the last row that references them", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let directory: string;
 	let storage: StorageService;

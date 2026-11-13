@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import type { Db } from "../db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { MessageFlagPushRepo } from "./i4-message-flag-push.js";
 
 describe("MessageFlagPushRepo (relational counterpart to MessageFlagPushService)", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: MessageFlagPushRepo;
 

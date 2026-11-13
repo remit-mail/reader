@@ -4,6 +4,7 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
 import { syncBatch } from "../batch.js";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
+import type { Db } from "../db.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -15,7 +16,7 @@ import {
 	threadMessageTable,
 } from "../schema.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import type { MailboxRepo } from "./i4-mailbox.js";
 import { deleteMessageSubtree } from "./message.js";
 import { messageObjectsInMemory } from "./message-objects.js";
@@ -50,7 +51,7 @@ function makeMailboxInput(accountId: string, fullPath = "INBOX") {
 }
 
 describe("MailboxRepo", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: MailboxRepo;
 

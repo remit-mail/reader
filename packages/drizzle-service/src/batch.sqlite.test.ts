@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { eq } from "drizzle-orm";
 import { syncBatch } from "./batch.js";
+import type { Db } from "./db.js";
 import { calendarTable } from "./schema.js";
-import { createSqliteTestDb, type SqliteTestDb } from "./test-db-sqlite.js";
+import { createSqliteTestDb } from "./test-db-sqlite.js";
 import { failedWith } from "./test-error.js";
 
 const SCHEMA = { calendars: calendarTable };
@@ -25,7 +26,7 @@ const collection = (calendarId: string): typeof calendarTable.$inferInsert => ({
 });
 
 describe("a batch on node:sqlite", () => {
-	let db: SqliteTestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 
 	before(async () => {

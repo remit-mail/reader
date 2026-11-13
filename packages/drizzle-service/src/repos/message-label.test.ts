@@ -1,10 +1,11 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import type { Db } from "../db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { MessageLabelRepo } from "./message-label.js";
 
 describe("MessageLabelRepo", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: MessageLabelRepo;
 

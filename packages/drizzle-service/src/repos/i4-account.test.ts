@@ -1,8 +1,9 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
+import type { Db } from "../db.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import type { AccountRepo } from "./i4-account.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 import { mailboxCreated } from "./test-helpers.js";
@@ -22,7 +23,7 @@ function makeAccountInput(accountConfigId: string) {
 }
 
 describe("AccountRepo", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: AccountRepo;
 

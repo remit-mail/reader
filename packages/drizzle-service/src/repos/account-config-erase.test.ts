@@ -8,9 +8,10 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import { syncStores } from "../databases.js";
+import type { Db } from "../db.js";
 import * as appTables from "../schema-sets/app.js";
 import * as mailTables from "../schema-sets/mail.js";
-import { createTestDb, type TestDb } from "../test-db.js";
+import { createTestDb } from "../test-db.js";
 import { runDrizzleAccountConfigErase } from "./account-config-erase.js";
 
 const log = { info: () => {} };
@@ -68,7 +69,7 @@ const rowOf = (table: SQLiteTable, tenant: string): Record<string, unknown> => {
 };
 
 const countOf = async (
-	db: TestDb,
+	db: Db,
 	{ table, ownerColumn }: Owned,
 	tenant: string,
 ): Promise<number> => {
@@ -77,7 +78,7 @@ const countOf = async (
 };
 
 describe("runDrizzleAccountConfigErase", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 
 	before(async () => {

@@ -1,7 +1,8 @@
 import assert from "node:assert";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { createTestDb, randomId, type TestDb } from "../test-db.js";
+import type { Db } from "../db.js";
+import { createTestDb, randomId } from "../test-db.js";
 import { AddressRepo } from "./i4-address.js";
 
 function makeAddressInput(accountConfigId: string, email = "test@example.com") {
@@ -17,7 +18,7 @@ function makeAddressInput(accountConfigId: string, email = "test@example.com") {
 }
 
 describe("AddressRepo", () => {
-	let db: TestDb;
+	let db: Db;
 	let close: () => Promise<void>;
 	let repo: AddressRepo;
 

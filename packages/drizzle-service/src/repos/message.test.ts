@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
+import type { Db } from "../db.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
 } from "../id.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
-import { createTestDb, type TestDb } from "../test-db.js";
+import { createTestDb } from "../test-db.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import type { DrizzleMessageRepository } from "./message.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
 describe("DrizzleMessageRepository", () => {
-	let db: TestDb;
+	let db: Db;
 	let stop: () => Promise<void>;
 	let messageRepo: DrizzleMessageRepository;
 	let envelopeRepo: DrizzleEnvelopeRepository;

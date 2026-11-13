@@ -8,15 +8,11 @@ import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
 // from the drizzle table objects — the sqlite `pushSchema` — so a repo runs
 // against the exact engine it ships on, no hand-maintained DDL.
 
-export type SqliteTestDb = Db;
-
-export async function createSqliteTestDb<
-	TSchema extends Record<string, unknown>,
->(
-	schema: TSchema,
+export async function createSqliteTestDb(
+	schema: Record<string, unknown>,
 	options?: { filename?: string; searchIndex?: boolean },
 ): Promise<{
-	db: SqliteTestDb;
+	db: Db;
 	sqlite: SqliteConnection;
 	exec: (sql: string) => void;
 	close: () => Promise<void>;
@@ -29,8 +25,6 @@ export async function createSqliteTestDb<
 				logger: statementLog,
 			})
 		: openTestSqlite(statementLog);
-
-	const db: SqliteTestDb = sqlite.db;
 
 	// pushSchema derives the CREATE statements from the table objects by
 	// diffing them against the live database through this client.
@@ -54,7 +48,7 @@ export async function createSqliteTestDb<
 	}
 
 	return {
-		db,
+		db: sqlite.db,
 		sqlite: sqlite.sqlite,
 		exec: sqlite.exec,
 		close: async () => {
