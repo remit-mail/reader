@@ -11,11 +11,14 @@ import {
 	type IAccountRepository,
 	type IFilterRepository,
 	type ILabelMailboxRepository,
+	type ILabelRepository,
 	type IMailboxRepository,
 	type MailboxItem,
+	narrowFromDomainRule,
 	type OrganizeJobRequestItem,
 	type UpdateFilterInput,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	FilterDisabledReason,
 	FilterScope,
@@ -78,6 +81,10 @@ interface ActionFolderDeps {
 	mailbox: Pick<IMailboxRepository, "resolveAccountId"> & {
 		get(accountId: string, mailboxId: string): Promise<MailboxItem>;
 	};
+}
+
+interface ActionLabelDeps {
+	label: Pick<ILabelRepository, "get">;
 }
 
 interface LabelFolderDeps {
@@ -193,7 +200,7 @@ const NOT_CLAUSES_MESSAGE =
 
 const checkedRule = (rule: FilterRuleV1Item): Refusable<FilterRuleV1Item> => {
 	const refusal = filterRuleLimitRefusal(rule);
-	return refusal ? invalid(refusal) : accept(rule);
+	return refusal ? invalid(refusal) : accept(narrowFromDomainRule(rule));
 };
 
 const patchedRule = (
@@ -337,6 +344,29 @@ const settledActionFolder = async (
 	return accept(actionMailboxId);
 };
 
+const existingActionLabel = async (
+	deps: ActionLabelDeps,
+	accountConfigId: string,
+	actionLabelId: string | undefined,
+): Promise<Refusable<string | undefined>> => {
+	if (actionLabelId === undefined || actionLabelId === FILTER_NO_ACTION) {
+		return accept(actionLabelId);
+	}
+	const exists = await deps.label
+		.get(accountConfigId, actionLabelId)
+		.then(() => true)
+		.catch((err: unknown) => {
+			if (err instanceof NotFoundError) return false;
+			throw err;
+		});
+	if (!exists) {
+		return invalid(
+			`No label with id ${actionLabelId} exists. Pass the labelId of an existing label, or "None" to apply no label.`,
+		);
+	}
+	return accept(actionLabelId);
+};
+
 const existingActionFolder = async (
 	deps: ActionFolderDeps,
 	accountId: string,
@@ -424,6 +454,7 @@ export const listAccountFilters = async (
 export const createFilter = async (
 	deps: AccountDeps &
 		ActionFolderDeps &
+		ActionLabelDeps &
 		LabelFolderDeps &
 		OrganizeJobDeps & { filter: Pick<IFilterRepository, "create"> },
 	owner: OrganizeJobOwner,
@@ -450,6 +481,12 @@ export const createFilter = async (
 		rule.actionMailboxId,
 	);
 	if (!target.ok) return target;
+	const label = await existingActionLabel(
+		deps,
+		accountConfigId,
+		rule.actionLabelId,
+	);
+	if (!label.ok) return label;
 	const single = await singleMove(deps, rule);
 	if (!single.ok) return single;
 
@@ -477,6 +514,7 @@ export const createFilter = async (
 export const updateFilter = async (
 	deps: AccountDeps &
 		ActionFolderDeps &
+		ActionLabelDeps &
 		LabelFolderDeps & {
 			filter: Pick<IFilterRepository, "get" | "update">;
 		},
@@ -498,6 +536,12 @@ export const updateFilter = async (
 		patch.actionMailboxId,
 	);
 	if (!target.ok) return target;
+	const label = await existingActionLabel(
+		deps,
+		accountConfigId,
+		patch.actionLabelId,
+	);
+	if (!label.ok) return label;
 	const current = await deps.filter.get(accountConfigId, filterId);
 	const single = await singleMove(deps, {
 		actionLabelId: patch.actionLabelId ?? current.actionLabelId,

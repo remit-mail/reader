@@ -6,6 +6,7 @@ import {
 	filterRuleLimitRefusal,
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
+	narrowFromDomainRule,
 	readStoredFilterRule,
 } from "./filter-rule.js";
 import type {
@@ -85,6 +86,57 @@ describe("filterRuleFromClauses", () => {
 			clauses,
 		);
 	});
+});
+
+const FROM_DOMAIN_VALUES: [string, FilterTestItem][] = [
+	...[
+		"gamma.nl.",
+		"@gamma.nl",
+		"user@gamma.nl",
+		".gamma.nl",
+		"https://gamma.nl",
+	].map((value): [string, FilterTestItem] => [
+		value,
+		{
+			test: "address",
+			match: "Is",
+			part: "RegistrableDomain",
+			key: "gamma.nl",
+		},
+	]),
+	[
+		"email.triodos.nl",
+		{ test: "address", match: "Is", part: "Domain", key: "email.triodos.nl" },
+	],
+];
+
+describe("a FromDomain value", () => {
+	for (const [value, test] of FROM_DOMAIN_VALUES) {
+		it(`reads ${value} as a bare host when compiled and when narrowed`, () => {
+			assert.deepEqual(
+				filterRuleFromClauses({
+					matchOperator: "And",
+					literalClauses: [{ field: "FromDomain", value }],
+				}).test,
+				{ test: "allof", tests: [test] },
+			);
+			assert.deepEqual(
+				narrowFromDomainRule({
+					version: 1,
+					test: {
+						test: "not",
+						operand: {
+							test: "address",
+							match: "Is",
+							part: "RegistrableDomain",
+							key: value,
+						},
+					},
+				}).test,
+				{ test: "not", operand: test },
+			);
+		});
+	}
 });
 
 describe("filterClausesFromRule", () => {

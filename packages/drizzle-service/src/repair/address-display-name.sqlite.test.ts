@@ -8,14 +8,14 @@ import {
 } from "../sqlite.js";
 import { shippedTableDdl } from "../test-shipped-sqlite-schema.js";
 import {
-	type DisplayNameRepairClient,
 	EMBEDDED_ADDRESS_LIKE,
 	sweepDisplayNames,
 } from "./address-display-name.js";
+import type { SqliteRepairClient } from "./client.js";
 
 const SPOOF = "aramirez@secresaludguaviare.gov.co";
 
-const clientOver = (sqlite: SqliteConnection): DisplayNameRepairClient => ({
+const clientOver = (sqlite: SqliteConnection): SqliteRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
 	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 });
@@ -84,7 +84,7 @@ const seed = (handle: SqliteHandle): void => {
 describe("rewriting display names that claim another address", () => {
 	let handle: SqliteHandle;
 	let sqlite: SqliteConnection;
-	let client: DisplayNameRepairClient;
+	let client: SqliteRepairClient;
 
 	before(() => {
 		handle = openTestSqlite();

@@ -112,6 +112,7 @@
 	"dependencies": {
 		"@remit/api-openapi-types": "*",
 		"@remit/domain-enums": "*",
+		"tldts": "^7.4.9",
 		"uuid": "^13.0.2",
 		"@remit/api-zod-schemas": "*"
 	},

@@ -5,6 +5,7 @@ import {
 	FilterRuleHeader,
 	FilterRuleMatch,
 } from "@remit/domain-enums";
+import { getDomain } from "tldts";
 import { z } from "zod";
 import { type ConfigFilterTest, FilterClauseSchema } from "./document.js";
 import { ConfigVersionError } from "./errors.js";
@@ -41,6 +42,29 @@ const dropFilterAnchors: ConfigMigration = {
 	}),
 };
 
+// `fromDomainTest` in @remit/data-ports: the value is read as a bare host, and a
+// subdomain keeps that exact host.
+const fromDomainTest = (value: string): ConfigFilterTest => {
+	const trimmed =
+		value
+			.trim()
+			.toLowerCase()
+			.replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+			.split("/")[0] ?? "";
+	const host = trimmed
+		.slice(trimmed.lastIndexOf("@") + 1)
+		.replace(/^\.+|\.+$/g, "");
+	return {
+		test: "address",
+		match: FilterRuleMatch.Is,
+		part:
+			getDomain(host) === host
+				? FilterRuleAddressPart.RegistrableDomain
+				: FilterRuleAddressPart.Domain,
+		key: host,
+	};
+};
+
 const clauseTest = (
 	clause: z.infer<typeof FilterClauseSchema>,
 ): ConfigFilterTest => {
@@ -67,12 +91,7 @@ const clauseTest = (
 				key: clause.value,
 			};
 		case FilterClauseField.FromDomain:
-			return {
-				test: "address",
-				match: FilterRuleMatch.Is,
-				part: FilterRuleAddressPart.RegistrableDomain,
-				key: clause.value,
-			};
+			return fromDomainTest(clause.value);
 		case FilterClauseField.HasWords:
 			return {
 				test: "hasWords",

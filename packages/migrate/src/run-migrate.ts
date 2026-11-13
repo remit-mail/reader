@@ -7,20 +7,23 @@ import {
 	syncStore,
 } from "../../drizzle-service/src/databases.js";
 import {
-	type DisplayNameRepairClient,
 	type DisplayNameRepairMode,
 	formatDisplayNameReport,
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
+import type { SqliteRepairClient } from "../../drizzle-service/src/repair/client.js";
+import {
+	type FilterFromDomainRepairMode,
+	formatFilterFromDomainReport,
+	repairFilterFromDomain,
+} from "../../drizzle-service/src/repair/filter-from-domain.js";
 import {
 	formatJunkOnlyReport,
-	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
 	sweepJunkOnlyAddresses,
 } from "../../drizzle-service/src/repair/junk-only-address.js";
 import {
 	formatStrandedSentReport,
-	type StrandedSentRepairClient,
 	type StrandedSentRepairMode,
 	sweepStrandedSentOutbox,
 } from "../../drizzle-service/src/repair/stranded-sent-outbox.js";
@@ -50,7 +53,7 @@ installNodeLogger();
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in three places.
+ * DDL objects around them, and rewrites row content in four places.
  *
  * The rule behind that clause still holds: when a column's MEANING changes,
  * rows written under the old meaning are stale rather than convertible, and the
@@ -72,6 +75,10 @@ installNodeLogger();
  *
  * The third marks an address seen only on mail in Junk, so it is not offered
  * as a sender to trust.
+ *
+ * The fourth narrows a filter whose subdomain FromDomain value was compiled to
+ * its registrable domain back to the exact host. The rule is the user's own
+ * config, which no re-sync restores.
  */
 
 /**
@@ -118,7 +125,7 @@ const parseMode = (argv: readonly string[]): Mode => {
  * one repair is that none of them needs rewriting — a read, never a write lock.
  */
 const displayNameStep = async (
-	client: DisplayNameRepairClient,
+	client: SqliteRepairClient,
 	mode: DisplayNameRepairMode,
 	search?: SearchIndex,
 ): Promise<void> => {
@@ -141,7 +148,7 @@ const displayNameStep = async (
  * every boot but the first one after the fix ships.
  */
 const strandedSentStep = async (
-	client: StrandedSentRepairClient,
+	client: SqliteRepairClient,
 	mode: StrandedSentRepairMode,
 ): Promise<void> => {
 	const report = await sweepStrandedSentOutbox(client, mode);
@@ -157,7 +164,7 @@ const strandedSentStep = async (
  * harvested the address. The predicate below only compares mailbox ids.
  */
 const junkOnlyAddressStep = async (
-	client: JunkOnlyRepairClient,
+	client: SqliteRepairClient,
 	specialUse: MailboxSpecialUseRepo,
 	mode: JunkOnlyRepairMode,
 ): Promise<void> => {
@@ -168,9 +175,15 @@ const junkOnlyAddressStep = async (
 	}
 };
 
-type ParamRepairClient = DisplayNameRepairClient &
-	StrandedSentRepairClient &
-	JunkOnlyRepairClient;
+const filterFromDomainStep = async (
+	client: SqliteRepairClient,
+	mode: FilterFromDomainRepairMode,
+): Promise<void> => {
+	const report = await repairFilterFromDomain(client, mode);
+	for (const line of formatFilterFromDomainReport(report)) {
+		logStep({ step: "filter-from-domain-repair" }, line);
+	}
+};
 
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const paths = sqliteDatabasePathsFromEnv();
@@ -198,10 +211,15 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const searchSqlite = open(paths.search);
 	// One handle, both parameterised repairs: the two clients are the same
 	// three lines, and a second copy is a second thing to keep in step.
-	const paramRepairClient: ParamRepairClient = {
+	const paramRepairClient: SqliteRepairClient = {
 		all: async (sql, params) => mailSqlite.sqlite.prepare(sql).all(...params),
 		run: async (sql, params) =>
 			mailSqlite.sqlite.prepare(sql).run(...params).changes,
+	};
+	const appRepairClient: SqliteRepairClient = {
+		all: async (sql, params) => appSqlite.sqlite.prepare(sql).all(...params),
+		run: async (sql, params) =>
+			appSqlite.sqlite.prepare(sql).run(...params).changes,
 	};
 	const app = appSqlite.db;
 	const db = mailSqlite.db;
@@ -236,6 +254,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
+			await filterFromDomainStep(appRepairClient, "check");
 			return;
 		}
 
@@ -244,6 +263,8 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		await strandedSentStep(paramRepairClient, "repair");
 
 		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
+
+		await filterFromDomainStep(appRepairClient, "repair");
 
 		// The search index is written after each mail write and never with it,
 		// so it only needs building here when it cannot have followed: a count
