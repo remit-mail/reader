@@ -19,7 +19,7 @@ import {
 	RescanFailureCode,
 	SenderOverride,
 	SpamAction,
-	SpamReasonName,
+	SpamModelOutcome,
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import { parseMessageBody } from "../body-parse.js";
@@ -56,12 +56,13 @@ import {
 	type PlacementUpdate,
 	placeMessage,
 } from "../place-message.js";
+import { isPlacementUnsettled } from "../placement-settled.js";
 import {
 	readSenderPlacement,
 	type SenderPlacement,
 } from "../sender-placement.js";
 import { decideSpamVerdict, type SpamConfig } from "./index.js";
-import { spamModelFor } from "./model.js";
+import { spamModelAccessOf } from "./model.js";
 
 type FailureCode = (typeof RescanFailureCode)[keyof typeof RescanFailureCode];
 
@@ -106,6 +107,7 @@ type Outcome =
 const RETRYABLE: ReadonlySet<FailureCode> = new Set([
 	RescanFailureCode.RateLimited,
 	RescanFailureCode.DailyCap,
+	RescanFailureCode.NotSettled,
 ]);
 
 const failed = (messageId: string, code: FailureCode): Outcome => ({
@@ -117,26 +119,24 @@ const classifierFailure = (
 	consulted: ClassifierConsultation,
 ): FailureCode | undefined => {
 	if (consulted.state === "AtLimit") return RescanFailureCode.DailyCap;
-	if (
-		consulted.state === "NoAnswer" &&
-		consulted.kind === ClassificationFailureKind.RateLimited
-	) {
+	if (consulted.state !== "NoAnswer") return undefined;
+	if (consulted.kind === ClassificationFailureKind.RateLimited) {
 		return RescanFailureCode.RateLimited;
 	}
-	return undefined;
+	throw new Error(
+		`The category classifier failed (${consulted.kind}); check the classification provider in settings.`,
+	);
 };
 
-const spamFailure = (verdict: MessageSpamVerdict): FailureCode | undefined => {
-	if (verdict.state !== "Checked") return undefined;
-	const names = new Set(verdict.reasons.map((reason) => reason.name));
-	if (names.has(SpamReasonName.ModelDailyLimit)) {
-		return RescanFailureCode.DailyCap;
-	}
-	if (names.has(SpamReasonName.ModelRateLimited)) {
-		return RescanFailureCode.RateLimited;
-	}
-	return undefined;
+const MODEL_FAILURE: Partial<
+	Record<CheckedVerdict["modelOutcome"], FailureCode>
+> = {
+	[SpamModelOutcome.DailyLimit]: RescanFailureCode.DailyCap,
+	[SpamModelOutcome.RateLimited]: RescanFailureCode.RateLimited,
 };
+
+const spamFailure = (verdict: MessageSpamVerdict): FailureCode | undefined =>
+	verdict.state === "Checked" ? MODEL_FAILURE[verdict.modelOutcome] : undefined;
 
 type CheckedVerdict = Extract<MessageSpamVerdict, { state: "Checked" }>;
 
@@ -221,6 +221,9 @@ export class RescanService {
 		if (mailbox?.accountId !== account.accountId) {
 			return failed(messageId, RescanFailureCode.NotPermitted);
 		}
+		if (move && isPlacementUnsettled(message)) {
+			return failed(messageId, RescanFailureCode.NotSettled);
+		}
 		if (!message.bodyStorageKey) {
 			return failed(messageId, RescanFailureCode.NotFound);
 		}
@@ -260,8 +263,7 @@ export class RescanService {
 			sender,
 			filterDecision: await this.filterDecisionOf(message),
 			classifierScores: consulted.state === "Answered" ? consulted.scores : [],
-			model: spamModelFor(deps.classifier, gate, account),
-			modelAllowed: gate.state === "On",
+			model: spamModelAccessOf(deps.classifier, gate, account),
 			hasListUnsubscribe: classification.hasListUnsubscribe ?? false,
 			dmarc: classification.authResult?.dmarc,
 		});

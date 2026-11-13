@@ -412,6 +412,7 @@ export {
 	type RdapFetch,
 	type SpamConfig,
 	spamServiceFor,
+	spamThresholdsFor,
 } from "./spam/index.js";
 export {
 	RESCAN_LIMIT,

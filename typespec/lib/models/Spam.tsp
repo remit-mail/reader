@@ -3,6 +3,7 @@ import "../enums/ProviderSpamVerdict.tsp";
 import "../enums/SpamAction.tsp";
 import "../enums/SpamFailureKind.tsp";
 import "../enums/SpamKind.tsp";
+import "../enums/SpamModelOutcome.tsp";
 import "../enums/SpamReasonName.tsp";
 import "../enums/SpamSenderScreenRule.tsp";
 import "../scalars/string.tsp";
@@ -133,8 +134,8 @@ model SpamChecked {
   kind: SpamKind;
   reasons: SpamReason[];
 
-  @doc("The service called a model, so Remit counts the call against the daily cap.")
-  modelCalled: boolean;
+  @doc("What happened to the model call: `Answered`, or why no answer shaped the verdict.")
+  modelOutcome: SpamModelOutcome;
 }
 
 @doc("A spam service gave no verdict.")

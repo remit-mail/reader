@@ -77,9 +77,9 @@ const bodySync = (): BodySyncService => {
 		spamAt: 0.05,
 	});
 	const spamService: SpamService = {
-		check: (request, model) => {
+		check: (request) => {
 			world.requests.push(request);
-			return inline.check(request, model);
+			return inline.check(request);
 		},
 	};
 	const placementMoveService = new PlacementMoveService({
@@ -100,6 +100,7 @@ const bodySync = (): BodySyncService => {
 		new SyncWarningService(store.syncWarning),
 		{
 			spamService,
+			thresholds: { state: "Set", cleanBelow: 0, spamAt: 0.05 },
 			domainRegistration: store.domainRegistration,
 			rdap: { lookup: async () => ({ state: "Unpublished" }) },
 			accountService: store.account,

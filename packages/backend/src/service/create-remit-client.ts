@@ -58,6 +58,7 @@ import {
 	SpamReportService,
 	SyncWarningService,
 	spamServiceFor,
+	spamThresholdsFor,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import {
@@ -393,6 +394,7 @@ export const createRemitCore = (
 		classificationDefault,
 		spam: {
 			spamService: spamServiceFor(spamDeployment),
+			thresholds: spamThresholdsFor(spamDeployment),
 			domainRegistration: repositories.domainRegistration,
 			rdap: new RdapClient(fetch),
 			accountService: repositories.account,

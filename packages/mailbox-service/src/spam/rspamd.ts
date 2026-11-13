@@ -2,6 +2,7 @@ import type { SpamRequest, SpamResponse, SpamService } from "@remit/data-ports";
 import {
 	SpamAction,
 	SpamFailureKind,
+	SpamModelOutcome,
 	SpamReasonName,
 } from "@remit/domain-enums";
 import { kindOf } from "./judge.js";
@@ -93,7 +94,10 @@ export const fromRspamd = (body: unknown): SpamResponse => {
 		action: ACTIONS[action],
 		kind: kindOf(reasons),
 		reasons,
-		modelCalled: false,
+		modelOutcome:
+			ACTIONS[action] === SpamAction.Warn
+				? SpamModelOutcome.NotConfigured
+				: SpamModelOutcome.OutOfBand,
 	};
 };
 

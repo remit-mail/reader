@@ -29,6 +29,26 @@ export type ClassifierConsultation =
 			scores: ClassifierScoreItem[];
 	  };
 
+type GateOn = Extract<ClassifierGate, { state: "On" }>;
+
+/** One unit of the account's daily model cap, shared by the category classifier and the spam model. */
+export const claimClassifierCall = async (
+	config: {
+		accountSetting: Pick<ClassifierConfig["accountSetting"], "claimDailyCount">;
+	},
+	gate: Pick<GateOn, "dailyLimit">,
+	account: { accountId: string; accountConfigId: string },
+	now: number,
+): Promise<boolean> => {
+	const claim = await config.accountSetting.claimDailyCount({
+		accountConfigId: account.accountConfigId,
+		name: classificationUsageName(account.accountId),
+		date: utcDateOf(now),
+		limit: gate.dailyLimit,
+	});
+	return claim.state !== "AtLimit";
+};
+
 export const consultClassifier = async (
 	config: ClassifierConfig,
 	gate: ClassifierGate,
@@ -40,13 +60,9 @@ export const consultClassifier = async (
 	if (gate.state === "Off" || senderOverride !== SenderOverride.None) {
 		return { state: "NotAsked" };
 	}
-	const claim = await config.accountSetting.claimDailyCount({
-		accountConfigId: account.accountConfigId,
-		name: classificationUsageName(account.accountId),
-		date: utcDateOf(now),
-		limit: gate.dailyLimit,
-	});
-	if (claim.state === "AtLimit") return { state: "AtLimit" };
+	if (!(await claimClassifierCall(config, gate, account, now))) {
+		return { state: "AtLimit" };
+	}
 	const result = await classifyWithProvider(
 		{
 			provider: gate.provider,

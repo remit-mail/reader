@@ -102,9 +102,8 @@ import {
 import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
 import {
 	decideSpamVerdict,
-	NO_SPAM_MODEL,
 	type SpamConfig,
-	spamModelFor,
+	spamModelAccessOf,
 } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
@@ -1398,10 +1397,7 @@ export class BodySyncService {
 			sender: await message.senderPlacement(),
 			filterDecision: message.filterDecision,
 			classifierScores: message.classifierScores,
-			model: this.classifierConfig
-				? spamModelFor(this.classifierConfig, gate, account)
-				: NO_SPAM_MODEL,
-			modelAllowed: gate.state === "On",
+			model: spamModelAccessOf(this.classifierConfig, gate, account),
 			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
 			dmarc: message.classification.authResult?.dmarc,
 		});

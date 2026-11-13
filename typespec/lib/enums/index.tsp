@@ -115,5 +115,6 @@ import "./RescanFailureCode.tsp";
 import "./SpamAction.tsp";
 import "./SpamFailureKind.tsp";
 import "./SpamKind.tsp";
+import "./SpamModelOutcome.tsp";
 import "./SpamReasonName.tsp";
 import "./SpamSenderScreenRule.tsp";

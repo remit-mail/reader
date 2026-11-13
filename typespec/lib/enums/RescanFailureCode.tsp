@@ -8,6 +8,9 @@ enum RescanFailureCode {
   @doc("The account reached its daily model limit. Retryable the next day.")
   DailyCap: "DailyCap",
 
+  @doc("A move of the message is still settling on the mail server, so `move` cannot place it yet. Retryable.")
+  NotSettled: "NotSettled",
+
   @doc("No message with this id, or no stored body to read. Not retryable.")
   NotFound: "NotFound",
 

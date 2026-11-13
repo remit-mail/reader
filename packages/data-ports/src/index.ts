@@ -103,10 +103,6 @@ export {
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type {
 	SpamDeployment,
-	SpamModel,
-	SpamModelAnswer,
-	SpamModelOutcome,
-	SpamModelSkip,
 	SpamService,
 	SpamThresholds,
 } from "./interfaces/spam.js";

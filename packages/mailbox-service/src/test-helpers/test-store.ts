@@ -223,6 +223,7 @@ export const spamConfigFor = (
 	store: Pick<Store, "domainRegistration" | "account">,
 ): SpamConfig => ({
 	spamService: new InlineSpamService({ state: "Unset" }),
+	thresholds: { state: "Unset" },
 	domainRegistration: store.domainRegistration,
 	rdap: { lookup: async () => undefined },
 	accountService: store.account,

@@ -21,8 +21,8 @@ export type ClassificationLabelValue =
 
 export type ClassifierConfidenceKind = "Calibrated" | "Advisory";
 
-export interface ClassifierScore {
-	label: ClassificationLabelValue;
+export interface ClassifierScore<L extends string = ClassificationLabelValue> {
+	label: L;
 	confidence: number;
 }
 
@@ -33,9 +33,9 @@ export interface ClassifierProvider {
 	apiKey: string;
 }
 
-export interface ClassifierCall {
+export interface ClassifierCall<L extends string = ClassificationLabelValue> {
 	provider: ClassifierProvider;
-	labels: readonly ClassificationLabelValue[];
+	labels: readonly L[];
 	message: ClassifierMessage;
 }
 
@@ -48,10 +48,11 @@ export interface ClassifierDeps {
 	timeoutMs?: number;
 }
 
-export type ClassifierResult =
+export type ClassifierResult<L extends string = ClassificationLabelValue> =
 	| {
 			ok: true;
-			scores: ClassifierScore[];
+			scores: ClassifierScore<L>[];
+			reason: string;
 			confidenceKind: ClassifierConfidenceKind;
 			inputWords: number;
 			latencyMs: number;
@@ -65,12 +66,17 @@ export type ClassifierResult =
 
 const CLASSIFIER_TIMEOUT_MS = 10_000;
 
-type Labels = readonly ClassificationLabelValue[];
+type Labels = readonly string[];
+
+interface Answer {
+	scores: ClassifierScore<string>[];
+	reason: string;
+}
 
 interface AdapterSpec {
 	path: string;
 	body(model: string, labels: Labels, text: string): unknown;
-	read(answer: unknown, labels: Labels): ClassifierScore[] | undefined;
+	read(answer: unknown, labels: Labels): Answer | undefined;
 	confidenceKind: ClassifierConfidenceKind;
 }
 
@@ -81,7 +87,7 @@ const score = (
 	label: unknown,
 	confidence: unknown,
 	labels: Labels,
-): ClassifierScore | undefined => {
+): ClassifierScore<string> | undefined => {
 	const known = labels.find((candidate) => candidate === label);
 	if (known === undefined || typeof confidence !== "number") return undefined;
 	if (confidence < 0 || confidence > 1) return undefined;
@@ -95,10 +101,7 @@ const DECISION_INSTRUCTION = "Which label fits this email best?";
 const CHAT_INSTRUCTION =
 	"Classify this email with exactly one of the given labels. Answer with the label and your confidence between 0 and 1.";
 
-const readDecision = (
-	answer: unknown,
-	labels: Labels,
-): ClassifierScore[] | undefined => {
+const readDecision = (answer: unknown, labels: Labels): Answer | undefined => {
 	if (!isRecord(answer) || !isRecord(answer.answers)) return undefined;
 	const choice = answer.answers[DECISION_QUESTION];
 	if (!isRecord(choice) || choice.type !== "choice") return undefined;
@@ -110,13 +113,12 @@ const readDecision = (
 		([label, probability]) => score(label, probability, labels),
 	);
 	const known = scores.filter((entry) => entry !== undefined);
-	return known.length === scores.length ? known : undefined;
+	return known.length === scores.length
+		? { scores: known, reason: "" }
+		: undefined;
 };
 
-const readChat = (
-	answer: unknown,
-	labels: Labels,
-): ClassifierScore[] | undefined => {
+const readChat = (answer: unknown, labels: Labels): Answer | undefined => {
 	if (!isRecord(answer) || !Array.isArray(answer.choices)) return undefined;
 	const [choice] = answer.choices;
 	if (!isRecord(choice) || !isRecord(choice.message)) return undefined;
@@ -125,18 +127,19 @@ const readChat = (
 	const parsed: unknown = JSON.parse(content);
 	if (!isRecord(parsed)) return undefined;
 	const chosen = score(parsed.label, parsed.confidence, labels);
-	return chosen ? [chosen] : undefined;
+	if (!chosen) return undefined;
+	return {
+		scores: [chosen],
+		reason: typeof parsed.reason === "string" ? parsed.reason : "",
+	};
 };
 
-const readJina = (
-	answer: unknown,
-	labels: Labels,
-): ClassifierScore[] | undefined => {
+const readJina = (answer: unknown, labels: Labels): Answer | undefined => {
 	if (!isRecord(answer) || !Array.isArray(answer.data)) return undefined;
 	const [first] = answer.data;
 	if (!isRecord(first)) return undefined;
 	const chosen = score(first.prediction, first.score, labels);
-	return chosen ? [chosen] : undefined;
+	return chosen ? { scores: [chosen], reason: "" } : undefined;
 };
 
 const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
@@ -175,8 +178,9 @@ const ADAPTERS: Record<ClassificationAdapterShapeValue, AdapterSpec> = {
 						properties: {
 							label: { type: "string", enum: labels },
 							confidence: { type: "number", minimum: 0, maximum: 1 },
+							reason: { type: ["string", "null"] },
 						},
-						required: ["label", "confidence"],
+						required: ["label", "confidence", "reason"],
 						additionalProperties: false,
 					},
 				},
@@ -201,10 +205,10 @@ const loggableUrl = (baseUrl: string): string => {
 	return `${origin}${pathname}`;
 };
 
-const exchange = async (
-	call: ClassifierCall,
+const exchange = async <L extends string>(
+	call: ClassifierCall<L>,
 	timeoutMs: number,
-): Promise<ClassifierResult> => {
+): Promise<ClassifierResult<L>> => {
 	const { provider, labels } = call;
 	const adapter = ADAPTERS[provider.adapterShape];
 	const text = classifierRequestText(call.message);
@@ -221,7 +225,7 @@ const exchange = async (
 	const failed = (
 		kind: ClassificationFailureKindValue,
 		status?: number,
-	): ClassifierResult => ({
+	): ClassifierResult<L> => ({
 		ok: false,
 		kind,
 		...(status === undefined ? {} : { status }),
@@ -243,13 +247,22 @@ const exchange = async (
 				.json()
 				.then((answer: unknown) => adapter.read(answer, labels))
 				.then(
-					(scores): ClassifierResult => {
-						if (!scores || scores.length === 0) {
+					(answer): ClassifierResult<L> => {
+						const scores = (answer?.scores ?? []).flatMap((entry) => {
+							const label = labels.find(
+								(candidate) => candidate === entry.label,
+							);
+							return label === undefined
+								? []
+								: [{ label, confidence: entry.confidence }];
+						});
+						if (!answer || scores.length === 0) {
 							return failed(ClassificationFailureKind.Unparseable);
 						}
 						return {
 							ok: true,
 							scores,
+							reason: answer.reason,
 							confidenceKind: adapter.confidenceKind,
 							inputWords: countWords(text),
 							latencyMs: latencyMs(),
@@ -272,10 +285,12 @@ const exchange = async (
 	);
 };
 
-export const classifyWithProvider = async (
-	call: ClassifierCall,
+export const classifyWithProvider = async <
+	L extends string = ClassificationLabelValue,
+>(
+	call: ClassifierCall<L>,
 	deps: ClassifierDeps,
-): Promise<ClassifierResult> => {
+): Promise<ClassifierResult<L>> => {
 	const result = await exchange(call, deps.timeoutMs ?? CLASSIFIER_TIMEOUT_MS);
 	if (result.ok) return result;
 	deps.logger.warn(

@@ -208,7 +208,11 @@ describe("rescan", () => {
 			world.store,
 			world.storage,
 			recordingQueue(),
-			{ ...spamConfigFor(world.store), spamService: warnAll },
+			{
+				...spamConfigFor(world.store),
+				spamService: warnAll,
+				thresholds: { state: "Set", cleanBelow: 0, spamAt: 1 },
+			},
 		).rescan(world.account, { messageIds: [cleared, suspect], move: true });
 
 		const byId = new Map(

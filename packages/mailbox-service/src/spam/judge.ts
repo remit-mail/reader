@@ -1,14 +1,15 @@
 import type {
-	SpamModel,
-	SpamModelAnswer,
-	SpamModelSkip,
-	SpamReason,
 	SpamRequest,
 	SpamResponse,
 	SpamService,
 	SpamThresholds,
 } from "@remit/data-ports";
-import { SpamAction, SpamKind, SpamReasonName } from "@remit/domain-enums";
+import {
+	SpamAction,
+	SpamKind,
+	SpamModelOutcome,
+	SpamReasonName,
+} from "@remit/domain-enums";
 import {
 	type CheckName,
 	type Finding,
@@ -18,8 +19,8 @@ import {
 import type { Tldts } from "./display-name.js";
 
 type Action = (typeof SpamAction)[keyof typeof SpamAction];
-type ReasonName = (typeof SpamReasonName)[keyof typeof SpamReasonName];
-type Checked = Extract<SpamResponse, { state: "Checked" }>;
+export type Checked = Extract<SpamResponse, { state: "Checked" }>;
+type CheckedReasonName = Checked["reasons"][number]["name"];
 
 /**
  * What each check adds. The provider's verdict weighs least: the owner's
@@ -95,10 +96,11 @@ export const judge = (
 ): Checked => {
 	const findings = runChecks(toCheckInput(request, tldts));
 	const score = scoreOf(findings);
+	const action = actionOf(score, thresholds);
 	return {
 		state: "Checked",
 		score,
-		action: actionOf(score, thresholds),
+		action,
 		kind: kindOf(findings),
 		reasons: findings.map((finding) => ({
 			name: finding.name,
@@ -106,67 +108,40 @@ export const judge = (
 			score: WEIGHTS[finding.name],
 			options: finding.options,
 		})),
-		modelCalled: false,
+		modelOutcome:
+			action === SpamAction.Warn
+				? SpamModelOutcome.NotConfigured
+				: SpamModelOutcome.OutOfBand,
 	};
 };
 
-const inBand = (score: number, thresholds: SpamThresholds): boolean =>
-	thresholds.state === "Set" &&
-	score >= thresholds.cleanBelow &&
-	score < thresholds.spamAt;
+/** What the model answered for a message in the ambiguous band. */
+export interface ModelAnswer {
+	verdict: "Impersonation" | "Spam" | "Clean";
+	score: number;
+	reason: string;
+}
 
-const SKIPPED: Record<SpamModelSkip, ReasonName> = {
-	DailyLimit: SpamReasonName.ModelDailyLimit,
-	RateLimited: SpamReasonName.ModelRateLimited,
-	Failed: SpamReasonName.ModelFailed,
-};
-
-const ANSWERED: Record<SpamModelAnswer["verdict"], ReasonName> = {
+const ANSWERED: Record<ModelAnswer["verdict"], CheckedReasonName> = {
 	Impersonation: SpamReasonName.ModelImpersonation,
 	Spam: SpamReasonName.ModelSpam,
 	Clean: SpamReasonName.ModelClean,
 };
 
-const note = (name: ReasonName): SpamReason => ({
-	name,
-	symbol: name,
-	score: 0,
-	options: [],
-});
-
 /**
- * Stage 3: a message stage 2 leaves between the thresholds gets one model
- * call, when the request allows one. The model's score replaces stage 2's,
- * since the model saw stage 2's reasons. A message still in the band, or
- * never sent to the model, gets `Warn`; a skipped call names its cause.
+ * Stage 3, folded into a stage 2 verdict: the model saw stage 2's reasons, so
+ * its score replaces stage 2's and sets the action. An impersonation makes
+ * the message `Phishing`.
  */
-export const judgeWithModel = async (
-	request: SpamRequest,
+export const withModelAnswer = (
+	checked: Checked,
+	answer: ModelAnswer,
 	thresholds: SpamThresholds,
-	tldts: Tldts,
-	model: SpamModel,
-): Promise<Checked> => {
-	const checked = judge(request, thresholds, tldts);
-	if (!inBand(checked.score, thresholds)) return checked;
-	if (!request.context.modelAllowed) {
-		return {
-			...checked,
-			reasons: [...checked.reasons, note(SpamReasonName.ModelNotConfigured)],
-		};
-	}
-	const outcome = await model.ask(request, checked.reasons);
-	if (outcome.state === "Skipped") {
-		return {
-			...checked,
-			reasons: [...checked.reasons, note(SKIPPED[outcome.cause])],
-			modelCalled: outcome.cause !== "DailyLimit",
-		};
-	}
-	const { answer } = outcome;
+): Checked => {
 	const score = Math.round(answer.score * 10_000) / 10_000;
 	const name = ANSWERED[answer.verdict];
 	return {
-		state: "Checked",
+		...checked,
 		score,
 		action: actionOf(score, thresholds),
 		kind: answer.verdict === "Impersonation" ? SpamKind.Phishing : checked.kind,
@@ -179,7 +154,7 @@ export const judgeWithModel = async (
 				options: answer.reason === "" ? [] : [answer.reason],
 			},
 		],
-		modelCalled: true,
+		modelOutcome: SpamModelOutcome.Answered,
 	};
 };
 
@@ -187,12 +162,7 @@ export const judgeWithModel = async (
 export class InlineSpamService implements SpamService {
 	constructor(private readonly thresholds: SpamThresholds) {}
 
-	async check(request: SpamRequest, model: SpamModel): Promise<SpamResponse> {
-		return judgeWithModel(
-			request,
-			this.thresholds,
-			await import("tldts"),
-			model,
-		);
+	async check(request: SpamRequest): Promise<SpamResponse> {
+		return judge(request, this.thresholds, await import("tldts"));
 	}
 }
