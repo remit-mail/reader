@@ -183,6 +183,7 @@ describe("the filter tools behind mail:rules", () => {
 			"create_filter",
 			"update_filter",
 			"get_organize_job",
+			"apply_filter",
 		]) {
 			assert.equal(names.includes(name), false, name);
 		}
@@ -208,6 +209,7 @@ describe("the filter tools behind mail:rules", () => {
 			"create_filter",
 			"update_filter",
 			"get_organize_job",
+			"apply_filter",
 		]) {
 			assert.equal(names.includes(name), true, name);
 		}
@@ -381,5 +383,47 @@ describe("get_organize_job", () => {
 				/Organize job not found/,
 			);
 		}
+	});
+});
+
+describe("apply_filter", () => {
+	it("queues a job for the filter and leaves the filter unchanged", async () => {
+		const { filter } = await callToolJson<FilterOutcome>(
+			"create_filter",
+			receiptsRule(receipts.mailboxId),
+		);
+		const before = await store.filter.get(
+			account.accountConfigId,
+			filter.filterId,
+		);
+
+		const applied = await callToolJson<{
+			organizeJobId: string;
+			state: string;
+		}>("apply_filter", {
+			accountId: account.accountId,
+			filterId: filter.filterId,
+		});
+
+		assert.equal(applied.state, "Pending");
+		const job = await store.organizeJobRequest.get(applied.organizeJobId);
+		assert.equal(job.filterId, filter.filterId);
+		assert.equal(job.userId, USER_ID);
+		assert.equal(organizeSends().at(-1)?.body.organizeJobId, job.organizeJobId);
+		assert.deepEqual(
+			await store.filter.get(account.accountConfigId, filter.filterId),
+			before,
+		);
+	});
+
+	it("refuses another user's filter and queues nothing", async () => {
+		assert.match(
+			await refusalOf("apply_filter", {
+				accountId: account.accountId,
+				filterId: theirFilter.filterId,
+			}),
+			/Check the filterId against list_filters\./,
+		);
+		assert.equal(organizeSends().length, 0);
 	});
 });
