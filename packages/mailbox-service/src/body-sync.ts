@@ -21,7 +21,6 @@ import {
 	isSenderMuted,
 	type MailboxItem,
 	type MessageItem,
-	type MessageSpamVerdict,
 	readResolvedSpamSettings,
 	type SpamSettingsItem,
 	type UpdateMessageInput,
@@ -36,7 +35,6 @@ import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
-	MessageClassificationState,
 	QuarantineFailureStage,
 	SyncWarningStage,
 } from "@remit/domain-enums";
@@ -50,13 +48,13 @@ import {
 import { Semaphore } from "async-mutex";
 import type { ParsedMail } from "mailparser";
 import pMap from "p-map";
+import { recordArrival, spamArrivalOf } from "./arrival-decision.js";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import {
 	mapMessagePartsToContent,
 	parsePartSource,
 } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
-import { ensureLabel } from "./classification-labels.js";
 import { consultClassifier } from "./classifier/classifier-consult.js";
 import {
 	CLASSIFIER_OFF,
@@ -64,15 +62,11 @@ import {
 	type ClassifierGate,
 	readClassifierGate,
 } from "./classifier/classifier-gate.js";
-import {
-	type ClassifierVerdict,
-	classificationLabelOf,
-} from "./classifier/classifier-precedence.js";
+import type { ClassifierVerdict } from "./classifier/classifier-precedence.js";
 import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "./classify-message.js";
-
 import { extractListId } from "./filters/list-id.js";
 import {
 	type FilterConfig,
@@ -85,16 +79,11 @@ import type { FilterMessage } from "./filters/rule.js";
 import type { FlagQueueService } from "./flag-queue.js";
 import {
 	type FolderRoleMailboxes,
-	placementOf,
 	resolveFolderRoleMailboxes,
 } from "./folder-placement.js";
 import type { FolderPlacement } from "./heuristics/classifyPlacement.js";
-import {
-	denormalizeMessageCategory,
-	hasDecidedCategory,
-} from "./message-category.js";
+import { denormalizeMessageCategory } from "./message-category.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
-import { type PlacementUpdate, placeMessage } from "./place-message.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
@@ -107,7 +96,6 @@ import {
 	decideSpamVerdict,
 	type SpamConfig,
 	type SpamPlacement,
-	spamModelAccessOf,
 	spamPlacementOf,
 } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
@@ -880,19 +868,25 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
-		const spamVerdict = await this.decideSpam(
-			lookups,
-			{ accountId, accountConfigId },
-			{
-				parsed,
-				body,
-				arrival,
-				filterDecision,
-				classifierScores,
-				classification,
-				senderPlacement,
-			},
-		);
+		const spamVerdict = arrival.folderSynced
+			? await decideSpamVerdict(
+					this.spamConfig,
+					this.addressService,
+					spamArrivalOf({
+						account: { accountId, accountConfigId },
+						parsed,
+						raw: body,
+						internalDate: arrival.internalDate,
+						sender: await senderPlacement(),
+						filterDecision,
+						classifierScores,
+						classification,
+						classifier: this.classifierConfig,
+						gate: await lookups.classifierGate(),
+						ownAddresses: await lookups.ownAddresses(),
+					}),
+				)
+			: undefined;
 		const spamPlacement = spamVerdict
 			? spamPlacementOf(spamVerdict, await lookups.spamSettings())
 			: NO_SPAM_PLACEMENT;
@@ -962,16 +956,6 @@ export class BodySyncService {
 			}
 		}
 
-		const placementUpdate = await this.placeArrival(
-			lookups,
-			{ accountId, accountConfigId },
-			{ ...decidedRow, ...classification },
-			arrival,
-			verdict.kind === "Junk" || spamPlacement.action === "Junk",
-			senderPlacement,
-			!filterDecision.move,
-		);
-
 		// Additive label actions (RFC 034 Decision 3.1): every matching filter's
 		// label applies. The deterministic MessageLabel upsert is idempotent, so a
 		// requeue after a later failure re-applies safely; UNSWALLOWED, so a DDB
@@ -985,20 +969,33 @@ export class BodySyncService {
 			});
 		}
 
-		await this.applyClassifierLabel(
-			lookups,
-			messageId,
-			accountConfigId,
-			verdict,
-		);
-
-		await this.applySpamLabel(messageId, accountConfigId, spamPlacement);
-
 		// Read once for the two write-once guards below — the auto-read decision
 		// and the category carry-forward. Taken here rather than earlier because
 		// nothing between this point and the Message update writes either field;
-		// the moves above touch `mailboxId` only.
+		// the moves touch `mailboxId` only.
 		const existingMessage = await this.messageService.get(messageId);
+
+		const { update: decided } = await recordArrival(this.spamConfig, {
+			account: { accountId, accountConfigId },
+			messageId,
+			gate: lookups.classifierGate,
+			classifierVerdict: verdict,
+			classifierScores,
+			classification,
+			currentCategory: existingMessage.category,
+			spamVerdict: spamVerdict ?? existingMessage.spamVerdict,
+			spamPlacement,
+			placement: this.placementConfig
+				? {
+						deps: { ...this.placementConfig, log: this.log },
+						row: { ...decidedRow, ...classification },
+						roles: await lookups.roleMailboxes(),
+						sender: await senderPlacement(),
+						move: !filterDecision.move,
+						leaveJunk: arrival.internalDate <= arrival.folderCreatedAt,
+					}
+				: undefined,
+		});
 
 		// `flags.unsubscribed` (issue #302, RFC 039 Decision 3): auto-mark-read,
 		// reusing the same FlagQueueService.markAsRead round-trip a manual
@@ -1028,21 +1025,6 @@ export class BodySyncService {
 		// a filter); the verdict is folded in whenever Remit decided to act.
 		// Written LAST so bodyStorageKey — the skip-guard signal — is only durable
 		// once the parsed cache AND the move (when any) are.
-		//
-		// `category` is RFC 034 D3.1's write-once field (RFC 030's message-list
-		// GSI sort key depends on it never churning). The re-entrant re-store
-		// paths (issue #1011) return before this write; the carry-forward keeps
-		// the field write-once even when a first store lands on a row that
-		// already carries a real category — a previously-decided category wins
-		// over the just-recomputed one. It likewise protects a `flags.category`
-		// override (issue #299): recomputing would let a *later* override silently
-		// rewrite a category already decided, which is exactly the churn RFC
-		// 030's GSI-safety argument forbids.
-		const finalCategory = hasDecidedCategory(existingMessage.category)
-			? existingMessage.category
-			: verdict.kind === "Category"
-				? verdict.category
-				: classification.category;
 
 		// Thread-list denormalization, using the same write-once category as the
 		// Message update below — the two rows must never disagree on category.
@@ -1050,21 +1032,14 @@ export class BodySyncService {
 			{ threadMessageService: this.threadMessageService },
 			accountConfigId,
 			messageId,
-			{ category: finalCategory, snippet, listId },
+			{ category: decided.category, snippet, listId },
 		);
 
 		// `classificationState` records that the classifier ran, in the same
-		// UpdateItem as the answer it gave (issue #331). Without it `uncategorized`
-		// carries two meanings at once — not reached yet, and reached with nothing
-		// to say — and only one of them should ever be looked at again.
+		// UpdateItem as the answer it gave (issue #331).
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
-			...classification,
-			category: finalCategory,
-			classificationState: MessageClassificationState.Examined,
-			classifierScores,
-			...(spamVerdict ? { spamVerdict } : {}),
-			...placementUpdate,
+			...decided,
 			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
 		};
@@ -1379,83 +1354,6 @@ export class BodySyncService {
 			: NO_CLASSIFIER_DECISION;
 	}
 
-	/**
-	 * RFC 041 stages 1 and 2. Runs on the same new mail the category classifier
-	 * does, after it, so check 9 sees its scores; a folder's first sync of old
-	 * mail records no verdict.
-	 */
-	private async decideSpam(
-		lookups: BatchLookups,
-		account: { accountId: string; accountConfigId: string },
-		message: {
-			parsed: ParsedMail;
-			body: Buffer;
-			arrival: Arrival;
-			filterDecision: FilterDecision;
-			classifierScores: ClassifierScoreItem[];
-			classification: UpdateMessageInput;
-			senderPlacement: () => Promise<SenderPlacement>;
-		},
-	): Promise<MessageSpamVerdict | undefined> {
-		if (!message.arrival.folderSynced) return undefined;
-		const { accountConfigId } = account;
-		const gate = await lookups.classifierGate();
-		return decideSpamVerdict(this.spamConfig, this.addressService, {
-			accountConfigId,
-			fromEmail: extractPrimaryFromEmail(message.parsed),
-			rcpt: await lookups.ownAddresses(),
-			parsed: message.parsed,
-			raw: message.body,
-			internalDate: message.arrival.internalDate,
-			sender: await message.senderPlacement(),
-			filterDecision: message.filterDecision,
-			classifierScores: message.classifierScores,
-			model: spamModelAccessOf(this.classifierConfig, gate, account),
-			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
-			dmarc: message.classification.authResult?.dmarc,
-		});
-	}
-
-	/**
-	 * The label rides on the messageId, which a placement move keeps, so it
-	 * neither waits for the move to settle nor needs reconciling after it: a
-	 * move that gives up leaves the message where it was, still suspect.
-	 */
-	private async applySpamLabel(
-		messageId: string,
-		accountConfigId: string,
-		placement: SpamPlacement,
-	): Promise<void> {
-		if (placement.action === "None") return;
-		const label = await ensureLabel(
-			this.spamConfig.labelService,
-			accountConfigId,
-			placement.label,
-		);
-		await this.spamConfig.messageLabelService.apply({
-			messageId,
-			labelId: label.labelId,
-			accountConfigId,
-		});
-	}
-
-	private async applyClassifierLabel(
-		lookups: BatchLookups,
-		messageId: string,
-		accountConfigId: string,
-		verdict: ClassifierVerdict,
-	): Promise<void> {
-		const name = classificationLabelOf(verdict);
-		if (!this.classifierConfig || name === undefined) return;
-		const gate = await lookups.classifierGate();
-		if (gate.state === "Off") return;
-		await this.classifierConfig.messageLabelService.apply({
-			messageId,
-			labelId: gate.labels[name].labelId,
-			accountConfigId,
-		});
-	}
-
 	private async incrementInboundCount(
 		messageId: string,
 		accountConfigId: string,
@@ -1742,41 +1640,6 @@ export class BodySyncService {
 				readResolvedSpamSettings(this.spamConfig, accountConfigId),
 			),
 		};
-	}
-
-	private async placeArrival(
-		lookups: BatchLookups,
-		account: { accountId: string; accountConfigId: string },
-		message: MessageItem,
-		arrival: Arrival,
-		junk: boolean,
-		senderPlacement: () => Promise<SenderPlacement>,
-		move: boolean,
-	): Promise<PlacementUpdate> {
-		const { placementConfig } = this;
-		if (!placementConfig) return {};
-		const roles = await lookups.roleMailboxes();
-		const placement = placementOf(message.mailboxId, roles);
-		if (
-			placement === "junk" &&
-			arrival.internalDate <= arrival.folderCreatedAt
-		) {
-			return {};
-		}
-		const placed = await placeMessage(
-			{ ...placementConfig, log: this.log },
-			{
-				account,
-				message,
-				placement,
-				roles,
-				sender: await senderPlacement(),
-				junk,
-				move,
-				now: Date.now(),
-			},
-		);
-		return placed.state === "Decided" ? placed.update : {};
 	}
 
 	// The old `enqueuePlacementMove` (best-effort, catch-and-log) lived here.

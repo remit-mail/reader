@@ -4,26 +4,24 @@ import type {
 	IMessageFlagRepository,
 	IMessageLabelRepository,
 	IMessageRepository,
-	LabelItem,
 	MessageItem,
 	MessageSpamVerdict,
 	RescanFailureItem,
 	RescanResultItem,
 	RescanSuccessItem,
 } from "@remit/data-ports";
+import { readResolvedSpamSettings } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import {
 	ClassificationFailureKind,
-	MessageClassificationState,
 	MessageKeywordFlag,
 	RescanFailureCode,
 	SenderOverride,
-	SpamAction,
 	SpamModelOutcome,
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
+import { recordArrival, spamArrivalOf } from "../arrival-decision.js";
 import { parseMessageBody } from "../body-parse.js";
-import { ensureLabel } from "../classification-labels.js";
 import {
 	type ClassifierConsultation,
 	consultClassifier,
@@ -34,35 +32,23 @@ import {
 	readClassifierGate,
 } from "../classifier/classifier-gate.js";
 import {
-	type ClassifierVerdict,
-	classificationLabelOf,
-} from "../classifier/classifier-precedence.js";
-import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "../classify-message.js";
 import type { FilterDecision } from "../filters/pipeline.js";
-import {
-	placementOf,
-	resolveFolderRoleMailboxes,
-} from "../folder-placement.js";
+import { resolveFolderRoleMailboxes } from "../folder-placement.js";
 import {
 	denormalizeMessageCategory,
-	hasDecidedCategory,
 	type MessageCategoryDenormalizeDeps,
 } from "../message-category.js";
-import {
-	type PlaceMessageDeps,
-	type PlacementUpdate,
-	placeMessage,
-} from "../place-message.js";
+import type { PlaceMessageDeps } from "../place-message.js";
 import { isPlacementUnsettled } from "../placement-settled.js";
+import { readSenderPlacement } from "../sender-placement.js";
 import {
-	readSenderPlacement,
-	type SenderPlacement,
-} from "../sender-placement.js";
-import { decideSpamVerdict, type SpamConfig } from "./index.js";
-import { spamModelAccessOf } from "./model.js";
+	decideSpamVerdict,
+	type SpamConfig,
+	spamPlacementOf,
+} from "./index.js";
 
 type FailureCode = (typeof RescanFailureCode)[keyof typeof RescanFailureCode];
 
@@ -97,7 +83,6 @@ interface RescanCall {
 	move: boolean;
 	gate: ClassifierGate;
 	ownAddresses: string[];
-	spamLabelOf: (kind: CheckedVerdict["kind"]) => Promise<LabelItem>;
 }
 
 type Outcome =
@@ -129,7 +114,10 @@ const classifierFailure = (
 };
 
 const MODEL_FAILURE: Partial<
-	Record<CheckedVerdict["modelOutcome"], FailureCode>
+	Record<
+		Extract<MessageSpamVerdict, { state: "Checked" }>["modelOutcome"],
+		FailureCode
+	>
 > = {
 	[SpamModelOutcome.DailyLimit]: RescanFailureCode.DailyCap,
 	[SpamModelOutcome.RateLimited]: RescanFailureCode.RateLimited,
@@ -137,14 +125,6 @@ const MODEL_FAILURE: Partial<
 
 const spamFailure = (verdict: MessageSpamVerdict): FailureCode | undefined =>
 	verdict.state === "Checked" ? MODEL_FAILURE[verdict.modelOutcome] : undefined;
-
-type CheckedVerdict = Extract<MessageSpamVerdict, { state: "Checked" }>;
-
-const flagged = (verdict: MessageSpamVerdict): verdict is CheckedVerdict =>
-	verdict.state === "Checked" &&
-	(verdict.action === SpamAction.Warn || verdict.action === SpamAction.Junk);
-
-const NO_VERDICT: ClassifierVerdict = { kind: "None" };
 
 /**
  * Checks up to {@link RESCAN_LIMIT} messages again with the category
@@ -170,23 +150,11 @@ export class RescanService {
 				account.accountConfigId,
 			)
 		).map((owned) => owned.email);
-		const spamLabels = new Map<CheckedVerdict["kind"], Promise<LabelItem>>();
-		const spamLabelOf = (kind: CheckedVerdict["kind"]): Promise<LabelItem> => {
-			const label =
-				spamLabels.get(kind) ??
-				ensureLabel(
-					this.deps.classifier.labelService,
-					account.accountConfigId,
-					kind,
-				);
-			spamLabels.set(kind, label);
-			return label;
-		};
 		const outcomes = await Promise.all(
 			[...new Set(input.messageIds)].map((messageId) =>
 				this.rescanOne(
 					account,
-					{ move: input.move, gate, ownAddresses, spamLabelOf },
+					{ move: input.move, gate, ownAddresses },
 					messageId,
 				),
 			),
@@ -230,11 +198,10 @@ export class RescanService {
 		const raw = await deps.storage.retrieve(message.bodyStorageKey);
 		const parsed = await parseMessageBody(raw);
 		const { accountConfigId } = account;
-		const fromEmail = extractPrimaryFromEmail(parsed);
 		const sender = await readSenderPlacement(
 			deps.address,
 			accountConfigId,
-			fromEmail,
+			extractPrimaryFromEmail(parsed),
 		);
 
 		const consulted = await consultClassifier(
@@ -253,73 +220,74 @@ export class RescanService {
 			accountConfigId,
 			parsed,
 		);
-		const verdict = await decideSpamVerdict(deps.spam, deps.address, {
-			accountConfigId,
-			fromEmail,
-			rcpt: ownAddresses,
-			parsed,
-			raw,
-			internalDate: message.internalDate,
-			sender,
-			filterDecision: await this.filterDecisionOf(message),
-			classifierScores: consulted.state === "Answered" ? consulted.scores : [],
-			model: spamModelAccessOf(deps.classifier, gate, account),
-			hasListUnsubscribe: classification.hasListUnsubscribe ?? false,
-			dmarc: classification.authResult?.dmarc,
-		});
+		const classifierScores =
+			consulted.state === "Answered"
+				? consulted.scores
+				: message.classifierScores;
+		const verdict = await decideSpamVerdict(
+			deps.spam,
+			deps.address,
+			spamArrivalOf({
+				account,
+				parsed,
+				raw,
+				internalDate: message.internalDate,
+				sender,
+				filterDecision: await this.filterDecisionOf(message),
+				classifierScores:
+					consulted.state === "Answered" ? consulted.scores : [],
+				classification,
+				classifier: deps.classifier,
+				gate,
+				ownAddresses,
+			}),
+		);
 		const spamCode = spamFailure(verdict);
 		if (spamCode) return failed(messageId, spamCode);
 
 		const cleared =
 			sender.senderOverride === SenderOverride.NeverSpam ||
 			(await deps.messageFlag.hasFlag(messageId, MessageKeywordFlag.NotJunk));
-		const classifierVerdict =
-			consulted.state === "Answered" ? consulted.verdict : NO_VERDICT;
-
-		const labels = await this.applyLabels(
+		const { update, labels } = await recordArrival(deps.spam, {
 			account,
-			message,
-			call,
-			classifierVerdict,
-			!cleared && flagged(verdict) ? verdict : undefined,
-		);
-
-		const category = hasDecidedCategory(message.category)
-			? message.category
-			: classifierVerdict.kind === "Category"
-				? classifierVerdict.category
-				: classification.category;
-		if (category !== message.category) {
+			messageId,
+			gate: async () => gate,
+			classifierVerdict:
+				consulted.state === "Answered" ? consulted.verdict : { kind: "None" },
+			classifierScores,
+			classification,
+			currentCategory: message.category,
+			spamVerdict: verdict,
+			spamPlacement: cleared
+				? { action: "None" }
+				: spamPlacementOf(
+						verdict,
+						await readResolvedSpamSettings(deps.spam, accountConfigId),
+					),
+			placement:
+				move && !cleared
+					? {
+							deps: deps.placement,
+							row: message,
+							roles: await resolveFolderRoleMailboxes(
+								deps.placement.mailboxSpecialUseService,
+								account.accountId,
+							),
+							sender,
+							move: true,
+							leaveJunk: true,
+						}
+					: undefined,
+		});
+		if (update.category !== message.category) {
 			await denormalizeMessageCategory(
 				{ threadMessageService: deps.threadMessage },
 				accountConfigId,
 				messageId,
-				{ category },
+				{ category: update.category },
 			);
 		}
-
-		const placementUpdate =
-			move && !cleared
-				? await this.place(
-						account,
-						message,
-						sender,
-						classifierVerdict.kind === "Junk" ||
-							(verdict.state === "Checked" &&
-								verdict.action === SpamAction.Junk),
-					)
-				: {};
-
-		await deps.message.update(messageId, {
-			...classification,
-			category,
-			classificationState: MessageClassificationState.Examined,
-			...(consulted.state === "Answered"
-				? { classifierScores: consulted.scores }
-				: {}),
-			spamVerdict: verdict,
-			...placementUpdate,
-		});
+		await deps.message.update(messageId, update);
 		return { ok: true, success: { messageId, verdict, labels } };
 	}
 
@@ -344,59 +312,5 @@ export class RescanService {
 					}
 				: {}),
 		};
-	}
-
-	private async applyLabels(
-		account: RescanAccount,
-		message: Pick<MessageItem, "messageId">,
-		{ gate, spamLabelOf }: RescanCall,
-		classifierVerdict: ClassifierVerdict,
-		spam: CheckedVerdict | undefined,
-	): Promise<string[]> {
-		const { deps } = this;
-		const classifierLabel =
-			gate.state === "On"
-				? classificationLabelOf(classifierVerdict)
-				: undefined;
-		const targets = [
-			...(classifierLabel && gate.state === "On"
-				? [gate.labels[classifierLabel]]
-				: []),
-			...(spam ? [await spamLabelOf(spam.kind)] : []),
-		];
-		for (const label of targets) {
-			await deps.messageLabel.apply({
-				messageId: message.messageId,
-				labelId: label.labelId,
-				accountConfigId: account.accountConfigId,
-			});
-		}
-		return targets.map((label) => label.name);
-	}
-
-	private async place(
-		account: RescanAccount,
-		message: MessageItem,
-		sender: SenderPlacement,
-		junk: boolean,
-	): Promise<PlacementUpdate> {
-		const { placement } = this.deps;
-		const roles = await resolveFolderRoleMailboxes(
-			placement.mailboxSpecialUseService,
-			account.accountId,
-		);
-		const folder = placementOf(message.mailboxId, roles);
-		if (folder === "junk") return {};
-		const placed = await placeMessage(placement, {
-			account,
-			message,
-			placement: folder,
-			roles,
-			sender,
-			junk,
-			move: true,
-			now: Date.now(),
-		});
-		return placed.state === "Decided" ? placed.update : {};
 	}
 }
