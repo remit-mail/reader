@@ -198,9 +198,9 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				{ field: FilterClauseField.ListId, value: "news.example.com" },
 				{ field: FilterClauseField.HasWords, value: "weekly digest" },
 			];
-			await repo.update(accountConfigId, filter.filterId, { literalClauses });
 			const updated = await repo.update(accountConfigId, filter.filterId, {
 				matchOperator: FilterMatchOperator.Or,
+				literalClauses,
 			});
 
 			assert.equal(updated.matchOperator, FilterMatchOperator.Or);

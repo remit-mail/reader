@@ -45,7 +45,10 @@ const clauseTest = (clause: FilterClauseItem): FilterTestItem => {
 				key: clause.value,
 			};
 		case FilterClauseField.HasWords:
-			return { test: "hasWords", words: [clause.value] };
+			return {
+				test: "hasWords",
+				words: clause.value.split(/\s+/).filter(Boolean),
+			};
 	}
 };
 

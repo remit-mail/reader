@@ -60,7 +60,7 @@ type Match = "is" | "contains";
 type AddressPart = "all" | "localpart" | "domain" | "registrableDomain";
 ```
 
-Each leaf holds one header and one key, and `anyof` covers a list. The `address` test reads `from` only, because `thread_message` stores no `to` or `cc`. Sync already stores these fields, so the organize job can test them over old mail. Remit normalizes a `list-id` value as `normalizeListId` does today. TypeSpec caps the leaves of a rule with `@maxItems`.
+Each leaf holds one header and one key, and `anyof` covers a list. The `address` test reads `from` only, because `thread_message` stores no `to` or `cc`. Sync already stores these fields, so the organize job can test them over old mail. Remit normalizes a `list-id` value as `normalizeListId` does today. TypeSpec caps the leaves of a rule with `@maxItems`. The TypeSpec enums spell the `match`, `header` and `part` members in PascalCase (`Is`, `From`, `ListId`, `RegistrableDomain`), as every enum in the API does.
 
 ### Classification test
 

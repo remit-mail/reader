@@ -183,15 +183,16 @@ export class FilterRepo implements IFilterRepository {
 			...patch,
 			updatedAt: Date.now(),
 		};
-		if ("matchOperator" in input || "literalClauses" in input) {
-			const current = await this.get(accountConfigId, filterId);
-			const matchOperator = input.matchOperator ?? current.matchOperator;
+		const { matchOperator, literalClauses } = input;
+		if (matchOperator !== undefined || literalClauses !== undefined) {
+			if (matchOperator === undefined || literalClauses === undefined) {
+				throw new Error(
+					"A filter update sets matchOperator and literalClauses together",
+				);
+			}
 			updates.matchOperator = matchOperator;
 			updates.literalClauses = [];
-			updates.rule = filterRuleFromClauses({
-				matchOperator,
-				literalClauses: input.literalClauses ?? current.literalClauses,
-			});
+			updates.rule = filterRuleFromClauses({ matchOperator, literalClauses });
 		}
 		if (patch.scope === FilterScope.Standing) {
 			updates.expiresAt = null;

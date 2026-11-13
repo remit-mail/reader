@@ -45,7 +45,7 @@ const CLAUSE_TESTS: [FilterClauseItem, FilterTestItem][] = [
 	],
 	[
 		{ field: "HasWords", value: "overdue invoice" },
-		{ test: "hasWords", words: ["overdue invoice"] },
+		{ test: "hasWords", words: ["overdue", "invoice"] },
 	],
 ];
 
