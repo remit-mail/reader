@@ -20,6 +20,7 @@ import {
 } from "@remit/auth-service/verifier";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import * as mcpTables from "@remit/drizzle-service/schema-sets/mcp";
+import type { SqliteValue } from "@remit/drizzle-service/sqlite";
 import {
 	migrateSqlite,
 	type SqliteHandle,
@@ -833,7 +834,7 @@ describe("device authorization (RFC 8628)", () => {
 			peer,
 		);
 
-	const updateDeviceCode = (sql: string, ...params: unknown[]): void => {
+	const updateDeviceCode = (sql: string, ...params: SqliteValue[]): void => {
 		database.sqlite.prepare(sql).run(...params);
 	};
 

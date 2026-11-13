@@ -36,8 +36,7 @@ export async function createSqliteTestDb<
 	// pushSchema derives the CREATE statements from the table objects by
 	// diffing them against the live database through this client.
 	const client: Parameters<typeof pushSchema>[1] = {
-		query: async <T>(sql: string, params: unknown[] = []) =>
-			sqlite.sqlite.prepare(sql).all(...params) as T[],
+		query: async <T>(sql: string) => sqlite.sqlite.prepare(sql).all() as T[],
 		run: async (sql: string) => {
 			sqlite.exec(sql);
 		},

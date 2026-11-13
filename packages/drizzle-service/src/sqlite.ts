@@ -93,7 +93,9 @@ export function openSqlite<TSchema extends Record<string, unknown>>(
 		exec: (sql) => {
 			sqlite.exec(sql);
 		},
-		immediate: (work) => db.transaction(work, { behavior: "immediate" }),
+		immediate: (work) =>
+			db.transaction(() => ({ value: work() }), { behavior: "immediate" })
+				.value,
 		close: () => {
 			sqlite.close();
 		},

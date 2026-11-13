@@ -1,8 +1,9 @@
 import { storedDisplayName } from "@remit/data-ports/display-name";
+import type { SqliteValue } from "../sqlite.js";
 
 export interface DisplayNameRepairClient {
-	all(sql: string, params: readonly unknown[]): Promise<unknown[]>;
-	run(sql: string, params: readonly unknown[]): Promise<number>;
+	all(sql: string, params: readonly SqliteValue[]): Promise<unknown[]>;
+	run(sql: string, params: readonly SqliteValue[]): Promise<number>;
 }
 
 export type DisplayNameRepairMode = "check" | "repair";
@@ -89,7 +90,7 @@ const rewrite = async (
 	stored: string,
 ): Promise<number> => {
 	const columns = [`${site.nameColumn} = ?`];
-	const params: unknown[] = [
+	const params: SqliteValue[] = [
 		stored === "" ? site.storedWhenNameIsAbsent : stored,
 	];
 

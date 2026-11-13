@@ -1,3 +1,4 @@
+import type { SqliteValue } from "../sqlite.js";
 /**
  * The repair for outbox rows stranded at `sent` (issue #824).
  *
@@ -40,8 +41,8 @@
  * driver and can be driven by the migrator's `node:sqlite` handle or a test.
  */
 export interface StrandedSentRepairClient {
-	all(sql: string, params: unknown[]): Promise<unknown[]>;
-	run(sql: string, params: unknown[]): Promise<number>;
+	all(sql: string, params: readonly SqliteValue[]): Promise<unknown[]>;
+	run(sql: string, params: readonly SqliteValue[]): Promise<number>;
 }
 
 export type StrandedSentRepairMode = "check" | "repair";
