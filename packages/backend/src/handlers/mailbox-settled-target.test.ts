@@ -89,6 +89,7 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 				return { filterId: "flt-1", rule: RULE };
 			},
 		},
+		label: { listByAccountConfig: async () => [] },
 		labelMailbox: { listByLabel: async () => [] },
 		organizeJobRequest: {
 			create: async (input: Record<string, unknown>) => ({
