@@ -15,6 +15,7 @@ const message: FilterMessage = {
 	subject: "Run failed: main",
 	text: "The security scan found nothing.",
 	listId: "builds.github.com",
+	classifierScores: [],
 };
 
 const rule = (test: FilterTestItem): FilterRuleV1Item => ({ version: 1, test });
@@ -175,6 +176,47 @@ describe("evaluateRule", () => {
 		assert.equal(matches(words("github actions")), true);
 		assert.equal(matches(words("scan", "deploy")), false);
 		assert.equal(matches(words("   ")), false);
+	});
+});
+
+describe("the classification test", () => {
+	const coldOutreach: FilterTestItem = {
+		test: "classification",
+		label: "ColdOutreach",
+	};
+	const scored = (
+		confident: boolean,
+		label: "ColdOutreach" | "Marketing" = "ColdOutreach",
+	): FilterMessage => ({
+		...message,
+		classifierScores: [{ label, confidence: 0.9, confident }],
+	});
+
+	it("matches a confident score for its label and nothing else", () => {
+		assert.equal(matches(coldOutreach, scored(true)), true);
+		assert.equal(matches(coldOutreach, scored(false)), false);
+		assert.equal(matches(coldOutreach, scored(true, "Marketing")), false);
+		assert.equal(matches(coldOutreach), false);
+	});
+
+	it("narrows nothing, so the corpus pass decides it from the message", () => {
+		assert.deepEqual(
+			ruleNarrowing(
+				rule({ test: "allof", tests: [coldOutreach, subject("intro")] }),
+				getDomain,
+			),
+			{
+				terms: [{ field: "subject", contains: "intro" }],
+				operator: "and",
+			},
+		);
+		assert.deepEqual(
+			ruleNarrowing(
+				rule({ test: "anyof", tests: [coldOutreach, subject("intro")] }),
+				getDomain,
+			),
+			{ terms: [], operator: "or" },
+		);
 	});
 });
 

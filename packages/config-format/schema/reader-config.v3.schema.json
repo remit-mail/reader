@@ -966,6 +966,35 @@
 						"words"
 					],
 					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"properties": {
+						"test": {
+							"type": "string",
+							"const": "classification"
+						},
+						"label": {
+							"type": "string",
+							"enum": [
+								"Spam",
+								"Phishing",
+								"Priority",
+								"Personal",
+								"Newsletter",
+								"Marketing",
+								"Automated",
+								"Transactional",
+								"Social",
+								"ColdOutreach"
+							]
+						}
+					},
+					"required": [
+						"test",
+						"label"
+					],
+					"additionalProperties": false
 				}
 			]
 		}

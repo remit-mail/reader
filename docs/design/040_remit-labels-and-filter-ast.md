@@ -22,7 +22,7 @@ Every folder sync reads the mailbox rows of the children of INBOX, pending creat
 
 ### Labels per account
 
-A label is a `Label` row, one per user, keyed by `accountConfigId` as today. In each account it maps to one child folder of the root. The mailbox row of that folder carries the `labelId`. Folder sync matches a child of the root to the label whose `normalizedName` equals the child's case-folded name. The `/accounts/{accountId}/labels` operations and `MessageLabel` keep working on the same rows.
+A label is a `Label` row, one per user, keyed by `accountConfigId` as today. In each account it maps to one child folder of the root. The mailbox row of that folder carries the `labelId`. Folder sync matches a child of the root to the label whose `normalizedName` equals the child's case-folded name. The `/accounts/{accountId}/labels` operations and `MessageLabel` keep working on the same rows. As built, the `label_mailbox` table holds the per-account mapping instead of a `labelId` on the mailbox row, so a folder that is no label needs no sentinel, and deleting a label leaves its mapping rows behind.
 
 `create_label` creates the `Label` row and its folder in every account through the mailbox queue. Remit creates label folders at no other time.
 

@@ -190,6 +190,7 @@ export const syncMessageBody = async (
 				filterService,
 				messageLabelService,
 				mailboxService,
+				labelMailboxService: ctx.client.labelMailbox,
 				placementMoveService,
 			});
 

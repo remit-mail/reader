@@ -6,6 +6,10 @@ import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { registerFilterTools } from "./filter-tools.js";
 import { registerFolderTools } from "./folder-tools.js";
+import {
+	registerLabelReadTools,
+	registerLabelWriteTools,
+} from "./label-tools.js";
 import { registerReadTools } from "./read-tools.js";
 
 export interface McpPrincipal {
@@ -30,9 +34,19 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	);
 	if (principal.scopes.includes(MCP_READ_SCOPE)) {
 		registerReadTools(server, deps, deriveAccountConfigId(principal.userId));
+		registerLabelReadTools(
+			server,
+			deps,
+			deriveAccountConfigId(principal.userId),
+		);
 	}
 	if (principal.scopes.includes(MCP_RULES_SCOPE)) {
 		registerFolderTools(server, deps, deriveAccountConfigId(principal.userId));
+		registerLabelWriteTools(
+			server,
+			deps,
+			deriveAccountConfigId(principal.userId),
+		);
 		registerFilterTools(server, deps, principal.userId);
 	}
 	return server;

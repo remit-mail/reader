@@ -93,6 +93,7 @@ export {
 	createFilter,
 	type FilterPage,
 	type FilterPatch,
+	listAccountFilters,
 	listFilters,
 	type NewFilter,
 	resolveFilterUpdate,
@@ -104,6 +105,7 @@ export {
 	type FilterDecision,
 	type FilterLogger,
 	FilterPipeline,
+	moveDestination,
 	type PreparedFilters,
 } from "./filters/pipeline.js";
 export {
@@ -181,6 +183,18 @@ export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
 export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
 export { ImapFlowConnection } from "./imapflow-connection.js";
+export {
+	type AdoptLabelFolderDeps,
+	type CreateLabelDeps,
+	createLabelWithFolders,
+	type LabelFolder,
+	type LabelFolderReadDeps,
+	type LabelWithFolders,
+	listLabelsWithFolders,
+	type NewLabel,
+	type RemitRootDeps,
+	reconcileRemitFolders,
+} from "./label-folders.js";
 export {
 	backfillListIds,
 	type ListIdBackfillCheckpoint,

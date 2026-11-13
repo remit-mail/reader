@@ -9,16 +9,20 @@ import type {
 	IAccountRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
+	MailboxItem,
 } from "@remit/data-ports";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
+	type AdoptLabelFolderDeps,
 	MailboxQueueService,
 	MailboxSyncService,
 	MailConnectionError,
 	type MailCredentials,
+	type RemitRootDeps,
+	reconcileRemitFolders,
 	standardMailboxManagement,
 } from "@remit/mailbox-service";
 import pMap from "p-map";
@@ -37,6 +41,8 @@ import { createImportedFolder } from "./imported-folder.js";
 import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
+
+type RemitFolderDeps = RemitRootDeps & AdoptLabelFolderDeps;
 
 /**
  * Whether this fan-out should enqueue a mailbox.
@@ -73,6 +79,18 @@ export const syncMailboxes = async (
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
 	} = client;
+	const mailboxQueue = new MailboxQueueService({
+		mailboxService,
+		enqueue: standardMailboxManagement(queues.mailboxManagement),
+		logger: log,
+	});
+	const remitFolders: RemitFolderDeps = {
+		mailbox: mailboxService,
+		mailboxQueue,
+		label: client.label,
+		labelMailbox: client.labelMailbox,
+		log,
+	};
 	const binder: ConfigBinderDeps = {
 		repositories: client,
 		appointFolderRole: (configId, accountId, role, mailboxId, lastKnownPath) =>
@@ -84,14 +102,7 @@ export const syncMailboxes = async (
 				mailboxId,
 				lastKnownPath,
 			),
-		createFolder: createImportedFolder(
-			mailboxService,
-			new MailboxQueueService({
-				mailboxService,
-				enqueue: standardMailboxManagement(queues.mailboxManagement),
-				logger: log,
-			}),
-		),
+		createFolder: createImportedFolder(mailboxService, mailboxQueue),
 	};
 
 	const { accountId } = event;
@@ -135,6 +146,7 @@ export const syncMailboxes = async (
 					mailboxSpecialUseService,
 					accountService,
 					binder,
+					remitFolders,
 					log,
 					emitFrom(ctx),
 					ctx.pool,
@@ -171,6 +183,7 @@ const syncMailboxesForAccount = async (
 	mailboxSpecialUseService: IMailboxSpecialUseRepository,
 	accountService: IAccountRepository,
 	binder: ConfigBinderDeps,
+	remitFolders: RemitFolderDeps,
 	log: Logger,
 	emit: EmitEvent,
 	pool: ConnectionPool,
@@ -226,7 +239,16 @@ const syncMailboxesForAccount = async (
 		);
 	}
 
-	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
+	const stored = await mailboxService.listAllByAccount(accountId);
+	const allMailboxes = collectAllMailboxes(stored);
+
+	const adopted = await reconcileRemitFolders(remitFolders, account, stored);
+	if (adopted.length > 0) {
+		log.info(
+			{ accountId, adopted: adopted.length },
+			"Mapped label folders under the remit root",
+		);
+	}
 
 	// This fan-out is where an account's IMAP work is decided: one SEARCH per
 	// mailbox per event, on a queue every account shares. `GET /config` fires a
@@ -359,29 +381,14 @@ type MailboxSortEntry = {
  * Junk/Spam and Trash last (issue #567). Real mail dispatches ahead of bulk
  * folders so a fresh account fills its inbox before its spam.
  */
-const collectAllMailboxes = async (
-	accountId: string,
-	mailboxService: IMailboxRepository,
-): Promise<MailboxSortEntry[]> => {
-	const mailboxes: MailboxSortEntry[] = [];
-	let continuationToken: string | undefined;
-
-	do {
-		const result = await mailboxService.listByAccount(accountId, {
-			continuationToken,
-		});
-
-		for (const mailbox of result.items) {
-			mailboxes.push({
-				mailboxId: mailbox.mailboxId,
-				fullPath: mailbox.fullPath,
-				lastMessageSyncAt: mailbox.lastMessageSyncAt,
-				specialUse: mailbox.specialUse,
-			});
-		}
-
-		continuationToken = result.continuationToken ?? undefined;
-	} while (continuationToken);
-
-	return orderMailboxesForSync(mailboxes);
-};
+const collectAllMailboxes = (
+	mailboxes: readonly MailboxItem[],
+): MailboxSortEntry[] =>
+	orderMailboxesForSync(
+		mailboxes.map((mailbox) => ({
+			mailboxId: mailbox.mailboxId,
+			fullPath: mailbox.fullPath,
+			lastMessageSyncAt: mailbox.lastMessageSyncAt,
+			specialUse: mailbox.specialUse,
+		})),
+	);

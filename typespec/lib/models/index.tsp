@@ -68,4 +68,5 @@ import "./CalendarSuggestion.tsp";
 // Smart Organize (RFC 030, RFC 034)
 import "./Label.tsp";
 import "./MessageLabel.tsp";
+import "./LabelMailbox.tsp";
 import "./Filter.tsp";

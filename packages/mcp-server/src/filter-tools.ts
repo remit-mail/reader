@@ -19,7 +19,7 @@ import {
 import {
 	accept,
 	createFilter,
-	listFilters,
+	listAccountFilters,
 	ownedAccount,
 	queueOrganizeJob,
 	type Refused,
@@ -96,7 +96,7 @@ const literalClauses = z
 	.describe("Literal clauses combined by matchOperator. Send these or rule.");
 
 const rule = FilterRuleV1Schema.describe(
-	`A Sieve-like test tree. Send this or literalClauses, never both. At most ${MAX_FILTER_RULE_LEAVES} header, address or hasWords tests and ${MAX_FILTER_RULE_DEPTH} levels, counting the top test. Example: {"version":1,"test":{"test":"allof","tests":[{"test":"address","match":"Is","part":"RegistrableDomain","key":"github.com"},{"test":"not","operand":{"test":"header","match":"Contains","header":"Subject","key":"security"}}]}}`,
+	`A Sieve-like test tree. Send this or literalClauses, never both. At most ${MAX_FILTER_RULE_LEAVES} header, address, hasWords or classification tests and ${MAX_FILTER_RULE_DEPTH} levels, counting the top test. Example: {"version":1,"test":{"test":"allof","tests":[{"test":"address","match":"Is","part":"RegistrableDomain","key":"github.com"},{"test":"not","operand":{"test":"header","match":"Contains","header":"Subject","key":"security"}}]}}`,
 );
 
 const priority = z
@@ -153,26 +153,18 @@ export const registerFilterTools = (
 		"list_filters",
 		{
 			description:
-				"List the user's mail filters: what each matches (rule, plus literalClauses when the rule is a flat list), its priority and stop, where it moves or labels mail, and whether it is on. A page at a time.",
-			inputSchema: {
-				accountId,
-				continuationToken: z
-					.string()
-					.optional()
-					.describe("Opaque cursor from a previous response"),
-			},
+				"List the mail filters that act on one account: what each matches (rule, plus literalClauses when the rule is a flat list), its priority and stop, where it moves or labels mail, and whether it is on. A filter that moves mail into a folder is listed under the account that holds the folder; a filter that only labels mail, or moves it into a label's folder, is listed under every account.",
+			inputSchema: { accountId },
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
 		async (args) => {
-			const page = await listFilters(deps, accountConfigId, {
-				accountId: args.accountId,
-				continuationToken: args.continuationToken,
-			}).catch(notFound);
-			if (!page.ok) return refused(page.refusal);
-			return asJson({
-				items: page.value.items.map(toFilter),
-				continuationToken: page.value.continuationToken,
-			});
+			const listed = await listAccountFilters(
+				deps,
+				accountConfigId,
+				args.accountId,
+			).catch(notFound);
+			if (!listed.ok) return refused(listed.refusal);
+			return asJson({ items: listed.value.map(toFilter) });
 		},
 	);
 

@@ -38,6 +38,7 @@ const MESSAGE: FilterMessage = {
 	subject: "Your receipt",
 	text: "Thanks for your payment",
 	listId: "",
+	classifierScores: [],
 };
 
 const eml = (message: FilterMessage): Buffer =>
@@ -125,6 +126,7 @@ const repositoriesWithFilter = (
 		envelope: { listBodyParts: async () => [] },
 		placementMove: {},
 		mailboxSpecialUse: {},
+		labelMailbox: { listByLabel: async () => [] },
 	}) as unknown as RemitClientRepositories;
 
 const storage = {

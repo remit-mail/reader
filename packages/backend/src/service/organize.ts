@@ -3,6 +3,8 @@ import {
 	type FilterItem,
 	type FilterRuleV1Item,
 	filterRuleLeaves,
+	filterRuleTestsClassification,
+	type MessageItem,
 	type OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
@@ -12,6 +14,7 @@ import {
 	evaluateRule,
 	type FilterMessage,
 	FilterPipeline,
+	moveDestination,
 	PlacementMoveService,
 	type PreparedFilters,
 	type RuleNarrowing,
@@ -73,6 +76,7 @@ export interface OrganizeCandidatePage {
 
 /** What to ask the store for, and where to resume. */
 export interface OrganizeCandidateQuery extends RuleNarrowing {
+	readsClassifierScores: boolean;
 	limit: number;
 	continuationToken?: string;
 	mailboxIds?: readonly string[];
@@ -194,6 +198,7 @@ const matchLiteral = async (
 	do {
 		const page = await deps.listAccountFilterMessages(accountConfigId, {
 			...narrowing,
+			readsClassifierScores: filterRuleTestsClassification(predicate.rule),
 			limit,
 			continuationToken,
 			mailboxIds: scope.mailboxIds,
@@ -271,6 +276,13 @@ const listAccountFilterMessagesFromClient =
 				mailboxIds: query.mailboxIds,
 			},
 		);
+		const scoresById = new Map(
+			query.readsClassifierScores && page.items.length > 0
+				? (
+						await client.message.get(page.items.map((row) => row.messageId))
+					).map((message) => [message.messageId, message.classifierScores])
+				: [],
+		);
 		return {
 			items: page.items.map((row) => ({
 				messageId: row.messageId,
@@ -280,6 +292,7 @@ const listAccountFilterMessagesFromClient =
 					subject: row.subject ?? "",
 					text: row.snippet ?? "",
 					listId: row.listId ?? "",
+					classifierScores: scoresById.get(row.messageId) ?? [],
 				},
 			})),
 			continuationToken: page.continuationToken,
@@ -490,10 +503,10 @@ const inboxMailboxIds = async (
 const filterMessageOf = async (
 	client: Pick<RemitClient, "threadMessage">,
 	accountConfigId: string,
-	messageId: string,
+	stored: Pick<MessageItem, "messageId" | "classifierScores">,
 ): Promise<FilterMessage | null> => {
 	const row = await client.threadMessage
-		.getByMessageId(accountConfigId, messageId)
+		.getByMessageId(accountConfigId, stored.messageId)
 		.catch((error: unknown) => {
 			if (error instanceof NotFoundError) return null;
 			throw error;
@@ -505,6 +518,7 @@ const filterMessageOf = async (
 		subject: row.subject ?? "",
 		text: row.snippet ?? "",
 		listId: row.listId ?? "",
+		classifierScores: stored.classifierScores,
 	};
 };
 
@@ -544,6 +558,7 @@ export const backApplyFilter = async (
 		filterService: client.filter,
 		messageLabelService: client.messageLabel,
 		mailboxService: client.mailbox,
+		labelMailboxService: client.labelMailbox,
 		placementMoveService: moveService,
 	});
 	const pipeline = new FilterPipeline(config, logger);
@@ -596,16 +611,26 @@ export const backApplyFilter = async (
 		return prepared;
 	};
 	for (const messageId of match.messageIds) {
-		const message = await filterMessageOf(client, accountConfigId, messageId);
+		const stored = await client.message
+			.get(messageId)
+			.catch((error: unknown) => {
+				if (error instanceof NotFoundError) return null;
+				throw error;
+			});
+		if (!stored) continue;
+		const message = await filterMessageOf(client, accountConfigId, stored);
 		if (!message) continue;
-		const accountId = await client.mailbox.resolveAccountId(
-			(await client.message.get(messageId)).mailboxId,
-		);
+		const accountId = await client.mailbox.resolveAccountId(stored.mailboxId);
 		if (!accountId) continue;
 		if (folderAccountId !== undefined && folderAccountId !== accountId) {
 			continue;
 		}
-		const decision = pipeline.decide(await preparedFor(accountId), message);
+		const prepared = await preparedFor(accountId);
+		if (!prepared.filters.some((usable) => usable.filterId === filterId)) {
+			continue;
+		}
+		const destination = moveDestination(prepared, filter) ?? FILTER_NO_ACTION;
+		const decision = pipeline.decide(prepared, message);
 		const move = (decision.move?.filterId ?? filterId) === filterId;
 		if (!move && filter.actionLabelId === FILTER_NO_ACTION) continue;
 		const outcome = await applyOrganize(
@@ -614,7 +639,7 @@ export const backApplyFilter = async (
 			[messageId],
 			{
 				...predicate,
-				actionMailboxId: move ? filter.actionMailboxId : FILTER_NO_ACTION,
+				actionMailboxId: move ? destination : FILTER_NO_ACTION,
 			},
 		);
 		result.applied += outcome.applied;

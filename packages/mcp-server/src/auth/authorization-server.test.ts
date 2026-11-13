@@ -457,6 +457,7 @@ describe("the MCP authorization server", () => {
 			"classifier_stats",
 			"get_message",
 			"get_thread",
+			"list_labels",
 			"list_mailboxes",
 			"list_threads",
 			"search_threads",

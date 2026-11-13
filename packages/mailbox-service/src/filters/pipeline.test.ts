@@ -53,6 +53,7 @@ const fromGithub: FilterMessage = {
 	subject: "A new version of left-pad is available",
 	text: "body",
 	listId: "",
+	classifierScores: [],
 };
 
 const receipt: FilterMessage = {
@@ -61,6 +62,7 @@ const receipt: FilterMessage = {
 	subject: "Your receipt",
 	text: "Thanks for your payment",
 	listId: "",
+	classifierScores: [],
 };
 
 const senders = (actionMailboxId: string) =>
@@ -84,6 +86,7 @@ const pipeline = () =>
 			filterService: store.filter,
 			messageLabelService: store.messageLabel,
 			mailboxService: store.mailbox,
+			labelMailboxService: store.labelMailbox,
 			placementMoveService: new PlacementMoveService({
 				messageService: store.message,
 				threadMessageService: store.threadMessage,
@@ -208,6 +211,87 @@ describe("FilterPipeline scopes a filter to its folder's account", () => {
 	});
 });
 
+describe("FilterPipeline moves a cross-account filter into the label's folder", () => {
+	const labelFilter = (actionLabelId: string) =>
+		store.filter.create({
+			accountConfigId: ACCOUNT,
+			name: "rule",
+			scope: FilterScope.Standing,
+			rule: filterRuleFromClauses({
+				matchOperator: FilterMatchOperator.Or,
+				literalClauses: [
+					{ field: FilterClauseField.From, value: "npm@github.com" },
+				],
+			}),
+			actionLabelId,
+		});
+
+	const sibling = (email: string) =>
+		store.account.create({
+			accountConfigId: ACCOUNT,
+			username: email,
+			email,
+			authType: AccountAuthType.Password,
+			passwordHash: '{"ciphertext":"x"}',
+			imapHost: "imap.example.com",
+			imapPort: 993,
+			imapTls: true,
+			imapStartTls: false,
+			isActive: true,
+			connectionState: ConnectionState.Authenticated,
+		});
+
+	it("moves within each account and skips one whose folder is pending or missing", async () => {
+		const pending = await sibling("me-too@example.com");
+		const missing = await sibling("third@example.com");
+		const label = await store.label.create({
+			accountConfigId: ACCOUNT,
+			name: "Builds",
+		});
+		const mine = await seedMailbox(store, account, "INBOX/abcdq_remit/Builds");
+		const theirs = await seedMailbox(
+			store,
+			pending,
+			"INBOX/abcdq_remit/Builds",
+			{ overrides: { syncStatus: "pending" } },
+		);
+		await store.labelMailbox.put({
+			labelId: label.labelId,
+			accountId: account.accountId,
+			mailboxId: mine.mailboxId,
+		});
+		await store.labelMailbox.put({
+			labelId: label.labelId,
+			accountId: pending.accountId,
+			mailboxId: theirs.mailboxId,
+		});
+		const filter = await labelFilter(label.labelId);
+
+		assert.deepEqual(await evaluate(account.accountId, fromGithub), {
+			labels: [{ labelId: label.labelId, filterId: filter.filterId }],
+			move: { destinationMailboxId: mine.mailboxId, filterId: filter.filterId },
+		});
+		assert.deepEqual(await evaluate(pending.accountId, fromGithub), {
+			labels: [],
+		});
+		assert.deepEqual(await evaluate(missing.accountId, fromGithub), {
+			labels: [],
+		});
+	});
+
+	it("only tags with a label that has no folders", async () => {
+		const label = await store.label.create({
+			accountConfigId: ACCOUNT,
+			name: "Builds",
+		});
+		const filter = await labelFilter(label.labelId);
+
+		assert.deepEqual(await evaluate(account.accountId, fromGithub), {
+			labels: [{ labelId: label.labelId, filterId: filter.filterId }],
+		});
+	});
+});
+
 describe("FilterPipeline.decide by priority and stop", () => {
 	const github = filterRuleFromClauses({
 		matchOperator: FilterMatchOperator.And,
@@ -237,7 +321,10 @@ describe("FilterPipeline.decide by priority and stop", () => {
 	});
 
 	const decide = async (filters: FilterItem[]) =>
-		pipeline().decide({ filters, getDomain }, fromGithub);
+		pipeline().decide(
+			{ filters, getDomain, labelFolders: new Map() },
+			fromGithub,
+		);
 
 	it("gives the move to the lower priority before the newer action", async () => {
 		const decision = await decide([

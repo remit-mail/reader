@@ -138,7 +138,7 @@ export const MAX_FILTER_RULE_DEPTH = 5;
 
 export type FilterRuleLeafItem = Extract<
 	FilterTestItem,
-	{ test: "header" | "address" | "hasWords" }
+	{ test: "header" | "address" | "hasWords" | "classification" }
 >;
 
 const leavesOf = (test: FilterTestItem): FilterRuleLeafItem[] => {
@@ -169,15 +169,20 @@ const depthOf = (test: FilterTestItem): number => {
 	}
 };
 
+export const filterRuleTestsClassification = (
+	rule: FilterRuleV1Item,
+): boolean =>
+	filterRuleLeaves(rule).some((leaf) => leaf.test === "classification");
+
 export const filterRuleLimitRefusal = (
 	rule: FilterRuleV1Item,
 ): string | null => {
 	const leaves = filterRuleLeaves(rule).length;
 	if (leaves === 0) {
-		return "A rule needs at least one header, address or hasWords test.";
+		return "A rule needs at least one header, address, hasWords or classification test.";
 	}
 	if (leaves > MAX_FILTER_RULE_LEAVES) {
-		return `A rule holds at most ${MAX_FILTER_RULE_LEAVES} header, address or hasWords tests; this one holds ${leaves}.`;
+		return `A rule holds at most ${MAX_FILTER_RULE_LEAVES} header, address, hasWords or classification tests; this one holds ${leaves}.`;
 	}
 	const depth = depthOf(rule.test);
 	if (depth > MAX_FILTER_RULE_DEPTH) {

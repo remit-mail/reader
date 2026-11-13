@@ -16,6 +16,7 @@ import type {
 	EnvelopeSchema,
 	FilterRuleV1Schema,
 	FilterSchema,
+	LabelMailboxSchema,
 	LabelSchema,
 	MailboxLockSchema,
 	MailboxSchema,
@@ -107,6 +108,11 @@ export type MailboxSpecialUseItem = z.infer<
 export type AddressItem = z.infer<typeof AddressSchema>;
 export type LabelItem = z.infer<typeof LabelSchema>;
 export type MessageLabelItem = z.infer<typeof MessageLabelSchema>;
+export type LabelMailboxItem = z.infer<typeof LabelMailboxSchema>;
+export type PutLabelMailboxInput = Pick<
+	LabelMailboxItem,
+	"labelId" | "accountId" | "mailboxId"
+>;
 export type FilterRuleV1Item = z.infer<typeof FilterRuleV1Schema>;
 export type FilterTestItem = FilterRuleV1Item["test"];
 type StoredFilter = z.infer<typeof FilterSchema>;

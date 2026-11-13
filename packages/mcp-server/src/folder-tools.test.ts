@@ -76,6 +76,8 @@ beforeEach(async () => {
 	deps = {
 		account: client.account,
 		address: client.address,
+		label: client.label,
+		labelMailbox: client.labelMailbox,
 		mailbox: client.mailbox,
 		message: client.message,
 		threadMessage: client.threadMessage,

@@ -16,6 +16,7 @@ import {
 import {
 	createFilter,
 	type FilterPatch,
+	listAccountFilters,
 	listFilters,
 	type NewFilter,
 	updateFilter,
@@ -47,6 +48,7 @@ afterEach(async () => {
 const deps = () => ({
 	account: store.account,
 	mailbox: store.mailbox,
+	labelMailbox: store.labelMailbox,
 	filter: store.filter,
 	organizeJobRequest: store.organizeJobRequest,
 	queue: capture,
@@ -345,5 +347,85 @@ describe("listFilters", () => {
 			kind: "NotFound",
 			message: `Account not found: ${other.accountId}`,
 		});
+	});
+});
+
+describe("listAccountFilters", () => {
+	it("lists a folder move under its folder's account and every other filter under each account", async () => {
+		const sibling = await store.account.create({
+			accountConfigId: account.accountConfigId,
+			username: "me-too@example.com",
+			email: "me-too@example.com",
+			authType: account.authType,
+			passwordHash: '{"ciphertext":"x"}',
+			imapHost: "imap.example.com",
+			imapPort: 993,
+			imapTls: true,
+			imapStartTls: false,
+			isActive: true,
+			connectionState: account.connectionState,
+		});
+		const mine = await seedMailbox(store, account, "Receipts");
+		const theirs = await seedMailbox(store, sibling, "Travel");
+		const toMine = await storedFilter({ actionMailboxId: mine.mailboxId });
+		const toTheirs = await storedFilter({ actionMailboxId: theirs.mailboxId });
+		const tagOnly = await storedFilter({ actionLabelId: "label-1" });
+
+		const listed = async (accountId: string) => {
+			const outcome = await listAccountFilters(
+				deps(),
+				account.accountConfigId,
+				accountId,
+			);
+			assert.ok(outcome.ok);
+			return outcome.value.map((filter) => filter.filterId).sort();
+		};
+
+		assert.deepEqual(
+			await listed(account.accountId),
+			[toMine.filterId, tagOnly.filterId].sort(),
+		);
+		assert.deepEqual(
+			await listed(sibling.accountId),
+			[toTheirs.filterId, tagOnly.filterId].sort(),
+		);
+	});
+});
+
+describe("a filter that applies a label with folders", () => {
+	it("refuses a second move into a folder", async () => {
+		const folder = await seedMailbox(store, account, "Receipts");
+		const labelFolder = await seedMailbox(
+			store,
+			account,
+			"INBOX/abcdq_remit/Bills",
+		);
+		await store.labelMailbox.put({
+			labelId: "label-1",
+			accountId: account.accountId,
+			mailboxId: labelFolder.mailboxId,
+		});
+		const owner = {
+			accountConfigId: account.accountConfigId,
+			userId: "user-1",
+		};
+
+		const both = await createFilter(deps(), owner, {
+			accountId: account.accountId,
+			filter: { ...rule(folder.mailboxId), actionLabelId: "label-1" },
+		});
+		assert.equal(refusalOf(both)?.kind, "Invalid");
+
+		const labelOnly = await createFilter(deps(), owner, {
+			accountId: account.accountId,
+			filter: { ...rule("None"), actionLabelId: "label-1" },
+		});
+		assert.ok(labelOnly.ok);
+		const patched = await updateFilter(deps(), account.accountConfigId, {
+			accountId: account.accountId,
+			filterId: labelOnly.value.filter.filterId,
+			patch: { actionMailboxId: folder.mailboxId },
+		});
+		assert.equal(refusalOf(patched)?.kind, "Invalid");
 	});
 });

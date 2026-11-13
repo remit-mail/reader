@@ -186,6 +186,7 @@ describe("the read tools behind mail:read", () => {
 			"classifier_stats",
 			"get_message",
 			"get_thread",
+			"list_labels",
 			"list_mailboxes",
 			"list_threads",
 			"search_threads",

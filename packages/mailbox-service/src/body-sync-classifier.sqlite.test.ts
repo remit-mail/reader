@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { AccountItem, MailboxItem } from "@remit/data-ports";
+import type {
+	AccountItem,
+	FilterTestItem,
+	MailboxItem,
+} from "@remit/data-ports";
 import {
 	type ClassificationDeploymentDefault,
 	classificationUsageName,
@@ -13,6 +17,7 @@ import {
 	ClassificationLabel,
 	ClassificationPresetId,
 	DisplayNameCorrespondence,
+	FilterScope,
 	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
@@ -184,7 +189,7 @@ const saveProvider = (
 		enabled,
 	);
 
-const bodySync = (classifier = true): BodySyncService => {
+const bodySync = (classifier = true, filters = false): BodySyncService => {
 	const { store } = world;
 	const placementMoveService = new PlacementMoveService({
 		messageService: store.message,
@@ -204,7 +209,15 @@ const bodySync = (classifier = true): BodySyncService => {
 		new SyncWarningService(store.syncWarning),
 		silentLog,
 		{ mailboxSpecialUseService: store.mailboxSpecialUse, placementMoveService },
-		undefined,
+		filters
+			? {
+					filterService: store.filter,
+					messageLabelService: store.messageLabel,
+					mailboxService: store.mailbox,
+					labelMailboxService: store.labelMailbox,
+					placementMoveService,
+				}
+			: undefined,
 		undefined,
 		undefined,
 		undefined,
@@ -504,6 +517,82 @@ describe("body sync with a saved classification provider", () => {
 		assert.equal(row.mailboxId, world.inbox.mailboxId);
 		assert.equal(row.category, expected);
 		assert.deepEqual(await labelNames(messageId), []);
+	});
+});
+
+describe("body sync with a filter on the classifier's answer", () => {
+	const fileUnder = async (
+		test: FilterTestItem,
+		folder: MailboxItem,
+	): Promise<void> => {
+		world.imap.addFolder(folder.fullPath);
+		await world.store.filter.create({
+			accountConfigId: world.account.accountConfigId,
+			name: "rule",
+			scope: FilterScope.Standing,
+			rule: { version: 1, test },
+			actionMailboxId: folder.mailboxId,
+		});
+	};
+
+	it("consults the classifier first and moves on a confident label", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.ColdOutreach, 0.9]]);
+		const prospects = await seedMailbox(
+			world.store,
+			world.account,
+			"Prospects",
+		);
+		await fileUnder(
+			{ test: "classification", label: ClassificationLabel.ColdOutreach },
+			prospects,
+		);
+		const messageId = await arrive(COLLEAGUE);
+
+		await sync(bodySync(true, true), [messageId]);
+
+		assert.equal(world.provider.requests.length, 1);
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.filterMove?.destinationMailboxId, prospects.mailboxId);
+	});
+
+	it("leaves the classifier out when a filter without that test matched", async () => {
+		await saveProvider();
+		world.reply = decision([[ClassificationLabel.ColdOutreach, 0.9]]);
+		const clients = await seedMailbox(world.store, world.account, "Clients");
+		await fileUnder(
+			{ test: "header", match: "Contains", header: "From", key: "alex" },
+			clients,
+		);
+		const messageId = await arrive(COLLEAGUE);
+
+		await sync(bodySync(true, true), [messageId]);
+
+		assert.equal(world.provider.requests.length, 0);
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.filterMove?.destinationMailboxId, clients.mailboxId);
+	});
+
+	it("fails the test while classification is switched off", async () => {
+		await saveProvider(world.provider.baseUrl, false);
+		const prospects = await seedMailbox(
+			world.store,
+			world.account,
+			"Prospects",
+		);
+		await fileUnder(
+			{ test: "classification", label: ClassificationLabel.ColdOutreach },
+			prospects,
+		);
+		const messageId = await arrive(COLLEAGUE);
+
+		await sync(bodySync(true, true), [messageId]);
+
+		assert.equal(world.provider.requests.length, 0);
+		assert.equal(
+			(await world.store.message.get(messageId)).filterMove,
+			undefined,
+		);
 	});
 });
 
