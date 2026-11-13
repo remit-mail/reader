@@ -66,6 +66,13 @@ export interface NewLabel {
 
 const foldName = (name: string): string => name.trim().toLowerCase();
 
+const byFoldedNameThenId = (
+	left: Pick<LabelItem, "normalizedName" | "labelId">,
+	right: Pick<LabelItem, "normalizedName" | "labelId">,
+): number =>
+	left.normalizedName.localeCompare(right.normalizedName) ||
+	left.labelId.localeCompare(right.labelId);
+
 const isInbox = (mailbox: Pick<MailboxItem, "fullPath">): boolean =>
 	mailbox.fullPath.toUpperCase() === "INBOX";
 
@@ -285,7 +292,7 @@ export const listLabelsWithFolders = async (
 			return { accountId: account.accountId, mailboxById, mailboxIdByLabel };
 		}),
 	);
-	return labels.map((label) => ({
+	return [...labels].sort(byFoldedNameThenId).map((label) => ({
 		label,
 		folders: perAccount.map(({ accountId, mailboxById, mailboxIdByLabel }) => {
 			const mailboxId = mailboxIdByLabel.get(label.labelId);
@@ -316,7 +323,7 @@ export const adoptLabelFolders = async (
 			.map((mapping) => mapping.labelId),
 	);
 	const adopted: LabelMailboxItem[] = [];
-	for (const label of labels) {
+	for (const label of [...labels].sort(byFoldedNameThenId)) {
 		if (mapped.has(label.labelId)) continue;
 		const child = children.find(
 			({ name }) => foldName(name) === label.normalizedName,
