@@ -112,6 +112,7 @@ const bodySync = (thresholds: SpamThresholds): BodySyncService => {
 		{
 			spamService,
 			spamDeployment: { name: "Inline", thresholds },
+			thresholds,
 			domainRegistration: store.domainRegistration,
 			rdap: { lookup: async () => ({ state: "Unpublished" }) },
 			accountService: store.account,

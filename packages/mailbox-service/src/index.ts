@@ -52,17 +52,6 @@ export {
 	resolveExhaustedBodySyncFailures,
 } from "./body-sync-terminal.js";
 export {
-	backfillClassifications,
-	type ClassificationBackfillCheckpoint,
-	type ClassificationBackfillCheckpointStore,
-	type ClassificationBackfillDeps,
-	type ClassificationBackfillLogger,
-	type ClassificationBackfillOptions,
-	type ClassificationBackfillProgress,
-	type ClassificationBackfillResult,
-	type ClassificationBackfillTotals,
-} from "./classification-backfill.js";
-export {
 	CLASSIFICATION_LABEL_NAMES,
 	type ClassificationLabelDeps,
 	ensureClassificationLabels,
@@ -423,7 +412,15 @@ export {
 	type RdapFetch,
 	type SpamConfig,
 	spamServiceFor,
+	spamThresholdsFor,
 } from "./spam/index.js";
+export {
+	RESCAN_LIMIT,
+	type RescanAccount,
+	type RescanDeps,
+	type RescanInput,
+	RescanService,
+} from "./spam/rescan.js";
 export {
 	type NeverSpamGrant,
 	NoJunkMailboxError,

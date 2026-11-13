@@ -8,6 +8,7 @@ import type {
 	SpamDeployment,
 	SpamService,
 	SpamSettingsDeps,
+	SpamThresholds,
 } from "@remit/data-ports";
 import type { AuthResultVerdict } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
@@ -16,6 +17,7 @@ import type { FilterDecision } from "../filters/pipeline.js";
 import type { SenderPlacement } from "../sender-placement.js";
 import { buildSpamRequest } from "./evidence.js";
 import { InlineSpamService } from "./judge.js";
+import { consultSpamModel, type SpamModelAccess } from "./model.js";
 import {
 	domainRegisteredAt,
 	type RdapClient,
@@ -24,7 +26,13 @@ import {
 import { RspamdSpamService } from "./rspamd.js";
 import { screen } from "./screen.js";
 
-export { InlineSpamService, judge } from "./judge.js";
+export { InlineSpamService, judge, withModelAnswer } from "./judge.js";
+export {
+	consultSpamModel,
+	SPAM_MODEL_OFF,
+	type SpamModelAccess,
+	spamModelAccessOf,
+} from "./model.js";
 export { type SpamPlacement, spamPlacementOf } from "./placement.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";
 export { fromRspamd, RspamdSpamService } from "./rspamd.js";
@@ -34,9 +42,16 @@ export const spamServiceFor = (deployment: SpamDeployment): SpamService =>
 		? new RspamdSpamService(deployment.url)
 		: new InlineSpamService(deployment.thresholds);
 
+/** The thresholds stage 3 folds a model score with. Rspamd sets its own actions, so it gets no model call. */
+export const spamThresholdsFor = (
+	deployment: SpamDeployment,
+): SpamThresholds =>
+	deployment.name === "Inline" ? deployment.thresholds : { state: "Unset" };
+
 /** What body sync needs to record a spam verdict and act on it (RFC 041). */
 export interface SpamConfig extends SpamSettingsDeps {
 	spamService: SpamService;
+	thresholds: SpamThresholds;
 	domainRegistration: IDomainRegistrationRepository;
 	rdap: Pick<RdapClient, "lookup">;
 	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
@@ -55,7 +70,7 @@ export interface SpamArrival {
 	sender: SenderPlacement;
 	filterDecision: FilterDecision;
 	classifierScores: ClassifierScoreItem[];
-	modelAllowed: boolean;
+	model: SpamModelAccess;
 	hasListUnsubscribe: boolean;
 	dmarc: (typeof AuthResultVerdict)[keyof typeof AuthResultVerdict] | undefined;
 }
@@ -102,9 +117,15 @@ export const decideSpamVerdict = async (
 				? await domainRegisteredAt(config, senderDomain)
 				: undefined,
 			classifierScores: arrival.classifierScores,
-			modelAllowed: arrival.modelAllowed,
+			modelAllowed: arrival.model.state === "On",
 		},
 		tldts,
 	);
-	return config.spamService.check(request);
+	return consultSpamModel(
+		arrival.model,
+		request,
+		await config.spamService.check(request),
+		config.thresholds,
+		Date.now(),
+	);
 };

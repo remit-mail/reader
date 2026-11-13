@@ -234,6 +234,7 @@ describe("listing one label across every account (#1639)", () => {
 				results: true,
 			},
 		);
-		assert.deepEqual(foreign, { items: [], count: 0 });
+		assert.deepEqual(foreign.items, []);
+		assert.equal(foreign.count, 0);
 	});
 });

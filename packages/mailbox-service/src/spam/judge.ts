@@ -4,7 +4,12 @@ import type {
 	SpamService,
 	SpamThresholds,
 } from "@remit/data-ports";
-import { SpamAction, SpamKind, SpamReasonName } from "@remit/domain-enums";
+import {
+	SpamAction,
+	SpamKind,
+	SpamModelOutcome,
+	SpamReasonName,
+} from "@remit/domain-enums";
 import {
 	type CheckName,
 	type Finding,
@@ -14,7 +19,8 @@ import {
 import type { Tldts } from "./display-name.js";
 
 type Action = (typeof SpamAction)[keyof typeof SpamAction];
-type Checked = Extract<SpamResponse, { state: "Checked" }>;
+export type Checked = Extract<SpamResponse, { state: "Checked" }>;
+type CheckedReasonName = Checked["reasons"][number]["name"];
 
 /**
  * What each check adds. The provider's verdict weighs least: the owner's
@@ -90,10 +96,11 @@ export const judge = (
 ): Checked => {
 	const findings = runChecks(toCheckInput(request, tldts));
 	const score = scoreOf(findings);
+	const action = actionOf(score, thresholds);
 	return {
 		state: "Checked",
 		score,
-		action: actionOf(score, thresholds),
+		action,
 		kind: kindOf(findings),
 		reasons: findings.map((finding) => ({
 			name: finding.name,
@@ -101,7 +108,53 @@ export const judge = (
 			score: WEIGHTS[finding.name],
 			options: finding.options,
 		})),
-		modelCalled: false,
+		modelOutcome:
+			action === SpamAction.Warn
+				? SpamModelOutcome.NotConfigured
+				: SpamModelOutcome.OutOfBand,
+	};
+};
+
+/** What the model answered for a message in the ambiguous band. */
+export interface ModelAnswer {
+	verdict: "Impersonation" | "Spam" | "Clean";
+	score: number;
+	reason: string;
+}
+
+const ANSWERED: Record<ModelAnswer["verdict"], CheckedReasonName> = {
+	Impersonation: SpamReasonName.ModelImpersonation,
+	Spam: SpamReasonName.ModelSpam,
+	Clean: SpamReasonName.ModelClean,
+};
+
+/**
+ * Stage 3, folded into a stage 2 verdict: the model saw stage 2's reasons, so
+ * its score replaces stage 2's and sets the action. An impersonation makes
+ * the message `Phishing`.
+ */
+export const withModelAnswer = (
+	checked: Checked,
+	answer: ModelAnswer,
+	thresholds: SpamThresholds,
+): Checked => {
+	const score = Math.round(answer.score * 10_000) / 10_000;
+	const name = ANSWERED[answer.verdict];
+	return {
+		...checked,
+		score,
+		action: actionOf(score, thresholds),
+		kind: answer.verdict === "Impersonation" ? SpamKind.Phishing : checked.kind,
+		reasons: [
+			...checked.reasons,
+			{
+				name,
+				symbol: name,
+				score,
+				options: answer.reason === "" ? [] : [answer.reason],
+			},
+		],
+		modelOutcome: SpamModelOutcome.Answered,
 	};
 };
 

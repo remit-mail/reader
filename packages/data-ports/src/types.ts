@@ -34,6 +34,9 @@ import type {
 	OutboxSchedulingPartSchema,
 	QuarantineSchema,
 	RawMessageStorageSchema,
+	RescanFailureSchema,
+	RescanResultSchema,
+	RescanSuccessSchema,
 	SenderSignerStandingSchema,
 	SpamCheckedSchema,
 	SpamFailedSchema,
@@ -934,6 +937,12 @@ export type SpamResponse =
 export type SpamSettingsItem = z.infer<typeof SpamSettingsSchema>;
 export type SpamThresholds = SpamSettingsItem["thresholds"];
 export type SpamLabelPlacementValue = SpamSettingsItem["spamPlacement"];
+
+export type SpamReason = z.infer<typeof SpamCheckedSchema>["reasons"][number];
+
+export type RescanResultItem = z.infer<typeof RescanResultSchema>;
+export type RescanSuccessItem = z.infer<typeof RescanSuccessSchema>;
+export type RescanFailureItem = z.infer<typeof RescanFailureSchema>;
 
 export type DomainRegistrationItem = z.infer<typeof DomainRegistrationSchema>;
 export type PutDomainRegistrationInput = Pick<

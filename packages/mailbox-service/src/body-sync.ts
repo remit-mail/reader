@@ -107,6 +107,7 @@ import {
 	decideSpamVerdict,
 	type SpamConfig,
 	type SpamPlacement,
+	spamModelAccessOf,
 	spamPlacementOf,
 } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
@@ -879,15 +880,19 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
-		const spamVerdict = await this.decideSpam(lookups, accountConfigId, {
-			parsed,
-			body,
-			arrival,
-			filterDecision,
-			classifierScores,
-			classification,
-			senderPlacement,
-		});
+		const spamVerdict = await this.decideSpam(
+			lookups,
+			{ accountId, accountConfigId },
+			{
+				parsed,
+				body,
+				arrival,
+				filterDecision,
+				classifierScores,
+				classification,
+				senderPlacement,
+			},
+		);
 		const spamPlacement = spamVerdict
 			? spamPlacementOf(spamVerdict, await lookups.spamSettings())
 			: NO_SPAM_PLACEMENT;
@@ -1381,7 +1386,7 @@ export class BodySyncService {
 	 */
 	private async decideSpam(
 		lookups: BatchLookups,
-		accountConfigId: string,
+		account: { accountId: string; accountConfigId: string },
 		message: {
 			parsed: ParsedMail;
 			body: Buffer;
@@ -1393,6 +1398,7 @@ export class BodySyncService {
 		},
 	): Promise<MessageSpamVerdict | undefined> {
 		if (!message.arrival.folderSynced) return undefined;
+		const { accountConfigId } = account;
 		const gate = await lookups.classifierGate();
 		return decideSpamVerdict(this.spamConfig, this.addressService, {
 			accountConfigId,
@@ -1404,7 +1410,7 @@ export class BodySyncService {
 			sender: await message.senderPlacement(),
 			filterDecision: message.filterDecision,
 			classifierScores: message.classifierScores,
-			modelAllowed: gate.state === "On",
+			model: spamModelAccessOf(this.classifierConfig, gate, account),
 			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
 			dmarc: message.classification.authResult?.dmarc,
 		});
