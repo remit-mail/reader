@@ -11,6 +11,7 @@ import {
 } from "@remit/calendar-service";
 import {
 	type CalendarSuggestionItem,
+	filterRuleFromClauses,
 	type ICalendarSuggestionRepository,
 	type IEnvelopeRepository,
 	type IFilterRepository,
@@ -172,10 +173,12 @@ export const muteSender = async (
 		accountConfigId,
 		name: `Muted invitations from ${from.normalizedEmail}`,
 		scope: FilterScope.Standing,
-		matchOperator: FilterMatchOperator.And,
-		literalClauses: [
-			{ field: FilterClauseField.From, value: from.normalizedEmail },
-		],
+		rule: filterRuleFromClauses({
+			matchOperator: FilterMatchOperator.And,
+			literalClauses: [
+				{ field: FilterClauseField.From, value: from.normalizedEmail },
+			],
+		}),
 	});
 };
 

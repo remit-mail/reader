@@ -1,7 +1,13 @@
 import {
 	deriveFilterTtl,
 	FILTER_NO_ACTION,
+	type FilterClauses,
 	type FilterItem,
+	type FilterRuleV1Item,
+	filterClausesFromRule,
+	filterRuleFromClauses,
+	filterRuleHasClauses,
+	filterRuleLimitRefusal,
 	type IAccountRepository,
 	type IFilterRepository,
 	type IMailboxRepository,
@@ -28,22 +34,28 @@ export type NewFilter = Pick<
 	| "scope"
 	| "expiresAt"
 	| "matchOperator"
-	| "literalClauses"
+	| "priority"
+	| "stop"
 	| "actionLabelId"
 	| "actionMailboxId"
->;
+> & {
+	literalClauses?: FilterItem["literalClauses"];
+	rule?: FilterRuleV1Item;
+};
 
 export type FilterPatch = Pick<
 	UpdateFilterInput,
 	| "name"
 	| "scope"
 	| "expiresAt"
-	| "matchOperator"
-	| "literalClauses"
+	| "rule"
+	| "priority"
+	| "stop"
 	| "actionLabelId"
 	| "actionMailboxId"
 	| "state"
->;
+> &
+	Partial<FilterClauses>;
 
 interface ResolvedScopeExpiry {
 	scope: FilterItem["scope"];
@@ -85,6 +97,9 @@ const pickFilterUpdate = (body: FilterPatch): FilterPatch => {
 	if (Object.hasOwn(body, "literalClauses")) {
 		patch.literalClauses = body.literalClauses;
 	}
+	if (Object.hasOwn(body, "rule")) patch.rule = body.rule;
+	if (Object.hasOwn(body, "priority")) patch.priority = body.priority;
+	if (Object.hasOwn(body, "stop")) patch.stop = body.stop;
 	if (Object.hasOwn(body, "actionLabelId")) {
 		patch.actionLabelId = body.actionLabelId;
 	}
@@ -153,16 +168,56 @@ const folderlessMessage = (reason: FilterItem["disabledReason"]): string =>
 		? "This filter has no folder to move mail into yet. Wait for its folder to be created on the mail server, or pick a folder in the rule, then turn it on."
 		: "The mail server refused to create this filter's folder. Pick a folder in the rule, then turn it on.";
 
-const filledClauses = (
-	current: Pick<FilterItem, "matchOperator" | "literalClauses">,
+const RULE_OR_CLAUSES_MESSAGE =
+	"Send either rule or matchOperator and literalClauses, not both.";
+
+const NOT_CLAUSES_MESSAGE =
+	"This filter has a rule that clauses cannot express. Change it through rule.";
+
+const checkedRule = (rule: FilterRuleV1Item): Refusable<FilterRuleV1Item> => {
+	const refusal = filterRuleLimitRefusal(rule);
+	return refusal ? invalid(refusal) : accept(rule);
+};
+
+const patchedRule = (
+	current: Pick<FilterItem, "rule">,
 	patch: FilterPatch,
-): Pick<UpdateFilterInput, "matchOperator" | "literalClauses"> =>
-	patch.matchOperator === undefined && patch.literalClauses === undefined
-		? {}
-		: {
-				matchOperator: patch.matchOperator ?? current.matchOperator,
-				literalClauses: patch.literalClauses ?? current.literalClauses,
-			};
+): Refusable<Pick<UpdateFilterInput, "rule">> => {
+	const editsClauses =
+		patch.matchOperator !== undefined || patch.literalClauses !== undefined;
+	if (patch.rule !== undefined) {
+		if (editsClauses) return invalid(RULE_OR_CLAUSES_MESSAGE);
+		const rule = checkedRule(patch.rule);
+		return rule.ok ? accept({ rule: rule.value }) : rule;
+	}
+	if (!editsClauses) return accept({});
+	if (!filterRuleHasClauses(current.rule)) return invalid(NOT_CLAUSES_MESSAGE);
+	const stored = filterClausesFromRule(current.rule);
+	const rule = checkedRule(
+		filterRuleFromClauses({
+			matchOperator: patch.matchOperator ?? stored.matchOperator,
+			literalClauses: patch.literalClauses ?? stored.literalClauses,
+		}),
+	);
+	return rule.ok ? accept({ rule: rule.value }) : rule;
+};
+
+export const newFilterRule = (
+	filter: Pick<NewFilter, "matchOperator" | "literalClauses" | "rule">,
+): Refusable<FilterRuleV1Item> => {
+	if (filter.rule !== undefined) {
+		if (filter.literalClauses !== undefined) {
+			return invalid(RULE_OR_CLAUSES_MESSAGE);
+		}
+		return checkedRule(filter.rule);
+	}
+	return checkedRule(
+		filterRuleFromClauses({
+			matchOperator: filter.matchOperator,
+			literalClauses: filter.literalClauses ?? [],
+		}),
+	);
+};
 
 export const resolveFilterUpdate = (
 	current: Pick<
@@ -172,12 +227,12 @@ export const resolveFilterUpdate = (
 		| "state"
 		| "disabledReason"
 		| "actionMailboxId"
-		| "matchOperator"
-		| "literalClauses"
+		| "rule"
 	>,
-	patch: FilterPatch,
+	clausePatch: FilterPatch,
 	now: number = Date.now(),
 ): Refusable<UpdateFilterInput> => {
+	const { matchOperator, literalClauses, ...patch } = clausePatch;
 	if (patch.state === FilterState.Expired) {
 		return invalid(
 			"A filter expires through its date, not its state. Set it Active or Disabled, or change its expiry.",
@@ -192,7 +247,9 @@ export const resolveFilterUpdate = (
 		? { disabledReason: FilterDisabledReason.UserDisabled }
 		: {};
 
-	const clauses = filledClauses(current, patch);
+	const ruled = patchedRule(current, clausePatch);
+	if (!ruled.ok) return ruled;
+	const clauses = ruled.value;
 	const touchesTiming =
 		Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
 	if (!touchesTiming && patch.state === undefined) {
@@ -313,6 +370,8 @@ export const createFilter = async (
 ): Promise<Refusable<CreatedFilter>> => {
 	const { accountConfigId, userId } = owner;
 	const { accountId, filter: rule } = input;
+	const filterRule = newFilterRule(rule);
+	if (!filterRule.ok) return filterRule;
 	const owned = ownedAccount(
 		await deps.account.get(accountId),
 		accountConfigId,
@@ -337,8 +396,9 @@ export const createFilter = async (
 		scope: scoped.value.scope,
 		expiresAt: scoped.value.expiresAt,
 		ttl: scoped.value.ttl,
-		matchOperator: rule.matchOperator,
-		literalClauses: rule.literalClauses,
+		rule: filterRule.value,
+		priority: rule.priority,
+		stop: rule.stop,
 		actionLabelId: rule.actionLabelId,
 		actionMailboxId: rule.actionMailboxId,
 	});

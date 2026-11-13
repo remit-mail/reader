@@ -116,6 +116,14 @@ export {
 	type PreparedFilters,
 } from "./filters/pipeline.js";
 export {
+	compareFilterPrecedence,
+	evaluateRule,
+	type FilterPrecedence,
+	orderFilters,
+	type RuleNarrowing,
+	ruleNarrowing,
+} from "./filters/rule.js";
+export {
 	type FlagPushConfig,
 	type FlagPushEvent,
 	type FlagPushLogger,

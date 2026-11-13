@@ -5,11 +5,12 @@ import {
 	provisionDefaultCalendar,
 	putCalendarObject,
 } from "@remit/calendar-service";
-import type {
-	AccountItem,
-	AddressFlags,
-	MailboxItem,
-	UpdateMessageInput,
+import {
+	type AccountItem,
+	type AddressFlags,
+	filterRuleFromClauses,
+	type MailboxItem,
+	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
 	MessageGoneFromServerError,
@@ -21,6 +22,7 @@ import {
 	CalendarSource,
 	CalendarSuggestionState,
 	FilterClauseField,
+	FilterMatchOperator,
 	FilterScope,
 	MessageCategory,
 	MessageClassificationState,
@@ -338,7 +340,10 @@ const addFilter = (
 		accountConfigId: world.account.accountConfigId,
 		name: "rule",
 		scope: FilterScope.Standing,
-		literalClauses: clauses as never,
+		rule: filterRuleFromClauses({
+			matchOperator: FilterMatchOperator.And,
+			literalClauses: clauses as never,
+		}),
 		actionMailboxId,
 		actionLabelId,
 	});

@@ -67,7 +67,7 @@
     "@hey-api/openapi-ts": "^0.99.0",
     "@kattebak/typespec-drizzle-orm-generator": "^6.3.0",
     "@kattebak/typespec-enum-emitter": "~1.2.3",
-    "@kattebak/typespec-openapi-types-emitter": "1.0.2",
+    "@kattebak/typespec-openapi-types-emitter": "1.1.3",
     "@kattebak/typespec-zod-emitter": "^2.5.0",
     "@remit/api-openapi-types": "file:build/openapi-types",
     "@remit/api-zod-schemas": "file:build/zod-schemas",

@@ -1,12 +1,14 @@
-import type {
-	AccountConfigItem,
-	AccountItem,
-	AccountSettingItem,
-	AddressItem,
-	FilterItem,
-	IAddressRepository,
-	LabelItem,
-	MailboxItem,
+import {
+	type AccountConfigItem,
+	type AccountItem,
+	type AccountSettingItem,
+	type AddressItem,
+	type FilterItem,
+	filterClausesFromRule,
+	filterRuleFromClauses,
+	type IAddressRepository,
+	type LabelItem,
+	type MailboxItem,
 } from "@remit/data-ports";
 import type { ConfigExportRepositories } from "./repositories.js";
 
@@ -123,35 +125,33 @@ export const makeLabel = (
 
 export const makeFilter = (
 	overrides: Partial<FilterItem> & Pick<FilterItem, "filterId" | "name">,
-): FilterItem => ({
-	accountConfigId: ACCOUNT_CONFIG_ID,
-	scope: "Standing",
-	state: "Active",
-	disabledReason: "None",
-	ruleChangedAt: NOW,
-	actionChangedAt: NOW,
-	matchOperator: "And",
-	literalClauses: [{ field: "Subject", value: "release notes" }],
-	rule: {
-		version: 1,
-		test: {
-			test: "allof",
-			tests: [
-				{
-					test: "header",
-					match: "Contains",
-					header: "Subject",
-					key: "release notes",
-				},
+): FilterItem => {
+	const rule =
+		overrides.rule ??
+		filterRuleFromClauses({
+			matchOperator: overrides.matchOperator ?? "And",
+			literalClauses: overrides.literalClauses ?? [
+				{ field: "Subject", value: "release notes" },
 			],
-		},
-	},
-	actionLabelId: "None",
-	actionMailboxId: "None",
-	createdAt: NOW,
-	updatedAt: NOW,
-	...overrides,
-});
+		});
+	return {
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		scope: "Standing",
+		state: "Active",
+		disabledReason: "None",
+		ruleChangedAt: NOW,
+		actionChangedAt: NOW,
+		priority: 0,
+		stop: false,
+		actionLabelId: "None",
+		actionMailboxId: "None",
+		createdAt: NOW,
+		updatedAt: NOW,
+		...overrides,
+		...filterClausesFromRule(rule),
+		rule,
+	};
+};
 
 export const makeAddress = (
 	overrides: Partial<AddressItem> &

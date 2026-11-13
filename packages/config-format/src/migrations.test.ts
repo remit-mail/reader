@@ -26,6 +26,53 @@ test("v1 lifts to v2 by dropping each anchor and every anchor-only filter", () =
 	}
 });
 
+test("v2 lifts to v3 by turning each filter's clauses into a rule", () => {
+	const lifted = liftToCurrentVersion(
+		{
+			schemaVersion: 2,
+			filters: [
+				{
+					name: "GitHub",
+					matchOperator: "Or",
+					literalClauses: [
+						{ field: "FromDomain", value: "github.com" },
+						{ field: "HasWords", value: "pull request" },
+					],
+				},
+			],
+		},
+		2,
+		configMigrations,
+		3,
+	);
+
+	assert.deepEqual(lifted, {
+		schemaVersion: 3,
+		filters: [
+			{
+				name: "GitHub",
+				rule: {
+					version: 1,
+					test: {
+						test: "anyof",
+						tests: [
+							{
+								test: "address",
+								match: "Is",
+								part: "RegistrableDomain",
+								key: "github.com",
+							},
+							{ test: "hasWords", words: ["pull", "request"] },
+						],
+					},
+				},
+				priority: 0,
+				stop: false,
+			},
+		],
+	});
+});
+
 test("a document already at the current version passes through untouched", () => {
 	const source = readGoldenConfigDocument() as Record<string, unknown>;
 

@@ -14,6 +14,7 @@ import type {
 	PutCalendarSuggestionInput,
 	SettleCalendarSuggestionInput,
 } from "@remit/data-ports";
+import { filterClausesFromRule } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	CalendarAnswerOvertaken,
@@ -120,6 +121,7 @@ const muteDepsOf = (
 				created.push(input);
 				const row = {
 					...input,
+					...filterClausesFromRule(input.rule),
 					actionLabelId: input.actionLabelId ?? "None",
 					actionMailboxId: input.actionMailboxId ?? "None",
 				} as unknown as FilterItem;
@@ -258,9 +260,20 @@ describe("muteSender", () => {
 		assert.equal(created.length, 1);
 		assert.equal(created[0]?.accountConfigId, ACCOUNT_CONFIG_ID);
 		assert.equal(created[0]?.scope, "Standing");
-		assert.deepEqual(created[0]?.literalClauses, [
-			{ field: "From", value: "organizer@example.test" },
-		]);
+		assert.deepEqual(created[0]?.rule, {
+			version: 1,
+			test: {
+				test: "allof",
+				tests: [
+					{
+						test: "header",
+						match: "Contains",
+						header: "From",
+						key: "organizer@example.test",
+					},
+				],
+			},
+		});
 		assert.match(created[0]?.name ?? "", /organizer@example\.test/);
 	});
 

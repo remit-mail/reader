@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { AccountItem, FilterItem, MailboxItem } from "@remit/data-ports";
+import {
+	type AccountItem,
+	type FilterItem,
+	filterRuleFromClauses,
+	type MailboxItem,
+} from "@remit/data-ports";
 import {
 	FilterDisabledReason,
 	FilterMatchOperator,
@@ -54,6 +59,8 @@ const rule = (actionMailboxId: string): NewFilter => ({
 	expiresAt: undefined,
 	matchOperator: FilterMatchOperator.And,
 	literalClauses: [{ field: "From", value: "billing@example.com" }],
+	priority: 0,
+	stop: false,
 	actionLabelId: "None",
 	actionMailboxId,
 });
@@ -85,12 +92,18 @@ const pendingFolder = async (fullPath: string): Promise<MailboxItem> => {
 	return created.mailbox;
 };
 
-const storedFilter = (over: Partial<FilterItem>): Promise<FilterItem> =>
-	store.filter.create({
+const storedFilter = (over: Partial<FilterItem>): Promise<FilterItem> => {
+	const { literalClauses, matchOperator, ...fields } = rule("None");
+	return store.filter.create({
 		accountConfigId: account.accountConfigId,
-		...rule("None"),
+		...fields,
+		rule: filterRuleFromClauses({
+			matchOperator,
+			literalClauses: literalClauses ?? [],
+		}),
 		...over,
 	});
+};
 
 describe("createFilter", () => {
 	it("stores the filter and queues its pass over existing mail", async () => {

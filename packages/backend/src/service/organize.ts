@@ -1,20 +1,21 @@
-import type { FilterItem, OrganizeJobRequestItem } from "@remit/data-ports";
+import type {
+	FilterItem,
+	FilterRuleV1Item,
+	FilterTestItem,
+	OrganizeJobRequestItem,
+} from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import {
-	FilterClauseField,
-	FilterDisabledReason,
-	FilterState,
-} from "@remit/domain-enums";
+import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import {
+	evaluateRule,
 	type FilterMessage,
 	FilterPipeline,
-	type LiteralClauseNarrowing,
-	literalClausesMatch,
-	literalClauseTerms,
 	NO_ACTION,
 	PlacementMoveService,
 	type PreparedFilters,
+	type RuleNarrowing,
+	ruleNarrowing,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import type { RemitClient } from "./data-client.js";
@@ -34,8 +35,7 @@ export const ORGANIZE_MATCH_LIMIT = 500;
  * Decision 3.1).
  */
 export interface OrganizePredicate {
-	matchOperator: FilterItem["matchOperator"];
-	literalClauses: FilterItem["literalClauses"];
+	rule: FilterRuleV1Item;
 	actionLabelId: string;
 	actionMailboxId: string;
 }
@@ -47,8 +47,7 @@ export interface OrganizePredicate {
 export const predicateFromJob = (
 	job: OrganizeJobRequestItem,
 ): OrganizePredicate => ({
-	matchOperator: job.matchOperator,
-	literalClauses: job.literalClauses,
+	rule: job.rule,
 	actionLabelId: job.actionLabelId,
 	actionMailboxId: job.actionMailboxId,
 });
@@ -73,7 +72,7 @@ export interface OrganizeCandidatePage {
 }
 
 /** What to ask the store for, and where to resume. */
-export interface OrganizeCandidateQuery extends LiteralClauseNarrowing {
+export interface OrganizeCandidateQuery extends RuleNarrowing {
 	limit: number;
 	continuationToken?: string;
 	mailboxIds?: readonly string[];
@@ -143,10 +142,24 @@ export type OrganizeMatchResult = OrganizeMatched | OrganizeMatchRejected;
 export const BODY_CONTENT_REJECTION_MESSAGE =
 	"Organize cannot match a body-content (HasWords) clause over the mailbox: it reads only each message's preview, not its body";
 
+const readsBody = (test: FilterTestItem): boolean => {
+	switch (test.test) {
+		case "allof":
+		case "anyof":
+			return test.tests.some(readsBody);
+		case "not":
+			return readsBody(test.operand);
+		case "hasWords":
+			return true;
+		default:
+			return false;
+	}
+};
+
 const bodyContentRejection = (
-	clauses: OrganizePredicate["literalClauses"],
+	rule: FilterRuleV1Item,
 ): OrganizeRejection | null =>
-	clauses.some((clause) => clause.field === FilterClauseField.HasWords)
+	readsBody(rule.test)
 		? {
 				reason: "BodyContentUnsupported",
 				message: BODY_CONTENT_REJECTION_MESSAGE,
@@ -161,7 +174,7 @@ const bodyContentRejection = (
  */
 export const organizePredicateRejection = (
 	predicate: OrganizePredicate,
-): OrganizeRejection | null => bodyContentRejection(predicate.literalClauses);
+): OrganizeRejection | null => bodyContentRejection(predicate.rule);
 
 /**
  * The store selects on the clause terms, this refines what it returned and
@@ -182,13 +195,8 @@ const matchLiteral = async (
 	limit: number,
 	scope: OrganizeMatchScope,
 ): Promise<string[]> => {
-	const clauses = predicate.literalClauses;
 	const { getDomain } = await import("tldts");
-	const narrowing = literalClauseTerms(
-		clauses,
-		predicate.matchOperator,
-		getDomain,
-	);
+	const narrowing = ruleNarrowing(predicate.rule, getDomain);
 	if (!narrowing) return [];
 
 	const matched: string[] = [];
@@ -204,16 +212,7 @@ const matchLiteral = async (
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
 			seen.add(messageId);
-			if (
-				!literalClausesMatch(
-					clauses,
-					predicate.matchOperator,
-					message,
-					getDomain,
-				)
-			) {
-				continue;
-			}
+			if (!evaluateRule(predicate.rule, message, getDomain)) continue;
 			matched.push(messageId);
 			if (matched.length >= limit) return matched;
 		}
@@ -240,9 +239,6 @@ export const matchOrganize = async (
 	limit: number = ORGANIZE_MATCH_LIMIT,
 	scope: OrganizeMatchScope = {},
 ): Promise<OrganizeMatchResult> => {
-	if (predicate.literalClauses.length === 0) {
-		return { rejected: null, messageIds: [] };
-	}
 	const rejection = scope.filterId
 		? null
 		: organizePredicateRejection(predicate);
@@ -446,8 +442,7 @@ const rejectFilter = (
 
 /** A standing filter's predicate and action, read the way index time reads them. */
 const predicateFromFilter = (filter: FilterItem): OrganizePredicate => ({
-	matchOperator: filter.matchOperator,
-	literalClauses: filter.literalClauses,
+	rule: filter.rule,
 	actionLabelId: filter.actionLabelId,
 	actionMailboxId: filter.actionMailboxId,
 });

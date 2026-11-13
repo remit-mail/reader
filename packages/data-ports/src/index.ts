@@ -7,6 +7,11 @@ export type { TestResult } from "./connection-test.js";
 export {
 	filterClausesFromRule,
 	filterRuleFromClauses,
+	filterRuleHasClauses,
+	filterRuleLeafCount,
+	filterRuleLimitRefusal,
+	MAX_FILTER_RULE_DEPTH,
+	MAX_FILTER_RULE_LEAVES,
 	readStoredFilterRule,
 } from "./filter-rule.js";
 export { deriveFilterTtl } from "./filter-ttl.js";

@@ -259,11 +259,9 @@ const toConfigFilter = (
 		name: filter.name,
 		scope: filter.scope,
 		expiresAt: filter.expiresAt ?? null,
-		matchOperator: filter.matchOperator,
-		literalClauses: filter.literalClauses.map((clause) => ({
-			field: clause.field,
-			value: clause.value,
-		})),
+		rule: filter.rule,
+		priority: filter.priority,
+		stop: filter.stop,
 		actionLabelName:
 			filter.actionLabelId === NO_ACTION
 				? null

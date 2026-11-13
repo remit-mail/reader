@@ -3,11 +3,15 @@ import { describe, it } from "node:test";
 import {
 	filterClausesFromRule,
 	filterRuleFromClauses,
+	filterRuleLimitRefusal,
+	MAX_FILTER_RULE_DEPTH,
+	MAX_FILTER_RULE_LEAVES,
 	readStoredFilterRule,
 } from "./filter-rule.js";
 import type {
 	FilterClauseItem,
 	FilterClauses,
+	FilterRuleV1Item,
 	FilterTestItem,
 } from "./types.js";
 
@@ -147,5 +151,45 @@ describe("readStoredFilterRule", () => {
 
 	it("refuses a stored rule of an unknown version", () => {
 		assert.throws(() => readStoredFilterRule({ version: 2 }, clauses));
+	});
+});
+
+describe("filterRuleLimitRefusal", () => {
+	const leaf: FilterTestItem = CLAUSE_TESTS[1][1];
+
+	const flat = (leaves: number): FilterRuleV1Item => ({
+		version: 1,
+		test: {
+			test: "anyof",
+			tests: Array.from({ length: leaves }, () => leaf),
+		},
+	});
+
+	const nested = (depth: number): FilterRuleV1Item => {
+		let test = leaf;
+		for (let level = 1; level < depth; level++) {
+			test = { test: "not", operand: test };
+		}
+		return { version: 1, test };
+	};
+
+	it("accepts a rule at the leaf cap and refuses one past it", () => {
+		assert.equal(filterRuleLimitRefusal(flat(MAX_FILTER_RULE_LEAVES)), null);
+		assert.match(
+			filterRuleLimitRefusal(flat(MAX_FILTER_RULE_LEAVES + 1)) ?? "",
+			/at most 50/,
+		);
+	});
+
+	it("accepts a rule at the depth cap and refuses one past it", () => {
+		assert.equal(filterRuleLimitRefusal(nested(MAX_FILTER_RULE_DEPTH)), null);
+		assert.match(
+			filterRuleLimitRefusal(nested(MAX_FILTER_RULE_DEPTH + 1)) ?? "",
+			/at most 5 levels/,
+		);
+	});
+
+	it("refuses a rule with no leaf", () => {
+		assert.match(filterRuleLimitRefusal(flat(0)) ?? "", /at least one/);
 	});
 });

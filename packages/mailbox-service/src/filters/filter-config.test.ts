@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { filterRuleFromClauses } from "@remit/data-ports";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	FilterClauseField,
@@ -33,8 +34,10 @@ beforeEach(async () => {
 		accountConfigId: "cfg-1",
 		name: "receipts",
 		scope: FilterScope.Standing,
-		matchOperator: FilterMatchOperator.Or,
-		literalClauses: [{ field: FilterClauseField.From, value: "stripe.com" }],
+		rule: filterRuleFromClauses({
+			matchOperator: FilterMatchOperator.Or,
+			literalClauses: [{ field: FilterClauseField.From, value: "stripe.com" }],
+		}),
 		actionMailboxId: archive.mailboxId,
 	});
 	filterId = filter.filterId;

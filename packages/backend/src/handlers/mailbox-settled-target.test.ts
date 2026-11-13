@@ -139,6 +139,7 @@ const createFilter = () =>
 		requestBody: {
 			name: "Invoices",
 			scope: "Standing",
+			literalClauses: [{ field: "From", value: "billing@example.com" }],
 			actionMailboxId: TARGET,
 		},
 	});
@@ -238,6 +239,7 @@ describe("a write that binds to a folder requires a settled folder", () => {
 			requestBody: {
 				name: "Just a label",
 				scope: "Standing",
+				literalClauses: [{ field: "From", value: "billing@example.com" }],
 				actionMailboxId: "None",
 			},
 		});

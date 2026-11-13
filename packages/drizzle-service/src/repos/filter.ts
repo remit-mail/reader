@@ -1,7 +1,7 @@
 import {
 	type CreateFilterInput,
 	type FilterItem,
-	filterRuleFromClauses,
+	filterClausesFromRule,
 	type IFilterRepository,
 	type ResultList,
 	readStoredFilterRule,
@@ -9,7 +9,6 @@ import {
 } from "@remit/data-ports";
 import {
 	FilterDisabledReason,
-	FilterMatchOperator,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
@@ -23,8 +22,7 @@ import { filterTable } from "../schema.js";
 type DB = RepositoryDb;
 
 const RULE_ASSERTION_FIELDS = [
-	"matchOperator",
-	"literalClauses",
+	"rule",
 	"actionLabelId",
 	"actionMailboxId",
 	"scope",
@@ -38,8 +36,7 @@ const RULE_ASSERTION_FIELDS = [
  * narrower signal `selectMoveWinner` reads for exclusive-move precedence.
  */
 const ACTION_ASSERTION_FIELDS = [
-	"matchOperator",
-	"literalClauses",
+	"rule",
 	"actionLabelId",
 	"actionMailboxId",
 ] as const satisfies readonly (keyof UpdateFilterInput)[];
@@ -87,6 +84,8 @@ function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 			matchOperator: row.matchOperator,
 			literalClauses: row.literalClauses as FilterItem["literalClauses"],
 		}),
+		priority: row.priority,
+		stop: row.stop,
 		actionLabelId: row.actionLabelId,
 		actionMailboxId: row.actionMailboxId,
 		createdAt: row.createdAt,
@@ -105,7 +104,6 @@ export class FilterRepo implements IFilterRepository {
 	async create(input: CreateFilterInput): Promise<FilterItem> {
 		const now = Date.now();
 		const createdRuleChangedAt = nowSeconds();
-		const matchOperator = input.matchOperator ?? FilterMatchOperator.And;
 		const [row] = await this.db
 			.insert(filterTable)
 			.values({
@@ -119,12 +117,11 @@ export class FilterRepo implements IFilterRepository {
 				disabledReason: input.disabledReason ?? FilterDisabledReason.None,
 				ruleChangedAt: createdRuleChangedAt,
 				actionChangedAt: createdRuleChangedAt,
-				matchOperator,
+				matchOperator: filterClausesFromRule(input.rule).matchOperator,
 				literalClauses: [],
-				rule: filterRuleFromClauses({
-					matchOperator,
-					literalClauses: input.literalClauses,
-				}),
+				rule: input.rule,
+				priority: input.priority ?? 0,
+				stop: input.stop ?? false,
 				actionLabelId: input.actionLabelId ?? "None",
 				actionMailboxId: input.actionMailboxId ?? "None",
 				createdAt: now,
@@ -183,16 +180,9 @@ export class FilterRepo implements IFilterRepository {
 			...patch,
 			updatedAt: Date.now(),
 		};
-		const { matchOperator, literalClauses } = input;
-		if (matchOperator !== undefined || literalClauses !== undefined) {
-			if (matchOperator === undefined || literalClauses === undefined) {
-				throw new Error(
-					"A filter update sets matchOperator and literalClauses together",
-				);
-			}
-			updates.matchOperator = matchOperator;
+		if (input.rule !== undefined) {
+			updates.matchOperator = filterClausesFromRule(input.rule).matchOperator;
 			updates.literalClauses = [];
-			updates.rule = filterRuleFromClauses({ matchOperator, literalClauses });
 		}
 		if (patch.scope === FilterScope.Standing) {
 			updates.expiresAt = null;

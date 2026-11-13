@@ -21,12 +21,16 @@ model FilterClause {
 @doc("Matches when every test in `tests` matches (Sieve `allof`).")
 model FilterAllOfTest {
   test: "allof";
+
+  @maxItems(50)
   tests: FilterTest[];
 }
 
 @doc("Matches when any test in `tests` matches (Sieve `anyof`).")
 model FilterAnyOfTest {
   test: "anyof";
+
+  @maxItems(50)
   tests: FilterTest[];
 }
 
@@ -153,14 +157,21 @@ model Filter {
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   matchOperator: FilterMatchOperator = FilterMatchOperator.And;
 
-  @doc("Literal from/subject/has-words predicate clauses (RFC 031). A filter carries at least one.")
+  @doc("Literal from/subject/has-words predicate clauses (RFC 031). Empty when the rule is not leaves under one allof or anyof.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
-  @minItems(1)
   literalClauses: FilterClause[];
 
-  @doc("The stored rule. A version 0 row predates rules and its literalClauses are the truth. Not surfaced on the API yet.")
+  @doc("The stored rule. A version 0 row predates rules and its literalClauses are the truth.")
   @visibility(Lifecycle.Read)
   rule: FilterRule = #{ version: 0 };
+
+  @doc("Evaluation order (RFC 040). Lower runs first; ties go to the newest actionChangedAt, then to filterId. The first move a message reaches wins.")
+  @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
+  priority: int32 = 0;
+
+  @doc("When set, a match ends evaluation for that message after this filter's own actions (RFC 040, Sieve `stop`).")
+  @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
+  stop: boolean = false;
 
   @doc("Label applied when this filter matches — additive action, any number of filters can independently apply their own label (RFC 034 Decision 3.1). The named sentinel `\"None\"` means no label action; never an empty/optional field.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
@@ -190,7 +201,13 @@ model Filter {
   all server-derived and excluded by their Read-only visibility.
   """)
 model CreateFilterInput {
-  ...OmitProperties<Create<Filter>, "ttl">;
+  ...OmitProperties<Create<Filter>, "ttl" | "literalClauses">;
+
+  @doc("Literal clauses combined by matchOperator. Send these or rule, never both.")
+  literalClauses?: FilterClause[];
+
+  @doc("The rule as a test tree (RFC 040). Send this or literalClauses, never both. The server caps a rule at 50 leaves and 5 levels.")
+  rule?: FilterRuleV1;
 }
 
 @doc("""
@@ -207,7 +224,12 @@ model CreateFilterInput {
   precedence reads (reader #384) — a scope/expiresAt-only edit leaves it
   untouched.
   """)
-model UpdateFilterInput is Update<Filter>;
+model UpdateFilterInput {
+  ...OptionalProperties<Update<Filter>>;
+
+  @doc("Replaces the rule (RFC 040). Never sent with matchOperator or literalClauses. The server caps a rule at 50 leaves and 5 levels.")
+  rule?: FilterRuleV1;
+}
 
 // ============================================
 // API Response Models
@@ -216,6 +238,9 @@ model UpdateFilterInput is Update<Filter>;
 @doc("Filter item returned by list/get/create/update operations. `ttl` is internal bookkeeping (RFC 034 Decision 1.3) and not surfaced.")
 model FilterResponse {
   ...OmitProperties<Filter, "ttl" | "rule">;
+
+  @doc("The rule as a test tree (RFC 040). literalClauses mirrors it when it is leaves under one allof or anyof, and is empty otherwise.")
+  rule: FilterRuleV1;
 }
 
 @doc("Response body for POST /accounts/{accountId}/filters: the created filter, plus the back-apply job that runs it over the inbox.")

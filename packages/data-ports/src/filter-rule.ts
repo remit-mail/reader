@@ -107,16 +107,14 @@ const NO_CLAUSES: FilterClauses = {
 const leafClauses = (
 	matchOperator: FilterClauses["matchOperator"],
 	tests: FilterTestItem[],
-): FilterClauses => {
+): FilterClauses | null => {
 	const literalClauses = tests.map(testClause);
 	return literalClauses.every((clause) => clause !== undefined)
 		? { matchOperator, literalClauses }
-		: NO_CLAUSES;
+		: null;
 };
 
-export const filterClausesFromRule = ({
-	test,
-}: FilterRuleV1Item): FilterClauses => {
+const ruleClauses = ({ test }: FilterRuleV1Item): FilterClauses | null => {
 	switch (test.test) {
 		case "allof":
 			return leafClauses(FilterMatchOperator.And, test.tests);
@@ -125,6 +123,58 @@ export const filterClausesFromRule = ({
 		default:
 			return leafClauses(FilterMatchOperator.And, [test]);
 	}
+};
+
+export const filterClausesFromRule = (rule: FilterRuleV1Item): FilterClauses =>
+	ruleClauses(rule) ?? NO_CLAUSES;
+
+export const filterRuleHasClauses = (rule: FilterRuleV1Item): boolean =>
+	ruleClauses(rule) !== null;
+
+export const MAX_FILTER_RULE_LEAVES = 50;
+export const MAX_FILTER_RULE_DEPTH = 5;
+
+const childTests = (test: FilterTestItem): FilterTestItem[] => {
+	switch (test.test) {
+		case "allof":
+		case "anyof":
+			return test.tests;
+		case "not":
+			return [test.operand];
+		default:
+			return [];
+	}
+};
+
+const isLeaf = (test: FilterTestItem): boolean =>
+	test.test !== "allof" && test.test !== "anyof" && test.test !== "not";
+
+const countLeaves = (test: FilterTestItem): number =>
+	isLeaf(test)
+		? 1
+		: childTests(test).reduce((sum, child) => sum + countLeaves(child), 0);
+
+const depthOf = (test: FilterTestItem): number =>
+	1 + Math.max(0, ...childTests(test).map(depthOf));
+
+export const filterRuleLeafCount = (rule: FilterRuleV1Item): number =>
+	countLeaves(rule.test);
+
+export const filterRuleLimitRefusal = (
+	rule: FilterRuleV1Item,
+): string | null => {
+	const leaves = countLeaves(rule.test);
+	if (leaves === 0) {
+		return "A rule needs at least one header, address or hasWords test.";
+	}
+	if (leaves > MAX_FILTER_RULE_LEAVES) {
+		return `A rule holds at most ${MAX_FILTER_RULE_LEAVES} header, address or hasWords tests; this one holds ${leaves}.`;
+	}
+	const depth = depthOf(rule.test);
+	if (depth > MAX_FILTER_RULE_DEPTH) {
+		return `A rule nests at most ${MAX_FILTER_RULE_DEPTH} levels deep, counting its top test; this one nests ${depth}.`;
+	}
+	return null;
 };
 
 const StoredFilterRuleSchema = z.union([

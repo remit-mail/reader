@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	type FilterRuleV1Item,
+	filterRuleFromClauses,
+} from "@remit/data-ports";
+import {
 	FilterClauseField,
 	FilterDisabledReason,
 	FilterMatchOperator,
+	FilterRuleHeader,
+	FilterRuleMatch,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
@@ -18,10 +24,25 @@ const standing = {
 	state: FilterState.Active,
 	disabledReason: FilterDisabledReason.None,
 	actionMailboxId: "mbx-invoices",
-	matchOperator: FilterMatchOperator.And,
-	literalClauses: [
-		{ field: FilterClauseField.From, value: "billing@example.com" },
-	],
+	rule: filterRuleFromClauses({
+		matchOperator: FilterMatchOperator.And,
+		literalClauses: [
+			{ field: FilterClauseField.From, value: "billing@example.com" },
+		],
+	}),
+};
+
+const nested: FilterRuleV1Item = {
+	version: 1,
+	test: {
+		test: "not",
+		operand: {
+			test: "header",
+			match: FilterRuleMatch.Contains,
+			header: FilterRuleHeader.Subject,
+			key: "digest",
+		},
+	},
 };
 
 const awaiting = {
@@ -318,8 +339,13 @@ describe("resolveFilterUpdate: scope and expiry (reader #266)", () => {
 	});
 });
 
-describe("resolveFilterUpdate: clauses", () => {
-	it("fills the clauses from the stored filter when the patch changes only the operator", () => {
+describe("resolveFilterUpdate: clauses and rule", () => {
+	const billing = {
+		field: FilterClauseField.From,
+		value: "billing@example.com",
+	};
+
+	it("fills the clauses from the stored rule when the patch changes only the operator", () => {
 		assert.deepEqual(
 			acceptedValue(
 				resolveFilterUpdate(standing, {
@@ -327,19 +353,60 @@ describe("resolveFilterUpdate: clauses", () => {
 				}),
 			),
 			{
-				matchOperator: FilterMatchOperator.Or,
-				literalClauses: standing.literalClauses,
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.Or,
+					literalClauses: [billing],
+				}),
 			},
 		);
 	});
 
-	it("fills the operator from the stored filter when the patch changes only the clauses", () => {
+	it("fills the operator from the stored rule when the patch changes only the clauses", () => {
 		const literalClauses = [
 			{ field: FilterClauseField.HasWords, value: "weekly digest" },
 		];
 		assert.deepEqual(
 			acceptedValue(resolveFilterUpdate(standing, { literalClauses })),
-			{ matchOperator: FilterMatchOperator.And, literalClauses },
+			{
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.And,
+					literalClauses,
+				}),
+			},
+		);
+	});
+
+	it("stores a rule patch as given", () => {
+		assert.deepEqual(
+			acceptedValue(resolveFilterUpdate(standing, { rule: nested })),
+			{ rule: nested },
+		);
+	});
+
+	it("refuses a rule sent with clauses", () => {
+		refusedWith(
+			resolveFilterUpdate(standing, {
+				rule: nested,
+				literalClauses: [billing],
+			}),
+			/not both/,
+		);
+	});
+
+	it("refuses a clause edit to a filter whose rule clauses cannot express", () => {
+		refusedWith(
+			resolveFilterUpdate(
+				{ ...standing, rule: nested },
+				{ matchOperator: FilterMatchOperator.Or },
+			),
+			/through rule/,
+		);
+	});
+
+	it("refuses clauses emptied to nothing", () => {
+		refusedWith(
+			resolveFilterUpdate(standing, { literalClauses: [] }),
+			/at least one/,
 		);
 	});
 });

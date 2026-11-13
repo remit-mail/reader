@@ -731,7 +731,6 @@ export type CreateMessageLabelInput = Omit<
 export type CreateFilterInput = Omit<
 	FilterItem,
 	| "filterId"
-	| "rule"
 	| "createdAt"
 	| "updatedAt"
 	| "state"
@@ -739,12 +738,16 @@ export type CreateFilterInput = Omit<
 	| "ruleChangedAt"
 	| "actionChangedAt"
 	| "matchOperator"
+	| "literalClauses"
+	| "priority"
+	| "stop"
 	| "actionLabelId"
 	| "actionMailboxId"
 > & {
 	state?: FilterItem["state"];
 	disabledReason?: FilterItem["disabledReason"];
-	matchOperator?: FilterItem["matchOperator"];
+	priority?: FilterItem["priority"];
+	stop?: FilterItem["stop"];
 	actionLabelId?: FilterItem["actionLabelId"];
 	actionMailboxId?: FilterItem["actionMailboxId"];
 };

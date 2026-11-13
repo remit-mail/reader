@@ -1,236 +1,61 @@
 import {
 	FILTER_NO_ACTION,
 	type FilterItem,
-	type ThreadMessageFieldTerm,
+	filterRuleFromClauses,
 } from "@remit/data-ports";
-import { FilterClauseField, FilterMatchOperator } from "@remit/domain-enums";
-import { normalizeListId } from "./list-id.js";
+import { FilterMatchOperator } from "@remit/domain-enums";
+import {
+	evaluateRule,
+	type FilterMessage,
+	type GetDomain,
+	orderFilters,
+	type RuleNarrowing,
+	ruleNarrowing,
+} from "./rule.js";
+
+export type { FilterMessage, GetDomain } from "./rule.js";
 
 type FilterClause = FilterItem["literalClauses"][number];
 
-export type GetDomain = typeof import("tldts")["getDomain"];
-
-/**
- * The `"None"` sentinel a filter's action fields carry when that action is
- * absent (RFC 034 Decision 3.1) — `actionLabelId`/`actionMailboxId` are never
- * empty/optional strings, so a missing action is this exact value, never `""`.
- */
 export const NO_ACTION = FILTER_NO_ACTION;
 
-/**
- * The message fields a filter evaluates against — the literal-clause targets
- * (from / subject / body / list). A plain value object so the matcher stays independent of the `ParsedMail` shape and is
- * trivially constructed in a test.
- */
-export interface FilterMessage {
-	from: string;
-	fromName: string;
-	subject: string;
-	text: string;
-	/** Normalized `List-Id` header value (see `normalizeListId`); `""` when absent. */
-	listId: string;
-}
+export type LiteralClauseNarrowing = RuleNarrowing;
 
-const includesFold = (haystack: string, needle: string): boolean =>
-	haystack.toLowerCase().includes(needle.toLowerCase());
-
-/**
- * Whether every whitespace-separated word of `value` appears somewhere in the
- * sender address, sender name, subject or body — the shape free-text search
- * matches with (`buildSearchConditions`), so a filter made from a search keeps
- * the mail that search showed.
- */
-const hasEveryWord = (value: string, msg: FilterMessage): boolean => {
-	const fields = [msg.from, msg.fromName, msg.subject, msg.text];
-	return value
-		.split(/\s+/)
-		.filter(Boolean)
-		.every((word) => fields.some((field) => includesFold(field, word)));
-};
-
-const hostOf = (address: string): string => {
-	const at = address.lastIndexOf("@");
-	return at >= 0 ? address.slice(at + 1) : address;
-};
-
-/**
- * The registrable, public-suffix-aware domain of an email address or host, or
- * `null` when none resolves. `getDomain` folds case and applies the ICANN
- * suffix list, so `github.com.evil.example` yields `evil.example`, never
- * `github.com` — a `FromDomain` clause cannot be spoofed by a crafted subdomain.
- */
-const registrableDomain = (
-	getDomain: GetDomain,
-	addressOrHost: string,
-): string | null => getDomain(hostOf(addressOrHost.trim()));
-
-/**
- * Whether one literal clause matches the message. From matches against the
- * sender address and display name; Subject against the subject; HasWords
- * requires every word somewhere in sender, subject or body; ListId against the exact normalized `List-Id`; FromDomain
- * against the sender's registrable domain. An empty clause value never matches.
- */
-export const clauseMatches = (
-	clause: FilterClause,
-	msg: FilterMessage,
-	getDomain: GetDomain,
-): boolean => {
-	const value = clause.value.trim();
-	if (value === "") return false;
-	switch (clause.field) {
-		case FilterClauseField.From:
-			return includesFold(msg.from, value) || includesFold(msg.fromName, value);
-		case FilterClauseField.Subject:
-			return includesFold(msg.subject, value);
-		case FilterClauseField.HasWords:
-			return hasEveryWord(value, msg);
-		case FilterClauseField.ListId: {
-			const target = normalizeListId(value);
-			return target !== "" && normalizeListId(msg.listId) === target;
-		}
-		case FilterClauseField.FromDomain: {
-			const target = registrableDomain(getDomain, value);
-			if (target === null) return false;
-			return registrableDomain(getDomain, msg.from) === target;
-		}
-		default:
-			return false;
-	}
-};
-
-/**
- * Whether the literal clauses match under their combine operator. A filter with
- * no clauses states nothing about the message, so it matches nothing: read as
- * a vacuous pass it would file every message in every folder.
- */
 export const literalClausesMatch = (
 	clauses: readonly FilterClause[],
 	operator: FilterItem["matchOperator"],
 	msg: FilterMessage,
 	getDomain: GetDomain,
-): boolean => {
-	if (clauses.length === 0) return false;
-	return operator === FilterMatchOperator.Or
-		? clauses.some((clause) => clauseMatches(clause, msg, getDomain))
-		: clauses.every((clause) => clauseMatches(clause, msg, getDomain));
-};
+): boolean =>
+	evaluateRule(
+		filterRuleFromClauses({
+			matchOperator: operator,
+			literalClauses: [...clauses],
+		}),
+		msg,
+		getDomain,
+	);
 
-/**
- * What a store can be asked for on behalf of one clause: a column term, or the
- * two answers a term cannot express — a clause nothing can satisfy, and a
- * clause selecting on something no ThreadMessage column carries.
- */
-type ClauseNarrowing =
-	| { kind: "Term"; term: ThreadMessageFieldTerm }
-	| { kind: "NeverMatches" }
-	| { kind: "Unnarrowable" };
-
-const clauseNarrowing = (
+export const clauseMatches = (
 	clause: FilterClause,
+	msg: FilterMessage,
 	getDomain: GetDomain,
-): ClauseNarrowing => {
-	const value = clause.value.trim();
-	if (value === "") return { kind: "NeverMatches" };
-	switch (clause.field) {
-		case FilterClauseField.From:
-			return { kind: "Term", term: { field: "sender", contains: value } };
-		case FilterClauseField.Subject:
-			return { kind: "Term", term: { field: "subject", contains: value } };
-		case FilterClauseField.ListId: {
-			const target = normalizeListId(value);
-			if (target === "") return { kind: "NeverMatches" };
-			return { kind: "Term", term: { field: "listId", contains: target } };
-		}
-		case FilterClauseField.FromDomain: {
-			const target = registrableDomain(getDomain, value);
-			if (target === null) return { kind: "NeverMatches" };
-			return { kind: "Term", term: { field: "sender", contains: target } };
-		}
-		default:
-			return { kind: "Unnarrowable" };
-	}
-};
+): boolean =>
+	literalClausesMatch([clause], FilterMatchOperator.And, msg, getDomain);
 
-/**
- * The terms to query with, and how to combine them. Empty terms narrow nothing
- * — the caller reads the whole corpus and refines it.
- */
-export interface LiteralClauseNarrowing {
-	terms: ThreadMessageFieldTerm[];
-	operator: "and" | "or";
-}
-
-/**
- * The store-side half of {@link literalClausesMatch}: the column terms a query
- * can evaluate on behalf of these clauses, or `null` when they can match
- * nothing at all and there is no query worth running.
- *
- * A term is deliberately WIDER than the clause it stands for — a `FromDomain`
- * clause narrows to the registrable domain appearing anywhere in the sender,
- * so `github.com.evil.example` still comes back — and a `HasWords` clause
- * cannot be narrowed at all, since no row column carries the body. The rows a
- * term selects are candidates; `literalClausesMatch` still decides. Pushing the
- * terms down is what makes the caller's bound a bound on RESULTS: filtering a
- * date-ordered page instead answers "matches among the newest N messages"
- * (#459).
- */
 export const literalClauseTerms = (
 	clauses: readonly FilterClause[],
 	operator: FilterItem["matchOperator"],
 	getDomain: GetDomain,
-): LiteralClauseNarrowing | null => {
-	const combine = operator === FilterMatchOperator.Or ? "or" : "and";
-	if (clauses.length === 0) return null;
-	const narrowings = clauses.map((clause) =>
-		clauseNarrowing(clause, getDomain),
+): LiteralClauseNarrowing | null =>
+	ruleNarrowing(
+		filterRuleFromClauses({
+			matchOperator: operator,
+			literalClauses: [...clauses],
+		}),
+		getDomain,
 	);
-	const terms = narrowings.flatMap((narrowing) =>
-		narrowing.kind === "Term" ? [narrowing.term] : [],
-	);
-	if (combine === "and") {
-		if (narrowings.some((narrowing) => narrowing.kind === "NeverMatches")) {
-			return null;
-		}
-		return { terms, operator: "and" };
-	}
-	if (narrowings.every((narrowing) => narrowing.kind === "NeverMatches")) {
-		return null;
-	}
-	if (narrowings.some((narrowing) => narrowing.kind === "Unnarrowable")) {
-		return { terms: [], operator: "or" };
-	}
-	return { terms, operator: "or" };
-};
 
-/**
- * The move a message ends in when several filters matched: the filter whose
- * predicate or action was most recently *changed* wins (RFC 034 Decision 3.2),
- * tie-broken on `filterId` for the unreachable identical-timestamp case.
- * `actionChangedAt` — not `ruleChangedAt` — is the signal: `ruleChangedAt` also
- * bumps on a scope/expiry-only edit (reader #266), which changes a filter's
- * lifecycle, not what it matches or does, and must not reorder exclusive-move
- * precedence (reader #384). Nor is it `updatedAt`, so a cosmetic rename never
- * flips an exclusive move either.
- */
 export const selectMoveWinner = (
 	candidates: readonly FilterItem[],
-): FilterItem | undefined => {
-	let winner: FilterItem | undefined;
-	for (const candidate of candidates) {
-		if (!winner) {
-			winner = candidate;
-			continue;
-		}
-		if (candidate.actionChangedAt > winner.actionChangedAt) {
-			winner = candidate;
-			continue;
-		}
-		if (
-			candidate.actionChangedAt === winner.actionChangedAt &&
-			candidate.filterId > winner.filterId
-		) {
-			winner = candidate;
-		}
-	}
-	return winner;
-};
+): FilterItem | undefined => orderFilters(candidates)[0];

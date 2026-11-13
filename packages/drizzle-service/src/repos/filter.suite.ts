@@ -1,6 +1,9 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import { filterRuleFromClauses } from "@remit/data-ports";
+import {
+	type FilterRuleV1Item,
+	filterRuleFromClauses,
+} from "@remit/data-ports";
 import {
 	FilterClauseField,
 	FilterDisabledReason,
@@ -17,6 +20,10 @@ import type { OpenTestStores } from "../test-stores.js";
 import { FilterRepo } from "./filter.js";
 
 const CLAUSES = [{ field: FilterClauseField.Subject, value: "booking" }];
+const RULE = filterRuleFromClauses({
+	matchOperator: FilterMatchOperator.And,
+	literalClauses: CLAUSES,
+});
 
 export const filterRepoSuite = (open: OpenTestStores): void => {
 	describe("FilterRepo", () => {
@@ -52,11 +59,13 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Booking confirmations",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			assert.equal(filter.state, FilterState.Active);
 			assert.equal(filter.disabledReason, FilterDisabledReason.None);
+			assert.equal(filter.priority, 0);
+			assert.equal(filter.stop, false);
 			assert.deepEqual(filter.literalClauses, CLAUSES);
 			assert.equal(filter.actionLabelId, "None");
 			assert.equal(filter.actionMailboxId, "None");
@@ -78,7 +87,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Invoices",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 				state: FilterState.Disabled,
 				disabledReason: FilterDisabledReason.AwaitingFolder,
 			});
@@ -112,7 +121,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Until my trip",
 				scope: FilterScope.Temporary,
-				literalClauses: CLAUSES,
+				rule: RULE,
 				expiresAt,
 				ttl,
 			});
@@ -133,7 +142,10 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Invoices",
 				scope: FilterScope.Standing,
-				literalClauses: [...literalClauses],
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.And,
+					literalClauses: [...literalClauses],
+				}),
 			});
 
 			assert.deepEqual(filter.literalClauses, literalClauses);
@@ -176,21 +188,65 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 			});
 		});
 
-		test("create and a clause update store version 1 with empty clauses (#1621)", async () => {
+		test("a nested rule round-trips and reads with no clauses", async () => {
+			const accountConfigId = randomId();
+			const rule: FilterRuleV1Item = {
+				version: 1,
+				test: {
+					test: "allof",
+					tests: [
+						{
+							test: "not",
+							operand: {
+								test: "header",
+								match: "Contains",
+								header: "Subject",
+								key: "digest",
+							},
+						},
+						{
+							test: "anyof",
+							tests: [
+								{
+									test: "address",
+									match: "Is",
+									part: "Domain",
+									key: "example.com",
+								},
+								{ test: "hasWords", words: ["invoice"] },
+							],
+						},
+					],
+				},
+			};
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Nested",
+				scope: FilterScope.Standing,
+				rule,
+				priority: 3,
+				stop: true,
+			});
+
+			const read = await repo.get(accountConfigId, filter.filterId);
+			assert.deepEqual(read.rule, rule);
+			assert.deepEqual(read.literalClauses, []);
+			assert.equal(read.priority, 3);
+			assert.equal(read.stop, true);
+		});
+
+		test("create and a rule update store version 1 with empty clauses (#1621)", async () => {
 			const accountConfigId = randomId();
 			const filter = await repo.create({
 				accountConfigId,
 				name: "Booking confirmations",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			assert.deepEqual(filter.literalClauses, CLAUSES);
 			assert.deepEqual(await storedRule(filter.filterId), {
-				rule: filterRuleFromClauses({
-					matchOperator: FilterMatchOperator.And,
-					literalClauses: CLAUSES,
-				}),
+				rule: RULE,
 				literalClauses: [],
 			});
 
@@ -199,8 +255,10 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				{ field: FilterClauseField.HasWords, value: "weekly digest" },
 			];
 			const updated = await repo.update(accountConfigId, filter.filterId, {
-				matchOperator: FilterMatchOperator.Or,
-				literalClauses,
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.Or,
+					literalClauses,
+				}),
 			});
 
 			assert.equal(updated.matchOperator, FilterMatchOperator.Or);
@@ -224,7 +282,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Newsletter admin",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			const renamed = await repo.update(accountConfigId, filter.filterId, {
@@ -250,7 +308,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Move to archive",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -275,7 +333,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Trip out-of-office",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -308,7 +366,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Until my trip",
 				scope: FilterScope.Temporary,
-				literalClauses: CLAUSES,
+				rule: RULE,
 				expiresAt: initialExpiresAt,
 				ttl: Math.floor(new Date(initialExpiresAt).getTime() / 1000),
 			});
@@ -340,7 +398,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Until my trip",
 				scope: FilterScope.Temporary,
-				literalClauses: CLAUSES,
+				rule: RULE,
 				expiresAt,
 				ttl: Math.floor(new Date(expiresAt).getTime() / 1000),
 			});
@@ -373,13 +431,13 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Standing",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 			await repo.create({
 				accountConfigId: other,
 				name: "Foreign",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			const all = await repo.listByAccountConfig(accountConfigId);
@@ -406,7 +464,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Standing",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			const result = await repo.refreshExpiry(filter);
@@ -420,7 +478,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Until tomorrow",
 				scope: FilterScope.Temporary,
-				literalClauses: CLAUSES,
+				rule: RULE,
 				expiresAt: future,
 				ttl: Math.floor(new Date(future).getTime() / 1000),
 			});
@@ -436,7 +494,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Until yesterday, awaiting its folder",
 				scope: FilterScope.Temporary,
-				literalClauses: CLAUSES,
+				rule: RULE,
 				expiresAt: past,
 				ttl: Math.floor(new Date(past).getTime() / 1000) + 172_800,
 				state: FilterState.Disabled,
@@ -455,7 +513,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "Until yesterday",
 				scope: FilterScope.Temporary,
-				literalClauses: CLAUSES,
+				rule: RULE,
 				expiresAt: past,
 				ttl: Math.floor(new Date(past).getTime() / 1000) + 172_800,
 			});
@@ -479,7 +537,7 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 				accountConfigId,
 				name: "To delete",
 				scope: FilterScope.Standing,
-				literalClauses: CLAUSES,
+				rule: RULE,
 			});
 
 			await repo.delete(accountConfigId, filter.filterId);
@@ -497,19 +555,19 @@ export const filterRepoSuite = (open: OpenTestStores): void => {
 					accountConfigId,
 					name: "One",
 					scope: FilterScope.Standing,
-					literalClauses: CLAUSES,
+					rule: RULE,
 				}),
 				repo.create({
 					accountConfigId,
 					name: "Two",
 					scope: FilterScope.Standing,
-					literalClauses: CLAUSES,
+					rule: RULE,
 				}),
 				repo.create({
 					accountConfigId,
 					name: "Three",
 					scope: FilterScope.Standing,
-					literalClauses: CLAUSES,
+					rule: RULE,
 				}),
 			]);
 

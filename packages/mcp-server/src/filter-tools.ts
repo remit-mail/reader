@@ -2,6 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
 	FILTER_NO_ACTION,
 	type FilterItem,
+	type FilterTestItem,
+	MAX_FILTER_RULE_DEPTH,
+	MAX_FILTER_RULE_LEAVES,
 	type OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
@@ -9,6 +12,9 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	FilterClauseField,
 	FilterMatchOperator,
+	FilterRuleAddressPart,
+	FilterRuleHeader,
+	FilterRuleMatch,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
@@ -42,6 +48,9 @@ const toFilter = (item: FilterItem) => ({
 	disabledReason: item.disabledReason,
 	matchOperator: item.matchOperator,
 	literalClauses: item.literalClauses,
+	rule: item.rule,
+	priority: item.priority,
+	stop: item.stop,
 	actionLabelId: item.actionLabelId,
 	actionMailboxId: item.actionMailboxId,
 	ruleChangedAt: item.ruleChangedAt,
@@ -86,7 +95,83 @@ const literalClauses = z
 			value: z.string().min(1).max(256).describe("Literal text to match"),
 		}),
 	)
-	.min(1);
+	.min(1)
+	.describe("Literal clauses combined by matchOperator. Send these or rule.");
+
+const ruleMatch = z
+	.enum(FilterRuleMatch)
+	.describe(
+		"Is: the whole value equals key; Contains: key occurs in it. Case-insensitive",
+	);
+
+const ruleKey = z.string().min(1).max(256);
+
+const ruleTests = (): z.ZodType<FilterTestItem[]> =>
+	z.array(ruleTest).max(MAX_FILTER_RULE_LEAVES);
+
+const ruleTest: z.ZodType<FilterTestItem> = z.lazy(() =>
+	z.discriminatedUnion("test", [
+		z
+			.object({ test: z.literal("allof"), tests: ruleTests() })
+			.describe("Matches when every test in tests matches"),
+		z
+			.object({ test: z.literal("anyof"), tests: ruleTests() })
+			.describe("Matches when any test in tests matches"),
+		z
+			.object({ test: z.literal("not"), operand: ruleTest })
+			.describe("Matches when operand does not"),
+		z
+			.object({
+				test: z.literal("header"),
+				match: ruleMatch,
+				header: z
+					.enum(FilterRuleHeader)
+					.describe(
+						"From matches the sender address and name; ListId the normalized List-Id",
+					),
+				key: ruleKey,
+			})
+			.describe("Compares one header with key"),
+		z
+			.object({
+				test: z.literal("address"),
+				match: ruleMatch,
+				part: z
+					.enum(FilterRuleAddressPart)
+					.describe(
+						"Part of the From address: All, Localpart, Domain, or RegistrableDomain (github.com for ci@sub.github.com)",
+					),
+				key: ruleKey,
+			})
+			.describe("Compares one part of the From address with key"),
+		z
+			.object({
+				test: z.literal("hasWords"),
+				words: z.array(ruleKey).min(1),
+			})
+			.describe(
+				"Matches when every word occurs in the sender, subject or body",
+			),
+	]),
+);
+
+const rule = z
+	.object({ version: z.literal(1), test: ruleTest })
+	.describe(
+		`A Sieve-like test tree. Send this or literalClauses, never both. At most ${MAX_FILTER_RULE_LEAVES} header, address or hasWords tests and ${MAX_FILTER_RULE_DEPTH} levels, counting the top test. Example: {"version":1,"test":{"test":"allof","tests":[{"test":"address","match":"Is","part":"RegistrableDomain","key":"github.com"},{"test":"not","operand":{"test":"header","match":"Contains","header":"Subject","key":"security"}}]}}`,
+	);
+
+const priority = z
+	.int()
+	.describe(
+		"Evaluation order: lower runs first; ties go to the most recently changed filter. The first matching filter with a folder decides the move, and labels add up",
+	);
+
+const stop = z
+	.boolean()
+	.describe(
+		"When true, a message this filter matches is not evaluated against any later filter",
+	);
 
 const scope = z
 	.enum(FilterScope)
@@ -130,7 +215,7 @@ export const registerFilterTools = (
 		"list_filters",
 		{
 			description:
-				"List the user's mail filters: what each matches, where it moves or labels mail, and whether it is on. A page at a time.",
+				"List the user's mail filters: what each matches (rule, plus literalClauses when the rule is a flat list), its priority and stop, where it moves or labels mail, and whether it is on. A page at a time.",
 			inputSchema: {
 				accountId,
 				continuationToken: z
@@ -157,14 +242,17 @@ export const registerFilterTools = (
 		"create_filter",
 		{
 			description:
-				"Create a filter that sorts new mail, and queue a job that applies it to existing mail. Returns the filter and the organizeJobId of that job. A target folder must be confirmed by the mail server first.",
+				"Create a filter that sorts new mail, and queue a job that applies it to existing mail. Match with literalClauses for a flat list, or with rule for not, nesting and exact matches. Returns the filter and the organizeJobId of that job. A target folder must be confirmed by the mail server first.",
 			inputSchema: {
 				accountId,
 				name: z.string().min(1).max(256).describe("Name for the filter"),
 				scope: scope.default(FilterScope.Standing),
 				expiresAt: expiresAt.optional(),
 				matchOperator: matchOperator.default(FilterMatchOperator.And),
-				literalClauses,
+				literalClauses: literalClauses.optional(),
+				rule: rule.optional(),
+				priority: priority.default(0),
+				stop: stop.default(false),
 				actionMailboxId: actionMailboxId.default(FILTER_NO_ACTION),
 				actionLabelId: actionLabelId.default(FILTER_NO_ACTION),
 			},
@@ -188,7 +276,7 @@ export const registerFilterTools = (
 		"update_filter",
 		{
 			description:
-				"Change a filter: its name, clauses, target folder or label, scope, expiry, or turn it on or off. Only the fields given change. Set applyToExisting to also queue a job that applies the filter to existing mail; its organizeJobId is returned.",
+				"Change a filter: its name, clauses or rule, priority, stop, target folder or label, scope, expiry, or turn it on or off. Only the fields given change. A filter whose rule has no clause form (literalClauses is empty in list_filters) changes only through rule. Set applyToExisting to also queue a job that applies the filter to existing mail; its organizeJobId is returned.",
 			inputSchema: {
 				accountId,
 				filterId: z.string().min(1).describe("Filter from list_filters"),
@@ -197,6 +285,9 @@ export const registerFilterTools = (
 				expiresAt: expiresAt.optional(),
 				matchOperator: matchOperator.optional(),
 				literalClauses: literalClauses.optional(),
+				rule: rule.optional(),
+				priority: priority.optional(),
+				stop: stop.optional(),
 				actionMailboxId: actionMailboxId.optional(),
 				actionLabelId: actionLabelId.optional(),
 				state: z

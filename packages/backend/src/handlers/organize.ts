@@ -4,6 +4,7 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
+import { filterRuleFromClauses } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger";
 import {
@@ -36,8 +37,10 @@ import type {
 export const predicateFromInput = (
 	input: OrganizeInput,
 ): OrganizePredicate => ({
-	matchOperator: input.matchOperator,
-	literalClauses: input.literalClauses,
+	rule: filterRuleFromClauses({
+		matchOperator: input.matchOperator,
+		literalClauses: input.literalClauses,
+	}),
 	actionLabelId: input.actionLabelId,
 	actionMailboxId: input.actionMailboxId,
 });
@@ -87,10 +90,17 @@ const requestedJob = async (
 		await client.filter.get(owner.accountConfigId, input.filterId);
 		return { ...owner, filterId: input.filterId };
 	}
-	const predicate = predicateFromInput(input);
-	const rejection = organizePredicateRejection(predicate);
+	const rejection = organizePredicateRejection(predicateFromInput(input));
 	if (rejection) throw new BadRequestError(rejection.message);
-	return { ...owner, predicate };
+	return {
+		...owner,
+		predicate: {
+			matchOperator: input.matchOperator,
+			literalClauses: input.literalClauses,
+			actionLabelId: input.actionLabelId,
+			actionMailboxId: input.actionMailboxId,
+		},
+	};
 };
 
 export const OrganizeOperations = {
