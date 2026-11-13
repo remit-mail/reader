@@ -51,7 +51,7 @@ export interface McpDeps {
 		IFilterRepository,
 		"listPageByAccountConfig" | "refreshExpiry" | "create" | "get" | "update"
 	>;
-	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create">;
+	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create" | "get">;
 	storage: Pick<StorageService, "retrieveBodyPart">;
 	bodySync: BodyPartMaterializer;
 	bodySyncQueue: BodySyncCue;
