@@ -14,7 +14,7 @@ export type OpenTestStores = () => Promise<{
 	close: () => Promise<void>;
 }>;
 
-/** The whole schema on one in-memory better-sqlite3 handle that plays all three databases. */
+/** The whole schema on one in-memory node:sqlite handle that plays all three databases. */
 export const openSqliteTestStores: OpenTestStores = async () => {
 	const { db, close } = await createTestDb();
 	return {
@@ -26,7 +26,7 @@ export const openSqliteTestStores: OpenTestStores = async () => {
 	};
 };
 
-/** The three calendar tables alone on one in-memory better-sqlite3 handle. */
+/** The three calendar tables alone on one in-memory node:sqlite handle. */
 export const openCalendarSqliteTestStores: OpenTestStores = async () => {
 	const { db, close } = await createSqliteTestDb({
 		calendars: calendarTable,

@@ -45,7 +45,7 @@ function makeInput(
 	};
 }
 
-// A real better-sqlite3 database with the FTS5 objects the migrator
+// A real node:sqlite database with the FTS5 objects the migrator
 // installs, so the search predicates run their shipped path.
 const setupDb = () =>
 	createSqliteTestDb(

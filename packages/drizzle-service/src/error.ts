@@ -14,21 +14,20 @@ export class NotImplementedError extends Error {
 	statusCode = 501;
 }
 
-// better-sqlite3 raises a `SqliteError` whose `.code` is one of these for a
-// primary-key or unique-index collision (RFC 036 D1).
-const SQLITE_UNIQUE_VIOLATIONS = new Set([
-	"SQLITE_CONSTRAINT_UNIQUE",
-	"SQLITE_CONSTRAINT_PRIMARYKEY",
-]);
+// node:sqlite raises an error whose `errcode` is the SQLite extended result
+// code: SQLITE_CONSTRAINT_UNIQUE (2067) or SQLITE_CONSTRAINT_PRIMARYKEY (1555)
+// for a unique-index or primary-key collision (RFC 036 D1).
+const SQLITE_UNIQUE_VIOLATIONS = new Set([2067, 1555]);
 
 // Drizzle wraps the underlying driver error and carries the original (with its
-// SQLite `code`) on `.cause`, so walk the cause chain.
+// `errcode`) on `.cause`, so walk the cause chain.
 export const isUniqueViolation = (error: unknown): boolean => {
 	let current: unknown = error;
-	while (current) {
-		const code = (current as { code?: string }).code;
-		if (code !== undefined && SQLITE_UNIQUE_VIOLATIONS.has(code)) return true;
-		current = (current as { cause?: unknown }).cause;
+	while (current instanceof Error) {
+		const errcode: unknown = Reflect.get(current, "errcode");
+		if (typeof errcode === "number" && SQLITE_UNIQUE_VIOLATIONS.has(errcode))
+			return true;
+		current = current.cause;
 	}
 	return false;
 };

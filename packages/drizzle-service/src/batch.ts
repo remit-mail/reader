@@ -48,7 +48,7 @@ const emptyResponse = <
 >(): BatchResponse<T> => [] as unknown as BatchResponse<T>;
 
 /**
- * A batch as one synchronous transaction. On better-sqlite3 it is IMMEDIATE:
+ * A batch as one synchronous transaction. On node:sqlite it is IMMEDIATE:
  * it never yields the event loop, so no other write on the shared connection
  * lands inside it, and it takes the file's write lock before the first
  * statement so a writer in another process waits out the busy timeout. On a

@@ -14,7 +14,7 @@ import { messageObjectsInMemory } from "./message-objects.js";
 
 const SCHEMA = { ...messageDataSchema, threadMessages: threadMessageTable };
 
-// Runs the ported message repo against a real better-sqlite3 database
+// Runs the ported message repo against a real node:sqlite database
 // (RFC 036 D1). Exercises the SQLite-specific seams: the batched delete, the
 // unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
 

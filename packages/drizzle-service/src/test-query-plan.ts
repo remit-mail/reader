@@ -1,20 +1,21 @@
 import assert from "node:assert/strict";
-import type { SqliteConnection } from "./sqlite.js";
+import { type SqliteConnection, sqliteDriver } from "./sqlite.js";
 
 export const selectsIssuedDuring = async (
 	sqlite: SqliteConnection,
 	run: () => Promise<unknown>,
 ): Promise<string[]> => {
 	const captured: string[] = [];
-	const original = sqlite.prepare.bind(sqlite);
-	sqlite.prepare = ((source: string) => {
+	const driver = sqliteDriver(sqlite);
+	const original = driver.prepare.bind(driver);
+	driver.prepare = (source: string) => {
 		captured.push(source);
 		return original(source);
-	}) as typeof sqlite.prepare;
+	};
 	try {
 		await run();
 	} finally {
-		sqlite.prepare = original as typeof sqlite.prepare;
+		Reflect.deleteProperty(driver, "prepare");
 	}
 	const selects = captured.filter((source) => /^\s*select/i.test(source));
 	assert.ok(selects.length > 0, "the repo issued a select");

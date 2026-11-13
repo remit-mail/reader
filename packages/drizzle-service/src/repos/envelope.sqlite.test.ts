@@ -11,7 +11,7 @@ import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
 // Envelope repo on sqlite (RFC 036 D1): the onConflictDoUpdate upsert path and
-// the transactional body-part upsert both run on better-sqlite3 unchanged.
+// the transactional body-part upsert both run on node:sqlite unchanged.
 
 const MESSAGE_ID = "00000000-0000-0000-4444-000000000001";
 
