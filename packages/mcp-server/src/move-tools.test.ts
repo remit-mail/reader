@@ -78,6 +78,7 @@ beforeEach(async () => {
 			silentLog,
 		),
 		bodySyncQueue: client.bodySyncQueue,
+		rescan: client.rescan,
 		logger: silentLog,
 		folders: {
 			mailboxQueue: client.mailboxQueue,

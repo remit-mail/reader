@@ -1,4 +1,8 @@
 import type {
+	SpamModel,
+	SpamModelAnswer,
+	SpamModelSkip,
+	SpamReason,
 	SpamRequest,
 	SpamResponse,
 	SpamService,
@@ -14,6 +18,7 @@ import {
 import type { Tldts } from "./display-name.js";
 
 type Action = (typeof SpamAction)[keyof typeof SpamAction];
+type ReasonName = (typeof SpamReasonName)[keyof typeof SpamReasonName];
 type Checked = Extract<SpamResponse, { state: "Checked" }>;
 
 /**
@@ -97,11 +102,89 @@ export const judge = (
 	};
 };
 
+const inBand = (score: number, thresholds: SpamThresholds): boolean =>
+	thresholds.state === "Set" &&
+	score >= thresholds.cleanBelow &&
+	score < thresholds.spamAt;
+
+const SKIPPED: Record<SpamModelSkip, ReasonName> = {
+	DailyLimit: SpamReasonName.ModelDailyLimit,
+	RateLimited: SpamReasonName.ModelRateLimited,
+	Failed: SpamReasonName.ModelFailed,
+};
+
+const ANSWERED: Record<SpamModelAnswer["verdict"], ReasonName> = {
+	Impersonation: SpamReasonName.ModelImpersonation,
+	Spam: SpamReasonName.ModelSpam,
+	Clean: SpamReasonName.ModelClean,
+};
+
+const note = (name: ReasonName): SpamReason => ({
+	name,
+	symbol: name,
+	score: 0,
+	options: [],
+});
+
+/**
+ * Stage 3: a message stage 2 leaves between the thresholds gets one model
+ * call, when the request allows one. The model's score replaces stage 2's,
+ * since the model saw stage 2's reasons. A message still in the band, or
+ * never sent to the model, gets `Warn`; a skipped call names its cause.
+ */
+export const judgeWithModel = async (
+	request: SpamRequest,
+	thresholds: SpamThresholds,
+	tldts: Tldts,
+	model: SpamModel,
+): Promise<Checked> => {
+	const checked = judge(request, thresholds, tldts);
+	if (!inBand(checked.score, thresholds)) return checked;
+	if (!request.context.modelAllowed) {
+		return {
+			...checked,
+			reasons: [...checked.reasons, note(SpamReasonName.ModelNotConfigured)],
+		};
+	}
+	const outcome = await model.ask(request, checked.reasons);
+	if (outcome.state === "Skipped") {
+		return {
+			...checked,
+			reasons: [...checked.reasons, note(SKIPPED[outcome.cause])],
+			modelCalled: outcome.cause !== "DailyLimit",
+		};
+	}
+	const { answer } = outcome;
+	const score = Math.round(answer.score * 10_000) / 10_000;
+	const name = ANSWERED[answer.verdict];
+	return {
+		state: "Checked",
+		score,
+		action: actionOf(score, thresholds),
+		kind: answer.verdict === "Impersonation" ? SpamKind.Phishing : checked.kind,
+		reasons: [
+			...checked.reasons,
+			{
+				name,
+				symbol: name,
+				score,
+				options: answer.reason === "" ? [] : [answer.reason],
+			},
+		],
+		modelCalled: true,
+	};
+};
+
 /** The inline backend: the judge running inside Remit. */
 export class InlineSpamService implements SpamService {
 	constructor(private readonly thresholds: SpamThresholds) {}
 
-	async check(request: SpamRequest): Promise<SpamResponse> {
-		return judge(request, this.thresholds, await import("tldts"));
+	async check(request: SpamRequest, model: SpamModel): Promise<SpamResponse> {
+		return judgeWithModel(
+			request,
+			this.thresholds,
+			await import("tldts"),
+			model,
+		);
 	}
 }

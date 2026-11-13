@@ -155,15 +155,6 @@ export const TARGETS = [
 		entry: "packages/backend/scripts/backfill-list-id.ts",
 		outfile: "dist-docker/backend/backfill-list-id.mjs",
 	},
-	// Same shape again, for the one-time classification backfill over the
-	// stored-body cohort the classifier never examined (issue #1197) — the
-	// same manual, run-once-per-install shape as
-	// backend-backfill-list-id.
-	{
-		name: "backend-backfill-classification",
-		entry: "packages/backend/scripts/backfill-classification.ts",
-		outfile: "dist-docker/backend/backfill-classification.mjs",
-	},
 	// `remit config save` (issue #1021). The same shape again, and for the same
 	// reason the exec seam exists: the operator runs it before a migration drops
 	// the database, with no browser and no session, over the identical reader

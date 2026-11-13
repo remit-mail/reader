@@ -54,6 +54,7 @@ import {
 	OutboxQueueService,
 	PlacementMoveService,
 	RdapClient,
+	RescanService,
 	type SpamConfig,
 	SpamReportService,
 	SyncWarningService,
@@ -204,6 +205,7 @@ export interface BodyQueueServices {
 
 export interface ReadPathServices {
 	bodySync: BodySyncService;
+	rescan: RescanService;
 }
 
 export type RemitClient<K extends QueueName = QueueName> = RemitClientCore & {
@@ -466,44 +468,71 @@ export const composeReadPathServices = (
 	core: RemitClientCore,
 	queues: Pick<RemitClientQueues, "messageManagement">,
 	sync: Pick<SyncQueueServices, "flagQueue">,
-): ReadPathServices => ({
-	// The flag service is the one `flagQueue` is (issue #302): body sync
-	// auto-marks-read a message from an unsubscribed sender through the exact
-	// same `FlagQueueService.markAsRead` a manual mark-as-read goes through.
-	bodySync: new BodySyncService(
-		core.message,
-		core.storage,
-		core.threadMessage,
-		core.address,
-		core.envelope,
-		new SyncWarningService(core.syncWarning),
-		core.spam,
+): ReadPathServices => {
+	const classifierConfig = {
+		accountSetting: core.accountSetting,
+		accountConfig: core.accountConfig,
+		classificationDefault: core.classificationDefault,
+		secrets: core.secrets,
+		labelService: core.label,
+		messageLabelService: core.messageLabel,
 		logger,
-		undefined,
-		buildReadPathFilterConfig(core, queues),
-		undefined,
-		{ flagQueueService: sync.flagQueue },
-		// The read-path backfill materializes a body the sync path never got to,
-		// so it is a message's first sight as much as the sync pass is — and an
-		// invitation the user opens before background sync must still get its
-		// card (issue #1033, the same argument as the filter wiring above).
-		{
-			calendarSuggestionService: core.calendarSuggestion,
-			calendarStore: core.calendarStore,
-			filterService: core.filter,
-			accountService: core.account,
-		},
-		{
-			accountSetting: core.accountSetting,
-			accountConfig: core.accountConfig,
-			classificationDefault: core.classificationDefault,
-			secrets: core.secrets,
-			labelService: core.label,
-			messageLabelService: core.messageLabel,
+	};
+	return {
+		// The flag service is the one `flagQueue` is (issue #302): body sync
+		// auto-marks-read a message from an unsubscribed sender through the exact
+		// same `FlagQueueService.markAsRead` a manual mark-as-read goes through.
+		bodySync: new BodySyncService(
+			core.message,
+			core.storage,
+			core.threadMessage,
+			core.address,
+			core.envelope,
+			new SyncWarningService(core.syncWarning),
+			core.spam,
 			logger,
-		},
-	),
-});
+			undefined,
+			buildReadPathFilterConfig(core, queues),
+			undefined,
+			{ flagQueueService: sync.flagQueue },
+			// The read-path backfill materializes a body the sync path never got to,
+			// so it is a message's first sight as much as the sync pass is — and an
+			// invitation the user opens before background sync must still get its
+			// card (issue #1033, the same argument as the filter wiring above).
+			{
+				calendarSuggestionService: core.calendarSuggestion,
+				calendarStore: core.calendarStore,
+				filterService: core.filter,
+				accountService: core.account,
+			},
+			classifierConfig,
+		),
+		rescan: new RescanService({
+			message: core.message,
+			messageFlag: core.messageFlag,
+			messageLabel: core.messageLabel,
+			mailbox: core.mailbox,
+			address: core.address,
+			threadMessage: core.threadMessage,
+			storage: core.storage,
+			spam: core.spam,
+			classifier: classifierConfig,
+			placement: {
+				mailboxSpecialUseService: core.mailboxSpecialUse,
+				placementMoveService: new PlacementMoveService({
+					messageService: core.message,
+					threadMessageService: core.threadMessage,
+					markerService: core.placementMove,
+					addressService: core.address,
+					mailboxSpecialUseService: core.mailboxSpecialUse,
+					mailboxService: core.mailbox,
+					queue: queues.messageManagement,
+				}),
+				log: logger,
+			},
+		}),
+	};
+};
 
 export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 	const { queues } = deps;

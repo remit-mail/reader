@@ -18,6 +18,7 @@ import "./Address.tsp";
 
 // Spam and phishing (RFC 041)
 import "./Spam.tsp";
+import "./Rescan.tsp";
 import "./DomainRegistration.tsp";
 
 // Sender authenticity

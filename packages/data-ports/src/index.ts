@@ -103,6 +103,10 @@ export {
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type {
 	SpamDeployment,
+	SpamModel,
+	SpamModelAnswer,
+	SpamModelOutcome,
+	SpamModelSkip,
 	SpamService,
 	SpamThresholds,
 } from "./interfaces/spam.js";
@@ -225,10 +229,14 @@ export type {
 	QuarantineUpsertInput,
 	RawMessageStorageItem,
 	RemovableAccountField,
+	RescanFailureItem,
+	RescanResultItem,
+	RescanSuccessItem,
 	ResultList,
 	SearchOptions,
 	SenderSignerStandingItem,
 	SentDateRange,
+	SpamReason,
 	SpamRequest,
 	SpamResponse,
 	SyncWarningItem,

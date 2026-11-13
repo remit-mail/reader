@@ -77,9 +77,9 @@ const bodySync = (): BodySyncService => {
 		spamAt: 0.05,
 	});
 	const spamService: SpamService = {
-		check: (request) => {
+		check: (request, model) => {
 			world.requests.push(request);
-			return inline.check(request);
+			return inline.check(request, model);
 		},
 	};
 	const placementMoveService = new PlacementMoveService({

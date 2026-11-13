@@ -12,10 +12,10 @@ export type ClassificationLabelDeps = Pick<
 	"create" | "findByNormalizedName"
 >;
 
-const ensureLabel = async (
+export const ensureLabel = async (
 	label: ClassificationLabelDeps,
 	accountConfigId: string,
-	name: ClassificationLabelName,
+	name: string,
 ): Promise<LabelItem> => {
 	const existing = await label.findByNormalizedName(
 		accountConfigId,

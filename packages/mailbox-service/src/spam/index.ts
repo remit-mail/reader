@@ -4,6 +4,7 @@ import type {
 	IAddressRepository,
 	IDomainRegistrationRepository,
 	MessageSpamVerdict,
+	SpamModel,
 	SpamService,
 } from "@remit/data-ports";
 import type { AuthResultVerdict } from "@remit/domain-enums";
@@ -18,7 +19,8 @@ import {
 } from "./rdap.js";
 import { screen } from "./screen.js";
 
-export { InlineSpamService, judge } from "./judge.js";
+export { InlineSpamService, judge, judgeWithModel } from "./judge.js";
+export { NO_SPAM_MODEL, type SpamModelAccount, spamModelFor } from "./model.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";
 
 /** What body sync needs to record a spam verdict (RFC 041). */
@@ -40,6 +42,7 @@ export interface SpamArrival {
 	sender: SenderPlacement;
 	filterDecision: FilterDecision;
 	classifierScores: ClassifierScoreItem[];
+	model: SpamModel;
 	modelAllowed: boolean;
 	hasListUnsubscribe: boolean;
 	dmarc: (typeof AuthResultVerdict)[keyof typeof AuthResultVerdict] | undefined;
@@ -91,5 +94,5 @@ export const decideSpamVerdict = async (
 		},
 		tldts,
 	);
-	return config.spamService.check(request);
+	return config.spamService.check(request, arrival.model);
 };

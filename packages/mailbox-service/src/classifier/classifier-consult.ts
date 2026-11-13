@@ -6,6 +6,7 @@ import {
 import { SenderOverride } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
 import { classifyWithProvider } from "./classifier-adapter.js";
+import type { ClassificationFailureKindValue } from "./classifier-failure.js";
 import {
 	type ClassifierConfig,
 	type ClassifierGate,
@@ -21,7 +22,7 @@ import { CLASSIFIER_LABELS } from "./index.js";
 export type ClassifierConsultation =
 	| { state: "NotAsked" }
 	| { state: "AtLimit" }
-	| { state: "NoAnswer" }
+	| { state: "NoAnswer"; kind: ClassificationFailureKindValue }
 	| {
 			state: "Answered";
 			verdict: ClassifierVerdict;
@@ -54,7 +55,7 @@ export const consultClassifier = async (
 		},
 		{ logger: config.logger },
 	);
-	if (!result.ok) return { state: "NoAnswer" };
+	if (!result.ok) return { state: "NoAnswer", kind: result.kind };
 	const answer = {
 		scores: result.scores,
 		confidenceKind: result.confidenceKind,

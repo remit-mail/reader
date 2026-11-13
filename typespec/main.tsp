@@ -1365,6 +1365,20 @@ namespace RemitApi {
       | UnauthorizedError;
   }
 
+  @route("/accounts/{accountId}/messages")
+  namespace AccountMessageOperations {
+    @doc("Check up to 10 messages again with the category classifier and the spam service (RFC 041), and answer once they are done. Sets a category only on mail that is still uncategorized, and never labels a message the owner marked Not spam. Writes verdicts and labels; with `move` it also applies placement. The call succeeds when some messages fail: each lands in `successful` or `failed`.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/rescan")
+    op rescanMessages(@path accountId: UUID, @body input: RescanInput):
+      | RescanResult
+      | ValidationError
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
+  }
+
   @route("/messages")
   namespace MessageBulkOperations {
     @doc("Update flags on multiple messages")

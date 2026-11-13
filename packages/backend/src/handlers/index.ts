@@ -49,6 +49,7 @@ import {
 	OutboxOperations,
 } from "./outbox.js";
 import { PeopleOperations } from "./people.js";
+import { AccountMessageOperations } from "./rescan.js";
 import { SyncOperations } from "./sync.js";
 import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
@@ -89,6 +90,7 @@ export const handlers = {
 	...ThreadOperations,
 	...MessageOperations,
 	...MessageBulkOperations,
+	...AccountMessageOperations,
 	...OutboxOperations,
 	...OutboxDetailOperations,
 	...OutboxAttachmentOperations,
