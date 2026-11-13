@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { syncBatch, type WriteBatch } from "./batch.js";
 import type { Db } from "./db.js";
 import { calendarTable } from "./schema.js";
+import type { SqliteHandle } from "./sqlite.js";
 import { createSqliteTestDb } from "./test-db-sqlite.js";
 import { failedWith } from "./test-error.js";
 
@@ -27,16 +28,16 @@ const collection = (calendarId: string): typeof calendarTable.$inferInsert => ({
 
 describe("a batch on node:sqlite", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(SCHEMA));
+		({ db, immediate, close } = await createSqliteTestDb(SCHEMA));
 	});
 
 	after(() => close());
 
-	const batch: WriteBatch = (items) =>
-		syncBatch((work) => db.transaction(work))(items);
+	const batch: WriteBatch = (items) => syncBatch(immediate)(items);
 
 	const stored = () => db.select().from(calendarTable);
 

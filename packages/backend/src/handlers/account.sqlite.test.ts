@@ -134,7 +134,7 @@ beforeEach(async () => {
 	const store = createShippedSqliteDb();
 	close = store.close;
 	const repos = createSqliteRepositories(
-		sharedDatabases(store.db),
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

@@ -61,7 +61,7 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		close = testDb.close;
 		db = testDb.db;
 		const repos = createSqliteRepositories(
-			sharedDatabases(testDb.db),
+			sharedDatabases(testDb),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);

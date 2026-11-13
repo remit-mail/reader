@@ -4,6 +4,7 @@ import type { BodyPartUpsertInput } from "@remit/data-ports";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { Db } from "../db.js";
 import { envelopeId as deriveEnvelopeId } from "../id.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { sharedDatabases } from "../test-sqlite.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
@@ -12,6 +13,7 @@ import { createTestDb } from "./test-helpers.js";
 
 describe("DrizzleEnvelopeRepository", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let stop: () => Promise<void>;
 	let repo: DrizzleEnvelopeRepository;
 
@@ -22,9 +24,9 @@ describe("DrizzleEnvelopeRepository", () => {
 	const NOW = 1700000000000;
 
 	before(async () => {
-		({ db, stop } = await createTestDb());
+		({ db, immediate, stop } = await createTestDb());
 		repo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).envelope;

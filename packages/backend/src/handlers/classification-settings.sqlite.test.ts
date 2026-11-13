@@ -139,7 +139,7 @@ beforeEach(async () => {
 	close = store.close;
 	classificationDefault = { state: "None" };
 	repos = createSqliteRepositories(
-		sharedDatabases(store.db),
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { Db } from "../db.js";
 import { messageDataSchema } from "../schema/message-data.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { sharedDatabases } from "../test-sqlite.js";
@@ -16,13 +17,14 @@ const MESSAGE_ID = "00000000-0000-0000-4444-000000000001";
 
 describe("DrizzleEnvelopeRepository (sqlite)", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 	let repo: DrizzleEnvelopeRepository;
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(messageDataSchema));
+		({ db, immediate, close } = await createSqliteTestDb(messageDataSchema));
 		repo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).envelope;

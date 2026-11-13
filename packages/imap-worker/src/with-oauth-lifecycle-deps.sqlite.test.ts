@@ -83,7 +83,7 @@ before(() => {
 	const db = createShippedSqliteDb();
 	close = db.close;
 	repo = createSqliteRepositories(
-		sharedDatabases(db.db),
+		sharedDatabases(db),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).account;

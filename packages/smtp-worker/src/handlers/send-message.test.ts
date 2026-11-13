@@ -69,7 +69,7 @@ interface World {
 const openWorld = async (smtpOptions: FakeSmtpOptions = {}): Promise<World> => {
 	const store = createShippedSqliteDb();
 	const repos = createSqliteRepositories(
-		sharedDatabases(store.db),
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

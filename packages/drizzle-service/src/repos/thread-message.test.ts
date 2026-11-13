@@ -97,7 +97,7 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 		const harness = await setupDb();
 		close = harness.close;
 		repo = createSqliteRepositories(
-			sharedDatabases(harness.db),
+			sharedDatabases(harness),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;
@@ -403,7 +403,7 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 		const harness = await setupDb();
 		close = harness.close;
 		const repositories = createSqliteRepositories(
-			sharedDatabases(harness.db),
+			sharedDatabases(harness),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);
@@ -938,7 +938,7 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 		const harness = await setupDb();
 		close = harness.close;
 		repo = createSqliteRepositories(
-			sharedDatabases(harness.db),
+			sharedDatabases(harness),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;
@@ -1114,7 +1114,7 @@ describe("DrizzleThreadMessageRepository — core CRUD", () => {
 		const harness = await setupDb();
 		close = harness.close;
 		repo = createSqliteRepositories(
-			sharedDatabases(harness.db),
+			sharedDatabases(harness),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;

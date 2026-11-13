@@ -4,7 +4,6 @@ import {
 	type SqliteDatabasePaths,
 	type SqliteDatabases,
 } from "./databases.js";
-import type { Db } from "./db.js";
 import { openSqlite, openTestSqlite, type SqliteHandle } from "./sqlite.js";
 import { statementLog } from "./test-query-plan.js";
 import {
@@ -63,8 +62,11 @@ export const createShippedSqliteFiles = (
 	return paths;
 };
 
-export const sharedDatabases = (db: Db): SqliteDatabases => {
-	const run = (work: () => unknown[]): unknown[] => db.transaction(work);
+export const sharedDatabases = ({
+	db,
+	immediate,
+}: Pick<SqliteHandle, "db" | "immediate">): SqliteDatabases => {
+	const run = (work: () => unknown[]): unknown[] => immediate(work);
 	return {
 		app: db,
 		mail: db,

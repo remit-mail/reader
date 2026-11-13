@@ -27,6 +27,7 @@ const RESCUE = {
 
 describe("thread-message search by sender trust and DKIM (sqlite)", () => {
 	let db: Awaited<ReturnType<typeof createSqliteTestDb>>["db"];
+	let immediate: Awaited<ReturnType<typeof createSqliteTestDb>>["immediate"];
 	let close: () => Promise<void>;
 	let repo: DrizzleThreadMessageRepository;
 	let sequence = 0;
@@ -91,7 +92,7 @@ describe("thread-message search by sender trust and DKIM (sqlite)", () => {
 	const trusted: string[] = [];
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(
+		({ db, immediate, close } = await createSqliteTestDb(
 			{
 				threadMessage: threadMessageTable,
 				address: addressTable,
@@ -101,7 +102,7 @@ describe("thread-message search by sender trust and DKIM (sqlite)", () => {
 			{ searchIndex: true },
 		));
 		repo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;

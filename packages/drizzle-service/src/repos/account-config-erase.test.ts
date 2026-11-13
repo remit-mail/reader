@@ -11,6 +11,7 @@ import { syncStores } from "../databases.js";
 import type { Db } from "../db.js";
 import * as appTables from "../schema-sets/app.js";
 import * as mailTables from "../schema-sets/mail.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createTestDb } from "../test-db.js";
 import { sharedDatabases } from "../test-sqlite.js";
 import { runDrizzleAccountConfigErase } from "./account-config-erase.js";
@@ -80,16 +81,20 @@ const countOf = async (
 
 describe("runDrizzleAccountConfigErase", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 
 	before(async () => {
-		({ db, close } = await createTestDb());
+		({ db, immediate, close } = await createTestDb());
 		for (const tenant of [ERASED, KEPT]) {
 			for (const { table } of owned) {
 				await db.insert(table).values(rowOf(table, tenant) as never);
 			}
 		}
-		const stores = syncStores(sharedDatabases(db), NODE_SQLITE_LIMITS);
+		const stores = syncStores(
+			sharedDatabases({ db, immediate }),
+			NODE_SQLITE_LIMITS,
+		);
 		await runDrizzleAccountConfigErase(stores, ERASED, log);
 	});
 

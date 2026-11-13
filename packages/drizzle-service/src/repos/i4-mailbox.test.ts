@@ -15,6 +15,7 @@ import {
 	messageTable,
 	threadMessageTable,
 } from "../schema.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
 import { sharedDatabases } from "../test-sqlite.js";
@@ -53,13 +54,14 @@ function makeMailboxInput(accountId: string, fullPath = "INBOX") {
 
 describe("MailboxRepo", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 	let repo: MailboxRepo;
 
 	before(async () => {
-		({ db, close } = await createTestDb());
+		({ db, immediate, close } = await createTestDb());
 		repo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
@@ -548,7 +550,7 @@ describe("MailboxRepo", () => {
 		const seedMessage = async (mailboxId: string, uid: number) => {
 			const messageId = randomId();
 			await createSqliteRepositories(
-				sharedDatabases(db),
+				sharedDatabases({ db, immediate }),
 				NODE_SQLITE_LIMITS,
 				messageObjectsInMemory(),
 			).message.create({
@@ -677,9 +679,7 @@ describe("MailboxRepo", () => {
 
 			// The shape an interruption leaves: one message's rows already gone,
 			// the mailbox row still there and still `deleting`.
-			await syncBatch((work) => db.transaction(work))(
-				deleteMessageSubtree(db, [first]).statements,
-			);
+			await syncBatch(immediate)(deleteMessageSubtree(db, [first]).statements);
 			await repo.transition(accountId, mailbox.mailboxId, {
 				from: EVERY_STATE,
 				to: MailboxSyncStatus.deleting,

@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { syncBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { ForbiddenError, NotFoundError } from "../error.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createTestDb, randomId } from "../test-db.js";
 import { OutboxMessageRepo } from "./i4-outbox-message.js";
 
@@ -19,15 +20,13 @@ function makeOutboxInput(accountId: string, accountConfigId: string) {
 
 describe("OutboxMessageRepo", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 	let repo: OutboxMessageRepo;
 
 	before(async () => {
-		({ db, close } = await createTestDb());
-		repo = new OutboxMessageRepo(
-			db as never,
-			syncBatch((work) => db.transaction(work)),
-		);
+		({ db, immediate, close } = await createTestDb());
+		repo = new OutboxMessageRepo(db as never, syncBatch(immediate));
 	});
 
 	after(async () => {

@@ -191,7 +191,7 @@ describe("addresses standing only on mail in Junk", () => {
 		sqlite = handle.sqlite;
 		const { db } = handle;
 		specialUse = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases(handle),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailboxSpecialUse;

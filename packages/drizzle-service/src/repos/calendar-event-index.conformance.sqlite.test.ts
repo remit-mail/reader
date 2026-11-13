@@ -11,12 +11,16 @@ let close: (() => Promise<void>) | undefined;
 
 calendarEventIndexRepositoryConformance({
 	async createRepository() {
-		const { db, close: closeDb } = await createSqliteTestDb({
+		const {
+			db,
+			immediate,
+			close: closeDb,
+		} = await createSqliteTestDb({
 			calendarEventIndexes: calendarEventIndexTable,
 		});
 		close = closeDb;
 		return new CalendarEventIndexRepo(
-			syncStore(db, NODE_SQLITE_LIMITS, (work) => db.transaction(work)),
+			syncStore(db, NODE_SQLITE_LIMITS, immediate),
 		);
 	},
 	teardown: async () => {

@@ -52,12 +52,13 @@ function makeInput(
 
 describe("DrizzleThreadMessageRepository (sqlite)", () => {
 	let db: Awaited<ReturnType<typeof createSqliteTestDb>>["db"];
+	let immediate: Awaited<ReturnType<typeof createSqliteTestDb>>["immediate"];
 	let sqlite: Awaited<ReturnType<typeof createSqliteTestDb>>["sqlite"];
 	let close: () => Promise<void>;
 	let repo: DrizzleThreadMessageRepository;
 
 	before(async () => {
-		({ db, sqlite, close } = await createSqliteTestDb(
+		({ db, immediate, sqlite, close } = await createSqliteTestDb(
 			{
 				threadMessage: threadMessageTable,
 				messageSearchText: messageSearchTextTable,
@@ -65,7 +66,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 			{ searchIndex: true },
 		));
 		repo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;

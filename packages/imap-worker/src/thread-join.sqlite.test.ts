@@ -62,9 +62,9 @@ const REPLY = message(2, "<r@example.com>", "<p@example.com>");
 const syncInOrder = async (
 	messages: ImapMessage[],
 ): Promise<{ threadIds: (messageId: string) => string[] }> => {
-	const { db, sqlite } = createShippedSqliteDb();
+	const { db, sqlite, immediate } = createShippedSqliteDb();
 	const repos = createSqliteRepositories(
-		sharedDatabases(db),
+		sharedDatabases({ db, immediate }),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

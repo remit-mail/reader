@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { Db } from "../db.js";
-import type { SqliteConnection } from "../sqlite.js";
+import type { SqliteConnection, SqliteHandle } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb } from "../test-db.js";
 import { sharedDatabases } from "../test-sqlite.js";
@@ -14,6 +14,7 @@ const CONFIG = "cfg-1";
 
 describe("reconciling one message's addresses at the moment it moves", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let sqlite: SqliteConnection;
 	let exec: (sql: string) => void;
 	let close: () => Promise<void>;
@@ -128,10 +129,10 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 		).items.map((item) => item.addressId);
 
 	before(async () => {
-		({ db, sqlite, exec, close } = await createTestDb());
+		({ db, immediate, sqlite, exec, close } = await createTestDb());
 		repo = new AddressRepo(db as never);
 		specialUse = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailboxSpecialUse;

@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import * as schema from "./schema.js";
-import type { SqliteConnection } from "./sqlite.js";
+import type { SqliteConnection, SqliteHandle } from "./sqlite.js";
 import { createSqliteTestDb } from "./test-db-sqlite.js";
 
 /**
@@ -12,6 +12,7 @@ export async function createTestDb(): Promise<{
 	db: Db;
 	sqlite: SqliteConnection;
 	exec: (sql: string) => void;
+	immediate: SqliteHandle["immediate"];
 	close: () => Promise<void>;
 }> {
 	return createSqliteTestDb(schema, { searchIndex: true });

@@ -63,7 +63,7 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 		);
 		close = created.close;
 		repo = createSqliteRepositories(
-			sharedDatabases(created.db),
+			sharedDatabases(created),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;

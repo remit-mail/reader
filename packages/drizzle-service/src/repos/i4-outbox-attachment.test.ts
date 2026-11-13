@@ -32,7 +32,7 @@ const input = (
 before(async () => {
 	harness = await createTestDb();
 	repo = createSqliteRepositories(
-		sharedDatabases(harness.db),
+		sharedDatabases(harness),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).outboxAttachment;

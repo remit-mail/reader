@@ -21,6 +21,7 @@ import {
 	quarantineTable,
 	threadMessageTable,
 } from "../schema.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createTestDb } from "../test-db.js";
 import { sharedDatabases } from "../test-sqlite.js";
 import {
@@ -48,10 +49,11 @@ const QUARANTINE_ID = "quarantine-cascade-1";
 
 describe("runDrizzleCascadeDelete", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 
 	before(async () => {
-		({ db, close } = await createTestDb());
+		({ db, immediate, close } = await createTestDb());
 
 		await db.insert(accountTable).values({
 			accountId: ACCOUNT_ID,
@@ -303,7 +305,7 @@ describe("runDrizzleCascadeDelete", () => {
 
 	test("deletes every enumerated row across all tables", async () => {
 		await runDrizzleCascadeDelete(
-			syncStores(sharedDatabases(db), NODE_SQLITE_LIMITS),
+			syncStores(sharedDatabases({ db, immediate }), NODE_SQLITE_LIMITS),
 			entities,
 			log,
 		);
@@ -442,7 +444,7 @@ describe("runDrizzleCascadeDelete", () => {
 		await assert.rejects(
 			() =>
 				runDrizzleCascadeDelete(
-					syncStores(sharedDatabases(db), NODE_SQLITE_LIMITS),
+					syncStores(sharedDatabases({ db, immediate }), NODE_SQLITE_LIMITS),
 					[{ entityType: "Nonsense", key: { id: "x" } }],
 					log,
 				),

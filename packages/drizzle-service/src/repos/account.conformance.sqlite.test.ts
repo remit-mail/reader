@@ -12,12 +12,16 @@ let close: (() => Promise<void>) | undefined;
 
 accountRepositoryConformance({
 	async createRepository() {
-		const { db, close: closeDb } = await createSqliteTestDb({
+		const {
+			db,
+			immediate,
+			close: closeDb,
+		} = await createSqliteTestDb({
 			accounts: accountTable,
 		});
 		close = closeDb;
 		return createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).account;

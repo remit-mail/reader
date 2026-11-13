@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { Db } from "../db.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
 import { sharedDatabases } from "../test-sqlite.js";
@@ -25,13 +26,14 @@ function makeAccountInput(accountConfigId: string) {
 
 describe("AccountRepo", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 	let repo: AccountRepo;
 
 	before(async () => {
-		({ db, close } = await createTestDb());
+		({ db, immediate, close } = await createTestDb());
 		repo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).account;
@@ -169,7 +171,7 @@ describe("AccountRepo", () => {
 		const account = await repo.create(makeAccountInput(accountConfigId));
 
 		const mailboxRepo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;

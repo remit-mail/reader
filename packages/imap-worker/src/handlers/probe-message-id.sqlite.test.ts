@@ -134,7 +134,7 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 		const store = createShippedSqliteDb();
 		close = store.close;
 		repos = createSqliteRepositories(
-			sharedDatabases(store.db),
+			sharedDatabases(store),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);

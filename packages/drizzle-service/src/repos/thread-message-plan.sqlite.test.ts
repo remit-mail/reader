@@ -11,10 +11,10 @@ import { createShippedSqliteDb, sharedDatabases } from "../test-sqlite.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
 describe("thread-message lookups without sqlite_stat1", () => {
-	const { db, sqlite, close } = createShippedSqliteDb();
+	const { db, sqlite, immediate, close } = createShippedSqliteDb();
 	after(close);
 	const repos = createSqliteRepositories(
-		sharedDatabases(db),
+		sharedDatabases({ db, immediate }),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

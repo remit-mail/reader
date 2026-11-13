@@ -31,7 +31,7 @@ beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
 	accounts = createSqliteRepositories(
-		sharedDatabases(store.db),
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).account;

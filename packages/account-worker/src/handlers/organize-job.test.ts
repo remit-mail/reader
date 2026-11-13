@@ -191,7 +191,7 @@ interface World {
 const world = async (filters: FilterItem[]): Promise<World> => {
 	const store = createShippedSqliteDb();
 	const threadMessage = createSqliteRepositories(
-		sharedDatabases(store.db),
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).threadMessage;

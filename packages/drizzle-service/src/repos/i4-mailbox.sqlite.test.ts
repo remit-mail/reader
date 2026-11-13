@@ -45,7 +45,7 @@ describe("MailboxRepo (sqlite)", () => {
 		const testDb = await createSqliteTestDb({ mailbox: mailboxTable });
 		close = testDb.close;
 		repo = createSqliteRepositories(
-			sharedDatabases(testDb.db),
+			sharedDatabases(testDb),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
@@ -215,9 +215,8 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 	before(() => {
 		const sqlite = openTestSqlite();
 		applyMigrationSet(sqlite, "mail");
-		const { db } = sqlite;
 		repo = createSqliteRepositories(
-			sharedDatabases(db),
+			sharedDatabases(sqlite),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
