@@ -234,30 +234,16 @@ export const registerReadTools = (
 		async (args) => {
 			const sent = sentDateRange(args);
 			if (!sent.ok) return refused(sent.refusal);
-			const page = {
-				order: args.order ?? "desc",
-				limit: args.limit ?? DEFAULT_PAGE_SIZE,
-				continuationToken: args.continuationToken,
-				excludeDeleted: true,
-			} as const;
-			const dated = args.before !== undefined || args.after !== undefined;
 			return asJson(
 				await toPage(
 					deps,
-					dated
-						? await deps.threadMessage.searchByDate(
-								accountConfigId,
-								sent.value,
-								{
-									...page,
-									mailboxIds: new Set([args.mailboxId]),
-								},
-							)
-						: await deps.threadMessage.listByMailbox(
-								accountConfigId,
-								args.mailboxId,
-								page,
-							),
+					await deps.threadMessage.searchByDate(accountConfigId, sent.value, {
+						order: args.order ?? "desc",
+						limit: args.limit ?? DEFAULT_PAGE_SIZE,
+						continuationToken: args.continuationToken,
+						mailboxIds: new Set([args.mailboxId]),
+						excludeDeleted: true,
+					}),
 					"Confident",
 				),
 			);

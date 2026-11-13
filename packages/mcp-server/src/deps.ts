@@ -69,13 +69,18 @@ export interface McpDeps {
 	>;
 	message: Pick<
 		IMessageRepository,
-		"get" | "describe" | "countClassifiedSince"
+		| "get"
+		| "describe"
+		| "countClassifiedSince"
+		| "listAllByMailbox"
+		| "listByMailbox"
+		| "listStrandedPlacements"
 	>;
 	messageLabel: Pick<IMessageLabelRepository, "apply">;
-	messageMove: Pick<MessageMoveService, "moveMessages" | "deleteMessages">;
+	messageMove: Pick<MessageMoveService, "moveMessages">;
 	threadMessage: Pick<
 		IThreadMessageRepository,
-		"listByMailbox" | "listByThread" | "searchByDate" | "countByMailbox"
+		"listByThread" | "searchByDate"
 	>;
 	filter: Pick<
 		IFilterRepository,

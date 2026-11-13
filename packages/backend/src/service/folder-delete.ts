@@ -18,11 +18,14 @@ import {
 	loadMailboxBindings,
 } from "../handlers/mailbox-bindings.js";
 
-export interface FolderDeleteDeps {
+export interface DeletableFolderDeps {
 	account: Pick<IAccountRepository, "get">;
 	mailbox: Pick<IMailboxRepository, "get" | "findByPathPrefix">;
 	filter: Pick<IFilterRepository, "listByAccountConfig">;
 	accountSetting: Pick<IAccountSettingRepository, "get">;
+}
+
+export interface FolderDeleteDeps extends DeletableFolderDeps {
 	mailboxQueue: Pick<MailboxQueueService, "deleteMailbox">;
 }
 
@@ -32,12 +35,11 @@ export interface FolderDelete {
 }
 
 /**
- * Record a folder delete and enqueue it for the mail server, after the
- * refusals that retrying the same request cannot lift (D4, D13), cheapest
- * first, so none of them records anything.
+ * The refusals that retrying the same delete cannot lift (D4, D13), cheapest
+ * first. Records nothing.
  */
-export const deleteFolder = async (
-	deps: FolderDeleteDeps,
+export const deletableFolder = async (
+	deps: DeletableFolderDeps,
 	accountConfigId: string,
 	{ accountId, mailboxId }: FolderDelete,
 ): Promise<Refusable<MailboxItem>> => {
@@ -77,7 +79,17 @@ export const deleteFolder = async (
 		await loadMailboxBindings(deps, accountConfigId, accountId, mailboxId),
 	);
 	if (bound) return invalid(bound);
-
-	await deps.mailboxQueue.deleteMailbox(mailboxId, accountId);
 	return accept(mailbox);
+};
+
+/** Record a folder delete and enqueue it for the mail server, once deletable. */
+export const deleteFolder = async (
+	deps: FolderDeleteDeps,
+	accountConfigId: string,
+	target: FolderDelete,
+): Promise<Refusable<MailboxItem>> => {
+	const deletable = await deletableFolder(deps, accountConfigId, target);
+	if (!deletable.ok) return deletable;
+	await deps.mailboxQueue.deleteMailbox(target.mailboxId, target.accountId);
+	return deletable;
 };

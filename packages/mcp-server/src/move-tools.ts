@@ -11,7 +11,6 @@ import {
 	filterRuleFromClauses,
 	filterRuleLimitRefusal,
 } from "@remit/data-ports";
-import { trashMailboxAt } from "@remit/data-ports/folder-role";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import {
@@ -32,6 +31,7 @@ import {
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
 import { asJson, notFoundRefusal, refused } from "./tool-result.js";
+import { trashFolderOf } from "./trash.js";
 
 const MAX_MOVE_MESSAGES = 500;
 
@@ -80,6 +80,11 @@ type BulkTarget = MoveTarget | { trash: true };
 interface FolderSource {
 	accountId: string;
 	mailboxId: string;
+}
+
+interface FolderSources {
+	present: FolderSource[];
+	skipped: Array<{ accountId: string; folderState: string }>;
 }
 
 interface JobAction {
@@ -171,14 +176,15 @@ export const registerMoveTools = (
 		accountId?: string;
 		sourceMailboxId?: string;
 		sourceLabelId?: string;
-	}): Promise<Refusable<FolderSource[]>> => {
+	}): Promise<Refusable<FolderSources>> => {
 		if (args.sourceMailboxId && args.sourceLabelId) {
 			return invalid("Send sourceMailboxId or sourceLabelId, not both.");
 		}
 		if (args.sourceLabelId) {
 			const label = await deps.label.get(accountConfigId, args.sourceLabelId);
 			const [found] = await labelFoldersFor(deps, accountConfigId, [label]);
-			const present = (found?.folders ?? []).flatMap((folder) =>
+			const folders = found?.folders ?? [];
+			const present = folders.flatMap((folder) =>
 				folder.state === "Present"
 					? [{ accountId: folder.accountId, mailboxId: folder.mailboxId }]
 					: [],
@@ -186,7 +192,14 @@ export const registerMoveTools = (
 			if (present.length === 0) {
 				return invalid(`Label “${label.name}” has no confirmed folder yet.`);
 			}
-			return accept(present);
+			return accept({
+				present,
+				skipped: folders.flatMap((folder) =>
+					folder.state === "Present"
+						? []
+						: [{ accountId: folder.accountId, folderState: folder.state }],
+				),
+			});
 		}
 		if (!args.sourceMailboxId || !args.accountId) {
 			return invalid(
@@ -204,7 +217,10 @@ export const registerMoveTools = (
 			"act",
 		);
 		if (!source.ok) return source;
-		return accept([{ accountId, mailboxId: sourceMailboxId }]);
+		return accept({
+			present: [{ accountId, mailboxId: sourceMailboxId }],
+			skipped: [],
+		});
 	};
 
 	const actionFor = async (
@@ -212,17 +228,10 @@ export const registerMoveTools = (
 		target: BulkTarget,
 	): Promise<Refusable<JobAction>> => {
 		if ("trash" in target) {
-			const trash = trashMailboxAt(
-				await deps.mailboxSpecialUse.resolveTrashRole(source.accountId),
-				"resolved",
-			);
-			if (!trash.allowed) {
-				return invalid(
-					`Account ${source.accountId} has no Trash folder Remit can move mail into. Set one under Folder roles in settings.`,
-				);
-			}
+			const trash = await trashFolderOf(deps, source.accountId);
+			if (!trash.ok) return trash;
 			return accept({
-				actionMailboxId: trash.mailbox.mailboxId,
+				actionMailboxId: trash.value,
 				actionLabelId: FILTER_NO_ACTION,
 			});
 		}
@@ -240,7 +249,7 @@ export const registerMoveTools = (
 		"trash_messages",
 		{
 			description:
-				"Move messages to Trash in their own account, the way the mail app deletes them. A message already in Trash is left there and reported, never deleted for good. Returns once the moves are recorded; the mail server confirms them shortly after.",
+				"Move messages to Trash in their own account. A message already in Trash is left untouched and reported. Returns once the moves are recorded; the mail server confirms them shortly after.",
 			inputSchema: {
 				messageIds: z
 					.array(z.string().min(1))
@@ -259,25 +268,45 @@ export const registerMoveTools = (
 				"act",
 			).catch(notFound);
 			if (!owned.ok) return refused(owned.refusal);
-			const refusedIds: string[] = [];
+			const planned: Array<{
+				accountId: string;
+				trashMailboxId: string;
+				messageIds: string[];
+			}> = [];
 			for (const [accountId, accountIds] of owned.value) {
-				const { refusedMessageIds } = await deps.messageMove.deleteMessages(
-					accountConfigId,
-					accountIds,
+				const trash = await trashFolderOf(deps, accountId);
+				if (!trash.ok) return refused(trash.refusal);
+				planned.push({
 					accountId,
-					{ toTrash: true, trashOnly: true },
+					trashMailboxId: trash.value,
+					messageIds: accountIds,
+				});
+			}
+			let trashed = 0;
+			const alreadyInTrash: string[] = [];
+			for (const {
+				accountId,
+				trashMailboxId,
+				messageIds: accountIds,
+			} of planned) {
+				const rows = await deps.message.get(accountIds);
+				const toMove = rows.flatMap((row) => {
+					if (row.mailboxId !== trashMailboxId) return [row.messageId];
+					alreadyInTrash.push(row.messageId);
+					return [];
+				});
+				if (toMove.length === 0) continue;
+				await deps.messageMove.moveMessages(
+					accountConfigId,
+					toMove,
+					trashMailboxId,
+					accountId,
 				);
-				refusedIds.push(...refusedMessageIds);
+				trashed += toMove.length;
 			}
 			return asJson({
-				trashed: ids.length - refusedIds.length,
-				...(refusedIds.length > 0
-					? {
-							notTrashed: refusedIds,
-							message:
-								"These messages are already in Trash or moved while this ran; nothing was done to them.",
-						}
-					: {}),
+				trashed,
+				...(alreadyInTrash.length > 0 ? { alreadyInTrash } : {}),
 			});
 		},
 	);
@@ -363,7 +392,7 @@ export const registerMoveTools = (
 			}).catch(notFound);
 			if (!sources.ok) return refused(sources.refusal);
 			const planned: Array<{ source: FolderSource; action: JobAction }> = [];
-			for (const source of sources.value) {
+			for (const source of sources.value.present) {
 				const action = await actionFor(source, target.value).catch(notFound);
 				if (!action.ok) return refused(action.refusal);
 				if (action.value.actionMailboxId === source.mailboxId) {
@@ -402,7 +431,17 @@ export const registerMoveTools = (
 					state: job.state,
 				});
 			}
-			return asJson({ jobs });
+			const { skipped } = sources.value;
+			return asJson({
+				jobs,
+				...(skipped.length > 0
+					? {
+							skipped,
+							message:
+								"These accounts have no confirmed folder for the label yet, so no job was queued for them.",
+						}
+					: {}),
+			});
 		},
 	);
 };

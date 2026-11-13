@@ -898,8 +898,7 @@ export class DrizzleThreadMessageRepository
 			continuationToken?: string;
 			excludeDeleted?: boolean;
 			mailboxIds?: readonly string[];
-			sent?: SentDateRange;
-		},
+		} & SentDateRange,
 	): Promise<ResultList<ThreadMessageItem>> {
 		const limit = clampThreadSearchLimit(options?.limit);
 		const rows = await this.page({
@@ -910,7 +909,7 @@ export class DrizzleThreadMessageRepository
 				options?.excludeDeleted
 					? eq(threadMessageTable.isDeleted, false)
 					: undefined,
-				...sentDateConditions(options?.sent ?? {}),
+				...sentDateConditions(options ?? {}),
 			],
 			order: options?.order ?? "desc",
 			after: positionOf(

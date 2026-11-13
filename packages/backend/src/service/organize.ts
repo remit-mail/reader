@@ -20,6 +20,7 @@ import {
 	type PreparedFilters,
 	type RuleNarrowing,
 	ruleNarrowing,
+	sentDateRange,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import type { RemitClient } from "./data-client.js";
@@ -38,56 +39,46 @@ export const ORGANIZE_MATCH_LIMIT = 500;
  * flattened. The action fields carry absence as the `"None"` sentinel (RFC 034
  * Decision 3.1).
  */
-export interface OrganizePredicate {
+export interface OrganizePredicate extends SentDateRange {
 	rule: FilterRuleV1Item;
 	actionLabelId: string;
 	actionMailboxId: string;
 }
 
+const boundOf = (bound: string): string | undefined =>
+	bound === FILTER_NO_ACTION ? undefined : bound;
+
 /**
  * The predicate a back-apply job snapshotted onto its row, read back verbatim so
- * the worker runs exactly what the request asked for.
+ * the worker runs exactly what the request asked for, date facet included.
  */
 export const predicateFromJob = (
 	job: OrganizeJobRequestItem,
-): OrganizePredicate => ({
-	rule: job.rule,
-	actionLabelId: job.actionLabelId,
-	actionMailboxId: job.actionMailboxId,
-});
-
-const instantOf = (bound: string): number | undefined =>
-	bound === FILTER_NO_ACTION ? undefined : Date.parse(bound);
-
-/** The date facet a snapshot job runs with, read back from its ISO bounds. */
-export const sentRangeFromJob = (
-	job: Pick<OrganizeJobRequestItem, "sentAfter" | "sentBefore">,
-): SentDateRange => {
-	const sentAfter = instantOf(job.sentAfter);
-	const sentBefore = instantOf(job.sentBefore);
+): OrganizePredicate => {
+	const sent = sentDateRange({
+		before: boundOf(job.sentBefore),
+		after: boundOf(job.sentAfter),
+	});
+	if (!sent.ok) {
+		throw new Error(
+			`Organize job ${job.organizeJobId} carries an unreadable date facet: ${sent.refusal.message}`,
+		);
+	}
 	return {
-		...(sentAfter === undefined ? {} : { sentAfter }),
-		...(sentBefore === undefined ? {} : { sentBefore }),
+		rule: job.rule,
+		actionLabelId: job.actionLabelId,
+		actionMailboxId: job.actionMailboxId,
+		...sent.value,
 	};
 };
 
-/**
- * The folders a snapshot job runs over: its source folder, narrowed by its
- * date facet, or every folder.
- */
+/** The folders a snapshot job runs over: its source folder, or every folder. */
 export const scopeFromJob = (
-	job: Pick<
-		OrganizeJobRequestItem,
-		"sourceMailboxId" | "sentAfter" | "sentBefore"
-	>,
+	job: Pick<OrganizeJobRequestItem, "sourceMailboxId">,
 ): OrganizeMatchScope =>
 	job.sourceMailboxId === FILTER_NO_ACTION
 		? WHOLE_CORPUS
-		: {
-				kind: "SourceFolder",
-				mailboxId: job.sourceMailboxId,
-				sent: sentRangeFromJob(job),
-			};
+		: { kind: "SourceFolder", mailboxId: job.sourceMailboxId };
 
 /**
  * One corpus message projected onto the fields a literal clause matches
@@ -109,12 +100,11 @@ export interface OrganizeCandidatePage {
 }
 
 /** What to ask the store for, and where to resume. */
-export interface OrganizeCandidateQuery extends RuleNarrowing {
+export interface OrganizeCandidateQuery extends RuleNarrowing, SentDateRange {
 	readsClassifierScores: boolean;
 	limit: number;
 	continuationToken?: string;
 	mailboxIds?: readonly string[];
-	sent?: SentDateRange;
 }
 
 /**
@@ -126,7 +116,7 @@ export interface OrganizeCandidateQuery extends RuleNarrowing {
 export type OrganizeMatchScope =
 	| { kind: "Corpus" }
 	| { kind: "Filter"; filterId: string; mailboxIds: readonly string[] }
-	| { kind: "SourceFolder"; mailboxId: string; sent: SentDateRange };
+	| { kind: "SourceFolder"; mailboxId: string };
 
 export const WHOLE_CORPUS: OrganizeMatchScope = { kind: "Corpus" };
 
@@ -268,7 +258,8 @@ const matchLiteral = async (
 			limit,
 			continuationToken,
 			mailboxIds: scopeMailboxIds(scope),
-			sent: scope.kind === "SourceFolder" ? scope.sent : undefined,
+			sentAfter: predicate.sentAfter,
+			sentBefore: predicate.sentBefore,
 		});
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
@@ -342,7 +333,8 @@ const listAccountFilterMessagesFromClient =
 				continuationToken: query.continuationToken,
 				excludeDeleted: true,
 				mailboxIds: query.mailboxIds,
-				sent: query.sent,
+				sentAfter: query.sentAfter,
+				sentBefore: query.sentBefore,
 			},
 		);
 		const scoresById = new Map(
