@@ -18,20 +18,16 @@ import {
 	type RdapClient,
 	type RdapLogger,
 } from "./rdap.js";
-import { type RspamdFetch, RspamdSpamService } from "./rspamd.js";
+import { RspamdSpamService } from "./rspamd.js";
 import { screen } from "./screen.js";
 
 export { InlineSpamService, judge } from "./judge.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";
-export { fromRspamd, type RspamdFetch, RspamdSpamService } from "./rspamd.js";
+export { fromRspamd, RspamdSpamService } from "./rspamd.js";
 
-/** The spam service the deployment config names; the inline judge by default. */
-export const spamServiceFor = (
-	deployment: SpamDeployment,
-	fetch: RspamdFetch,
-): SpamService =>
-	deployment.backend.name === "Rspamd"
-		? new RspamdSpamService(deployment.backend.url, fetch)
+export const spamServiceFor = (deployment: SpamDeployment): SpamService =>
+	deployment.name === "Rspamd"
+		? new RspamdSpamService(deployment.url)
 		: new InlineSpamService(deployment.thresholds);
 
 /** What body sync needs to record a spam verdict (RFC 041). */

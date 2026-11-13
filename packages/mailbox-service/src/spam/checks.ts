@@ -26,7 +26,7 @@ import {
 /** A reason the inline engine finds itself; `BackendSymbol` is only ever a backend's. */
 export type CheckName = Exclude<
 	(typeof SpamReasonName)[keyof typeof SpamReasonName],
-	"BackendSymbol"
+	"BackendSymbol" | "ListedPhishingLink"
 >;
 
 /** One check that found something, before its weight is attached. */

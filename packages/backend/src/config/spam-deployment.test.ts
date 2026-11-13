@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { spamDeploymentFromEnv } from "./spam-deployment.js";
 
-describe("spamDeploymentFromEnv backend", () => {
+describe("spamDeploymentFromEnv", () => {
 	it("asks the inline judge by default", () => {
-		assert.deepEqual(spamDeploymentFromEnv({}).backend, { name: "Inline" });
+		assert.deepEqual(spamDeploymentFromEnv({}), {
+			name: "Inline",
+			thresholds: { state: "Unset" },
+		});
 	});
 
 	it("asks rspamd at its URL", () => {
@@ -12,7 +15,7 @@ describe("spamDeploymentFromEnv backend", () => {
 			spamDeploymentFromEnv({
 				SPAM_BACKEND: "Rspamd",
 				SPAM_RSPAMD_URL: "http://rspamd:11333",
-			}).backend,
+			}),
 			{ name: "Rspamd", url: "http://rspamd:11333" },
 		);
 	});
@@ -39,6 +42,18 @@ describe("spamDeploymentFromEnv backend", () => {
 					SPAM_RSPAMD_URL: "rspamd:11333",
 				}),
 			/must be an http or https URL/,
+		);
+	});
+
+	it("refuses thresholds under rspamd", () => {
+		assert.throws(
+			() =>
+				spamDeploymentFromEnv({
+					SPAM_BACKEND: "Rspamd",
+					SPAM_RSPAMD_URL: "http://rspamd:11333",
+					SPAM_AT: "0.8",
+				}),
+			/SPAM_AT set with SPAM_BACKEND=Rspamd/,
 		);
 	});
 

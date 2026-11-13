@@ -56,6 +56,9 @@ enum SpamReasonName {
   @doc("Check 11: the display name sits a short edit distance from a sender or link domain label.")
   DisplayNameLookalike: "DisplayNameLookalike",
 
+  @doc("A link points to a URL a phishing feed lists. Only a backend reports it.")
+  ListedPhishingLink: "ListedPhishingLink",
+
   @doc("A backend symbol with no name of its own here, such as an rspamd rule. The reason's `symbol` carries it.")
   BackendSymbol: "BackendSymbol",
 }

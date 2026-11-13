@@ -2,39 +2,29 @@ import type { SpamRequest, SpamResponse, SpamService } from "@remit/data-ports";
 import {
 	SpamAction,
 	SpamFailureKind,
-	SpamKind,
 	SpamReasonName,
 } from "@remit/domain-enums";
-import { IMPERSONATION } from "./judge.js";
+import { kindOf } from "./judge.js";
 
 type Action = (typeof SpamAction)[keyof typeof SpamAction];
 type FailureKind = (typeof SpamFailureKind)[keyof typeof SpamFailureKind];
 type ReasonName = (typeof SpamReasonName)[keyof typeof SpamReasonName];
 type Failed = Extract<SpamResponse, { state: "Failed" }>;
 
-export type RspamdFetch = (
-	url: string,
-	init: {
-		method: "POST";
-		headers: Record<string, string>;
-		body: Uint8Array<ArrayBuffer>;
-		signal: AbortSignal;
-	},
-) => Promise<{ ok: boolean; text(): Promise<string> }>;
-
 const TIMEOUT_MS = 10_000;
 
 const ACTIONS: Readonly<Record<string, Action>> = {
 	"no action": SpamAction.None,
 	greylist: SpamAction.Warn,
+	"add header": SpamAction.Warn,
 	"rewrite subject": SpamAction.Warn,
 	"soft reject": SpamAction.Warn,
-	"add header": SpamAction.Warn,
 	reject: SpamAction.Junk,
+	discard: SpamAction.Junk,
+	quarantine: SpamAction.Junk,
 };
 
-/** Rspamd symbols that report what one of the inline checks reports. */
-export const RSPAMD_SYMBOLS: Readonly<Record<string, ReasonName>> = {
+const RSPAMD_SYMBOLS: Readonly<Record<string, ReasonName>> = {
 	DMARC_POLICY_REJECT: SpamReasonName.DmarcFail,
 	DMARC_POLICY_QUARANTINE: SpamReasonName.DmarcFail,
 	DMARC_POLICY_SOFTFAIL: SpamReasonName.DmarcFail,
@@ -44,6 +34,9 @@ export const RSPAMD_SYMBOLS: Readonly<Record<string, ReasonName>> = {
 	MIXED_CHARSET_URL: SpamReasonName.MixedScriptDomain,
 	SPOOF_DISPLAY_NAME: SpamReasonName.DisplayNameForeignAddress,
 	FROM_NEQ_DISPLAY_NAME: SpamReasonName.DisplayNameForeignAddress,
+	PHISHED_OPENPHISH: SpamReasonName.ListedPhishingLink,
+	PHISHED_PHISHTANK: SpamReasonName.ListedPhishingLink,
+	PHISHED_GENERIC_SERVICE: SpamReasonName.ListedPhishingLink,
 };
 
 const failed = (kind: FailureKind): Failed => ({ state: "Failed", kind });
@@ -94,15 +87,11 @@ export const fromRspamd = (body: unknown): SpamResponse => {
 	if (reasons.length !== entries.length) {
 		return failed(SpamFailureKind.Unparseable);
 	}
-	const phishing = reasons.some(
-		(reason) =>
-			IMPERSONATION.has(reason.name) || reason.symbol.startsWith("PHISHED_"),
-	);
 	return {
 		state: "Checked",
 		score: Math.min(1, Math.max(0, score / requiredScore)),
 		action: ACTIONS[action],
-		kind: phishing ? SpamKind.Phishing : SpamKind.Spam,
+		kind: kindOf(reasons),
 		reasons,
 		modelCalled: false,
 	};
@@ -116,6 +105,7 @@ const envelopeHeaders = ({ envelope }: SpamRequest): Record<string, string> => {
 	if (envelope.rcpt.length > 0) headers.Rcpt = envelope.rcpt[0];
 	if (envelope.ip !== "") headers.IP = envelope.ip;
 	if (envelope.helo !== "") headers.Helo = envelope.helo;
+	if (envelope.hostname !== "") headers.Hostname = envelope.hostname;
 	return headers;
 };
 
@@ -138,10 +128,7 @@ const parseJson = (text: string): unknown => {
 export class RspamdSpamService implements SpamService {
 	private readonly checkUrl: string;
 
-	constructor(
-		url: string,
-		private readonly fetch: RspamdFetch,
-	) {
+	constructor(url: string) {
 		this.checkUrl = new URL(
 			"checkv2",
 			url.endsWith("/") ? url : `${url}/`,
@@ -149,7 +136,7 @@ export class RspamdSpamService implements SpamService {
 	}
 
 	async check(request: SpamRequest): Promise<SpamResponse> {
-		const answer = await this.fetch(this.checkUrl, {
+		const answer = await fetch(this.checkUrl, {
 			method: "POST",
 			headers: envelopeHeaders(request),
 			body: Buffer.from(request.message.raw, "base64"),

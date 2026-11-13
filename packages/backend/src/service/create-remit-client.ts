@@ -390,7 +390,7 @@ export const createRemitCore = (
 		mailTransports,
 		classificationDefault,
 		spam: {
-			spamService: spamServiceFor(spamDeployment, fetch),
+			spamService: spamServiceFor(spamDeployment),
 			domainRegistration: repositories.domainRegistration,
 			rdap: new RdapClient(fetch),
 			accountService: repositories.account,

@@ -8,6 +8,7 @@ import {
 } from "../heuristics/classifyByHeaders.js";
 import type { Tldts } from "./display-name.js";
 import { linksOf } from "./links.js";
+import { sendingHop } from "./sending-hop.js";
 
 type SpamHeader = SpamRequest["message"]["headers"][number];
 
@@ -66,9 +67,6 @@ const headersOf = (parsed: ParsedMail): SpamHeader[] => {
 const header = (headers: readonly SpamHeader[], name: string) =>
 	headers.find((entry) => entry.name.toLowerCase() === name);
 
-const RECEIVED_HELO = /^from\s+(\S+)/i;
-const RECEIVED_IP = /\[(?:ipv6:)?([0-9a-f.:]+)\]/i;
-
 const providerVerdictOf = (parsed: ParsedMail) => {
 	const provider = extractProviderSpam(parsed);
 	if (provider === null)
@@ -94,7 +92,6 @@ export const buildSpamRequest = (
 	const headers = headersOf(parsed);
 	const html = typeof parsed.html === "string" ? parsed.html : "";
 	const text = parsed.text ?? "";
-	const received = header(headers, "received")?.value ?? "";
 	const returnPath = header(headers, "return-path")?.value ?? "";
 	const auth = extractAuthResult(parsed);
 	return {
@@ -108,8 +105,7 @@ export const buildSpamRequest = (
 		envelope: {
 			mailFrom: returnPath.replace(/[<>]/g, "").trim().toLowerCase(),
 			rcpt: facts.rcpt,
-			ip: RECEIVED_IP.exec(received)?.[1] ?? "",
-			helo: RECEIVED_HELO.exec(received)?.[1] ?? "",
+			...sendingHop(headers),
 		},
 		authentication: {
 			dmarc: auth?.dmarc ?? AuthResultVerdict.None,
