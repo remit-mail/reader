@@ -22,6 +22,7 @@ import type {
 	MaterializeLogger,
 	MessageMoveService,
 	OrganizeJobLogger,
+	RescanService,
 } from "@remit/mailbox-service";
 import type { StorageService } from "@remit/storage-service";
 
@@ -90,6 +91,7 @@ export interface McpDeps {
 	storage: Pick<StorageService, "retrieveBodyPart">;
 	bodySync: BodyPartMaterializer;
 	bodySyncQueue: BodySyncCue;
+	rescan: Pick<RescanService, "rescan">;
 	logger: MaterializeLogger;
 	folders: FolderToolDeps;
 	filters: FilterToolDeps;
@@ -120,6 +122,7 @@ export const mcpDepsOf = (
 	storage: client.storage,
 	bodySync: client.bodySync,
 	bodySyncQueue: client.bodySyncQueue,
+	rescan: client.rescan,
 	logger,
 	folders: { mailboxQueue: client.mailboxQueue, ...settle },
 	filters: { organizeQueue: client.queues.accountFanout, logger },

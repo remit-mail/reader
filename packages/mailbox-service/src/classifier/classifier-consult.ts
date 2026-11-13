@@ -6,6 +6,7 @@ import {
 import { SenderOverride } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
 import { classifyWithProvider } from "./classifier-adapter.js";
+import type { ClassificationFailureKindValue } from "./classifier-failure.js";
 import {
 	type ClassifierConfig,
 	type ClassifierGate,
@@ -21,12 +22,32 @@ import { CLASSIFIER_LABELS } from "./index.js";
 export type ClassifierConsultation =
 	| { state: "NotAsked" }
 	| { state: "AtLimit" }
-	| { state: "NoAnswer" }
+	| { state: "NoAnswer"; kind: ClassificationFailureKindValue }
 	| {
 			state: "Answered";
 			verdict: ClassifierVerdict;
 			scores: ClassifierScoreItem[];
 	  };
+
+type GateOn = Extract<ClassifierGate, { state: "On" }>;
+
+/** One unit of the account's daily model cap, shared by the category classifier and the spam model. */
+export const claimClassifierCall = async (
+	config: {
+		accountSetting: Pick<ClassifierConfig["accountSetting"], "claimDailyCount">;
+	},
+	gate: Pick<GateOn, "dailyLimit">,
+	account: { accountId: string; accountConfigId: string },
+	now: number,
+): Promise<boolean> => {
+	const claim = await config.accountSetting.claimDailyCount({
+		accountConfigId: account.accountConfigId,
+		name: classificationUsageName(account.accountId),
+		date: utcDateOf(now),
+		limit: gate.dailyLimit,
+	});
+	return claim.state !== "AtLimit";
+};
 
 export const consultClassifier = async (
 	config: ClassifierConfig,
@@ -39,13 +60,9 @@ export const consultClassifier = async (
 	if (gate.state === "Off" || senderOverride !== SenderOverride.None) {
 		return { state: "NotAsked" };
 	}
-	const claim = await config.accountSetting.claimDailyCount({
-		accountConfigId: account.accountConfigId,
-		name: classificationUsageName(account.accountId),
-		date: utcDateOf(now),
-		limit: gate.dailyLimit,
-	});
-	if (claim.state === "AtLimit") return { state: "AtLimit" };
+	if (!(await claimClassifierCall(config, gate, account, now))) {
+		return { state: "AtLimit" };
+	}
 	const result = await classifyWithProvider(
 		{
 			provider: gate.provider,
@@ -54,7 +71,7 @@ export const consultClassifier = async (
 		},
 		{ logger: config.logger },
 	);
-	if (!result.ok) return { state: "NoAnswer" };
+	if (!result.ok) return { state: "NoAnswer", kind: result.kind };
 	const answer = {
 		scores: result.scores,
 		confidenceKind: result.confidenceKind,

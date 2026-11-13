@@ -23,10 +23,10 @@ import {
 	parseAddressHeader,
 } from "./headers.js";
 
-/** A reason the inline engine finds itself; `BackendSymbol` is only ever a backend's. */
+/** A reason stage 2 finds itself; `BackendSymbol` is only ever a backend's, and `Model*` stage 3's. */
 export type CheckName = Exclude<
 	(typeof SpamReasonName)[keyof typeof SpamReasonName],
-	"BackendSymbol" | "ListedPhishingLink"
+	"BackendSymbol" | "ListedPhishingLink" | `Model${string}`
 >;
 
 /** One check that found something, before its weight is attached. */

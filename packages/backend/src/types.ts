@@ -58,6 +58,7 @@ export type OperationIds =
 	| "MessageOperations_describeMessage"
 	| "MessageOperations_getRawMessage"
 	| "MessageOperations_updateMessageFlags"
+	| "AccountMessageOperations_rescanMessages"
 	| "MessageBulkOperations_deleteMessages"
 	| "MessageBulkOperations_moveMessages"
 	| "MessageBulkOperations_updateFlags"
@@ -182,6 +183,11 @@ export type ThreadOperationIds = MatchPrefix<"ThreadOperations_", OperationIds>;
 
 export type MessageOperationIds = MatchPrefix<
 	"MessageOperations_",
+	OperationIds
+>;
+
+export type AccountMessageOperationIds = MatchPrefix<
+	"AccountMessageOperations_",
 	OperationIds
 >;
 

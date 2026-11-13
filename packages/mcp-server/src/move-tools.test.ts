@@ -78,6 +78,7 @@ beforeEach(async () => {
 			silentLog,
 		),
 		bodySyncQueue: client.bodySyncQueue,
+		rescan: client.rescan,
 		logger: silentLog,
 		folders: {
 			mailboxQueue: client.mailboxQueue,
@@ -199,5 +200,42 @@ describe("trash_messages", () => {
 		assert.equal(kept?.uid, trashed.uid);
 		assert.equal(kept?.status, MessageStatus.active);
 		assert.equal((await mine.row(fresh.messageId))?.mailboxId, trash.mailboxId);
+	});
+});
+
+describe("rescan_messages", () => {
+	it("answers a stored message and a missing one on their own", async () => {
+		const { messageId } = await mine.message(inbox);
+		await mine.client.bodySync.syncBodies(
+			[messageId],
+			mine.account.accountId,
+			mine.account.accountConfigId,
+			{
+				mailboxId: inbox.mailboxId,
+				fullPath: inbox.fullPath,
+				placement: "inbox",
+				uidValidity: inbox.uidValidity,
+				createdAt: inbox.createdAt,
+				initialSyncCompletedAt: 1,
+			},
+			async () => mine.imap.connection(),
+			{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
+		);
+		const missing = "m".repeat(25);
+
+		const result = await callToolJson("rescan_messages", {
+			accountId: mine.account.accountId,
+			messageIds: [messageId, missing],
+		});
+
+		assert.deepEqual(
+			(result.successful as { messageId: string }[]).map(
+				(success) => success.messageId,
+			),
+			[messageId],
+		);
+		assert.deepEqual(result.failed, [
+			{ messageId: missing, code: "NotFound", retryable: false },
+		]);
 	});
 });

@@ -1,0 +1,1 @@
+UPDATE `message` SET `spam_verdict` = json_remove(json_set(`spam_verdict`, '$.modelOutcome', CASE WHEN json_extract(`spam_verdict`, '$.action') = 'Warn' THEN 'NotConfigured' ELSE 'OutOfBand' END), '$.modelCalled') WHERE json_extract(`spam_verdict`, '$.state') = 'Checked';

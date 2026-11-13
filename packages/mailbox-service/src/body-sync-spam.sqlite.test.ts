@@ -100,6 +100,7 @@ const bodySync = (): BodySyncService => {
 		new SyncWarningService(store.syncWarning),
 		{
 			spamService,
+			thresholds: { state: "Set", cleanBelow: 0, spamAt: 0.05 },
 			domainRegistration: store.domainRegistration,
 			rdap: { lookup: async () => ({ state: "Unpublished" }) },
 			accountService: store.account,

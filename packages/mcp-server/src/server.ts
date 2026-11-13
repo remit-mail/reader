@@ -12,6 +12,7 @@ import {
 } from "./label-tools.js";
 import { registerMoveTools } from "./move-tools.js";
 import { registerReadTools } from "./read-tools.js";
+import { registerRescanTools } from "./rescan-tools.js";
 
 export interface McpPrincipal {
 	userId: string;
@@ -50,6 +51,7 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 		);
 		registerFilterTools(server, deps, principal.userId);
 		registerMoveTools(server, deps, principal.userId);
+		registerRescanTools(server, deps, deriveAccountConfigId(principal.userId));
 	}
 	return server;
 };

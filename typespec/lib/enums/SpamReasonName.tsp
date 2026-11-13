@@ -56,6 +56,15 @@ enum SpamReasonName {
   @doc("Check 11: the display name sits a short edit distance from a sender or link domain label.")
   DisplayNameLookalike: "DisplayNameLookalike",
 
+  @doc("Stage 3: the model judged that the message claims an organisation its sender's domain does not belong to. `options` quotes the model's reason.")
+  ModelImpersonation: "ModelImpersonation",
+
+  @doc("Stage 3: the model judged the message spam. `options` quotes the model's reason.")
+  ModelSpam: "ModelSpam",
+
+  @doc("Stage 3: the model judged the message legitimate. `options` quotes the model's reason.")
+  ModelClean: "ModelClean",
+
   @doc("A link points to a URL a phishing feed lists. Only a backend reports it.")
   ListedPhishingLink: "ListedPhishingLink",
 

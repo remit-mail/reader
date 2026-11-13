@@ -100,7 +100,11 @@ import {
 	type SenderPlacement,
 } from "./sender-placement.js";
 import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
-import { decideSpamVerdict, type SpamConfig } from "./spam/index.js";
+import {
+	decideSpamVerdict,
+	type SpamConfig,
+	spamModelAccessOf,
+} from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -868,15 +872,19 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
-		const spamVerdict = await this.decideSpam(lookups, accountConfigId, {
-			parsed,
-			body,
-			arrival,
-			filterDecision,
-			classifierScores,
-			classification,
-			senderPlacement,
-		});
+		const spamVerdict = await this.decideSpam(
+			lookups,
+			{ accountId, accountConfigId },
+			{
+				parsed,
+				body,
+				arrival,
+				filterDecision,
+				classifierScores,
+				classification,
+				senderPlacement,
+			},
+		);
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
@@ -1365,7 +1373,7 @@ export class BodySyncService {
 	 */
 	private async decideSpam(
 		lookups: BatchLookups,
-		accountConfigId: string,
+		account: { accountId: string; accountConfigId: string },
 		message: {
 			parsed: ParsedMail;
 			body: Buffer;
@@ -1377,6 +1385,7 @@ export class BodySyncService {
 		},
 	): Promise<MessageSpamVerdict | undefined> {
 		if (!message.arrival.folderSynced) return undefined;
+		const { accountConfigId } = account;
 		const gate = await lookups.classifierGate();
 		return decideSpamVerdict(this.spamConfig, this.addressService, {
 			accountConfigId,
@@ -1388,7 +1397,7 @@ export class BodySyncService {
 			sender: await message.senderPlacement(),
 			filterDecision: message.filterDecision,
 			classifierScores: message.classifierScores,
-			modelAllowed: gate.state === "On",
+			model: spamModelAccessOf(this.classifierConfig, gate, account),
 			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
 			dmarc: message.classification.authResult?.dmarc,
 		});

@@ -11,6 +11,7 @@ import type {
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import type { RecordingQueue } from "@remit/data-ports/recording-queue";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
 	createSqliteRepositories,
@@ -23,8 +24,11 @@ import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { MessageSyncService } from "../message-sync.js";
+import { PlacementMoveService } from "../placement-move.js";
 import { InlineSpamService, type SpamConfig } from "../spam/index.js";
+import { RescanService } from "../spam/rescan.js";
 import { SyncWarningService } from "../sync-warning.js";
+import { classifierSecrets } from "./classifier-stub.js";
 import type { FakeImapServer } from "./fake-imap.js";
 
 export {
@@ -219,11 +223,52 @@ export const spamConfigFor = (
 	store: Pick<Store, "domainRegistration" | "account">,
 ): SpamConfig => ({
 	spamService: new InlineSpamService({ state: "Unset" }),
+	thresholds: { state: "Unset" },
 	domainRegistration: store.domainRegistration,
 	rdap: { lookup: async () => undefined },
 	accountService: store.account,
 	logger: silentLog,
 });
+
+/** Rescan over the store, its classifier keyed with the classifier stub's secrets. */
+export const rescanServiceFor = (
+	store: Store,
+	storage: StorageService,
+	queue: RecordingQueue,
+	spam: SpamConfig = spamConfigFor(store),
+): RescanService =>
+	new RescanService({
+		message: store.message,
+		messageFlag: store.messageFlag,
+		messageLabel: store.messageLabel,
+		mailbox: store.mailbox,
+		address: store.address,
+		threadMessage: store.threadMessage,
+		storage,
+		spam,
+		classifier: {
+			accountSetting: store.accountSetting,
+			accountConfig: store.accountConfig,
+			classificationDefault: { state: "None" },
+			secrets: classifierSecrets,
+			labelService: store.label,
+			messageLabelService: store.messageLabel,
+			logger: silentLog,
+		},
+		placement: {
+			mailboxSpecialUseService: store.mailboxSpecialUse,
+			placementMoveService: new PlacementMoveService({
+				messageService: store.message,
+				threadMessageService: store.threadMessage,
+				markerService: store.placementMove,
+				addressService: store.address,
+				mailboxSpecialUseService: store.mailboxSpecialUse,
+				mailboxService: store.mailbox,
+				queue,
+			}),
+			log: silentLog,
+		},
+	});
 
 export const syncFolder = async (
 	store: Store,

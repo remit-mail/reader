@@ -6,6 +6,7 @@ import {
 	MessageMoveService,
 } from "@remit/mailbox-service";
 import {
+	rescanServiceFor,
 	type Store,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
@@ -14,7 +15,7 @@ import type { McpDeps } from "./deps.js";
 export const ruleDeps = (
 	store: Store,
 	queue: RecordingQueue,
-): Pick<McpDeps, "folders" | "filters" | "messageMove"> => ({
+): Pick<McpDeps, "folders" | "filters" | "messageMove" | "rescan"> => ({
 	folders: {
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: store.mailbox,
@@ -36,4 +37,5 @@ export const ruleDeps = (
 		addressService: store.address,
 		queue: queue.fifo,
 	}),
+	rescan: rescanServiceFor(store, store.storage(), queue),
 });
