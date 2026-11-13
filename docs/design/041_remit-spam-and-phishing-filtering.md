@@ -72,35 +72,51 @@ type SpamResponse =
   | { state: "Failed"; kind: SpamFailureKind };
 
 type SpamReasonName =
-  | "DmarcFail"
-  | "ReplyToMismatch"
-  | "LinkTextMismatch"
-  | "DistantLinkDomain"
-  | "ConfusableDomain"
-  | "SingleOffDomainLink"
-  | "HighEntropyName"
-  | "NewSenderDomain"
-  | "RecentlyRegisteredDomain"
-  | "ClassifierSpam"
-  | "ProviderSpam"
-  | "DisplayNameMismatch"
-  | "ModelImpersonation"
-  | "ModelSpam";
+  | "DmarcFail" // check 1
+  | "SignerMismatch" // check 1
+  | "ReplyToMismatch" // check 2
+  | "LinkTextMismatch" // check 3
+  | "LinkDomainDistant" // check 4
+  | "PunycodeDomain" // check 5
+  | "MixedScriptDomain" // check 5
+  | "ConfusableDomains" // check 5
+  | "SingleOffDomainLink" // check 6
+  | "GeneratedName" // check 7
+  | "FirstContactDomain" // check 8
+  | "RecentlyRegisteredDomain" // check 8
+  | "UnknownRegistrationDate" // check 8
+  | "ClassifierSpam" // check 9
+  | "ClassifierPhishing" // check 9
+  | "ProviderSpam" // check 10
+  | "DisplayNameForeignAddress" // check 11
+  | "DisplayNameLookalike" // check 11
+  | "BackendSymbol";
 
-type SpamReason =
-  | { name: SpamReasonName; score: number; options: string[] }
-  | { name: "BackendSymbol"; symbol: string; score: number; options: string[] };
+type SpamReason = {
+  name: SpamReasonName;
+  symbol: string; // the backend's own name for the check
+  score: number;
+  options: string[];
+};
 ```
 
-The service compares the score with two thresholds to pick the action. Calibration sets both. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. The names form a closed enum, so the mail app maps each one to one plain sentence. `BackendSymbol` carries a backend's own name in `symbol`, and the mail app shows it as an unknown reason. `modelCalled` tells Remit to count the call against the daily cap.
+The service compares the score with two thresholds to pick the action. Calibration sets both. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. The names form a closed enum, so the mail app maps each one to one plain sentence. `symbol` holds the backend's own name for the check, and the inline engine sets it to `name`. A backend symbol with no matching name arrives as `BackendSymbol`, and the mail app shows it as an unknown reason. Stage 3 adds the model's own reason names when it ships. `modelCalled` tells Remit to count the call against the daily cap.
 
 ### Backends
 
 1. The inline engine runs inside Remit. Remit builds it as the default backend.
-2. The rspamd adapter posts `message.raw` to `/checkv2`. It sends `envelope` as the `From`, `Rcpt`, `IP` and `Helo` headers. It drops `context`, which rspamd has no field for. Each symbol in the answer becomes a `BackendSymbol` reason, and the adapter divides `score` by `required_score` to get the 0 to 1 score. Rspamd's `no action` maps to `None`, `add header` to `Warn`, and `reject` to `Junk`.
+2. The rspamd adapter posts `message.raw` to `/checkv2`. It sends `envelope` as the `From`, `Rcpt`, `IP` and `Helo` headers. It drops `context`, which rspamd has no field for. The adapter divides `score` by `required_score` to get the 0 to 1 score, and maps symbols and actions as the next section lists.
 3. The spam Worker takes the same request as JSON over HTTPS. It serves the Cloudflare host, which never calls a VPS.
 
 The backend is deployment config, as the category classifier's provider is.
+
+### Rspamd mapping
+
+1. A symbol that means the same as a Remit reason takes that name. `DMARC_POLICY_*` becomes `DmarcFail`, `REPLYTO_DOM_NEQ_FROM_DOM` becomes `ReplyToMismatch`, and `OMOGRAPH_URL` becomes `MixedScriptDomain`.
+2. Every other symbol becomes `BackendSymbol`, with its rspamd name in `symbol`.
+3. `reject`, `discard` and `quarantine` map to `Junk`.
+4. `add header`, `greylist`, `rewrite subject` and `soft reject` map to `Warn`.
+5. `no action` maps to `None`.
 
 ## The pipeline
 
