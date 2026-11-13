@@ -178,7 +178,12 @@ const organizeSends = () =>
 describe("the filter tools behind mail:rules", () => {
 	it("are absent from a token without mail:rules", async () => {
 		const names = await toolNames([MCP_READ_SCOPE]);
-		for (const name of ["list_filters", "create_filter", "update_filter"]) {
+		for (const name of [
+			"list_filters",
+			"create_filter",
+			"update_filter",
+			"get_organize_job",
+		]) {
 			assert.equal(names.includes(name), false, name);
 		}
 
@@ -198,7 +203,12 @@ describe("the filter tools behind mail:rules", () => {
 
 	it("are listed for a token with mail:rules", async () => {
 		const names = await toolNames([MCP_RULES_SCOPE]);
-		for (const name of ["list_filters", "create_filter", "update_filter"]) {
+		for (const name of [
+			"list_filters",
+			"create_filter",
+			"update_filter",
+			"get_organize_job",
+		]) {
 			assert.equal(names.includes(name), true, name);
 		}
 	});
@@ -322,5 +332,54 @@ describe("update_filter", () => {
 			theirFilter.filterId,
 		);
 		assert.equal(untouched.name, "Theirs");
+	});
+});
+
+describe("get_organize_job", () => {
+	it("reads the state and counts of the caller's job", async () => {
+		const { organizeJobId } = await callToolJson<FilterOutcome>(
+			"create_filter",
+			receiptsRule(receipts.mailboxId),
+		);
+		assert.ok(organizeJobId);
+		await store.organizeJobRequest.update(organizeJobId, {
+			state: "Complete",
+			matchedCount: 3,
+			appliedCount: 2,
+			failedCount: 1,
+			errorMessage: "one move failed",
+		});
+
+		const job = await callToolJson<Record<string, unknown>>(
+			"get_organize_job",
+			{ organizeJobId },
+		);
+
+		assert.equal(job.organizeJobId, organizeJobId);
+		assert.equal(job.state, "Complete");
+		assert.equal(job.matchedCount, 3);
+		assert.equal(job.appliedCount, 2);
+		assert.equal(job.failedCount, 1);
+		assert.equal(job.errorMessage, "one move failed");
+	});
+
+	it("refuses another user's job and an unknown id alike", async () => {
+		const theirJob = await store.organizeJobRequest.create({
+			accountConfigId: theirAccount.accountConfigId,
+			userId: OTHER_USER_ID,
+			filterId: theirFilter.filterId,
+			matchOperator: FilterMatchOperator.And,
+			literalClauses: [],
+			actionLabelId: "None",
+			actionMailboxId: "None",
+			ttl: 0,
+		});
+
+		for (const organizeJobId of [theirJob.organizeJobId, "no-such-job"]) {
+			assert.match(
+				await refusalOf("get_organize_job", { organizeJobId }),
+				/Organize job not found/,
+			);
+		}
 	});
 });

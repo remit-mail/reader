@@ -1,5 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { FILTER_NO_ACTION, type FilterItem } from "@remit/data-ports";
+import {
+	FILTER_NO_ACTION,
+	type FilterItem,
+	type OrganizeJobRequestItem,
+} from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
@@ -18,7 +22,7 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
-import { asJson, refused } from "./tool-result.js";
+import { asJson, refused, toolError } from "./tool-result.js";
 
 const FILTER_WRITE = {
 	readOnlyHint: false,
@@ -42,6 +46,23 @@ const toFilter = (item: FilterItem) => ({
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });
+
+const toOrganizeJob = (job: OrganizeJobRequestItem) => ({
+	organizeJobId: job.organizeJobId,
+	state: job.state,
+	filterId: job.filterId,
+	matchedCount: job.matchedCount,
+	appliedCount: job.appliedCount,
+	failedCount: job.failedCount,
+	errorMessage: job.errorMessage,
+	createdAt: job.createdAt,
+	updatedAt: job.updatedAt,
+});
+
+const absentJob = (error: unknown): null => {
+	if (!isNotFoundError(error)) throw error;
+	return null;
+};
 
 const notFound = (error: unknown): Refused => {
 	if (!isNotFoundError(error)) throw error;
@@ -202,6 +223,32 @@ export const registerFilterTools = (
 				filterId,
 			});
 			return asJson({ filter, organizeJobId: job.organizeJobId });
+		},
+	);
+
+	server.registerTool(
+		"get_organize_job",
+		{
+			description:
+				"Read an organize job that applies a filter to existing mail: its state (Pending, Running, Complete, Failed), how many messages it matched, applied and failed, and the error when it failed.",
+			inputSchema: {
+				organizeJobId: z
+					.string()
+					.min(1)
+					.describe("organizeJobId from create_filter or update_filter"),
+			},
+			annotations: { readOnlyHint: true, openWorldHint: false },
+		},
+		async ({ organizeJobId }) => {
+			const job = await deps.organizeJobRequest
+				.get(organizeJobId)
+				.catch(absentJob);
+			if (!job || job.accountConfigId !== accountConfigId) {
+				return toolError(
+					`Organize job not found: ${organizeJobId}. Use the organizeJobId create_filter or update_filter returned.`,
+				);
+			}
+			return asJson(toOrganizeJob(job));
 		},
 	);
 };
