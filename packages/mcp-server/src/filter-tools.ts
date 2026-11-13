@@ -22,13 +22,11 @@ import {
 	listAccountFilters,
 	ownedAccount,
 	queueOrganizeJob,
-	type Refused,
-	refuse,
 	updateFilter,
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
-import { asJson, refused, toolError } from "./tool-result.js";
+import { asJson, notFoundRefusal, refused, toolError } from "./tool-result.js";
 
 const FILTER_WRITE = {
 	readOnlyHint: false,
@@ -72,14 +70,7 @@ const absentJob = (error: unknown): null => {
 	return null;
 };
 
-const notFound = (error: unknown): Refused => {
-	if (!isNotFoundError(error)) throw error;
-	const message = error instanceof Error ? error.message : "Not found";
-	return refuse({
-		kind: "NotFound",
-		message: `${message}. Check the filterId against list_filters.`,
-	});
-};
+const notFound = notFoundRefusal("Check the filterId against list_filters.");
 
 const accountId = z.string().min(1).describe("Account from list_mailboxes");
 

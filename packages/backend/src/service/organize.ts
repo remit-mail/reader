@@ -60,8 +60,8 @@ export const scopeFromJob = (
 	job: Pick<OrganizeJobRequestItem, "sourceMailboxId">,
 ): OrganizeMatchScope =>
 	job.sourceMailboxId === FILTER_NO_ACTION
-		? {}
-		: { mailboxIds: [job.sourceMailboxId] };
+		? WHOLE_CORPUS
+		: { kind: "SourceFolder", mailboxId: job.sourceMailboxId };
 
 /**
  * One corpus message projected onto the fields a literal clause matches
@@ -93,12 +93,28 @@ export interface OrganizeCandidateQuery extends RuleNarrowing {
 /**
  * Where a pass looks and which standing filter it runs for. A filter
  * back-apply narrows the corpus to the inbox and matches a body-content clause
- * on the stored preview; an "all like these" pass sets neither.
+ * on the stored preview; an "all like these" pass reads every folder, or the
+ * one source folder its job names.
  */
-export interface OrganizeMatchScope {
-	filterId?: string;
-	mailboxIds?: readonly string[];
-}
+export type OrganizeMatchScope =
+	| { kind: "Corpus" }
+	| { kind: "Filter"; filterId: string; mailboxIds: readonly string[] }
+	| { kind: "SourceFolder"; mailboxId: string };
+
+export const WHOLE_CORPUS: OrganizeMatchScope = { kind: "Corpus" };
+
+const scopeMailboxIds = (
+	scope: OrganizeMatchScope,
+): readonly string[] | undefined => {
+	switch (scope.kind) {
+		case "Filter":
+			return scope.mailboxIds;
+		case "SourceFolder":
+			return [scope.mailboxId];
+		default:
+			return undefined;
+	}
+};
 
 export interface OrganizeMatchDeps {
 	/**
@@ -177,15 +193,15 @@ export const organizePredicateRejection = (
 	predicate: OrganizePredicate,
 ): OrganizeRejection | null => bodyContentRejection(predicate.rule);
 
-// A rule with no tests sweeps a folder only when the pass is scoped to one;
-// over the whole corpus, and at index time, it still matches nothing.
+// A rule with no tests sweeps the source folder a snapshot job names. Over the
+// whole corpus, for a standing filter, and at index time it matches nothing.
 const isFolderSweep = (
 	rule: FilterRuleV1Item,
 	scope: OrganizeMatchScope,
 ): boolean =>
+	scope.kind === "SourceFolder" &&
 	rule.test.test === "allof" &&
-	filterRuleLeaves(rule).length === 0 &&
-	scope.mailboxIds?.length === 1;
+	filterRuleLeaves(rule).length === 0;
 
 const FOLDER_SWEEP: RuleNarrowing = { terms: [], operator: "and" };
 
@@ -224,7 +240,7 @@ const matchLiteral = async (
 			readsClassifierScores: filterRuleTestsClassification(predicate.rule),
 			limit,
 			continuationToken,
-			mailboxIds: scope.mailboxIds,
+			mailboxIds: scopeMailboxIds(scope),
 		});
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
@@ -256,11 +272,10 @@ export const matchOrganize = async (
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number = ORGANIZE_MATCH_LIMIT,
-	scope: OrganizeMatchScope = {},
+	scope: OrganizeMatchScope = WHOLE_CORPUS,
 ): Promise<OrganizeMatchResult> => {
-	const rejection = scope.filterId
-		? null
-		: organizePredicateRejection(predicate);
+	const rejection =
+		scope.kind === "Filter" ? null : organizePredicateRejection(predicate);
 	if (rejection) return { rejected: rejection };
 	const messageIds = await matchLiteral(
 		deps,
@@ -603,7 +618,7 @@ export const backApplyFilter = async (
 		accountConfigId,
 		loaded.predicate,
 		ORGANIZE_MATCH_LIMIT,
-		{ filterId, mailboxIds },
+		{ kind: "Filter", filterId, mailboxIds },
 	);
 	if (match.rejected) return match;
 

@@ -174,26 +174,3 @@ describe("move_messages", () => {
 		assert.equal((await mine.row(messageId))?.mailboxId, inbox.mailboxId);
 	});
 });
-
-describe("move_folder_messages", () => {
-	it("queues an organize job scoped to the source folder that files into the label's folder", async () => {
-		const { labelId } = await labelFolder("Promotions");
-		const mapped = await mine.client.labelMailbox.get(
-			labelId,
-			mine.account.accountId,
-		);
-		assert.ok(mapped);
-
-		const { organizeJobId } = (await callToolJson("move_folder_messages", {
-			accountId: mine.account.accountId,
-			sourceMailboxId: receipts.mailboxId,
-			labelId,
-		})) as { organizeJobId: string };
-
-		const job = await mine.client.organizeJobRequest.get(organizeJobId);
-		assert.equal(job.sourceMailboxId, receipts.mailboxId);
-		assert.equal(job.actionMailboxId, mapped.mailboxId);
-		assert.equal(job.actionLabelId, labelId);
-		assert.deepEqual(job.rule.test, { test: "allof", tests: [] });
-	});
-});

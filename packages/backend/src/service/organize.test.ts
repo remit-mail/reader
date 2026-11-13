@@ -249,11 +249,23 @@ describe("matchOrganize", () => {
 			ACCOUNT_CONFIG_ID,
 			predicate(),
 			ORGANIZE_MATCH_LIMIT,
-			{ mailboxIds: ["mbox-src"] },
+			{ kind: "SourceFolder", mailboxId: "mbox-src" },
 		);
 
 		assert.deepEqual(messageIds, ["msg-1", "msg-2"]);
 		assert.deepEqual(queried, [["mbox-src"]]);
+	});
+
+	it("matches nothing for a filter with no clause run over a single inbox", async () => {
+		const { messageIds } = await matchAccepted(
+			corpusDeps([reservation("msg-1"), candidate("msg-2")]),
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+			ORGANIZE_MATCH_LIMIT,
+			{ kind: "Filter", filterId: "filter-1", mailboxIds: ["mbox-inbox"] },
+		);
+
+		assert.deepEqual(messageIds, []);
 	});
 
 	it("matches a literal predicate against the corpus", async () => {

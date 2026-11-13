@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Refusal } from "@remit/mailbox-service";
+import { isNotFoundError } from "@remit/data-ports/errors";
+import { type Refusal, type Refused, refuse } from "@remit/mailbox-service";
 
 export const asJson = (value: unknown): CallToolResult => ({
 	content: [{ type: "text", text: JSON.stringify(value) }],
@@ -23,3 +24,14 @@ const sentence = (message: string): string =>
 
 export const refused = (refusal: Refusal): CallToolResult =>
 	toolError(`${sentence(refusal.message)}${REFUSAL_FIX[refusal.kind]}`);
+
+export const notFoundRefusal =
+	(fix: string) =>
+	(error: unknown): Refused => {
+		if (!isNotFoundError(error)) throw error;
+		const message = error instanceof Error ? error.message : "Not found";
+		return refuse({
+			kind: "NotFound",
+			message: fix ? `${sentence(message)} ${fix}` : message,
+		});
+	};

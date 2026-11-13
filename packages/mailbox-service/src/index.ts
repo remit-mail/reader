@@ -297,11 +297,13 @@ export {
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
-	type MovedMessages,
+	type DestinationDeps,
+	type MoveDestination,
+	type MovedGroup,
 	type MoveMessagesDeps,
-	type MoveToLabelDeps,
-	moveMessagesToFolder,
-	moveMessagesToLabel,
+	type MoveTarget,
+	moveMessagesTo,
+	resolveMoveDestination,
 } from "./move-messages.js";
 export {
 	backApplyNeverSpam,
@@ -347,6 +349,7 @@ export {
 	type MessageOwnershipClient,
 	ownedAccount,
 	ownedMessages,
+	ownedMessagesByAccount,
 	settledFolder,
 } from "./ownership.js";
 export {

@@ -10,27 +10,24 @@ import {
 	FilterRuleV1Schema,
 	filterRuleFromClauses,
 	filterRuleLimitRefusal,
-	type MailboxItem,
 } from "@remit/data-ports";
-import { isNotFoundError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import {
 	accept,
 	folderInAccount,
 	invalid,
-	moveMessagesToFolder,
-	moveMessagesToLabel,
+	type MoveDestination,
+	type MoveTarget,
+	moveMessagesTo,
 	ownedAccount,
 	queueOrganizeJob,
 	type Refusable,
-	type Refused,
-	refuse,
-	settledFolder,
+	resolveMoveDestination,
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
-import { asJson, refused } from "./tool-result.js";
+import { asJson, notFoundRefusal, refused } from "./tool-result.js";
 
 const MAX_MOVE_MESSAGES = 500;
 
@@ -41,13 +38,7 @@ const MOVE_WRITE = {
 	openWorldHint: false,
 } as const;
 
-const notFound = (error: unknown): Refused => {
-	if (!isNotFoundError(error)) throw error;
-	return refuse({
-		kind: "NotFound",
-		message: error instanceof Error ? error.message : "Not found",
-	});
-};
+const notFound = notFoundRefusal("");
 
 const EVERY_MESSAGE: FilterRuleV1Item = filterRuleFromClauses({
 	matchOperator: FilterMatchOperator.And,
@@ -68,12 +59,10 @@ const targetLabelId = z
 		"Label from list_labels: the messages move into its folder in their account and get the label. Send this or mailboxId.",
 	);
 
-type Target = { mailboxId: string } | { labelId: string };
-
 const oneTarget = (args: {
 	mailboxId?: string;
 	labelId?: string;
-}): Refusable<Target> => {
+}): Refusable<MoveTarget> => {
 	if (args.mailboxId && args.labelId) {
 		return invalid("Send mailboxId or labelId, not both.");
 	}
@@ -82,19 +71,11 @@ const oneTarget = (args: {
 	return invalid("Send a target: mailboxId for a folder, or labelId.");
 };
 
-interface JobAction {
-	actionMailboxId: string;
-	actionLabelId: string;
-}
-
-const settledTarget = (
-	folder: MailboxItem,
-	accountId: string,
-): Refusable<MailboxItem> => {
-	const owned = folderInAccount(folder, accountId, "act");
-	if (!owned.ok) return owned;
-	return settledFolder(folder);
-};
+const jobAction = (destination: MoveDestination) => ({
+	actionMailboxId: destination.mailboxId,
+	actionLabelId:
+		destination.kind === "Label" ? destination.labelId : FILTER_NO_ACTION,
+});
 
 export const registerMoveTools = (
 	server: McpServer,
@@ -106,35 +87,6 @@ export const registerMoveTools = (
 		organizeJobRequest: deps.organizeJobRequest,
 		queue: deps.filters.organizeQueue,
 		logger: deps.filters.logger,
-	};
-
-	const actionFor = async (
-		accountId: string,
-		target: Target,
-	): Promise<Refusable<JobAction>> => {
-		if ("mailboxId" in target) {
-			const folder = await deps.mailbox.get(accountId, target.mailboxId);
-			const settled = settledTarget(folder, accountId);
-			if (!settled.ok) return settled;
-			return accept({
-				actionMailboxId: folder.mailboxId,
-				actionLabelId: FILTER_NO_ACTION,
-			});
-		}
-		const label = await deps.label.get(accountConfigId, target.labelId);
-		const mapped = await deps.labelMailbox.get(label.labelId, accountId);
-		if (!mapped) {
-			return invalid(
-				`Label “${label.name}” has no folder in this account yet. Call create_label with the same name to add it.`,
-			);
-		}
-		const folder = await deps.mailbox.get(accountId, mapped.mailboxId);
-		const settled = settledTarget(folder, accountId);
-		if (!settled.ok) return settled;
-		return accept({
-			actionMailboxId: folder.mailboxId,
-			actionLabelId: label.labelId,
-		});
 	};
 
 	const ruleFor = async (args: {
@@ -157,7 +109,7 @@ export const registerMoveTools = (
 		"move_messages",
 		{
 			description:
-				"Move messages into a folder, or into a label's folder, the way the mail app moves them. All messages must be in one account. Returns once the moves are queued; the mail server confirms them shortly after.",
+				"Move messages into a folder, or into a label's folder, the way the mail app moves them. A folder takes messages of its own account; a label files each account's messages into that account's label folder. Returns once the moves are queued; the mail server confirms them shortly after.",
 			inputSchema: {
 				messageIds: z
 					.array(z.string().min(1))
@@ -173,24 +125,24 @@ export const registerMoveTools = (
 			const target = oneTarget(args);
 			if (!target.ok) return refused(target.refusal);
 			const ids = [...new Set(messageIds)];
-			const moved = await ("mailboxId" in target.value
-				? moveMessagesToFolder(
-						deps,
-						accountConfigId,
-						ids,
-						target.value.mailboxId,
-					)
-				: moveMessagesToLabel(deps, accountConfigId, ids, target.value.labelId)
+			const moved = await moveMessagesTo(
+				deps,
+				accountConfigId,
+				ids,
+				target.value,
 			).catch(notFound);
 			if (!moved.ok) return refused(moved.refusal);
-			return asJson({ moved: ids.length, ...moved.value });
+			return asJson({
+				moved: ids.length,
+				destinations: moved.value.map(({ messageIds: _, ...group }) => group),
+			});
 		},
 	);
 
 	server.registerTool(
 		"move_folder_messages",
 		{
-			description: `Move every message in one folder, or only those matching a filter's rule or a given rule, into another folder or a label's folder. Runs as an organize job: returns its organizeJobId, which get_organize_job reports on. One job moves at most ${ORGANIZE_MATCH_LIMIT} messages; when matchedCount reaches that, call again to move the rest.`,
+			description: `Move every message in one folder, or only those matching a filter's rule or a given rule, into another folder or a label's folder. Runs as an organize job: returns its organizeJobId, which get_organize_job reports on. One job moves at most ${ORGANIZE_MATCH_LIMIT} messages; call again while a finished job reports appliedCount above 0.`,
 			inputSchema: {
 				accountId: z.string().min(1).describe("Account from list_mailboxes"),
 				sourceMailboxId: z
@@ -231,9 +183,15 @@ export const registerMoveTools = (
 				.then((folder) => folderInAccount(folder, accountId, "act"))
 				.catch(notFound);
 			if (!source.ok) return refused(source.refusal);
-			const action = await actionFor(accountId, target.value).catch(notFound);
-			if (!action.ok) return refused(action.refusal);
-			if (action.value.actionMailboxId === sourceMailboxId) {
+			const destination = await resolveMoveDestination(
+				deps,
+				accountConfigId,
+				accountId,
+				target.value,
+			).catch(notFound);
+			if (!destination.ok) return refused(destination.refusal);
+			const action = jobAction(destination.value);
+			if (action.actionMailboxId === sourceMailboxId) {
 				return refused(
 					invalid("The target folder is the source folder.").refusal,
 				);
@@ -242,7 +200,7 @@ export const registerMoveTools = (
 			if (!rule.ok) return refused(rule.refusal);
 			const rejection = organizePredicateRejection({
 				rule: rule.value,
-				...action.value,
+				...action,
 			});
 			if (rejection) return refused(invalid(rejection.message).refusal);
 			const job = await queueOrganizeJob(organizeDeps, {
@@ -251,7 +209,7 @@ export const registerMoveTools = (
 				predicate: {
 					rule: rule.value,
 					sourceMailboxId,
-					...action.value,
+					...action,
 				},
 			});
 			return asJson({ organizeJobId: job.organizeJobId, state: job.state });

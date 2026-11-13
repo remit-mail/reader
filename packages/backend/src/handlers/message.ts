@@ -24,7 +24,7 @@ import {
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 	materializeBodyParts,
-	moveMessagesToFolder,
+	moveMessagesTo,
 	type NeverSpamGrant,
 	NoJunkMailboxError,
 	ownedMessages,
@@ -789,12 +789,9 @@ export const MessageBulkOperations = {
 		}
 
 		unwrap(
-			await moveMessagesToFolder(
-				ctx.client,
-				accountConfigId,
-				messageIds,
-				destinationMailboxId,
-			),
+			await moveMessagesTo(ctx.client, accountConfigId, messageIds, {
+				mailboxId: destinationMailboxId,
+			}),
 		);
 
 		return {
