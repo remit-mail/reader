@@ -99,7 +99,9 @@ export const resolveSenderPlacement = (
  * Pure: the caller resolves the message's current folder placement and the
  * sender trust; this function does no DB lookups and produces no side effects.
  * The provider's spam verdict is not an input (issue #1553): only
- * authentication, the sender's flags and trust, and the classifier decide.
+ * authentication, the sender's flags and trust, and `junk` decide. `junk` is
+ * the category classifier's junk answer or the spam service's `Junk` action
+ * (RFC 041).
  *
  * `senderOverride` (RFC 039 Decision 3, issue #605) is the user's standing
  * instruction about this sender's placement, and it outranks every DKIM/DMARC
@@ -108,15 +110,15 @@ export const resolveSenderPlacement = (
  * {@link resolveSenderPlacement} in the caller; this function itself does not
  * compare `setAt`.
  *
- * A classifier junk answer yields to Vip and Wellknown (issue #1553): the user
- * set the one and replied to the other.
+ * A junk answer yields to Vip and Wellknown (issue #1553): the user set the
+ * one and replied to the other.
  */
 export const classifyPlacement = (
 	message: MessageItem,
 	placement: FolderPlacement,
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
-	classifierJunk: boolean,
+	junk: boolean,
 ): PlacementVerdict => {
 	if (senderOverride === SenderOverride.Blocked) {
 		return {
@@ -131,7 +133,7 @@ export const classifyPlacement = (
 
 	const trusted = isTrusted(senderTrust);
 
-	if (classifierJunk && senderOverride === SenderOverride.None && !trusted) {
+	if (junk && senderOverride === SenderOverride.None && !trusted) {
 		return placement === "inbox"
 			? {
 					action: "move-to-junk",
@@ -146,23 +148,12 @@ export const classifyPlacement = (
 	}
 
 	// Demote (inbox → junk), HIGH bar.
-	if (placement === "inbox" && dkimMismatch) {
-		if (dmarc === "Fail" && !trusted) {
-			return {
-				action: "move-to-junk",
-				confidence: "confident",
-				reasons: ["dkim-mismatch", "dmarc=fail", "sender=untrusted"],
-			};
-		}
-		// DMARC-pass phishing: dkimMismatch but DMARC did not fail. Deferred to a
-		// later LLM tier — must never auto-demote here.
-		if (dmarc === "Pass") {
-			return {
-				action: "leave",
-				confidence: "unsure",
-				reasons: ["dkim-mismatch", "dmarc=pass", "deferred-to-llm"],
-			};
-		}
+	if (placement === "inbox" && dkimMismatch && dmarc === "Fail" && !trusted) {
+		return {
+			action: "move-to-junk",
+			confidence: "confident",
+			reasons: ["dkim-mismatch", "dmarc=fail", "sender=untrusted"],
+		};
 	}
 
 	return {
@@ -209,7 +200,7 @@ export const decidePlacement = (
 	placement: FolderPlacement,
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
-	classifierJunk: boolean,
+	junk: boolean,
 	autoArchive: boolean,
 ): PlacementDecision => {
 	if (message.movedByRemit === true) {
@@ -229,7 +220,7 @@ export const decidePlacement = (
 			placement,
 			senderTrust,
 			senderOverride,
-			classifierJunk,
+			junk,
 		);
 		if (verdict.action === "leave") {
 			return { verdict, destination: autoArchive ? "archive" : undefined };
@@ -256,7 +247,7 @@ export const decidePlacement = (
 		"inbox",
 		senderTrust,
 		senderOverride,
-		classifierJunk,
+		junk,
 	);
 	if (asInbox.action === "move-to-junk") {
 		return { verdict: asInbox, destination: undefined };

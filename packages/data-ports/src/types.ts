@@ -41,6 +41,7 @@ import type {
 	SpamCheckedSchema,
 	SpamFailedSchema,
 	SpamRequestSchema,
+	SpamSettingsSchema,
 	SyncWarningSchema,
 	ThreadMessageSchema,
 } from "@remit/api-zod-schemas";
@@ -535,7 +536,6 @@ export type CreateMessageInput = Omit<
 	| "abandonedMutation"
 	| "category"
 	| "classificationState"
-	| "authenticityVerdict"
 	| "hasListUnsubscribe"
 	| "movedByRemit"
 	| "classifierScores"
@@ -547,7 +547,6 @@ export type CreateMessageInput = Omit<
 	abandonedMutation?: MessageItem["abandonedMutation"];
 	category?: MessageItem["category"];
 	classificationState?: MessageItem["classificationState"];
-	authenticityVerdict?: MessageItem["authenticityVerdict"];
 	hasListUnsubscribe?: MessageItem["hasListUnsubscribe"];
 	movedByRemit?: MessageItem["movedByRemit"];
 	classifierScores?: MessageItem["classifierScores"];
@@ -733,6 +732,11 @@ export type SearchOptions = {
 	 * whose authenticity is not yet set matches neither value.
 	 */
 	dkimMismatch?: boolean;
+	/**
+	 * One label: rows in the label's folders, or rows whose message carries the
+	 * label (a MessageLabel row, applied by a filter or by Remit).
+	 */
+	label?: { labelId: string; folderMailboxIds: string[] };
 	/**
 	 * The message date facet, over the row's `sentDate` in epoch millis:
 	 * `sentAfter` is inclusive, `sentBefore` exclusive, and either alone is an
@@ -930,6 +934,9 @@ export type SpamRequest = z.infer<typeof SpamRequestSchema>;
 export type SpamResponse =
 	| z.infer<typeof SpamCheckedSchema>
 	| z.infer<typeof SpamFailedSchema>;
+export type SpamSettingsItem = z.infer<typeof SpamSettingsSchema>;
+export type SpamThresholds = SpamSettingsItem["thresholds"];
+export type SpamLabelPlacementValue = SpamSettingsItem["spamPlacement"];
 
 export type SpamReason = z.infer<typeof SpamCheckedSchema>["reasons"][number];
 

@@ -54,7 +54,7 @@ describe("classifyByHeaders", () => {
 			"",
 			"body",
 		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
+		assert.equal(classifyByHeaders(parsed), MessageCategory.uncategorized);
 	});
 
 	it("returns automated for Precedence: bulk", async () => {
@@ -162,30 +162,6 @@ describe("classifyByHeaders", () => {
 		assert.equal(classifyByHeaders(parsed), MessageCategory.marketing);
 	});
 
-	it("returns automated when DKIM d= mismatches the From domain", async () => {
-		const parsed = await parse([
-			"From: alice@personal.example.com",
-			"To: bob@example.com",
-			"Subject: forwarded",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.automated);
-	});
-
-	it("does NOT flag DKIM d= as mismatched when domains share a common root", async () => {
-		const parsed = await parse([
-			"From: alice@mail.example.com",
-			"To: bob@example.com",
-			"Subject: ok",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
-	});
-
 	it("returns social for a sender on the social allow-list (linkedin.com)", async () => {
 		const parsed = await parse([
 			"From: notifications@linkedin.com",
@@ -208,7 +184,7 @@ describe("classifyByHeaders", () => {
 		assert.equal(classifyByHeaders(parsed), MessageCategory.social);
 	});
 
-	it("returns personal for plain mail with no special headers", async () => {
+	it("leaves mail no header rule matches uncategorized", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
@@ -216,34 +192,7 @@ describe("classifyByHeaders", () => {
 			"",
 			"hi bob, lunch on friday?",
 		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
-	});
-
-	it("returns personal when From has no parseable address", async () => {
-		const parsed = await parse([
-			"From: ",
-			"To: bob@example.com",
-			"Subject: weird",
-			"",
-			"body",
-		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
-	});
-
-	it("category stays automated for DKIM mismatch even when extractAuthenticity also reports mismatch", async () => {
-		const parsed = await parse([
-			"From: alice@personal.example.com",
-			"To: bob@example.com",
-			"Subject: forwarded",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		// Both must agree — category heuristic and structured field
-		assert.equal(classifyByHeaders(parsed), MessageCategory.automated);
-		const auth = extractAuthenticity(parsed);
-		assert.ok(auth, "authenticity should be present");
-		assert.equal(auth.dkimMismatch, true);
+		assert.equal(classifyByHeaders(parsed), MessageCategory.uncategorized);
 	});
 
 	it("transactional rule wins over List-Unsubscribe", async () => {
@@ -391,38 +340,6 @@ describe("extractAuthenticity", () => {
 		assert.ok(auth, "expected authenticity object");
 		assert.equal(auth.dkimMismatch, true);
 		assert.equal(auth.dkimDomain, "relay-a.net");
-	});
-
-	it("category and dkimMismatch always agree (mismatch case)", async () => {
-		const parsed = await parse([
-			"From: alice@personal.example.com",
-			"To: bob@example.com",
-			"Subject: forwarded",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		const category = classifyByHeaders(parsed);
-		const auth = extractAuthenticity(parsed);
-		assert.equal(category, MessageCategory.automated);
-		assert.ok(auth, "expected authenticity object");
-		assert.equal(auth.dkimMismatch, true);
-	});
-
-	it("category and dkimMismatch always agree (aligned case)", async () => {
-		const parsed = await parse([
-			"From: alice@example.com",
-			"To: bob@example.com",
-			"Subject: aligned",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
-			"",
-			"body",
-		]);
-		const category = classifyByHeaders(parsed);
-		const auth = extractAuthenticity(parsed);
-		assert.equal(category, MessageCategory.personal);
-		assert.ok(auth, "expected authenticity object");
-		assert.equal(auth.dkimMismatch, false);
 	});
 });
 
@@ -599,7 +516,6 @@ const messageFrom = (parsed: ParsedMail): MessageItem => ({
 	classificationState: "NotExamined",
 	classifierScores: [],
 	spamVerdict: { state: "NotChecked" },
-	authenticityVerdict: "NotEvaluated",
 	hasListUnsubscribe: false,
 	movedByRemit: false,
 	createdAt: 1,

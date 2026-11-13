@@ -36,4 +36,10 @@ model ClassifierStats {
   byLabel: ClassifierLabelCount[];
 
   corrections: ClassifierCorrections;
+
+  @doc("Spam verdicts of action `Warn` or `Junk` per arrival day, action and kind, in date order. A day with none is absent.")
+  spamByDay: SpamDayCount[];
+
+  @doc("Checked messages per spam score band of width 0.05, lowest first. A band with none is absent. Summing the bands from a threshold up counts the messages that threshold reaches.")
+  spamScoreBands: SpamScoreBand[];
 }

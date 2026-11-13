@@ -3,13 +3,16 @@ import type {
 	IAccountRepository,
 	IAddressRepository,
 	IDomainRegistrationRepository,
+	IMessageLabelRepository,
 	MessageSpamVerdict,
 	SpamDeployment,
 	SpamService,
+	SpamSettingsDeps,
 	SpamThresholds,
 } from "@remit/data-ports";
 import type { AuthResultVerdict } from "@remit/domain-enums";
 import type { ParsedMail } from "mailparser";
+import type { ClassificationLabelDeps } from "../classification-labels.js";
 import type { FilterDecision } from "../filters/pipeline.js";
 import type { SenderPlacement } from "../sender-placement.js";
 import { buildSpamRequest } from "./evidence.js";
@@ -30,6 +33,7 @@ export {
 	type SpamModelAccess,
 	spamModelAccessOf,
 } from "./model.js";
+export { type SpamPlacement, spamPlacementOf } from "./placement.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";
 export { fromRspamd, RspamdSpamService } from "./rspamd.js";
 
@@ -44,13 +48,15 @@ export const spamThresholdsFor = (
 ): SpamThresholds =>
 	deployment.name === "Inline" ? deployment.thresholds : { state: "Unset" };
 
-/** What body sync needs to record a spam verdict (RFC 041). */
-export interface SpamConfig {
+/** What body sync needs to record a spam verdict and act on it (RFC 041). */
+export interface SpamConfig extends SpamSettingsDeps {
 	spamService: SpamService;
 	thresholds: SpamThresholds;
 	domainRegistration: IDomainRegistrationRepository;
 	rdap: Pick<RdapClient, "lookup">;
 	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
+	labelService: ClassificationLabelDeps;
+	messageLabelService: Pick<IMessageLabelRepository, "apply">;
 	logger: RdapLogger;
 }
 

@@ -7,10 +7,13 @@ import {
 	invitationSenderInEffect,
 	sendingAccountFor,
 } from "@remit/calendar-service";
-import type {
-	IAccountConfigRepository,
-	IAccountRepository,
-	IAccountSettingRepository,
+import {
+	type IAccountConfigRepository,
+	type IAccountRepository,
+	type IAccountSettingRepository,
+	readResolvedSpamSettings,
+	SPAM_PLACEMENT_SETTINGS,
+	type SpamDeployment,
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
@@ -43,6 +46,7 @@ export interface UserSettingsDeps {
 	>;
 	accountConfig: Pick<IAccountConfigRepository, "get">;
 	classificationDefault: ClassificationDeploymentDefault;
+	spamDeployment: SpamDeployment;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 	secrets: Pick<SecretsService, "encrypt">;
 	label: ClassificationLabelDeps;
@@ -95,6 +99,7 @@ export const readUserSettings = async (
 			inEffect !== undefined && inEffect.accountId === chosen,
 		classificationPresets: classificationPresetsResponse(),
 		classification: publicClassification(resolved, usage),
+		spam: await readResolvedSpamSettings(deps, accountConfigId),
 	};
 };
 
@@ -126,6 +131,15 @@ export const updateUserSettingsFor = async (
 		}
 	}
 	await writeClassificationChange(deps, accountConfigId, classification.value);
+	for (const [field, name] of SPAM_PLACEMENT_SETTINGS) {
+		const value = input[field];
+		if (value === undefined) continue;
+		await deps.accountSetting.upsert({
+			accountConfigId,
+			name,
+			value: { kind: "String", value },
+		});
+	}
 	if (sender !== undefined) {
 		await deps.accountSetting.upsert({
 			accountConfigId,
@@ -140,6 +154,7 @@ const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
 	accountSetting: ctx.client.accountSetting,
 	accountConfig: ctx.client.accountConfig,
 	classificationDefault: ctx.client.classificationDefault,
+	spamDeployment: ctx.client.spam.spamDeployment,
 	accounts: ctx.client.account,
 	secrets: ctx.client.secrets,
 	label: ctx.client.label,

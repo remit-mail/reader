@@ -6,8 +6,11 @@ import {
 	NOT_CHECKED,
 	type PlacementPredicate,
 	readClassifierLabelCounts,
+	readSpamDayCounts,
+	readSpamScoreBands,
 	readStoredClassifierScores,
 	readStoredSpamVerdict,
+	SPAM_SCORE_BAND_WIDTH,
 } from "@remit/data-ports";
 import {
 	and,
@@ -85,7 +88,6 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		syncStatus: row.syncStatus,
 		category: row.category,
 		classificationState: row.classificationState,
-		authenticityVerdict: row.authenticityVerdict,
 		hasListUnsubscribe: row.hasListUnsubscribe,
 		movedByRemit: row.movedByRemit,
 		classifierScores: readStoredClassifierScores(row.classifierScores),
@@ -351,8 +353,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			category: input.category ?? ("uncategorized" as const),
 			classificationState:
 				input.classificationState ?? ("NotExamined" as const),
-			authenticityVerdict:
-				input.authenticityVerdict ?? ("NotEvaluated" as const),
 			hasListUnsubscribe: input.hasListUnsubscribe ?? false,
 			movedByRemit: input.movedByRemit ?? false,
 			classifierScores: input.classifierScores ?? [],
@@ -432,6 +432,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 	async countClassifiedSince(
 		mailboxIds: string[],
 		since: number,
+		utcOffsetMinutes: number,
 	): ReturnType<IMessageRepository["countClassifiedSince"]> {
 		const mailboxes = inList(messageTable.mailboxId, mailboxIds);
 		const examined = and(
@@ -466,7 +467,24 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					sql`not exists (select 1 from json_each(${messageTable.classifierScores}) as score where json_extract(score.value, '$.label') in ('Spam', 'Phishing') and json_extract(score.value, '$.confident') = 1)`,
 				),
 			);
-		return { byCategory, byLabel, spamReportedNotJunk: reported.count };
+		const checked = sql`${examined} and json_extract(${messageTable.spamVerdict}, '$.state') = 'Checked'`;
+		const spamByDay = readSpamDayCounts(
+			await this.db.all(
+				sql`select date(${messageTable.internalDate} / 1000 + ${utcOffsetMinutes * 60}, 'unixepoch') as date, json_extract(${messageTable.spamVerdict}, '$.action') as action, json_extract(${messageTable.spamVerdict}, '$.kind') as kind, count(*) as count from ${messageTable} where ${checked} and json_extract(${messageTable.spamVerdict}, '$.action') in ('Warn', 'Junk') group by date, action, kind order by date, action, kind`,
+			),
+		);
+		const spamScoreBands = readSpamScoreBands(
+			await this.db.all(
+				sql`select min(cast(round(json_extract(${messageTable.spamVerdict}, '$.score') / ${SPAM_SCORE_BAND_WIDTH}, 9) as int), ${Math.round(1 / SPAM_SCORE_BAND_WIDTH) - 1}) as band, count(*) as count from ${messageTable} where ${checked} group by band order by band`,
+			),
+		);
+		return {
+			byCategory,
+			byLabel,
+			spamReportedNotJunk: reported.count,
+			spamByDay,
+			spamScoreBands,
+		};
 	}
 
 	async describe(messageId: string): Promise<MessageDescription> {
@@ -549,9 +567,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			...(input.category !== undefined ? { category: input.category } : {}),
 			...(input.classificationState !== undefined
 				? { classificationState: input.classificationState }
-				: {}),
-			...(input.authenticityVerdict !== undefined
-				? { authenticityVerdict: input.authenticityVerdict }
 				: {}),
 			...(input.hasListUnsubscribe !== undefined
 				? { hasListUnsubscribe: input.hasListUnsubscribe }

@@ -220,24 +220,6 @@ describe("classifyPlacement", () => {
 				reasons: ["dkim-mismatch", "dmarc=fail", "sender=untrusted"],
 			});
 		});
-
-		it("defers a dkim-mismatch + dmarc-pass message to a later LLM tier", () => {
-			const verdict = classifyPlacement(
-				baseMessage({
-					authResult: { dmarc: "Pass" },
-					authenticity: { fromDomain: "example.com", dkimMismatch: true },
-				}),
-				"inbox",
-				SenderTrust.Unknown,
-				SenderOverride.None,
-				false,
-			);
-			assert.deepEqual(verdict, {
-				action: "leave",
-				confidence: "unsure",
-				reasons: ["dkim-mismatch", "dmarc=pass", "deferred-to-llm"],
-			});
-		});
 	});
 });
 

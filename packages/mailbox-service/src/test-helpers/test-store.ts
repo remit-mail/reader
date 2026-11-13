@@ -220,13 +220,24 @@ export const silentLog = {
 
 /** The inline judge with unset thresholds and an RDAP that never answers. */
 export const spamConfigFor = (
-	store: Pick<Store, "domainRegistration" | "account">,
+	store: Pick<
+		Store,
+		| "domainRegistration"
+		| "account"
+		| "accountSetting"
+		| "label"
+		| "messageLabel"
+	>,
 ): SpamConfig => ({
 	spamService: new InlineSpamService({ state: "Unset" }),
+	spamDeployment: { name: "Inline", thresholds: { state: "Unset" } },
 	thresholds: { state: "Unset" },
 	domainRegistration: store.domainRegistration,
 	rdap: { lookup: async () => undefined },
 	accountService: store.account,
+	accountSetting: store.accountSetting,
+	labelService: store.label,
+	messageLabelService: store.messageLabel,
 	logger: silentLog,
 });
 

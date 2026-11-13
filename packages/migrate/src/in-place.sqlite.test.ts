@@ -358,7 +358,7 @@ describe("a v0.9.22 remit.db migrated in place", () => {
 		assert.deepEqual(
 			after,
 			(beforeMessages as Array<Record<string, unknown>>).map(
-				({ message_id_header: _, ...kept }) => ({
+				({ message_id_header: _, authenticity_verdict: __, ...kept }) => ({
 					...kept,
 					classifier_scores: "[]",
 					spam_verdict: JSON.stringify({ state: "NotChecked" }),

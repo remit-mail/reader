@@ -34,6 +34,7 @@ import { decodeToken } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
 import { messageTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import { messageLabelTable } from "../schema.js";
 import type {
 	SearchIndex,
 	SearchPosition,
@@ -211,6 +212,9 @@ const senderTrustIs = (
 const dkimMismatchIs = (mismatch: boolean): SQL =>
 	sql`exists (select 1 from ${messageTable} where ${messageTable.messageId} = ${threadMessageTable.messageId} and json_extract(${messageTable.authenticity}, '$.dkimMismatch') = ${mismatch ? 1 : 0})`;
 
+const inLabel = (label: NonNullable<SearchOptions["label"]>): SQL =>
+	sql`(${inList(threadMessageTable.mailboxId, label.folderMailboxIds)} or exists (select 1 from ${messageLabelTable} where ${messageLabelTable.messageId} = ${threadMessageTable.messageId} and ${messageLabelTable.labelId} = ${label.labelId}))`;
+
 // The columns the search index is built from, and the snippet, which body sync
 // writes after the body's search text; an update that sets none of them leaves
 // the index as it is.
@@ -285,6 +289,7 @@ function buildSearchConditions(search: SearchOptions): SearchConditions {
 	if (search.dkimMismatch !== undefined) {
 		row.push(dkimMismatchIs(search.dkimMismatch));
 	}
+	if (search.label) row.push(inLabel(search.label));
 	row.push(...sentDateConditions(search));
 
 	return { text: text.length > 0 ? and(...text) : undefined, row };

@@ -378,7 +378,7 @@ export class RescanService {
 		account: RescanAccount,
 		message: MessageItem,
 		sender: SenderPlacement,
-		classifierJunk: boolean,
+		junk: boolean,
 	): Promise<PlacementUpdate> {
 		const { placement } = this.deps;
 		const roles = await resolveFolderRoleMailboxes(
@@ -393,7 +393,7 @@ export class RescanService {
 			placement: folder,
 			roles,
 			sender,
-			classifierJunk,
+			junk,
 			move: true,
 			now: Date.now(),
 		});

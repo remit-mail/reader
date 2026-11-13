@@ -1,7 +1,10 @@
 export {
 	type ClassifierStatsItem,
 	readClassifierLabelCounts,
+	readSpamDayCounts,
+	readSpamScoreBands,
 	readStoredClassifierScores,
+	SPAM_SCORE_BAND_WIDTH,
 } from "./classifier-scores.js";
 export type { TestResult } from "./connection-test.js";
 export {
@@ -101,11 +104,7 @@ export {
 	type QueueProducerOf,
 } from "./interfaces/queue.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
-export type {
-	SpamDeployment,
-	SpamService,
-	SpamThresholds,
-} from "./interfaces/spam.js";
+export type { SpamDeployment, SpamService } from "./interfaces/spam.js";
 export type {
 	ISyncWarningRepository,
 	SurfacedSyncWarnings,
@@ -122,6 +121,11 @@ export {
 	isSenderMuted,
 	isSenderMuteFilter,
 } from "./sender-mute.js";
+export {
+	readResolvedSpamSettings,
+	SPAM_PLACEMENT_SETTINGS,
+	type SpamSettingsDeps,
+} from "./spam-settings.js";
 export {
 	NOT_CHECKED,
 	readStoredDomainRegistration,
@@ -232,9 +236,12 @@ export type {
 	SearchOptions,
 	SenderSignerStandingItem,
 	SentDateRange,
+	SpamLabelPlacementValue,
 	SpamReason,
 	SpamRequest,
 	SpamResponse,
+	SpamSettingsItem,
+	SpamThresholds,
 	SyncWarningItem,
 	SyncWarningKey,
 	ThreadMessageFieldTerm,

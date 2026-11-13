@@ -83,7 +83,7 @@ describe("classifyParsedMessage", () => {
 			parsed,
 		);
 
-		assert.equal(classification.category, "personal");
+		assert.equal(classification.category, "uncategorized");
 	});
 });
 

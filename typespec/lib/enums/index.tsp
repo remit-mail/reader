@@ -54,7 +54,6 @@ import "./ConfigImportOnExisting.tsp";
 
 // Authentication Enums
 import "./AuthResultVerdict.tsp";
-import "./AuthenticityVerdict.tsp";
 import "./DisplayNameCorrespondence.tsp";
 
 // API Enums
@@ -115,6 +114,7 @@ import "./RescanFailureCode.tsp";
 import "./SpamAction.tsp";
 import "./SpamFailureKind.tsp";
 import "./SpamKind.tsp";
+import "./SpamLabelPlacement.tsp";
 import "./SpamModelOutcome.tsp";
 import "./SpamReasonName.tsp";
 import "./SpamSenderScreenRule.tsp";

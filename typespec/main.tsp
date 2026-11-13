@@ -758,7 +758,7 @@ namespace RemitApi {
 
   @route("/classification-stats")
   namespace ClassificationStatsOperations {
-    @doc("Count what the classifier decided for mail that arrived on or after `since`, and how often the reader corrected it. Refused with 400 when `since` is not an ISO 8601 date-time with zone offset.")
+    @doc("Count what the classifier and the spam service decided for mail that arrived on or after `since`, and how often the reader corrected it. Refused with 400 when `since` is not an ISO 8601 date-time with zone offset.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     op getClassificationStats(
@@ -1089,7 +1089,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       mailboxId?: UUID,
 
-      @doc("List one label across every account: replaces the INBOX scope with that label's folder in each non-muted account. Composes with `query`, the field and row filters, `accountId`, `mailboxId` and `count` as a further narrowing of the same scope. A label the caller does not own matches nothing.")
+      @doc("List one label across every account: replaces the INBOX scope with the mail in that label's folder in each non-muted account, plus the mail the label was applied to, by a filter or by Remit (`Spam`, `Phishing`), in any folder a search reaches. Composes with `query`, the field and row filters, `accountId`, `mailboxId` and `count` as a further narrowing of the same scope. A label the caller does not own matches nothing.")
       @query(#{ explode: true })
       labelId?: UUID,
 

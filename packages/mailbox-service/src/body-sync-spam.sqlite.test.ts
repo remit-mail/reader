@@ -5,9 +5,16 @@ import type {
 	MailboxItem,
 	SpamRequest,
 	SpamService,
+	SpamThresholds,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
-import { SpamAction, SpamReasonName } from "@remit/domain-enums";
+import {
+	AccountSettingName,
+	SpamAction,
+	SpamKind,
+	SpamLabelPlacement,
+	SpamReasonName,
+} from "@remit/domain-enums";
 import { BodySyncService } from "./body-sync.js";
 import { PlacementMoveService } from "./placement-move.js";
 import { InlineSpamService } from "./spam/index.js";
@@ -36,8 +43,15 @@ interface World {
 	queue: RecordingQueue;
 	account: AccountItem;
 	inbox: MailboxItem;
+	junk: MailboxItem;
 	requests: SpamRequest[];
 }
+
+const JUNK_FROM_A_SCORE_OF_005: SpamThresholds = {
+	state: "Set",
+	cleanBelow: 0,
+	spamAt: 0.05,
+};
 
 let world: World;
 
@@ -61,6 +75,7 @@ beforeEach(async () => {
 		queue: recordingQueue(),
 		account,
 		inbox,
+		junk,
 		requests: [],
 	};
 });
@@ -69,13 +84,9 @@ afterEach(async () => {
 	await world.store.close();
 });
 
-const bodySync = (): BodySyncService => {
+const bodySync = (thresholds: SpamThresholds): BodySyncService => {
 	const { store } = world;
-	const inline = new InlineSpamService({
-		state: "Set",
-		cleanBelow: 0,
-		spamAt: 0.05,
-	});
+	const inline = new InlineSpamService(thresholds);
 	const spamService: SpamService = {
 		check: (request) => {
 			world.requests.push(request);
@@ -100,10 +111,14 @@ const bodySync = (): BodySyncService => {
 		new SyncWarningService(store.syncWarning),
 		{
 			spamService,
-			thresholds: { state: "Set", cleanBelow: 0, spamAt: 0.05 },
+			spamDeployment: { name: "Inline", thresholds },
+			thresholds,
 			domainRegistration: store.domainRegistration,
 			rdap: { lookup: async () => ({ state: "Unpublished" }) },
 			accountService: store.account,
+			accountSetting: store.accountSetting,
+			labelService: store.label,
+			messageLabelService: store.messageLabel,
 			logger: silentLog,
 		},
 		silentLog,
@@ -111,14 +126,17 @@ const bodySync = (): BodySyncService => {
 	);
 };
 
-const arriveAndSync = async (raw: Buffer): Promise<string> => {
+const arriveAndSync = async (
+	raw: Buffer,
+	thresholds: SpamThresholds,
+): Promise<string> => {
 	const { store, account, inbox } = world;
 	const uid = world.imap.deliver(inbox.fullPath, raw, {
 		internalDate: new Date(Date.now() + 60_000),
 	});
 	await syncFolder(store, account, inbox, world.imap);
 	const { messageId } = await messageAtUid(store, inbox, uid);
-	await bodySync().syncBodies(
+	await bodySync(thresholds).syncBodies(
 		[messageId],
 		account.accountId,
 		account.accountConfigId,
@@ -136,15 +154,24 @@ const arriveAndSync = async (raw: Buffer): Promise<string> => {
 	return messageId;
 };
 
+const labelNames = async (messageId: string): Promise<string[]> => {
+	const { store, account } = world;
+	const labels = await store.label.listByAccountConfig(account.accountConfigId);
+	return (await store.messageLabel.listByMessageId(messageId)).map(
+		(applied) =>
+			labels.find((label) => label.labelId === applied.labelId)?.name ?? "",
+	);
+};
+
 describe("body sync with a spam service", () => {
-	it("records the verdict and leaves the message where it arrived", async () => {
-		const messageId = await arriveAndSync(STRANGER);
+	it("records the verdict and neither moves nor labels while the thresholds are unset", async () => {
+		const messageId = await arriveAndSync(STRANGER, { state: "Unset" });
 
 		const row = await world.store.message.get(messageId);
 		assert.equal(row.spamVerdict.state, "Checked");
 		assert.equal(
 			row.spamVerdict.state === "Checked" && row.spamVerdict.action,
-			SpamAction.Junk,
+			SpamAction.None,
 		);
 		assert.deepEqual(
 			row.spamVerdict.state === "Checked" &&
@@ -156,6 +183,7 @@ describe("body sync with a spam service", () => {
 		);
 		assert.equal(row.mailboxId, world.inbox.mailboxId);
 		assert.deepEqual(world.queue.sent, []);
+		assert.deepEqual(await labelNames(messageId), []);
 		assert.deepEqual(
 			(await world.store.domainRegistration.get("parcel-notice.example"))
 				.registration,
@@ -163,24 +191,94 @@ describe("body sync with a spam service", () => {
 		);
 	});
 
-	it("screens a VIP sender out without asking the spam service", async () => {
-		const email = "desk@parcel-notice.example";
-		const addressId = deriveAddressId(world.account.accountConfigId, email);
-		await world.store.address.upsertAddress({
-			addressId,
+	it("moves a lookalike-domain message to Junk with the Phishing label", async () => {
+		const messageId = await arriveAndSync(
+			eml(
+				{
+					From: "Bank <alerts@rnybank.example>",
+					Subject: "Verify your account",
+					"Content-Type": "text/html; charset=utf-8",
+				},
+				'<p><a href="https://mybank.example/verify">Verify</a></p>',
+			),
+			JUNK_FROM_A_SCORE_OF_005,
+		);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(
+			row.spamVerdict.state === "Checked" && row.spamVerdict.kind,
+			SpamKind.Phishing,
+		);
+		assert.equal(row.mailboxId, world.junk.mailboxId);
+		assert.equal(row.movedByRemit, true);
+		assert.deepEqual(await labelNames(messageId), ["Phishing"]);
+	});
+
+	it("labels a Junk verdict in place when the owner set Spam to warn only", async () => {
+		await world.store.accountSetting.upsert({
 			accountConfigId: world.account.accountConfigId,
+			name: AccountSettingName.SpamPlacementSpam,
+			value: { kind: "String", value: SpamLabelPlacement.WarnOnly },
+		});
+
+		const messageId = await arriveAndSync(STRANGER, JUNK_FROM_A_SCORE_OF_005);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(
+			row.spamVerdict.state === "Checked" && row.spamVerdict.action,
+			SpamAction.Junk,
+		);
+		assert.equal(row.mailboxId, world.inbox.mailboxId);
+		assert.deepEqual(world.queue.sent, []);
+		assert.deepEqual(await labelNames(messageId), ["Spam"]);
+	});
+
+	it("sends a reported sender to Junk with the Spam label and no check", async () => {
+		const { store, account } = world;
+		const email = "desk@parcel-notice.example";
+		const addressId = deriveAddressId(account.accountConfigId, email);
+		await store.address.upsertAddress({
+			addressId,
+			accountConfigId: account.accountConfigId,
 			localPart: "desk",
 			domain: "parcel-notice.example",
 			normalizedEmail: email,
 			normalizedCompound: email,
 		});
-		await world.store.address.updateAddress(
-			world.account.accountConfigId,
-			addressId,
-			{ flags: { vip: { value: true, setAt: 1 } } },
-		);
+		await store.address.updateAddress(account.accountConfigId, addressId, {
+			flags: { blocked: { value: true, setAt: 1 } },
+		});
 
-		const messageId = await arriveAndSync(STRANGER);
+		const messageId = await arriveAndSync(STRANGER, JUNK_FROM_A_SCORE_OF_005);
+
+		const row = await world.store.message.get(messageId);
+		assert.deepEqual(row.spamVerdict, {
+			state: "ScreenedOut",
+			screen: { rule: "ReportedSender" },
+		});
+		assert.deepEqual(world.requests, []);
+		assert.equal(row.mailboxId, world.junk.mailboxId);
+		assert.equal(row.movedByRemit, true);
+		assert.deepEqual(await labelNames(messageId), ["Spam"]);
+	});
+
+	it("screens a VIP sender out without asking the spam service", async () => {
+		const { store, account } = world;
+		const email = "desk@parcel-notice.example";
+		const addressId = deriveAddressId(account.accountConfigId, email);
+		await store.address.upsertAddress({
+			addressId,
+			accountConfigId: account.accountConfigId,
+			localPart: "desk",
+			domain: "parcel-notice.example",
+			normalizedEmail: email,
+			normalizedCompound: email,
+		});
+		await store.address.updateAddress(account.accountConfigId, addressId, {
+			flags: { vip: { value: true, setAt: 1 } },
+		});
+
+		const messageId = await arriveAndSync(STRANGER, JUNK_FROM_A_SCORE_OF_005);
 
 		assert.deepEqual((await world.store.message.get(messageId)).spamVerdict, {
 			state: "ScreenedOut",

@@ -53,6 +53,9 @@ const caller = (): HandlerContext<QueueName> => ({
 		...repos,
 		secrets,
 		classificationDefault: { state: "None" },
+		spam: {
+			spamDeployment: { name: "Inline", thresholds: { state: "Unset" } },
+		},
 	} as unknown as RemitClient,
 	config: testApiConfig(),
 	identity: {

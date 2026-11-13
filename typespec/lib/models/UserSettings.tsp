@@ -22,6 +22,9 @@ model UserSettingsResponse {
 
   @doc("The classification provider in effect, `Unrunnable` when one is chosen but cannot run, or `NotConfigured`.")
   classification: ClassificationSettings;
+
+  @doc("How Remit acts on spam verdicts.")
+  spam: SpamSettings;
 }
 
 @doc("A change to the caller's settings. Every field is optional and absence means untouched.")
@@ -47,6 +50,12 @@ model UpdateUserSettingsInput {
   @doc("The most classification calls per mail account per UTC day. Needs a provider in effect, saved or inherited.")
   @minValue(1)
   classificationDailyLimit?: int32;
+
+  @doc("What a `Junk` verdict of kind `Spam` does: move the message to Junk, or warn only. Applies to mail arriving from now on.")
+  spamPlacementSpam?: SpamLabelPlacement;
+
+  @doc("What a `Junk` verdict of kind `Phishing` does: move the message to Junk, or warn only. Applies to mail arriving from now on.")
+  spamPlacementPhishing?: SpamLabelPlacement;
 }
 
 @doc("A classification preset that has a known price per million input tokens.")

@@ -8,7 +8,7 @@
  * two: selecting Personal filtered fifty rows that contained none of them.
  *
  * The mailbox seeded here is that shape at the smallest size that reproduces it:
- * 55 automated messages newer than 5 personal ones, so the whole match set lies
+ * 55 automated messages newer than 5 marketing ones, so the whole match set lies
  * beyond the first page of 50. A filter running over loaded pages returns
  * nothing here; a filter the server answers returns all five.
  *
@@ -43,7 +43,7 @@ const bulkSubjects = Array.from(
 );
 const rareSubjects = Array.from(
 	{ length: RARE_COUNT },
-	(_, i) => `E2E Personal ${STAMP} #${i + 1}`,
+	(_, i) => `E2E Marketing ${STAMP} #${i + 1}`,
 );
 
 /** The npm shape from `classification-fixtures.ts`: one-to-one machine mail
@@ -55,11 +55,16 @@ const bulkSeed: Message[] = bulkSubjects.map((subject, i) => ({
 	date: new Date(STAMP - (BULK_COUNT - i) * HOUR),
 }));
 
-/** A person writing to a person: the classifier's `personal` control. Dated
- *  older than every automated message, so none of these reaches the first page. */
+/** The shop shape from `classification-fixtures.ts`, classified `marketing`
+ *  by its headers. Dated older than every automated message, so none of these
+ *  reaches the first page. */
 const rareSeed: Message[] = rareSubjects.map((subject, i) => ({
 	subject,
-	from: "Alice <alice@friends.test>",
+	from: "Shop <deals@shop.test>",
+	headers: [
+		["Precedence", "bulk"] as const,
+		["List-Unsubscribe", "<https://shop.test/unsub>"] as const,
+	],
 	date: new Date(STAMP - (10 + i) * DAY),
 }));
 
@@ -102,11 +107,13 @@ test.describe("Inbox category filter", () => {
 
 		// Server truth: the mail is there, and the shape that broke the filter is
 		// the shape this mailbox has.
-		expect(threads.filter((t) => t.category === "personal")).toHaveLength(
+		expect(threads.filter((t) => t.category === "marketing")).toHaveLength(
 			RARE_COUNT,
 		);
 		const newestPage = await api.listThreads(run.inboxId);
-		expect(newestPage.filter((t) => t.category === "personal")).toHaveLength(0);
+		expect(newestPage.filter((t) => t.category === "marketing")).toHaveLength(
+			0,
+		);
 
 		const context = await browser.newContext({
 			storageState: run.storageState,
@@ -128,7 +135,7 @@ test.describe("Inbox category filter", () => {
 				page.getByRole("button", { name: "Unclassified", exact: true }),
 			).toBeVisible();
 
-			await selectCategory(page, "Personal");
+			await selectCategory(page, "Marketing");
 
 			for (const subject of rareSubjects) {
 				await expect(row(page).filter({ hasText: subject })).toHaveCount(1, {

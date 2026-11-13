@@ -22,6 +22,8 @@ import {
 	type MailboxItem,
 	type MessageItem,
 	type MessageSpamVerdict,
+	readResolvedSpamSettings,
+	type SpamSettingsItem,
 	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
@@ -54,6 +56,7 @@ import {
 	parsePartSource,
 } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
+import { ensureLabel } from "./classification-labels.js";
 import { consultClassifier } from "./classifier/classifier-consult.js";
 import {
 	CLASSIFIER_OFF,
@@ -103,7 +106,9 @@ import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
 import {
 	decideSpamVerdict,
 	type SpamConfig,
+	type SpamPlacement,
 	spamModelAccessOf,
+	spamPlacementOf,
 } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
@@ -334,6 +339,8 @@ interface ClassifierDecision {
 	scores: ClassifierScoreItem[];
 }
 
+const NO_SPAM_PLACEMENT: SpamPlacement = { action: "None" };
+
 const NO_CLASSIFIER_DECISION: ClassifierDecision = {
 	verdict: { kind: "None" },
 	scores: [],
@@ -345,6 +352,7 @@ interface BatchLookups {
 	usableFilters: () => Promise<PreparedFilters>;
 	classifierGate: () => Promise<ClassifierGate>;
 	ownAddresses: () => Promise<string[]>;
+	spamSettings: () => Promise<SpamSettingsItem>;
 }
 
 // A failed load is forgotten, so the next message retries it rather than the
@@ -885,6 +893,9 @@ export class BodySyncService {
 				senderPlacement,
 			},
 		);
+		const spamPlacement = spamVerdict
+			? spamPlacementOf(spamVerdict, await lookups.spamSettings())
+			: NO_SPAM_PLACEMENT;
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
@@ -956,7 +967,7 @@ export class BodySyncService {
 			{ accountId, accountConfigId },
 			{ ...decidedRow, ...classification },
 			arrival,
-			verdict.kind === "Junk",
+			verdict.kind === "Junk" || spamPlacement.action === "Junk",
 			senderPlacement,
 			!filterDecision.move,
 		);
@@ -980,6 +991,8 @@ export class BodySyncService {
 			accountConfigId,
 			verdict,
 		);
+
+		await this.applySpamLabel(messageId, accountConfigId, spamPlacement);
 
 		// Read once for the two write-once guards below — the auto-read decision
 		// and the category carry-forward. Taken here rather than earlier because
@@ -1367,9 +1380,9 @@ export class BodySyncService {
 	}
 
 	/**
-	 * RFC 041 stages 1 and 2, recorded and acted on by nothing yet. Runs on the
-	 * same new mail the category classifier does, after it, so check 9 sees its
-	 * scores; a folder's first sync of old mail records no verdict.
+	 * RFC 041 stages 1 and 2. Runs on the same new mail the category classifier
+	 * does, after it, so check 9 sees its scores; a folder's first sync of old
+	 * mail records no verdict.
 	 */
 	private async decideSpam(
 		lookups: BatchLookups,
@@ -1400,6 +1413,29 @@ export class BodySyncService {
 			model: spamModelAccessOf(this.classifierConfig, gate, account),
 			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
 			dmarc: message.classification.authResult?.dmarc,
+		});
+	}
+
+	/**
+	 * The label rides on the messageId, which a placement move keeps, so it
+	 * neither waits for the move to settle nor needs reconciling after it: a
+	 * move that gives up leaves the message where it was, still suspect.
+	 */
+	private async applySpamLabel(
+		messageId: string,
+		accountConfigId: string,
+		placement: SpamPlacement,
+	): Promise<void> {
+		if (placement.action === "None") return;
+		const label = await ensureLabel(
+			this.spamConfig.labelService,
+			accountConfigId,
+			placement.label,
+		);
+		await this.spamConfig.messageLabelService.apply({
+			messageId,
+			labelId: label.labelId,
+			accountConfigId,
 		});
 	}
 
@@ -1702,6 +1738,9 @@ export class BodySyncService {
 					)
 				).map((account) => account.email),
 			),
+			spamSettings: once(() =>
+				readResolvedSpamSettings(this.spamConfig, accountConfigId),
+			),
 		};
 	}
 
@@ -1710,7 +1749,7 @@ export class BodySyncService {
 		account: { accountId: string; accountConfigId: string },
 		message: MessageItem,
 		arrival: Arrival,
-		classifierJunk: boolean,
+		junk: boolean,
 		senderPlacement: () => Promise<SenderPlacement>,
 		move: boolean,
 	): Promise<PlacementUpdate> {
@@ -1732,7 +1771,7 @@ export class BodySyncService {
 				placement,
 				roles,
 				sender: await senderPlacement(),
-				classifierJunk,
+				junk,
 				move,
 				now: Date.now(),
 			},

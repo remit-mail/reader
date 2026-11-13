@@ -27,7 +27,7 @@ export interface PlaceMessageInput {
 	placement: FolderPlacement;
 	roles: FolderRoleMailboxes;
 	sender: SenderPlacement;
-	classifierJunk: boolean;
+	junk: boolean;
 	move: boolean;
 	now: number;
 }
@@ -45,8 +45,7 @@ export const placeMessage = async (
 	deps: PlaceMessageDeps,
 	input: PlaceMessageInput,
 ): Promise<PlaceMessageResult> => {
-	const { account, message, placement, roles, sender, classifierJunk, now } =
-		input;
+	const { account, message, placement, roles, sender, junk, now } = input;
 	const archiveMailbox = sender.autoArchive
 		? await deps.mailboxSpecialUseService.findArchiveMailbox(account.accountId)
 		: null;
@@ -55,7 +54,7 @@ export const placeMessage = async (
 		placement,
 		sender.senderTrust,
 		sender.senderOverride,
-		classifierJunk,
+		junk,
 		archiveMailbox !== null,
 	);
 	const record = placementVerdictRecord(decision, placement, now);

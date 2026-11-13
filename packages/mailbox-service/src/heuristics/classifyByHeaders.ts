@@ -59,8 +59,8 @@ export interface MessageAuthenticity {
 }
 
 /**
- * Header-only classification. Pure function. First match wins. Falls through
- * to `personal` so misclassification stays in the safest bucket.
+ * Header-only classification. Pure function. First match wins. Mail no rule
+ * matches stays `uncategorized` until the category classifier answers.
  *
  * Rules are ordered most-specific-signal first. Two properties drive the
  * order, and both were violated by the original table (issue #45):
@@ -81,8 +81,7 @@ export interface MessageAuthenticity {
  * 7. `Precedence: bulk|list|junk` → `automated`
  * 8. Machine sender (no-reply local-part, `Feedback-ID`,
  *    `X-Auto-Response-Suppress`) → `automated`
- * 9. DKIM `d=` differs from From domain → `automated`
- * 10. fallback → `personal`
+ * 9. fallback → `uncategorized`
  */
 export const classifyByHeaders = (parsed: ParsedMail): Category => {
 	const headers = parsed.headers;
@@ -110,15 +109,7 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
 	if (matchesPrecedence(headers)) return MessageCategory.automated;
 	if (isMachineSender(parsed, lines)) return MessageCategory.automated;
 
-	if (
-		fromDomain &&
-		pickAlignedOrFirstMismatch(extractDkimDomains(headers, lines), fromDomain)
-			.mismatch
-	) {
-		return MessageCategory.automated;
-	}
-
-	return MessageCategory.personal;
+	return MessageCategory.uncategorized;
 };
 
 /**
@@ -128,10 +119,6 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
  * is present (a comparison was possible). Returns `null` when there are no
  * DKIM-Signature headers so callers can omit the field entirely — absence
  * means "no signal", not "mismatch: false".
- *
- * The alignment rule exactly mirrors the category heuristic (rule 7) so the
- * structured `dkimMismatch` boolean and the `automated` category can never
- * disagree.
  */
 export const extractAuthenticity = (
 	parsed: ParsedMail,
@@ -353,7 +340,7 @@ const hasCalendarPart = (attachments: Attachment[] | undefined): boolean => {
  * Whether the sender is a machine that does not read replies — a no-reply
  * local-part, or a header only bulk/notification infrastructure sets. This is
  * what routes platform notifications (npm, CI, password resets) to `automated`
- * instead of the `personal` fallback; they carry no list or bulk headers.
+ * instead of leaving them `uncategorized`; they carry no list or bulk headers.
  */
 const isMachineSender = (parsed: ParsedMail, lines: HeaderLines): boolean => {
 	if (hasMachineHeader(lines.map((line) => line.key))) return true;
@@ -404,9 +391,7 @@ const domainsAligned = (signingDomain: string, fromDomain: string): boolean =>
  * first one aligned with the From domain, so a legitimate signature is never
  * shadowed by an earlier unrelated one. When none align, the first is
  * reported as the mismatching evidence — the UI can then show "signed by
- * relay.example.net, claims example.com". Shared by the category heuristic
- * (rule 9, which reads only `.mismatch`) and the authenticity extractor
- * (which also reads `.domain`), so the two can never disagree.
+ * relay.example.net, claims example.com".
  */
 const pickAlignedOrFirstMismatch = (
 	domains: string[],

@@ -2,7 +2,6 @@ import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/AuthResultVerdict.tsp";
-import "../enums/AuthenticityVerdict.tsp";
 import "../enums/ClassificationLabel.tsp";
 import "../enums/DisplayNameCorrespondence.tsp";
 import "../enums/LabelAction.tsp";
@@ -257,10 +256,6 @@ model MessageRecord {
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time. Absent for messages classified before this field was introduced — absence means no signal.")
   @visibility(Lifecycle.Read)
   authenticity?: MessageAuthenticity;
-
-  @doc("Sender-authenticity tier resolved at body-sync. Defaults to `NotEvaluated`, the named pending state every message written before the derivation existed carries. Top-level rather than a member of `authenticity` on purpose: that blob is absent for all unsigned mail, so a guard keyed on its absence cannot tell \"never derived\" from \"nothing to derive\" and would re-derive unsigned mail forever.")
-  @visibility(Lifecycle.Read)
-  authenticityVerdict: AuthenticityVerdict = AuthenticityVerdict.NotEvaluated;
 
   @doc("Provider authentication-results signal parsed from Authentication-Results header. Absent for messages synced before this field was introduced.")
   @visibility(Lifecycle.Read)
