@@ -1089,6 +1089,10 @@ namespace RemitApi {
       @query(#{ explode: true })
       mailboxId?: UUID,
 
+      @doc("List one label across every account: replaces the INBOX scope with that label's folder in each non-muted account. Composes with `query`, the field and row filters, `accountId`, `mailboxId` and `count` as a further narrowing of the same scope. A label the caller does not own matches nothing.")
+      @query(#{ explode: true })
+      labelId?: UUID,
+
       @doc("Filter by whether the From address is muted. `false` excludes muted senders, `true` returns only them, and omitting it filters nothing. Muting lives on the Address rather than on the row, so this is evaluated against the sender's flags; it narrows the `count` exactly as it narrows the listing.")
       @query(#{ explode: true })
       muted?: boolean,

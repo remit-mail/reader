@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/LabelColor.tsp";
+import "../enums/LabelFolderState.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -66,12 +67,35 @@ model UpdateLabelInput is Update<Label>;
 // API Response Models
 // ============================================
 
+@doc("A label's folder in one mail account, as `Present` (synced) or `Pending` (the mail server has not confirmed it yet).")
+model LabelFolderPresent {
+  accountId: UUID;
+  state: LabelFolderState.Present | LabelFolderState.Pending;
+  mailboxId: UUID;
+  fullPath: String512;
+}
+
+@doc("A mail account that holds no folder for the label.")
+model LabelFolderMissing {
+  accountId: UUID;
+  state: LabelFolderState.Missing;
+}
+
+@doc("Where a label lives in one mail account, the same shape the MCP `list_labels` tool returns.")
+union LabelFolder {
+  present: LabelFolderPresent,
+  missing: LabelFolderMissing,
+}
+
 @doc("Label item returned by list/get/create/update operations (RFC 030). `filterCount` is computed at read time so a client can name the blast radius before confirming a delete — the delete itself never blocks on it (issue #26).")
 model LabelResponse {
   ...OmitProperties<Label, "normalizedName">;
 
   @doc("Number of the account's filters whose `actionLabelId` is this label. Deleting the label deletes every one of them (issue #26) — a client shows this count in its delete confirmation.")
   filterCount: int32;
+
+  @doc("The label's folder in every mail account of the config, one entry per account.")
+  folders: LabelFolder[];
 }
 
 @doc("The id, name, and color of a label applied to a message — embedded on message/thread read responses (issue #26). Never the full LabelResponse: a read-time attachment carries no filterCount.")
