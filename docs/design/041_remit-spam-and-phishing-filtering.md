@@ -4,7 +4,7 @@ RFC 041. Status: proposed, 2026-11-13. Design only. Nothing here is built.
 
 ## Goal
 
-Remit decides itself whether a new message is spam or phishing. It moves a flagged message to Junk and gives it a label. A spam service makes the call. The service is a judge: it weighs what the request presents and returns a score, an action and named reasons. It never goes out to collect evidence. Remit gathers the evidence and sends it in one request. That evidence includes sender history, the provider's verdict and the authentication results.
+Remit decides itself whether a new message is spam or phishing. It moves a high-scoring message to Junk. A message in the uncertain band stays in place, with a warning to the owner. A spam service makes the call. The service is a judge: it weighs what the request presents and returns a score, an action and named reasons. It never goes out to collect evidence. Remit gathers the evidence and sends it in one request. That evidence includes sender history, the provider's verdict and the authentication results.
 
 The check runs in three stages, cheapest first, and each stage can end it. Remit first lets known and trusted senders through without a call. The spam service then runs cheap checks on the message itself. A language model judges only the messages those checks leave undecided.
 
@@ -45,8 +45,6 @@ type SpamRequest = {
     knownSender: boolean; // the owner has sent mail to this address
     senderMessagesSeen: number; // earlier messages from this address
     senderDomainMessagesSeen: number; // earlier messages from its registrable domain
-    senderMarkedSpam: number; // this sender's messages the owner reported as spam
-    senderMarkedNotSpam: number; // and marked as not spam
     classifierScores: ClassifierScoreItem[]; // the category classifier's answer, or empty
     modelAllowed: boolean; // the account has a model and is under its daily cap
   };
@@ -70,16 +68,12 @@ type SpamResponse =
   | { state: "Failed"; kind: SpamFailureKind };
 ```
 
-The service picks the action. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. `modelCalled` tells Remit to count the call against the daily cap.
-
-### Feedback
-
-`learn(request, "Spam" | "Ham")` passes on a Report spam or Not spam mark. `unlearn(request, "Spam" | "Ham")` takes a mark back. Each backend decides for itself how to learn.
+The service compares the score with two thresholds to pick the action. Calibration sets both. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. `modelCalled` tells Remit to count the call against the daily cap.
 
 ### Backends
 
 1. The inline engine runs inside Remit. Remit builds it as the default backend.
-2. The rspamd adapter posts `message.raw` to `/checkv2`. It sends `envelope` as the `From`, `Rcpt`, `IP` and `Helo` headers. It drops `context`, which rspamd has no field for. Each symbol in the answer becomes a reason, and the adapter divides `score` by `required_score` to get the 0 to 1 score. Rspamd's `no action` maps to `None`, `add header` to `Warn`, and `reject` to `Junk`. `learn` maps to `/learnspam` and `/learnham`, and `unlearn` to `fuzzy_del`.
+2. The rspamd adapter posts `message.raw` to `/checkv2`. It sends `envelope` as the `From`, `Rcpt`, `IP` and `Helo` headers. It drops `context`, which rspamd has no field for. Each symbol in the answer becomes a reason, and the adapter divides `score` by `required_score` to get the 0 to 1 score. Rspamd's `no action` maps to `None`, `add header` to `Warn`, and `reject` to `Junk`.
 3. The spam Worker takes the same request as JSON over HTTPS. It serves the Cloudflare host, which never calls a VPS.
 
 The backend is deployment config, as the category classifier's provider is.
@@ -95,31 +89,31 @@ Remit makes no call for a message in any of these cases:
 3. One of the owner's filters matched the message.
 4. The message is a newsletter from a known sender. It carries List-Unsubscribe, passes DMARC and comes from a sender with earlier mail. All three must hold, because a phisher can add an unsubscribe header too.
 
-A `blocked` sender goes to Junk as `classifyPlacement` sends it today, also with no call. Remit sends every other message to the spam service.
+A sender the owner reported takes the fast track to Junk, with no call. Report spam sets the sender's `blocked` flag today, and `classifyPlacement` already sends a blocked sender to Junk. Remit keeps that list itself. Detected spam never adds a sender to it, and the spam service never sees it. Remit sends every other message to the spam service.
 
 ### Stage 2 runs mechanical checks, in the service
 
-The inline engine runs these checks as a pure function of the request:
+The inline engine runs these checks as a pure function of the request, with no list of brands, providers or domains:
 
 1. DMARC fails.
 2. The Reply-To domain differs from the From domain.
 3. A link's visible text shows a domain that differs from its href.
-4. A link points to a domain unrelated to the sender's.
-5. A domain is a lookalike or punycode form of a known name. The engine compares UTS #39 skeletons, then edit distance.
-6. Rich HTML from a personal or free-mail sender carries a single call-to-action link or button.
-7. A free-mail sender claims a brand, in the display name or the body. No brand sends from gmail.com or outlook.com. The engine spots the claim with a short list of brand names.
+4. A link points to a domain far from the sender's, by edit distance.
+5. A domain label is punycode or mixes scripts, or two domains in the message share a UTS #39 skeleton without being equal.
+6. Rich HTML carries a single link or button, and it points to a domain other than the sender's.
+7. A domain or the address's local part has high character entropy, as a generated name does.
 8. The sender's domain has sent this account nothing before.
 9. The category classifier gave `Spam` or `Phishing` a confident score.
-10. The provider calls the message spam. The engine trusts this check least, because the owner's provider flags good mail and passes spam.
-11. The display name spells out an email at another domain, or is a near-spelling of a label in the From domain. Today's code calls these `ForeignAddress` and `Lookalike`.
+10. The provider calls the message spam. The engine trusts it least, since the owner's provider misjudges mail both ways.
+11. The display name spells out an email at another domain, or sits at a short edit distance from a label of the sender or link domains (today's `ForeignAddress` and `Lookalike`).
 
-The engine counts the three link checks only for a sender with no earlier mail. The engine turns the checks into one score, for example with a fixed weight per check. A score under `cleanBelow` means `None`, and a score from `spamAt` up means `Junk`. Between those two thresholds the message is ambiguous.
+Link checks count only for a sender with no earlier mail. The engine turns the checks into one score, for example with a fixed weight per check. A score under `cleanBelow` means `None`, and a score from `spamAt` up means `Junk`. Between those two thresholds the message is ambiguous, and goes to stage 3.
 
 ### Stage 3 asks the model about ambiguous mail
 
-For an ambiguous message the engine calls the model once, with the message and the stage 2 reasons. The model judges impersonation: does the message claim an organisation the sender's domain does not belong to. It also gives the message its own spam score. A brand-to-domain registry is out of scope, so the model's judgement stands in for one. The judgement lives in the model and not in Sieve filters.
+For an ambiguous message the engine calls the model once, with the message and the stage 2 reasons. The model judges impersonation: does the message claim an organisation the sender's domain does not belong to. It also gives the message its own spam score. The judgement lives in the model and not in Sieve filters.
 
-Stage 3 runs only when `modelAllowed` is true. Otherwise the ambiguous message gets `Warn`.
+Stage 3 runs only when `modelAllowed` is true. A message that stays between the thresholds after stage 3, or never reaches the model, gets `Warn`.
 
 The two services stay apart. One answers where a message belongs, and the other answers whether the message is safe. They can share one model provider.
 
@@ -129,14 +123,14 @@ The owner's mail provider checks URL blocklists, authenticates the message and a
 
 1. Remit runs no URL or IP blocklist lookups. The provider's verdict carries their outcome as one input.
 2. Remit does not repeat DKIM, SPF or DMARC. It reads the provider's trusted Authentication-Results.
-3. The spam service runs the display-name, link, Reply-To, lookalike and brand-claim checks. Each fake in "Remit today" passed the provider.
+3. The spam service runs the display-name, link, Reply-To, lookalike and entropy checks. Each fake in "Remit today" passed the provider.
 
 ## Placement and labels
 
 1. `Junk` sets the `classifierJunk` input of `classifyPlacement`, next to the category classifier's junk answer. The VIP, well-known and sender-flag rules keep precedence as today.
 2. A `Junk` message moves to Junk and gets one Remit label, `Phishing` or `Spam` after `kind`. `ensureClassificationLabels` creates both, next to `Priority` and `Personal`.
-3. A `Warn` message stays where it arrived and gets the same label.
-4. A new `Message.spamVerdict` holds the response. It defaults to `NotChecked`, and a message stage 1 let through records `ScreenedOut`.
+3. A `Warn` message stays where it arrived and gets the same label. The mail app warns that Remit suspects the message but cannot confirm it.
+4. A new `Message.spamVerdict` holds the response, the score included. It defaults to `NotChecked`, and a message stage 1 let through records `ScreenedOut`.
 
 ## Cost per message
 
@@ -170,16 +164,25 @@ type RescanResult = {
 6. The backfill is a loop in the caller. It pages through `list_threads` or `search_threads`, with the message-date facet where it needs one, and sends ten ids per call.
 7. Both hosts serve the operation, because it runs in the request like any other message operation.
 
+## Calibration
+
+`cleanBelow` and `spamAt` come from measured scores. Before placement uses any verdict, one stage builds the evaluation set.
+
+1. The owner rescans the existing mailboxes with `move` off. Every message gets a category classifier answer and a stored spam score.
+2. Known spam is the mail the owner reported. Known good is the mail from VIP and well-known senders.
+3. `spamAt` sits where the known spam scores begin and the known good scores have thinned out. `cleanBelow` sits below the bulk of the known spam.
+4. The two values become deployment config. Placement reads them from the next stage on.
+
 ## Cleanup
 
 Each item below either becomes evidence for the spam service or goes. Unless stated, each path sits in `packages/mailbox-service/src`.
 
-1. `classifyDisplayNameCorrespondence` and `extractOffDomainLinkDomains` in `heuristics/senderMismatch.ts` move into the inline engine as checks 11 and 4. Their DKIM and List-Unsubscribe gates go. The stored `displayNameCorrespondence` and `offDomainLinkDomains` fields, their TypeSpec enum and the call in `classify-message.ts` are deleted. The response reasons hold what they found. Stages 3 and 4.
-2. `authenticityVerdict` and its `AuthenticityVerdict` enum are deleted from `typespec/lib/models/Message.tsp`, `packages/data-ports/src/types.ts` and `packages/drizzle-service/src/repos/message.ts`. `Message.spamVerdict` holds the same fact. Stage 2.
-3. The demote branch in `heuristics/classifyPlacement.ts` (DKIM mismatch with DMARC fail, and `deferred-to-llm`) is deleted. DMARC failure is check 1. Stage 2.
-4. In `heuristics/classifyByHeaders.ts`, the rule that files a DKIM mismatch as `automated` is deleted. The mismatch reaches the service as `signerDomain`. Stage 2.
-5. The `personal` fallback in `classifyByHeaders` is deleted. Mail no header rule matches stays `uncategorized` until the category classifier answers. Stage 2.
-6. `packages/backend/scripts/backfill-classification.ts` and `classification-backfill.ts` are deleted, replaced by rescan. Stage 9.
+1. `classifyDisplayNameCorrespondence` and `extractOffDomainLinkDomains` in `heuristics/senderMismatch.ts` move into the inline engine as checks 11 and 4. Their DKIM and List-Unsubscribe gates go. The stored `displayNameCorrespondence` and `offDomainLinkDomains` fields, their TypeSpec enum and the call in `classify-message.ts` are deleted. The response reasons hold what they found. Stages 2 and 3.
+2. `authenticityVerdict` and its `AuthenticityVerdict` enum are deleted from `typespec/lib/models/Message.tsp`, `packages/data-ports/src/types.ts` and `packages/drizzle-service/src/repos/message.ts`. `Message.spamVerdict` holds the same fact. Stage 7.
+3. The demote branch in `heuristics/classifyPlacement.ts` (DKIM mismatch with DMARC fail, and `deferred-to-llm`) is deleted. DMARC failure is check 1. Stage 7.
+4. In `heuristics/classifyByHeaders.ts`, the rule that files a DKIM mismatch as `automated` is deleted. The mismatch reaches the service as `signerDomain`. Stage 7.
+5. The `personal` fallback in `classifyByHeaders` is deleted. Mail no header rule matches stays `uncategorized` until the category classifier answers. Stage 7.
+6. `packages/backend/scripts/backfill-classification.ts` and `classification-backfill.ts` are deleted, replaced by rescan. Stage 5.
 
 ## Remit today
 
@@ -210,29 +213,29 @@ Fake Netflix, Belastingdienst and PostNL mail reached the inbox under these rule
 1. Remit has no rule files and no Bayes core. Bayes scores nothing until the owner has marked hundreds of messages, and nobody staffs rule tuning.
 2. Remit runs no milter. It classifies after delivery, over IMAP.
 3. The provider's verdict is one input that the engine trusts least. Prior-art research recommends trusting the provider's Junk placement. The owner's ruling overrides it.
-4. Gmail and Microsoft default to a warning. Remit moves a `Junk` verdict to Junk, by the owner's ruling, and keeps `Warn` for ambiguous mail that never reached the model.
+4. Remit moves to Junk only mail scoring at `spamAt` or higher. Below that it warns, as Gmail and Microsoft do.
 5. Remit queries no DNS blocklist. The provider already checks URLs, and a Worker cannot send raw DNS queries.
+6. The engine holds no lists. Microsoft protects a named set of users and domains, and Chrome compares against its top sites. The engine compares the strings inside one message.
+7. The engine learns nothing from Report spam. The owner's reports block senders in Remit, outside the engine.
 
 ## Delivery order
 
-Each stage is one PR.
+Each stage is one PR. Placement uses the verdicts from stage 7 on.
 
 1. The contract, the inline engine with checks 1, 2 and 10, `Message.spamVerdict`, and the stage 1 screens. Body sync records the response and moves nothing. Packages: `typespec`, `data-ports`, `drizzle-service`, `mailbox-service`.
-2. Placement: the action feeds `classifyPlacement`, with the `Spam` and `Phishing` labels, and cleanup items 2 to 5. Packages: `drizzle-service`, `data-ports`, `typespec`, `mailbox-service`.
-3. The link checks, gated by sender history, and the link half of cleanup item 1. Package: `mailbox-service`.
-4. Lookalike and punycode domains, check 11, the free-mail brand claim with its brand-name list, and the display-name part of cleanup item 1. Packages: `typespec`, `mailbox-service`.
-5. Stage 3: the score band, the model call and the shared daily cap. Package: `mailbox-service`.
-6. `learn` and `unlearn` from the Report spam and Not spam buttons. Package: `mailbox-service`.
-7. The rspamd adapter. Package: `mailbox-service`.
-8. The spam Worker for the Cloudflare host.
-9. The rescan operation, the `rescan_messages` tool and cleanup item 6. Packages: `typespec`, `backend`, `mailbox-service`, `mcp-server`.
+2. The link checks, gated by sender history, and the link half of cleanup item 1. Package: `mailbox-service`.
+3. Checks 5, 7 and 11, and the display-name part of cleanup item 1. Packages: `typespec`, `mailbox-service`.
+4. Stage 3: the model call and the shared daily cap. Package: `mailbox-service`.
+5. The rescan operation, the `rescan_messages` tool and cleanup item 6. Packages: `typespec`, `backend`, `mailbox-service`, `mcp-server`.
+6. Calibration: the rescan of the existing mailboxes, and the two thresholds in config. Package: `mailbox-service`.
+7. Placement: the action feeds `classifyPlacement`, with the `Spam` and `Phishing` labels, the warning in the mail app, and cleanup items 2 to 5. Packages: `drizzle-service`, `data-ports`, `web-client`, `mailbox-service`.
+8. The rspamd adapter. Package: `mailbox-service`.
+9. The spam Worker for the Cloudflare host.
 
 ## Open questions
 
-1. The values of `cleanBelow` and `spamAt`.
-2. Who fetches a domain's registration date for a newly-registered-domain check, and where the result is cached.
-3. Whether the inline engine on a shared deployment learns one set of marks, or one per user.
-4. Whether a passing ARC seal from a short list of trusted forwarders excuses a DMARC failure (RFC 8617).
+1. Whether Remit passes a domain's registration date as a fact, and where it gets it.
+2. Whether Remit passes ARC results, so that a trusted forwarder's seal excuses a DMARC failure (RFC 8617).
 
 ## FAQ
 
@@ -247,3 +250,5 @@ Why does the spam service not look up sender history? A database read per messag
 Why is the model last? Each call costs money and a share of the daily cap. Stages 1 and 2 make no model call.
 
 Does a rescan move old mail? Only when the caller sets `move`. By default old mail keeps its folder and gets the label.
+
+Why no brand list? A list needs upkeep and knows only the brands on it. Distance, script and entropy checks work on any name.
