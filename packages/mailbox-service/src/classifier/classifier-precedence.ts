@@ -1,3 +1,4 @@
+import type { ClassifierScoreItem } from "@remit/data-ports";
 import { ClassificationLabel, MessageCategory } from "@remit/domain-enums";
 import type { ClassificationLabelName } from "../classification-labels.js";
 import type {
@@ -39,16 +40,27 @@ const CATEGORY_OF: Partial<
 	[ClassificationLabel.Automated]: MessageCategory.automated,
 	[ClassificationLabel.Transactional]: MessageCategory.transactional,
 	[ClassificationLabel.Social]: MessageCategory.social,
+	[ClassificationLabel.ColdOutreach]: MessageCategory.coldOutreach,
 };
 
 const NO_VERDICT: ClassifierVerdict = { kind: "None" };
 
+export const storedClassifierScores = (
+	answer: ClassifierAnswer,
+): ClassifierScoreItem[] => {
+	const threshold = CONFIDENCE_THRESHOLD[answer.confidenceKind];
+	return answer.scores.map((score) => ({
+		label: score.label,
+		confidence: score.confidence,
+		confident: score.confidence >= threshold,
+	}));
+};
+
 export const classifierVerdict = (
 	answer: ClassifierAnswer,
 ): ClassifierVerdict => {
-	const threshold = CONFIDENCE_THRESHOLD[answer.confidenceKind];
-	const confident = answer.scores.filter(
-		(score) => score.confidence >= threshold,
+	const confident = storedClassifierScores(answer).filter(
+		(score) => score.confident,
 	);
 	if (confident.some((score) => JUNK_LABELS.includes(score.label))) {
 		return { kind: "Junk" };

@@ -3,6 +3,7 @@ import "typespec-electrodb-emitter";
 
 import "../enums/AuthResultVerdict.tsp";
 import "../enums/AuthenticityVerdict.tsp";
+import "../enums/ClassificationLabel.tsp";
 import "../enums/DisplayNameCorrespondence.tsp";
 import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
@@ -60,6 +61,20 @@ model MessageAuthResult {
 
   @doc("DKIM verdict (dkim=)")
   dkim?: AuthResultVerdict;
+}
+
+@doc("One label the classification provider scored for a message, as body sync stored it.")
+model ClassifierScore {
+  @doc("The label the provider scored.")
+  label: ClassificationLabel;
+
+  @doc("The provider's confidence in `label`, between 0 and 1.")
+  @minValue(0)
+  @maxValue(1)
+  confidence: float64;
+
+  @doc("True when `confidence` reached the threshold for the provider's kind of confidence when body sync stored it: 0.7 for a calibrated provider, 0.8 for an advisory one.")
+  confident: boolean;
 }
 
 @doc("Provider spam-filter signal, parsed from X-SpamExperts-Class / X-Spam-Status / X-HalOne-Spam-Probability at body-sync time. Absent for messages synced before this field was introduced.")
@@ -273,6 +288,10 @@ model MessageRecord {
   @doc("Body-sync timestamp (epoch millis) the classifier's placement verdict was first decided, whether the verdict was to move the message or to leave it in place. Absent means placement has never been evaluated for this message. Guards `computePlacement` against a re-entrant body-sync pass (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`) re-deciding — and possibly reversing — a placement a user has since overridden by hand. `movedByRemit` remains the guard for a message that was placement-decided before this field existed.")
   @visibility(Lifecycle.Read)
   placementDecidedAt?: int64;
+
+  @doc("Every score the classification provider gave this message at body sync. Empty when the provider was not asked or gave no answer, and for every message synced before scores were stored. Persistence-only: no response model exposes it.")
+  @visibility(Lifecycle.Read)
+  classifierScores: ClassifierScore[] = #[];
 
   @doc("Recorded when the user reported this message as spam. Absent means never reported, or reported and then undone (`POST /messages/not-spam` clears it). Independent of the message's current folder — deliberately not derived from \"sits in Junk\", which is also true of a message Remit moved on its own.")
   @visibility(Lifecycle.Read)

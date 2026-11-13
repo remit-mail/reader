@@ -1,3 +1,4 @@
+import type { ClassifierStatsItem } from "../classifier-scores.js";
 import type {
 	CreateMessageInput,
 	MessageDescription,
@@ -72,6 +73,14 @@ export interface IMessageRepository {
 			"placementDecidedAt" | "placementVerdict"
 		>,
 	): Promise<boolean>;
+	/** Examined mail in `mailboxIds` that arrived on or after `since`, grouped by category and confident label, plus its spam reports no confident junk score predicted. */
+	countClassifiedSince(
+		mailboxIds: string[],
+		since: number,
+	): Promise<
+		Pick<ClassifierStatsItem, "byCategory" | "byLabel"> &
+			Pick<ClassifierStatsItem["corrections"], "spamReportedNotJunk">
+	>;
 	describe(messageId: string): Promise<MessageDescription>;
 	updateUid(
 		messageId: string,

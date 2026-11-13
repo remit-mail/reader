@@ -1,3 +1,4 @@
+import type { ClassifierScoreItem } from "@remit/data-ports";
 import {
 	classificationUsageName,
 	utcDateOf,
@@ -13,6 +14,7 @@ import {
 import {
 	type ClassifierVerdict,
 	classifierVerdict,
+	storedClassifierScores,
 } from "./classifier-precedence.js";
 import { CLASSIFIER_LABELS } from "./index.js";
 
@@ -20,7 +22,11 @@ export type ClassifierConsultation =
 	| { state: "NotAsked" }
 	| { state: "AtLimit" }
 	| { state: "NoAnswer" }
-	| { state: "Answered"; verdict: ClassifierVerdict };
+	| {
+			state: "Answered";
+			verdict: ClassifierVerdict;
+			scores: ClassifierScoreItem[];
+	  };
 
 export const consultClassifier = async (
 	config: ClassifierConfig,
@@ -49,11 +55,13 @@ export const consultClassifier = async (
 		{ logger: config.logger },
 	);
 	if (!result.ok) return { state: "NoAnswer" };
+	const answer = {
+		scores: result.scores,
+		confidenceKind: result.confidenceKind,
+	};
 	return {
 		state: "Answered",
-		verdict: classifierVerdict({
-			scores: result.scores,
-			confidenceKind: result.confidenceKind,
-		}),
+		verdict: classifierVerdict(answer),
+		scores: storedClassifierScores(answer),
 	};
 };

@@ -454,6 +454,7 @@ describe("the MCP authorization server", () => {
 			result: { tools: { name: string }[] };
 		};
 		assert.deepEqual(rpc.result.tools.map((tool) => tool.name).sort(), [
+			"classifier_stats",
 			"get_message",
 			"get_thread",
 			"list_mailboxes",

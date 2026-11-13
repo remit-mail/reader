@@ -75,6 +75,7 @@ beforeEach(async () => {
 	const { client } = mine;
 	deps = {
 		account: client.account,
+		address: client.address,
 		mailbox: client.mailbox,
 		message: client.message,
 		threadMessage: client.threadMessage,

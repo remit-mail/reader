@@ -183,6 +183,7 @@ describe("the read tools behind mail:read", () => {
 		const body = await rpc(reader(), "tools/list");
 		const tools = (body.result as { tools: { name: string }[] }).tools;
 		assert.deepEqual(tools.map((tool) => tool.name).sort(), [
+			"classifier_stats",
 			"get_message",
 			"get_thread",
 			"list_mailboxes",

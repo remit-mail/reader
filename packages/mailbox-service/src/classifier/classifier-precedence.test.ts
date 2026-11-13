@@ -5,7 +5,10 @@ import type {
 	ClassificationLabelValue,
 	ClassifierConfidenceKind,
 } from "./classifier-adapter.js";
-import { classifierVerdict } from "./classifier-precedence.js";
+import {
+	classifierVerdict,
+	storedClassifierScores,
+} from "./classifier-precedence.js";
 
 const answer = (
 	confidenceKind: ClassifierConfidenceKind,
@@ -70,5 +73,60 @@ describe("classifier precedence", () => {
 		);
 		assert.deepEqual(below, { kind: "None" });
 		assert.deepEqual(at, { kind: "Junk" });
+	});
+
+	it("files confident cold outreach under coldOutreach, below junk and priority", () => {
+		const outreach = classifierVerdict(
+			answer("Calibrated", [
+				[ClassificationLabel.ColdOutreach, 0.9],
+				[ClassificationLabel.Marketing, 0.75],
+			]),
+		);
+		const junk = classifierVerdict(
+			answer("Calibrated", [
+				[ClassificationLabel.ColdOutreach, 0.95],
+				[ClassificationLabel.Spam, 0.7],
+			]),
+		);
+		const priority = classifierVerdict(
+			answer("Calibrated", [
+				[ClassificationLabel.ColdOutreach, 0.95],
+				[ClassificationLabel.Priority, 0.7],
+			]),
+		);
+		assert.deepEqual(outreach, {
+			kind: "Category",
+			category: MessageCategory.coldOutreach,
+		});
+		assert.deepEqual(junk, { kind: "Junk" });
+		assert.deepEqual(priority, { kind: "Priority" });
+	});
+});
+
+describe("stored classifier scores", () => {
+	it("marks a calibrated score confident from 0.7", () => {
+		const stored = storedClassifierScores(
+			answer("Calibrated", [
+				[ClassificationLabel.ColdOutreach, 0.69],
+				[ClassificationLabel.Personal, 0.7],
+			]),
+		);
+		assert.deepEqual(stored, [
+			{ label: "ColdOutreach", confidence: 0.69, confident: false },
+			{ label: "Personal", confidence: 0.7, confident: true },
+		]);
+	});
+
+	it("marks an advisory score confident from 0.8", () => {
+		const stored = storedClassifierScores(
+			answer("Advisory", [
+				[ClassificationLabel.ColdOutreach, 0.79],
+				[ClassificationLabel.Spam, 0.8],
+			]),
+		);
+		assert.deepEqual(stored, [
+			{ label: "ColdOutreach", confidence: 0.79, confident: false },
+			{ label: "Spam", confidence: 0.8, confident: true },
+		]);
 	});
 });

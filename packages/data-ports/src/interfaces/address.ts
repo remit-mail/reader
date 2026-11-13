@@ -108,6 +108,10 @@ export interface IAddressRepository {
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;
 	listAllByAccountConfig(accountConfigId: string): Promise<AddressItem[]>;
+	countCategoryOverridesSince(
+		accountConfigId: string,
+		since: number,
+	): Promise<number>;
 	createEnvelopeAddress(
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem>;

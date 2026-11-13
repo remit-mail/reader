@@ -68,6 +68,11 @@ export {
 	ensureClassificationLabels,
 } from "./classification-labels.js";
 export {
+	type ClassifierStatsDeps,
+	type ClassifierStatsOutcome,
+	readClassifierStats,
+} from "./classifier/classifier-stats.js";
+export {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "./classify-message.js";

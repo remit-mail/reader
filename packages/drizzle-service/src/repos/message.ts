@@ -1,9 +1,11 @@
-import type {
-	CreateMessageInput,
-	IMessageRepository,
-	MessageDescription,
-	MessageItem,
-	PlacementPredicate,
+import {
+	type CreateMessageInput,
+	type IMessageRepository,
+	type MessageDescription,
+	type MessageItem,
+	type PlacementPredicate,
+	readClassifierLabelCounts,
+	readStoredClassifierScores,
 } from "@remit/data-ports";
 import {
 	and,
@@ -13,6 +15,7 @@ import {
 	eq,
 	exists,
 	gt,
+	gte,
 	inArray,
 	isNotNull,
 	isNull,
@@ -83,6 +86,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		authenticityVerdict: row.authenticityVerdict,
 		hasListUnsubscribe: row.hasListUnsubscribe,
 		movedByRemit: row.movedByRemit,
+		classifierScores: readStoredClassifierScores(row.classifierScores),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		...(row.bodyStorageKey !== null
@@ -348,6 +352,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				input.authenticityVerdict ?? ("NotEvaluated" as const),
 			hasListUnsubscribe: input.hasListUnsubscribe ?? false,
 			movedByRemit: input.movedByRemit ?? false,
+			classifierScores: input.classifierScores ?? [],
 			bodyStorageKey: input.bodyStorageKey ?? null,
 			originalMailboxId: input.originalMailboxId ?? null,
 			originalUid: input.originalUid ?? null,
@@ -418,6 +423,46 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			throw new NotFoundError(`Message not found: ${messageId}`);
 		}
 		return toMessageItem(rows[0]);
+	}
+
+	async countClassifiedSince(
+		mailboxIds: string[],
+		since: number,
+	): ReturnType<IMessageRepository["countClassifiedSince"]> {
+		const mailboxes = inList(messageTable.mailboxId, mailboxIds);
+		const examined = and(
+			mailboxes,
+			gte(messageTable.internalDate, since),
+			eq(messageTable.classificationState, "Examined"),
+		);
+
+		const byCategory = await this.db
+			.select({
+				category: messageTable.category,
+				count: sql<number>`cast(count(*) as int)`,
+			})
+			.from(messageTable)
+			.where(examined)
+			.groupBy(messageTable.category);
+
+		const byLabel = readClassifierLabelCounts(
+			await this.db.all(
+				sql`select json_extract(score.value, '$.label') as label, count(*) as count from ${messageTable}, json_each(${messageTable.classifierScores}) as score where ${examined} and json_extract(score.value, '$.confident') = 1 group by label`,
+			),
+		);
+
+		const [reported] = await this.db
+			.select({ count: sql<number>`cast(count(*) as int)` })
+			.from(messageTable)
+			.where(
+				and(
+					examined,
+					isNotNull(messageTable.spamReport),
+					sql`json_array_length(${messageTable.classifierScores}) > 0`,
+					sql`not exists (select 1 from json_each(${messageTable.classifierScores}) as score where json_extract(score.value, '$.label') in ('Spam', 'Phishing') and json_extract(score.value, '$.confident') = 1)`,
+				),
+			);
+		return { byCategory, byLabel, spamReportedNotJunk: reported.count };
 	}
 
 	async describe(messageId: string): Promise<MessageDescription> {
@@ -509,6 +554,9 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				: {}),
 			...(input.movedByRemit !== undefined
 				? { movedByRemit: input.movedByRemit }
+				: {}),
+			...(input.classifierScores !== undefined
+				? { classifierScores: input.classifierScores }
 				: {}),
 			...(input.authenticity !== undefined
 				? { authenticity: input.authenticity }

@@ -110,8 +110,8 @@ These fields live on `Message`, and `ThreadMessage` rows lack them.
 type ClassifierStats = {
   since: string; // ISO 8601 with offset
   examined: number;
-  byCategory: Record<MessageCategory, number>;
-  byLabel: Record<ClassificationLabel, number>; // confident scores
+  byCategory: { category: MessageCategory; count: number }[];
+  byLabel: { label: ClassificationLabel; count: number }[]; // confident scores
   corrections: { spamReportedNotJunk: number; categoryOverridden: number };
 };
 ```

@@ -58,6 +58,7 @@ import "./CalendarObject.tsp";
 import "./CalendarEventIndex.tsp";
 import "./CalendarTask.tsp";
 import "./UserSettings.tsp";
+import "./ClassifierStats.tsp";
 import "./CalendarFeedToken.tsp";
 import "./CalendarApi.tsp";
 
