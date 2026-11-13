@@ -119,7 +119,7 @@ export const readClassifierGate = async (
 	};
 };
 
-const isProviderSpamHeader = (name: string): boolean => {
+export const isProviderSpamHeader = (name: string): boolean => {
 	const lower = name.toLowerCase();
 	return (
 		lower.startsWith("x-spam-") ||

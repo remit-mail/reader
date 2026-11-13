@@ -11,6 +11,7 @@ import { CalendarObjectRepo } from "./repos/calendar-object.js";
 import { DrizzleCalendarStore } from "./repos/calendar-store.js";
 import { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
 import { CalendarTaskRepo } from "./repos/calendar-task.js";
+import { DomainRegistrationRepo } from "./repos/domain-registration.js";
 import { DrizzleEnvelopeRepository } from "./repos/envelope.js";
 import { FilterRepo } from "./repos/filter.js";
 import { AccountRepo } from "./repos/i4-account.js";
@@ -90,6 +91,7 @@ export const composeSqliteRepositories = (
 		labelMailbox: new LabelMailboxRepo(mail.db),
 		messageLabel: new MessageLabelRepo(mail.db),
 		senderSignerStanding: new SenderSignerStandingRepo(mail.db),
+		domainRegistration: new DomainRegistrationRepo(mail.db),
 		calendarCollection: new CalendarCollectionRepo(app.db),
 		calendarObject: new CalendarObjectRepo(app.db),
 		calendarEventIndex: new CalendarEventIndexRepo(app),

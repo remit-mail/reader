@@ -1,10 +1,11 @@
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
-import type {
-	AddressItem,
-	LabelItem,
-	MessageItem,
-	MessageLabelItem,
-	ThreadMessageItem,
+import {
+	type AddressItem,
+	type LabelItem,
+	type MessageItem,
+	type MessageLabelItem,
+	NOT_CHECKED,
+	type ThreadMessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
 import {
@@ -65,6 +66,7 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
 	status: MessageStatus.active,
 	syncStatus: MessageSyncStatus.pending,
 	abandonedMutation: MessageMutation.none,
+	spamVerdict: NOT_CHECKED,
 });
 
 /**
@@ -111,7 +113,7 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 /**
  * Enrich a page of ThreadMessage rows with `senderTrust` and `muted` (both
  * derived from the From Address's flags map), `authenticity`, `autoMoved` and
- * `spamReport` and `placementVerdict`, and the `status`/`syncStatus` pair an IMAP mutation leaves
+ * `spamReport`, `placementVerdict` and `spamVerdict`, and the `status`/`syncStatus` pair an IMAP mutation leaves
  * behind together with the mutation an abandoned one names (all projected
  * straight from the Message row — no ThreadMessage
  * column of their own, see `deriveAutoMoved`). `toResponse` seeds that pair
@@ -192,6 +194,9 @@ export const enrichThreadRows = async (
 	const placementVerdictByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.placementVerdict]),
 	);
+	const spamVerdictByMessageId = new Map(
+		messages.map((m) => [m.messageId, m.spamVerdict]),
+	);
 	const settlementByMessageId = new Map(
 		messages.map((m) => [
 			m.messageId,
@@ -232,6 +237,7 @@ export const enrichThreadRows = async (
 			...(labels !== undefined ? { labels } : {}),
 			...(spamReport !== undefined ? { spamReport } : {}),
 			...(placementVerdict !== undefined ? { placementVerdict } : {}),
+			spamVerdict: spamVerdictByMessageId.get(row.messageId) ?? NOT_CHECKED,
 			senderTrust,
 			muted,
 		};

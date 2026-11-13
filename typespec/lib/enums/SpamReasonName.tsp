@@ -1,0 +1,55 @@
+namespace RemitImap;
+
+@doc("The stable name of one check the spam service ran and found something with (RFC 041). A client holds one sentence per name.")
+enum SpamReasonName {
+  @doc("Check 1: DMARC failed.")
+  DmarcFail: "DmarcFail",
+
+  @doc("Check 2: the Reply-To domain differs from the From domain.")
+  ReplyToMismatch: "ReplyToMismatch",
+
+  @doc("Check 3: a link's visible text shows a domain other than the one it points to.")
+  LinkTextMismatch: "LinkTextMismatch",
+
+  @doc("Check 4: a link points to a domain far from the sender's.")
+  LinkDomainDistant: "LinkDomainDistant",
+
+  @doc("Check 5: a domain label is punycode.")
+  PunycodeDomain: "PunycodeDomain",
+
+  @doc("Check 5: a domain label mixes scripts.")
+  MixedScriptDomain: "MixedScriptDomain",
+
+  @doc("Check 5: two different domains in the message look the same.")
+  ConfusableDomains: "ConfusableDomains",
+
+  @doc("Check 6: rich HTML carries a single link, and it leaves the sender's domain.")
+  SingleOffDomainLink: "SingleOffDomainLink",
+
+  @doc("Check 7: the sender's domain or local part looks generated.")
+  GeneratedName: "GeneratedName",
+
+  @doc("Check 8: the sender's domain has sent this account nothing before.")
+  FirstContactDomain: "FirstContactDomain",
+
+  @doc("Check 8: the sender's domain was registered recently.")
+  RecentlyRegisteredDomain: "RecentlyRegisteredDomain",
+
+  @doc("Check 8: the registry publishes no registration date for the sender's domain.")
+  UnknownRegistrationDate: "UnknownRegistrationDate",
+
+  @doc("Check 9: the category classifier gave Spam a confident score.")
+  ClassifierSpam: "ClassifierSpam",
+
+  @doc("Check 9: the category classifier gave Phishing a confident score.")
+  ClassifierPhishing: "ClassifierPhishing",
+
+  @doc("Check 10: the owner's mail provider calls the message spam.")
+  ProviderSpam: "ProviderSpam",
+
+  @doc("Check 11: the display name spells out an address at another domain.")
+  DisplayNameForeignAddress: "DisplayNameForeignAddress",
+
+  @doc("Check 11: the display name sits a short edit distance from a sender or link domain label.")
+  DisplayNameLookalike: "DisplayNameLookalike",
+}

@@ -12,6 +12,7 @@ import type {
 	ICalendarSuggestionRepository,
 	ICalendarTaskRepository,
 	IConfigImportRepository,
+	IDomainRegistrationRepository,
 	IEnvelopeRepository,
 	IFilterRepository,
 	ILabelMailboxRepository,
@@ -32,6 +33,7 @@ import type {
 	ISenderSignerStandingRepository,
 	ISyncWarningRepository,
 	IThreadMessageRepository,
+	SpamDeployment,
 } from "@remit/data-ports";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { logger } from "@remit/logger";
@@ -45,11 +47,14 @@ import {
 	FlagQueueService,
 	fifoMailboxManagement,
 	type ImapTransport,
+	InlineSpamService,
 	MailboxQueueService,
 	MessageMoveService,
 	OutboxAttachmentService,
 	OutboxQueueService,
 	PlacementMoveService,
+	RdapClient,
+	type SpamConfig,
 	SpamReportService,
 	SyncWarningService,
 } from "@remit/mailbox-service";
@@ -171,6 +176,10 @@ export interface RemitClientCore {
 	mailTransports: MailTransports;
 
 	classificationDefault: ClassificationDeploymentDefault;
+
+	// RFC 041: the spam service body sync asks, and the evidence it gathers
+	// first. One RDAP client per process, so the IANA bootstrap is read once.
+	spam: SpamConfig;
 }
 
 export interface SyncQueueServices {
@@ -231,6 +240,7 @@ export interface RemitClientRepositories {
 	messageLabel: IMessageLabelRepository;
 	labelMailbox: ILabelMailboxRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
+	domainRegistration: IDomainRegistrationRepository;
 	calendarCollection: ICalendarCollectionRepository;
 	calendarObject: ICalendarObjectRepository;
 	calendarEventIndex: ICalendarEventIndexRepository;
@@ -247,6 +257,7 @@ export interface RemitClientSharedDeps {
 	mailTransports: MailTransports;
 	queues: RemitClientQueues;
 	classificationDefault: ClassificationDeploymentDefault;
+	spamDeployment: SpamDeployment;
 }
 
 export interface RemitClientDeps extends RemitClientSharedDeps {
@@ -330,6 +341,7 @@ export const createRemitCore = (
 		connectionScope,
 		mailTransports,
 		classificationDefault,
+		spamDeployment,
 	} = deps;
 	return {
 		accountConfig: repositories.accountConfig,
@@ -377,6 +389,13 @@ export const createRemitCore = (
 		createConnectionScope: connectionScope(repositories.account, secrets),
 		mailTransports,
 		classificationDefault,
+		spam: {
+			spamService: new InlineSpamService(spamDeployment.thresholds),
+			domainRegistration: repositories.domainRegistration,
+			rdap: new RdapClient(fetch),
+			accountService: repositories.account,
+			logger,
+		},
 	};
 };
 
@@ -482,6 +501,7 @@ export const composeReadPathServices = (
 			messageLabelService: core.messageLabel,
 			logger,
 		},
+		core.spam,
 	),
 });
 

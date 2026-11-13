@@ -1,4 +1,5 @@
 import { classificationDefaultFromEnv } from "../config/classification-default.js";
+import { spamDeploymentFromEnv } from "../config/spam-deployment.js";
 import type { RemitClient } from "./create-remit-client.js";
 
 export type {
@@ -9,6 +10,7 @@ export type {
 let clientPromise: Promise<RemitClient> | null = null;
 let injected: RemitClient | null = null;
 const classificationDefault = classificationDefaultFromEnv(process.env);
+const spamDeployment = spamDeploymentFromEnv(process.env);
 
 /**
  * Register the client from the composition root. An adapter that lives outside
@@ -40,7 +42,7 @@ const buildRelationalClient = async (): Promise<RemitClient> => {
 		);
 	}
 	const composition = await import("./compose-sqlite.js");
-	return composition.buildSqliteClient(classificationDefault);
+	return composition.buildSqliteClient(classificationDefault, spamDeployment);
 };
 
 export const getClient = (): Promise<RemitClient> => {

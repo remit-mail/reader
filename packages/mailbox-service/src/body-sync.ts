@@ -21,6 +21,7 @@ import {
 	isSenderMuted,
 	type MailboxItem,
 	type MessageItem,
+	type MessageSpamVerdict,
 	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
@@ -99,6 +100,7 @@ import {
 	type SenderPlacement,
 } from "./sender-placement.js";
 import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
+import { decideSpamVerdict, type SpamConfig } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -378,6 +380,7 @@ export class BodySyncService {
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
 		private readonly calendarConfig?: CalendarSuggestionConfig,
 		private readonly classifierConfig?: ClassifierConfig,
+		private readonly spamConfig?: SpamConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.filterPipeline = filterConfig
@@ -864,6 +867,16 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
+		const spamVerdict = await this.decideSpam(lookups, accountConfigId, {
+			parsed,
+			body,
+			arrival,
+			filterDecision,
+			classifierScores,
+			classification,
+			senderPlacement,
+		});
+
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
 		// so if we wrote it first and the parsed-cache write then failed, the
@@ -1028,6 +1041,7 @@ export class BodySyncService {
 			category: finalCategory,
 			classificationState: MessageClassificationState.Examined,
 			classifierScores,
+			...(spamVerdict ? { spamVerdict } : {}),
 			...placementUpdate,
 			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -1341,6 +1355,44 @@ export class BodySyncService {
 		return consulted.state === "Answered"
 			? { verdict: consulted.verdict, scores: consulted.scores }
 			: NO_CLASSIFIER_DECISION;
+	}
+
+	/**
+	 * RFC 041 stages 1 and 2, recorded and acted on by nothing yet. Runs on the
+	 * same new mail the category classifier does, after it, so check 9 sees its
+	 * scores; a folder's first sync of old mail records no verdict.
+	 */
+	private async decideSpam(
+		lookups: BatchLookups,
+		accountConfigId: string,
+		message: {
+			parsed: ParsedMail;
+			body: Buffer;
+			arrival: Arrival;
+			filterDecision: FilterDecision;
+			classifierScores: ClassifierScoreItem[];
+			classification: UpdateMessageInput;
+			senderPlacement: () => Promise<SenderPlacement>;
+		},
+	): Promise<MessageSpamVerdict | undefined> {
+		const { spamConfig } = this;
+		if (!spamConfig || !message.arrival.folderSynced) return undefined;
+		const gate = this.classifierConfig
+			? await lookups.classifierGate()
+			: CLASSIFIER_OFF;
+		return decideSpamVerdict(spamConfig, this.addressService, {
+			accountConfigId,
+			fromEmail: extractPrimaryFromEmail(message.parsed),
+			parsed: message.parsed,
+			raw: message.body,
+			internalDate: message.arrival.internalDate,
+			sender: await message.senderPlacement(),
+			filterDecision: message.filterDecision,
+			classifierScores: message.classifierScores,
+			modelAllowed: gate.state === "On",
+			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
+			dmarc: message.classification.authResult?.dmarc,
+		});
 	}
 
 	private async applyClassifierLabel(

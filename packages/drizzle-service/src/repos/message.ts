@@ -3,9 +3,11 @@ import {
 	type IMessageRepository,
 	type MessageDescription,
 	type MessageItem,
+	NOT_CHECKED,
 	type PlacementPredicate,
 	readClassifierLabelCounts,
 	readStoredClassifierScores,
+	readStoredSpamVerdict,
 } from "@remit/data-ports";
 import {
 	and,
@@ -87,6 +89,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		hasListUnsubscribe: row.hasListUnsubscribe,
 		movedByRemit: row.movedByRemit,
 		classifierScores: readStoredClassifierScores(row.classifierScores),
+		spamVerdict: readStoredSpamVerdict(row.spamVerdict),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		...(row.bodyStorageKey !== null
@@ -353,6 +356,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			hasListUnsubscribe: input.hasListUnsubscribe ?? false,
 			movedByRemit: input.movedByRemit ?? false,
 			classifierScores: input.classifierScores ?? [],
+			spamVerdict: input.spamVerdict ?? NOT_CHECKED,
 			bodyStorageKey: input.bodyStorageKey ?? null,
 			originalMailboxId: input.originalMailboxId ?? null,
 			originalUid: input.originalUid ?? null,
@@ -557,6 +561,9 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				: {}),
 			...(input.classifierScores !== undefined
 				? { classifierScores: input.classifierScores }
+				: {}),
+			...(input.spamVerdict !== undefined
+				? { spamVerdict: input.spamVerdict }
 				: {}),
 			...(input.authenticity !== undefined
 				? { authenticity: input.authenticity }

@@ -56,6 +56,7 @@ export type {
 } from "./interfaces/calendar-suggestion.js";
 export type { ICalendarTaskRepository } from "./interfaces/calendar-task.js";
 export type { IConfigImportRepository } from "./interfaces/config-import.js";
+export type { IDomainRegistrationRepository } from "./interfaces/domain-registration.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
 export type { ILabelRepository } from "./interfaces/label.js";
@@ -101,6 +102,11 @@ export {
 } from "./interfaces/queue.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type {
+	SpamDeployment,
+	SpamService,
+	SpamThresholds,
+} from "./interfaces/spam.js";
+export type {
 	ISyncWarningRepository,
 	SurfacedSyncWarnings,
 } from "./interfaces/sync-warning.js";
@@ -116,6 +122,11 @@ export {
 	isSenderMuted,
 	isSenderMuteFilter,
 } from "./sender-mute.js";
+export {
+	NOT_CHECKED,
+	readStoredDomainRegistration,
+	readStoredSpamVerdict,
+} from "./spam-verdict.js";
 export type {
 	AccountConfigDescription,
 	AccountConfigItem,
@@ -163,6 +174,7 @@ export type {
 	CreateThreadMessageInput,
 	DailyCount,
 	DailyCountClaim,
+	DomainRegistrationItem,
 	EnvelopeAddressItem,
 	EnvelopeItem,
 	FilterClauseItem,
@@ -192,6 +204,7 @@ export type {
 	MessagePlacementMoveItem,
 	MessageReferenceInput,
 	MessageReferenceItem,
+	MessageSpamVerdict,
 	ObserveSenderSignerStandingInput,
 	OrganizeJobRequestItem,
 	OutboxAttachmentItem,
@@ -203,6 +216,7 @@ export type {
 	PutCalendarObjectInput,
 	PutCalendarSuggestionInput,
 	PutCalendarTaskInput,
+	PutDomainRegistrationInput,
 	PutLabelMailboxInput,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,
@@ -215,6 +229,8 @@ export type {
 	SearchOptions,
 	SenderSignerStandingItem,
 	SentDateRange,
+	SpamRequest,
+	SpamResponse,
 	SyncWarningItem,
 	SyncWarningKey,
 	ThreadMessageFieldTerm,

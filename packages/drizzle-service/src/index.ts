@@ -41,6 +41,7 @@ export {
 	createSqliteCascadeDeleter,
 	runDrizzleCascadeDelete,
 } from "./repos/cascade-delete.js";
+export { DomainRegistrationRepo } from "./repos/domain-registration.js";
 export { DrizzleEnvelopeRepository } from "./repos/envelope.js";
 export { FilterRepo } from "./repos/filter.js";
 export * from "./repos/i4-account.js";

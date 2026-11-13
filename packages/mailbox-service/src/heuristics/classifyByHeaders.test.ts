@@ -598,6 +598,7 @@ const messageFrom = (parsed: ParsedMail): MessageItem => ({
 	category: "uncategorized",
 	classificationState: "NotExamined",
 	classifierScores: [],
+	spamVerdict: { state: "NotChecked" },
 	authenticityVerdict: "NotEvaluated",
 	hasListUnsubscribe: false,
 	movedByRemit: false,

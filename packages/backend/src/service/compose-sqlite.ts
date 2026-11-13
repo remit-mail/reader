@@ -1,3 +1,4 @@
+import type { SpamDeployment } from "@remit/data-ports";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import {
 	createSqliteRepositories,
@@ -32,7 +33,12 @@ export const composeSqliteClient = async (
 
 export const buildSqliteClient = (
 	classificationDefault: ClassificationDeploymentDefault,
+	spamDeployment: SpamDeployment,
 ): Promise<RemitClient> =>
 	composeSqliteClient(
-		buildSharedDeps(sqsQueues(sqsQueueUrlsFromEnv()), classificationDefault),
+		buildSharedDeps(
+			sqsQueues(sqsQueueUrlsFromEnv()),
+			classificationDefault,
+			spamDeployment,
+		),
 	);

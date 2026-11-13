@@ -109,6 +109,7 @@ export const syncMessageBody = async (
 		accountConfig: accountConfigService,
 		label: labelService,
 		classificationDefault,
+		spam,
 	} = ctx.client;
 
 	const account = await accountService.get(accountId);
@@ -233,6 +234,7 @@ export const syncMessageBody = async (
 					messageLabelService,
 					logger: log,
 				},
+				spam,
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The

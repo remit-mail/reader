@@ -361,6 +361,7 @@ describe("a v0.9.22 remit.db migrated in place", () => {
 				({ message_id_header: _, ...kept }) => ({
 					...kept,
 					classifier_scores: "[]",
+					spam_verdict: JSON.stringify({ state: "NotChecked" }),
 				}),
 			),
 		);
