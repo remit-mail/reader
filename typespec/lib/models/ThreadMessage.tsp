@@ -278,6 +278,9 @@ model ThreadMessageResponse {
 
   @doc("Remit's placement verdict for this message, projected from the underlying Message row. Absent for a message judged before placement verdicts were recorded, or one Remit left in place.")
   placementVerdict?: MessagePlacementVerdict;
+
+  @doc("The spam outcome of the underlying Message (RFC 041), projected at read time. `NotChecked` when the Message row is missing from the batch.")
+  spamVerdict: MessageSpamVerdict;
 }
 
 @doc("""

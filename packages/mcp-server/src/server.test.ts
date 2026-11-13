@@ -15,6 +15,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	silentLog,
+	spamConfigFor,
 	storeBody,
 } from "@remit/mailbox-service/test-helpers/test-store";
 import type { StorageService } from "@remit/storage-service";
@@ -105,6 +106,7 @@ before(async () => {
 			store.address,
 			store.envelope,
 			new SyncWarningService(store.syncWarning),
+			spamConfigFor(store),
 			silentLog,
 		),
 		bodySyncQueue: {

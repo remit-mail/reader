@@ -174,7 +174,6 @@ export {
 	type PlacementVerdict,
 } from "./heuristics/classifyPlacement.js";
 export {
-	classifyDisplayNameCorrespondence,
 	extractOffDomainLinkDomains,
 	extractSenderMismatch,
 	type SenderMismatchContext,
@@ -417,6 +416,13 @@ export {
 	generateSnippet,
 	removeQuotedContent,
 } from "./snippet.js";
+export { classifyDisplayNameCorrespondence } from "./spam/display-name.js";
+export {
+	InlineSpamService,
+	RdapClient,
+	type RdapFetch,
+	type SpamConfig,
+} from "./spam/index.js";
 export {
 	type NeverSpamGrant,
 	NoJunkMailboxError,

@@ -109,6 +109,7 @@ export const syncMessageBody = async (
 		accountConfig: accountConfigService,
 		label: labelService,
 		classificationDefault,
+		spam,
 	} = ctx.client;
 
 	const account = await accountService.get(accountId);
@@ -201,6 +202,7 @@ export const syncMessageBody = async (
 				addressService,
 				envelopeService,
 				new SyncWarningService(syncWarningRepository),
+				spam,
 				log,
 				placementConfig,
 				filterConfig,

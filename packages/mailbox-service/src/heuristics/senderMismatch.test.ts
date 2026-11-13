@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import { simpleParser } from "mailparser";
 import * as tldts from "tldts";
+import { classifyDisplayNameCorrespondence } from "../spam/display-name.js";
 import {
-	classifyDisplayNameCorrespondence,
 	extractOffDomainLinkDomains,
 	extractSenderMismatch,
 } from "./senderMismatch.js";

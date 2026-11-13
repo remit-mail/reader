@@ -19,6 +19,7 @@ export const labelTable = entities.labels;
 export const messageLabelTable = entities.messageLabels;
 export const labelMailboxTable = entities.labelMailboxes;
 export const senderSignerStandingTable = entities.senderSignerStandings;
+export const domainRegistrationTable = entities.domainRegistrations;
 export * from "./schema/i4-account-config.js";
 export * from "./schema/i4-account-export-request.js";
 export * from "./schema/i4-account-setting.js";

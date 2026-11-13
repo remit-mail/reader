@@ -7,6 +7,7 @@ export {
 	bodyParts,
 	bodyStructureRefetches,
 	calendarSuggestions,
+	domainRegistrations,
 	envelopeAddresses,
 	envelopes,
 	labelMailboxes,

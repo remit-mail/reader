@@ -19,6 +19,8 @@ import {
 	eq,
 	getTableColumns,
 	gt,
+	like,
+	or,
 	type SQL,
 	sql,
 } from "drizzle-orm";
@@ -794,6 +796,27 @@ export class AddressRepo implements IAddressRepository {
 			.from(addressTable)
 			.where(eq(addressTable.accountConfigId, accountConfigId));
 		return rows.map(rowToAddress);
+	}
+
+	async countInboundForDomain(
+		accountConfigId: string,
+		registrableDomain: string,
+	): Promise<number> {
+		const [row] = await this.db
+			.select({
+				count: sql<number>`cast(coalesce(sum(${addressTable.inboundCount}), 0) as int)`,
+			})
+			.from(addressTable)
+			.where(
+				and(
+					eq(addressTable.accountConfigId, accountConfigId),
+					or(
+						eq(addressTable.domain, registrableDomain),
+						like(addressTable.domain, `%.${registrableDomain}`),
+					),
+				),
+			);
+		return row.count;
 	}
 
 	async countCategoryOverridesSince(

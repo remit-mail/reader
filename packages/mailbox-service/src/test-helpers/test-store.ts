@@ -23,6 +23,7 @@ import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { MessageSyncService } from "../message-sync.js";
+import { InlineSpamService, type SpamConfig } from "../spam/index.js";
 import { SyncWarningService } from "../sync-warning.js";
 import type { FakeImapServer } from "./fake-imap.js";
 
@@ -212,6 +213,17 @@ export const silentLog = {
 	error: () => {},
 	debug: () => {},
 };
+
+/** The inline judge with unset thresholds and an RDAP that never answers. */
+export const spamConfigFor = (
+	store: Pick<Store, "domainRegistration" | "account">,
+): SpamConfig => ({
+	spamService: new InlineSpamService({ state: "Unset" }),
+	domainRegistration: store.domainRegistration,
+	rdap: { lookup: async () => undefined },
+	accountService: store.account,
+	logger: silentLog,
+});
 
 export const syncFolder = async (
 	store: Store,

@@ -8,6 +8,10 @@ export interface SenderPlacement {
 	senderTrust: (typeof SenderTrust)[keyof typeof SenderTrust];
 	senderOverride: (typeof SenderOverride)[keyof typeof SenderOverride];
 	autoArchive: boolean;
+	/** Earlier messages from this address. */
+	inboundCount: number;
+	/** The owner has sent mail to this address. */
+	knownSender: boolean;
 }
 
 interface SenderPlacementSignals {
@@ -17,6 +21,8 @@ interface SenderPlacementSignals {
 	blockedSetAt?: number;
 	neverSpam: boolean;
 	autoArchive: boolean;
+	inboundCount: number;
+	knownSender: boolean;
 }
 
 const UNKNOWN_SENDER: SenderPlacementSignals = {
@@ -24,6 +30,8 @@ const UNKNOWN_SENDER: SenderPlacementSignals = {
 	blocked: false,
 	neverSpam: false,
 	autoArchive: false,
+	inboundCount: 0,
+	knownSender: false,
 };
 
 /** The per-sender signals placement needs, from one `Address` fetch. */
@@ -47,6 +55,9 @@ const readSenderPlacementSignals = async (
 		blockedSetAt: flags?.blocked?.setAt,
 		neverSpam: flags?.neverSpam?.value === true,
 		autoArchive: flags?.autoArchive?.value === true,
+		inboundCount: address?.inboundCount ?? 0,
+		knownSender:
+			(address?.outboundCount ?? 0) > 0 || (address?.replyCount ?? 0) > 0,
 	};
 	if (flags?.vip?.value === true) {
 		return {
@@ -85,5 +96,7 @@ export const readSenderPlacement = async (
 			signals.neverSpam,
 		),
 		autoArchive: signals.autoArchive,
+		inboundCount: signals.inboundCount,
+		knownSender: signals.knownSender,
 	};
 };

@@ -20,6 +20,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	silentLog,
+	spamConfigFor,
 	syncFolder,
 } from "./test-helpers/test-store.js";
 
@@ -67,6 +68,7 @@ const syncBody = (messageId: string, source: FakeImapConnection) =>
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
+		spamConfigFor(store),
 		silentLog,
 	).syncBodies(
 		[messageId],

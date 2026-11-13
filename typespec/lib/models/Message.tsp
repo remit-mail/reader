@@ -18,6 +18,7 @@ import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
 import "./Label.tsp";
+import "./Spam.tsp";
 
 namespace RemitImap;
 
@@ -297,6 +298,10 @@ model MessageRecord {
   @visibility(Lifecycle.Read)
   spamReport?: MessageSpamReport;
 
+  @doc("The spam outcome for this message (RFC 041). Defaults to `NotChecked`; body sync records `ScreenedOut` when stage 1 let the message through, or the spam service's answer.")
+  @visibility(Lifecycle.Read)
+  spamVerdict: MessageSpamVerdict = #{ state: "NotChecked" };
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -377,6 +382,7 @@ model MessageSummaryResponse {
     | "status"
     | "syncStatus"
     | "abandonedMutation"
+    | "spamVerdict"
   >;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")

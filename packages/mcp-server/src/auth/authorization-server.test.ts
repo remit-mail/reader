@@ -34,6 +34,7 @@ import {
 	openStore,
 	type Store,
 	silentLog,
+	spamConfigFor,
 } from "@remit/mailbox-service/test-helpers/test-store";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp } from "../app.js";
@@ -168,6 +169,7 @@ before(async () => {
 			store.address,
 			store.envelope,
 			new SyncWarningService(store.syncWarning),
+			spamConfigFor(store),
 			silentLog,
 		),
 		bodySyncQueue: new BodySyncQueueService({ queue: recordingQueue() }),

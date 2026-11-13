@@ -16,6 +16,10 @@ import "./MessageFlagPush.tsp";
 import "./Envelope.tsp";
 import "./Address.tsp";
 
+// Spam and phishing (RFC 041)
+import "./Spam.tsp";
+import "./DomainRegistration.tsp";
+
 // Sender authenticity
 import "./SenderSignerStanding.tsp";
 

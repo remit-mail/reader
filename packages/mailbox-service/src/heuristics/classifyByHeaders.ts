@@ -25,6 +25,16 @@ export interface MessageAuthResult {
 	dkim?: AuthVerdictValue;
 }
 
+/**
+ * The verdicts plus the two identities the trusted header established: the
+ * `header.d` of the first passing DKIM signature, and the SPF-checked envelope
+ * domain (`smtp.mailfrom`, falling back to `smtp.helo`).
+ */
+export interface AuthenticationEvidence extends MessageAuthResult {
+	signerDomain: string | undefined;
+	envelopeDomain: string | undefined;
+}
+
 export interface MessageProviderSpam {
 	classified: boolean;
 	score?: string;
@@ -218,7 +228,7 @@ const dkimResultsForFrom = (
 
 export const extractAuthResult = (
 	parsed: ParsedMail,
-): MessageAuthResult | null => {
+): AuthenticationEvidence | null => {
 	const headers = parsed.headerLines
 		.filter((l) => l.key.toLowerCase() === "authentication-results")
 		.map((l) => parseAuthenticationResults(stripHeaderName(l.line)))
@@ -233,7 +243,22 @@ export const extractAuthResult = (
 	const acrossHeaders = (method: string): AuthenticationResult[] =>
 		headers.flatMap((h) => byMethod(h.results, method));
 
+	const all = headers.flatMap((h) => h.results);
+	const spf = all.find((r) => r.method === "spf");
+	const mailFrom = spf?.properties.get("smtp.mailfrom");
+
 	return {
+		signerDomain:
+			normaliseDomain(
+				all
+					.find((r) => r.method === "dkim" && r.result === "pass")
+					?.properties.get("header.d"),
+			) ?? undefined,
+		envelopeDomain:
+			(mailFrom?.includes("@")
+				? identityDomain(mailFrom)
+				: normaliseDomain(mailFrom ?? spf?.properties.get("smtp.helo"))) ??
+			undefined,
 		dmarc: leastFavourableVerdict(acrossHeaders("dmarc")),
 		spf: leastFavourableVerdict(acrossHeaders("spf")),
 		dkim: leastFavourableVerdict(

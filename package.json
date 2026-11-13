@@ -53,7 +53,8 @@
     "dev:sqlite:down": "REMIT_DEV_UID=$(id -u) REMIT_DEV_GID=$(id -g) docker compose -f docker-compose.localhost-dev-sqlite.yml down",
     "dev:sqlite:logs": "docker compose -f docker-compose.localhost-dev-sqlite.yml logs -f",
     "dev:sqlite:health": "bash npm-scripts/dev-sqlite-health.sh",
-    "build:hunspell": "node npm-scripts/build-hunspell.mjs"
+    "build:hunspell": "node npm-scripts/build-hunspell.mjs",
+    "build:confusables": "node npm-scripts/build-confusables.mjs"
   },
   "dependencies": {
     "@remit/api-http-client": "file:build/remit-client",

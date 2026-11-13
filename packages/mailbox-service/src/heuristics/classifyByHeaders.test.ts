@@ -598,6 +598,7 @@ const messageFrom = (parsed: ParsedMail): MessageItem => ({
 	category: "uncategorized",
 	classificationState: "NotExamined",
 	classifierScores: [],
+	spamVerdict: { state: "NotChecked" },
 	authenticityVerdict: "NotEvaluated",
 	hasListUnsubscribe: false,
 	movedByRemit: false,
@@ -619,6 +620,12 @@ const inboxVerdict = (parsed: ParsedMail) =>
 
 const withBody = (lines: string[]): string[] => [...lines, "", "body"];
 
+const verdictsOf = (parsed: ParsedMail) => {
+	const result = extractAuthResult(parsed);
+	if (result === null) return null;
+	return { dmarc: result.dmarc, spf: result.spf, dkim: result.dkim };
+};
+
 describe("Authentication-Results adversarial findings (#657)", () => {
 	it("keeps the aligned dkim result when a comment carries a semicolon", async () => {
 		const parsed = await parse(
@@ -628,11 +635,12 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 				"X-Spam-Status: No, score=0.1",
 			]),
 		);
-		assert.deepEqual(extractAuthResult(parsed), {
+		assert.deepEqual(verdictsOf(parsed), {
 			dmarc: "Fail",
 			spf: undefined,
 			dkim: "Fail",
 		});
+		assert.equal(extractAuthResult(parsed)?.signerDomain, "relay.example");
 	});
 
 	it("checks alignment even when an unrelated dkim=pass is present", async () => {
@@ -646,7 +654,7 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 			);
 		const without = await header("");
 		const withEsp = await header("dkim=pass header.d=esp-mailer.example; ");
-		assert.deepEqual(extractAuthResult(withEsp), extractAuthResult(without));
+		assert.deepEqual(verdictsOf(withEsp), verdictsOf(without));
 		assert.deepEqual(inboxVerdict(withEsp), inboxVerdict(without));
 		assert.equal(inboxVerdict(withEsp).action, "leave");
 	});
@@ -739,7 +747,7 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 				"  dmarc=pass header.from=acme.example",
 			]),
 		);
-		assert.deepEqual(extractAuthResult(parsed), {
+		assert.deepEqual(verdictsOf(parsed), {
 			dmarc: "Pass",
 			spf: "Pass",
 			dkim: undefined,
@@ -810,7 +818,7 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 					"Authentication-Results: GW.EXAMPLE; DKIM=FAIL HEADER.D=EVIL.EXAMPLE; DMARC=FAIL",
 				]),
 			);
-			assert.deepEqual(extractAuthResult(parsed), {
+			assert.deepEqual(verdictsOf(parsed), {
 				dmarc: "Fail",
 				spf: undefined,
 				dkim: "Fail",
@@ -826,7 +834,7 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 					"\tdmarc=fail header.from=acme.example",
 				]),
 			);
-			assert.deepEqual(extractAuthResult(parsed), {
+			assert.deepEqual(verdictsOf(parsed), {
 				dmarc: "Fail",
 				spf: undefined,
 				dkim: "Pass",

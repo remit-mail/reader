@@ -33,6 +33,7 @@ import {
 	seedMailbox,
 	seedMessage,
 	silentLog,
+	spamConfigFor,
 	syncFolder,
 } from "./test-helpers/test-store.js";
 
@@ -535,6 +536,7 @@ describe("copying a message", () => {
 			store.address,
 			store.envelope,
 			new SyncWarningService(store.syncWarning),
+			spamConfigFor(store),
 			silentLog,
 		).syncBodies(
 			[messageId],

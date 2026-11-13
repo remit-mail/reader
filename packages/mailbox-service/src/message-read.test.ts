@@ -17,6 +17,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	silentLog,
+	spamConfigFor,
 } from "./test-helpers/test-store.js";
 
 let store: Store;
@@ -40,6 +41,7 @@ beforeEach(async () => {
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
+		spamConfigFor(store),
 		silentLog,
 	);
 });

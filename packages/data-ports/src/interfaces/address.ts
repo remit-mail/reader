@@ -108,6 +108,15 @@ export interface IAddressRepository {
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;
 	listAllByAccountConfig(accountConfigId: string): Promise<AddressItem[]>;
+	/**
+	 * Inbound messages counted across every address at a registrable domain or
+	 * any subdomain of it: `example.com` counts `a@example.com` and
+	 * `b@mail.example.com`.
+	 */
+	countInboundForDomain(
+		accountConfigId: string,
+		registrableDomain: string,
+	): Promise<number>;
 	countCategoryOverridesSince(
 		accountConfigId: string,
 		since: number,

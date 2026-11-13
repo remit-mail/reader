@@ -129,7 +129,11 @@ export const openStore = async (): Promise<{
 		body: queue,
 	});
 	const shared = {
-		...buildSharedDeps(queuesOn(recordingQueue()), { state: "None" }),
+		...buildSharedDeps(
+			queuesOn(recordingQueue()),
+			{ state: "None" },
+			{ thresholds: { state: "Unset" } },
+		),
 		storage,
 	};
 	const clientOn = (queue: RecordingQueue): RemitClient =>

@@ -12,6 +12,7 @@ import type {
 	CalendarTaskSchema,
 	ConfigImportSchema,
 	ConfigImportUnresolvedRefSchema,
+	DomainRegistrationSchema,
 	EnvelopeAddressSchema,
 	EnvelopeSchema,
 	FilterRuleV1Schema,
@@ -34,6 +35,9 @@ import type {
 	QuarantineSchema,
 	RawMessageStorageSchema,
 	SenderSignerStandingSchema,
+	SpamCheckedSchema,
+	SpamFailedSchema,
+	SpamRequestSchema,
 	SyncWarningSchema,
 	ThreadMessageSchema,
 } from "@remit/api-zod-schemas";
@@ -81,6 +85,7 @@ export type CreateOutboxSchedulingPartInput = Pick<
 >;
 export type MessageItem = z.infer<typeof MessageRecordSchema>;
 export type ClassifierScoreItem = MessageItem["classifierScores"][number];
+export type MessageSpamVerdict = MessageItem["spamVerdict"];
 export type MessageFlagItem = z.infer<typeof MessageFlagSchema>;
 export type BodyPartItem = z.infer<typeof BodyPartSchema>;
 export type MessageReferenceItem = {
@@ -531,6 +536,7 @@ export type CreateMessageInput = Omit<
 	| "hasListUnsubscribe"
 	| "movedByRemit"
 	| "classifierScores"
+	| "spamVerdict"
 > & {
 	messageId: string;
 	status?: MessageItem["status"];
@@ -542,6 +548,7 @@ export type CreateMessageInput = Omit<
 	hasListUnsubscribe?: MessageItem["hasListUnsubscribe"];
 	movedByRemit?: MessageItem["movedByRemit"];
 	classifierScores?: MessageItem["classifierScores"];
+	spamVerdict?: MessageItem["spamVerdict"];
 };
 
 /**
@@ -915,3 +922,14 @@ export type ObserveSenderSignerStandingInput = {
 	signerDomain: string;
 	observedAt: number;
 };
+
+export type SpamRequest = z.infer<typeof SpamRequestSchema>;
+export type SpamResponse =
+	| z.infer<typeof SpamCheckedSchema>
+	| z.infer<typeof SpamFailedSchema>;
+
+export type DomainRegistrationItem = z.infer<typeof DomainRegistrationSchema>;
+export type PutDomainRegistrationInput = Pick<
+	DomainRegistrationItem,
+	"domainRegistrationId" | "registration"
+>;

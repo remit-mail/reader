@@ -99,6 +99,7 @@ beforeEach(async () => {
 			client.address,
 			client.envelope,
 			new SyncWarningService(client.syncWarning),
+			client.spam,
 			silentLog,
 		),
 		bodySyncQueue: client.bodySyncQueue,

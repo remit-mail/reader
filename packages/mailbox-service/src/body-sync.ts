@@ -21,6 +21,7 @@ import {
 	isSenderMuted,
 	type MailboxItem,
 	type MessageItem,
+	type MessageSpamVerdict,
 	type UpdateMessageInput,
 } from "@remit/data-ports";
 import {
@@ -99,6 +100,7 @@ import {
 	type SenderPlacement,
 } from "./sender-placement.js";
 import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
+import { decideSpamVerdict, type SpamConfig } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -338,6 +340,7 @@ interface BatchLookups {
 	activeFilters: () => Promise<FilterItem[]>;
 	usableFilters: () => Promise<PreparedFilters>;
 	classifierGate: () => Promise<ClassifierGate>;
+	ownAddresses: () => Promise<string[]>;
 }
 
 // A failed load is forgotten, so the next message retries it rather than the
@@ -371,6 +374,7 @@ export class BodySyncService {
 		private addressService: IAddressRepository,
 		private envelopeService: IEnvelopeRepository,
 		private readonly syncWarningService: SyncWarningService,
+		private readonly spamConfig: SpamConfig,
 		logger?: BodySyncLogger,
 		private readonly placementConfig?: PlacementConfig,
 		private readonly filterConfig?: FilterConfig,
@@ -864,6 +868,16 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
+		const spamVerdict = await this.decideSpam(lookups, accountConfigId, {
+			parsed,
+			body,
+			arrival,
+			filterDecision,
+			classifierScores,
+			classification,
+			senderPlacement,
+		});
+
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
 		// so if we wrote it first and the parsed-cache write then failed, the
@@ -1028,6 +1042,7 @@ export class BodySyncService {
 			category: finalCategory,
 			classificationState: MessageClassificationState.Examined,
 			classifierScores,
+			...(spamVerdict ? { spamVerdict } : {}),
 			...placementUpdate,
 			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -1343,6 +1358,42 @@ export class BodySyncService {
 			: NO_CLASSIFIER_DECISION;
 	}
 
+	/**
+	 * RFC 041 stages 1 and 2, recorded and acted on by nothing yet. Runs on the
+	 * same new mail the category classifier does, after it, so check 9 sees its
+	 * scores; a folder's first sync of old mail records no verdict.
+	 */
+	private async decideSpam(
+		lookups: BatchLookups,
+		accountConfigId: string,
+		message: {
+			parsed: ParsedMail;
+			body: Buffer;
+			arrival: Arrival;
+			filterDecision: FilterDecision;
+			classifierScores: ClassifierScoreItem[];
+			classification: UpdateMessageInput;
+			senderPlacement: () => Promise<SenderPlacement>;
+		},
+	): Promise<MessageSpamVerdict | undefined> {
+		if (!message.arrival.folderSynced) return undefined;
+		const gate = await lookups.classifierGate();
+		return decideSpamVerdict(this.spamConfig, this.addressService, {
+			accountConfigId,
+			fromEmail: extractPrimaryFromEmail(message.parsed),
+			rcpt: await lookups.ownAddresses(),
+			parsed: message.parsed,
+			raw: message.body,
+			internalDate: message.arrival.internalDate,
+			sender: await message.senderPlacement(),
+			filterDecision: message.filterDecision,
+			classifierScores: message.classifierScores,
+			modelAllowed: gate.state === "On",
+			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
+			dmarc: message.classification.authResult?.dmarc,
+		});
+	}
+
 	private async applyClassifierLabel(
 		lookups: BatchLookups,
 		messageId: string,
@@ -1634,6 +1685,13 @@ export class BodySyncService {
 				classifierConfig
 					? readClassifierGate(classifierConfig, accountConfigId)
 					: CLASSIFIER_OFF,
+			),
+			ownAddresses: once(async () =>
+				(
+					await this.spamConfig.accountService.listAllByAccountConfig(
+						accountConfigId,
+					)
+				).map((account) => account.email),
 			),
 		};
 	}
