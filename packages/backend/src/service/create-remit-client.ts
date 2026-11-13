@@ -54,7 +54,6 @@ import {
 	PlacementMoveService,
 	RdapClient,
 	RescanService,
-	resolveFolderRoleMailboxes,
 	type SpamConfig,
 	SpamReportService,
 	SyncWarningService,
@@ -518,9 +517,6 @@ export const composeReadPathServices = (
 			message: core.message,
 			messageFlag: core.messageFlag,
 			messageLabel: core.messageLabel,
-			classifierLabels: core.messageLabel,
-			roles: (accountId) =>
-				resolveFolderRoleMailboxes(core.mailboxSpecialUse, accountId),
 			mailbox: core.mailbox,
 			address: core.address,
 			threadMessage: core.threadMessage,

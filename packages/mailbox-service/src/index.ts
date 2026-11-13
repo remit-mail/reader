@@ -142,7 +142,6 @@ export {
 export {
 	type FolderPlacementLookup,
 	resolveFolderPlacement,
-	resolveFolderRoleMailboxes,
 } from "./folder-placement.js";
 export {
 	classifyByHeaders,

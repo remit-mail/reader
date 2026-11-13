@@ -35,7 +35,6 @@ import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
-	MessageClassificationState,
 	QuarantineFailureStage,
 	SyncWarningStage,
 } from "@remit/domain-enums";
@@ -49,11 +48,7 @@ import {
 import { Semaphore } from "async-mutex";
 import type { ParsedMail } from "mailparser";
 import pMap from "p-map";
-import {
-	type ArrivalRecordDeps,
-	decideArrivalSpam,
-	recordArrival,
-} from "./arrival-decision.js";
+import { recordArrival, spamArrivalOf } from "./arrival-decision.js";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import {
 	mapMessagePartsToContent,
@@ -87,6 +82,7 @@ import {
 	resolveFolderRoleMailboxes,
 } from "./folder-placement.js";
 import type { FolderPlacement } from "./heuristics/classifyPlacement.js";
+import { denormalizeMessageCategory } from "./message-category.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
@@ -97,9 +93,10 @@ import {
 } from "./sender-placement.js";
 import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
 import {
-	type SpamArrival,
+	decideSpamVerdict,
 	type SpamConfig,
-	spamModelAccessOf,
+	type SpamPlacement,
+	spamPlacementOf,
 } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
@@ -329,6 +326,8 @@ interface ClassifierDecision {
 	verdict: ClassifierVerdict;
 	scores: ClassifierScoreItem[];
 }
+
+const NO_SPAM_PLACEMENT: SpamPlacement = { action: "None" };
 
 const NO_CLASSIFIER_DECISION: ClassifierDecision = {
 	verdict: { kind: "None" },
@@ -869,25 +868,28 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
-		const spam = await decideArrivalSpam(
-			this.spamConfig,
-			this.addressService,
-			await this.spamArrival(
-				lookups,
-				{ accountId, accountConfigId },
-				{
-					parsed,
-					body,
-					arrival,
-					filterDecision,
-					classifierScores,
-					classification,
-					senderPlacement,
-				},
-			),
-			lookups.spamSettings,
-			false,
-		);
+		const spamVerdict = arrival.folderSynced
+			? await decideSpamVerdict(
+					this.spamConfig,
+					this.addressService,
+					spamArrivalOf({
+						account: { accountId, accountConfigId },
+						parsed,
+						raw: body,
+						internalDate: arrival.internalDate,
+						sender: await senderPlacement(),
+						filterDecision,
+						classifierScores,
+						classification,
+						classifier: this.classifierConfig,
+						gate: await lookups.classifierGate(),
+						ownAddresses: await lookups.ownAddresses(),
+					}),
+				)
+			: undefined;
+		const spamPlacement = spamVerdict
+			? spamPlacementOf(spamVerdict, await lookups.spamSettings())
+			: NO_SPAM_PLACEMENT;
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
@@ -967,20 +969,25 @@ export class BodySyncService {
 			});
 		}
 
-		// Placement, the classifier and spam labels, and the write-once category,
-		// shared with rescan. `category` is RFC 034 D3.1's write-once field (RFC
-		// 030's message-list GSI sort key depends on it never churning): a
-		// previously-decided category, or a `flags.category` override (issue
-		// #299), wins over the just-recomputed one. The thread rows are written
-		// with the same category as the Message update below.
-		const recorded = await recordArrival(this.arrivalRecordDeps(), {
+		// Read once for the two write-once guards below — the auto-read decision
+		// and the category carry-forward. Taken here rather than earlier because
+		// nothing between this point and the Message update writes either field;
+		// the moves touch `mailboxId` only.
+		const existingMessage = await this.messageService.get(messageId);
+
+		const { update: decided } = await recordArrival(this.spamConfig, {
 			account: { accountId, accountConfigId },
 			messageId,
-			gate: await lookups.classifierGate(),
+			gate: lookups.classifierGate,
 			classifierVerdict: verdict,
-			spamPlacement: spam.placement,
+			classifierScores,
+			classification,
+			currentCategory: existingMessage.category,
+			spamVerdict: spamVerdict ?? existingMessage.spamVerdict,
+			spamPlacement,
 			placement: this.placementConfig
 				? {
+						deps: { ...this.placementConfig, log: this.log },
 						row: { ...decidedRow, ...classification },
 						roles: await lookups.roleMailboxes(),
 						sender: await senderPlacement(),
@@ -988,15 +995,7 @@ export class BodySyncService {
 						leaveJunk: arrival.internalDate <= arrival.folderCreatedAt,
 					}
 				: undefined,
-			headerCategory: classification.category,
-			snippet,
-			listId,
 		});
-
-		// Read once for the auto-read write-once guard below. Taken here rather
-		// than earlier because nothing between this point and the Message update
-		// writes it; the moves above touch `mailboxId` only.
-		const existingMessage = await this.messageService.get(messageId);
 
 		// `flags.unsubscribed` (issue #302, RFC 039 Decision 3): auto-mark-read,
 		// reusing the same FlagQueueService.markAsRead round-trip a manual
@@ -1026,19 +1025,21 @@ export class BodySyncService {
 		// a filter); the verdict is folded in whenever Remit decided to act.
 		// Written LAST so bodyStorageKey — the skip-guard signal — is only durable
 		// once the parsed cache AND the move (when any) are.
-		//
+
+		// Thread-list denormalization, using the same write-once category as the
+		// Message update below — the two rows must never disagree on category.
+		await denormalizeMessageCategory(
+			{ threadMessageService: this.threadMessageService },
+			accountConfigId,
+			messageId,
+			{ category: decided.category, snippet, listId },
+		);
+
 		// `classificationState` records that the classifier ran, in the same
-		// UpdateItem as the answer it gave (issue #331). Without it `uncategorized`
-		// carries two meanings at once — not reached yet, and reached with nothing
-		// to say — and only one of them should ever be looked at again.
+		// UpdateItem as the answer it gave (issue #331).
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
-			...classification,
-			category: recorded.category,
-			classificationState: MessageClassificationState.Examined,
-			classifierScores,
-			...(spam.verdict ? { spamVerdict: spam.verdict } : {}),
-			...recorded.placementUpdate,
+			...decided,
 			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
 		};
@@ -1351,55 +1352,6 @@ export class BodySyncService {
 		return consulted.state === "Answered"
 			? { verdict: consulted.verdict, scores: consulted.scores }
 			: NO_CLASSIFIER_DECISION;
-	}
-
-	/**
-	 * RFC 041 stages 1 and 2. Runs on the same new mail the category classifier
-	 * does, after it, so check 9 sees its scores; a folder's first sync of old
-	 * mail records no verdict.
-	 */
-	private async spamArrival(
-		lookups: BatchLookups,
-		account: { accountId: string; accountConfigId: string },
-		message: {
-			parsed: ParsedMail;
-			body: Buffer;
-			arrival: Arrival;
-			filterDecision: FilterDecision;
-			classifierScores: ClassifierScoreItem[];
-			classification: UpdateMessageInput;
-			senderPlacement: () => Promise<SenderPlacement>;
-		},
-	): Promise<SpamArrival | undefined> {
-		if (!message.arrival.folderSynced) return undefined;
-		const { accountConfigId } = account;
-		const gate = await lookups.classifierGate();
-		return {
-			accountConfigId,
-			fromEmail: extractPrimaryFromEmail(message.parsed),
-			rcpt: await lookups.ownAddresses(),
-			parsed: message.parsed,
-			raw: message.body,
-			internalDate: message.arrival.internalDate,
-			sender: await message.senderPlacement(),
-			filterDecision: message.filterDecision,
-			classifierScores: message.classifierScores,
-			model: spamModelAccessOf(this.classifierConfig, gate, account),
-			hasListUnsubscribe: message.classification.hasListUnsubscribe ?? false,
-			dmarc: message.classification.authResult?.dmarc,
-		};
-	}
-
-	private arrivalRecordDeps(): ArrivalRecordDeps {
-		return {
-			spam: this.spamConfig,
-			classifierLabels: this.classifierConfig?.messageLabelService,
-			message: this.messageService,
-			threadMessage: this.threadMessageService,
-			placement: this.placementConfig
-				? { ...this.placementConfig, log: this.log }
-				: undefined,
-		};
 	}
 
 	private async incrementInboundCount(
