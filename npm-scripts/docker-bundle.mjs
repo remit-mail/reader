@@ -7,9 +7,8 @@
 // ESM output otherwise throws `Dynamic require of "<mod>" is not supported`
 // whenever a bundled CJS dependency calls `require(...)` at runtime).
 //
-// Native dependencies stay external — they are installed into
-// the runtime image from a minimal per-service package.json instead of being
-// bundled. Bundling per entrypoint (rather than `npm ci --omit=dev` of the
+// Every dependency is inlined, so a runtime image installs no packages.
+// Bundling per entrypoint (rather than `npm ci --omit=dev` of the
 // whole workspace) is what keeps a worker image from dragging in dependencies
 // it never touches through barrel imports — the lesson from the Lambda path,
 // where barrel imports pulled `pg` and NLP libraries into DynamoDB functions.
@@ -69,25 +68,15 @@ const DIRNAME_DEFINES = {
 	__filename: "import.meta.filename",
 };
 
-// better-sqlite3 is a native module (a `.node` binding it locates relative to
-// its own install tree). It is reached only on the DATA_BACKEND=sqlite branch
-// (RFC 036), through a dynamic `import()` inside @remit/drizzle-service —
-// so every service that builds a data client can reach it. Keep it external and
-// install it in the runtime stage of the sqlite images: inlining the driver's
-// JS would still leave its `.node` require unresolvable next to the bundle.
-const SQLITE = "better-sqlite3";
-
-/** @type {Array<{name: string, entry: string, outfile?: string, external?: string[], loader?: Record<string, string>}>} */
+/** @type {Array<{name: string, entry: string, outfile?: string, loader?: Record<string, string>}>} */
 export const TARGETS = [
 	{
 		name: "backend",
 		entry: "packages/backend/dev-server/server.ts",
-		external: [SQLITE],
 	},
 	{
 		name: "imap-worker",
 		entry: "packages/imap-worker/src/poller.ts",
-		external: [SQLITE],
 	},
 	// The periodic mailbox-sync tick, inside the imap-worker image as an
 	// alternate entrypoint — the same "one image, two commands" shape as the
@@ -100,26 +89,19 @@ export const TARGETS = [
 		name: "scheduler",
 		entry: "packages/imap-worker/src/scheduler/runner.ts",
 		outfile: "dist-docker/imap-worker/scheduler.mjs",
-		external: [SQLITE],
 	},
 	{
 		name: "smtp-worker",
 		entry: "packages/smtp-worker/src/poller.ts",
-		external: [SQLITE],
 	},
 	{
 		name: "account-worker",
 		entry: "packages/account-worker/src/poller.ts",
-		external: [SQLITE],
 	},
-	// The self-host queue backend (ADR: SQLite-backed SQS sidecar). better-sqlite3
-	// is a native module reached through @remit/queue-sidecar's store; keep it
-	// external and install it in the runtime stage, the same treatment the other
-	// sqlite images give it.
+	// The self-host queue backend (ADR: SQLite-backed SQS sidecar).
 	{
 		name: "queue-sidecar",
 		entry: "packages/queue-sidecar/src/main.ts",
-		external: [SQLITE],
 	},
 	// `remit redrive`, as an alternate entrypoint in the same image: it asks
 	// the running sidecar to move the messages, so the store keeps one writer.
@@ -133,7 +115,6 @@ export const TARGETS = [
 	{
 		name: "mcp-server",
 		entry: "packages/mcp-server/src/main.ts",
-		external: [SQLITE],
 	},
 	// `remit mcp login`: the device-code client, run inside the mcp container.
 	{
@@ -141,9 +122,8 @@ export const TARGETS = [
 		entry: "packages/mcp-server/src/cli/mcp-login.ts",
 		outfile: "dist-docker/mcp-server/mcp-login.mjs",
 	},
-	// The checker (standalone-observability D9). No `external`: it imports
-	// nothing outside Node's standard library, which is what lets its runtime
-	// image install no packages at all.
+	// The checker (standalone-observability D9). It imports
+	// nothing outside Node's standard library.
 	{
 		name: "doctor",
 		entry: "packages/doctor/src/main.ts",
@@ -166,11 +146,6 @@ export const TARGETS = [
 		name: "backend-migrate",
 		entry: "packages/migrate/src/run-migrate.ts",
 		outfile: "dist-docker/backend/migrate.mjs",
-		// better-sqlite3 is a native module reached only on the
-		// DATA_BACKEND=sqlite branch (RFC 036 D5), via a dynamic import esbuild
-		// leaves unresolved; keep it external and install it in the runtime
-		// stage, the same treatment pg gets.
-		external: [SQLITE],
 	},
 	// Same "backend image with a command" shape as backend-migrate, for the
 	// one-time ListId backfill (issue #263) — never wired into a compose
@@ -179,7 +154,6 @@ export const TARGETS = [
 		name: "backend-backfill-list-id",
 		entry: "packages/backend/scripts/backfill-list-id.ts",
 		outfile: "dist-docker/backend/backfill-list-id.mjs",
-		external: [SQLITE],
 	},
 	// Same shape again, for the one-time classification backfill over the
 	// stored-body cohort the classifier never examined (issue #1197) — the
@@ -189,7 +163,6 @@ export const TARGETS = [
 		name: "backend-backfill-classification",
 		entry: "packages/backend/scripts/backfill-classification.ts",
 		outfile: "dist-docker/backend/backfill-classification.mjs",
-		external: [SQLITE],
 	},
 	// `remit config save` (issue #1021). The same shape again, and for the same
 	// reason the exec seam exists: the operator runs it before a migration drops
@@ -199,13 +172,11 @@ export const TARGETS = [
 		name: "backend-config-save",
 		entry: "packages/backend/scripts/config-save.ts",
 		outfile: "dist-docker/backend/config-save.mjs",
-		external: [SQLITE],
 	},
 	{
 		name: "backend-people-admin",
 		entry: "packages/backend/scripts/people-admin.ts",
 		outfile: "dist-docker/backend/people-admin.mjs",
-		external: [SQLITE],
 	},
 	{
 		name: "backend-remit-cli",
@@ -247,7 +218,6 @@ async function main() {
 				...BUILD_DEFINES,
 				...serviceDefine(target.name),
 			},
-			external: target.external ?? [],
 			loader: target.loader ?? {},
 			logLevel: "warning",
 		});

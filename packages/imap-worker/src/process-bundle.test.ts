@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build, type Metafile } from "esbuild";
 
 const LAMBDA_ONLY =
-	/node_modules\/(@aws-sdk|@smithy|aws-lambda|expect-env|prom-client|better-sqlite3|drizzle-orm)\/|(^|\/)(sqs-client|logger-lambda|drizzle-service)\/src\//;
+	/node_modules\/(@aws-sdk|@smithy|aws-lambda|expect-env|prom-client|drizzle-orm)\/|(^|\/)(sqs-client|logger-lambda|drizzle-service)\/src\//;
 
 // imapflow, nodemailer, mailparser and pino still reach these through
 // nodejs_compat; the set is pinned so a new one is a deliberate change.

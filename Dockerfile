@@ -276,7 +276,7 @@ CMD ["node", "server.mjs"]
 ########################################################################
 # queue-sidecar — SQLite-backed SQS wire-protocol backend for the self-host
 # deployment (ADR: self-host queue backend). Same alpine + system-nodejs base
-# as the workers, with better-sqlite3 installed via node-service-installed
+# as the workers, installing nothing through node-service-installed
 # (docker/runtime/queue-sidecar/package.json); no pg. Speaks the AWS Query
 # subset the SDK emits on 9324 and persists to its own SQLite file, which the
 # compose stack mounts on a dedicated volume. The queue set is supplied at
