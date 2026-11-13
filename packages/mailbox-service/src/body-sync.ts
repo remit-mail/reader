@@ -987,11 +987,7 @@ export class BodySyncService {
 			verdict,
 		);
 
-		await this.applySpamLabel(
-			messageId,
-			accountConfigId,
-			spamPlacement,
-		);
+		await this.applySpamLabel(messageId, accountConfigId, spamPlacement);
 
 		// Read once for the two write-once guards below — the auto-read decision
 		// and the category carry-forward. Taken here rather than earlier because

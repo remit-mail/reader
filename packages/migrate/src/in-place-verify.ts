@@ -23,6 +23,7 @@ export const DROPPED_COLUMNS: ReadonlyMap<string, string> = new Map([
 	["organize_job_request.anchor_message_id", "entities 0043"],
 	["organize_job_request.similarity_threshold", "entities 0043"],
 	["message.message_id_header", "entities 0040"],
+	["message.authenticity_verdict", "mail 0015"],
 ]);
 
 /** Columns the migration adds to a table that already holds rows: all NULL. */

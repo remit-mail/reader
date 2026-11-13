@@ -212,9 +212,7 @@ const senderTrustIs = (
 const dkimMismatchIs = (mismatch: boolean): SQL =>
 	sql`exists (select 1 from ${messageTable} where ${messageTable.messageId} = ${threadMessageTable.messageId} and json_extract(${messageTable.authenticity}, '$.dkimMismatch') = ${mismatch ? 1 : 0})`;
 
-const inLabel = (
-	label: NonNullable<SearchOptions["label"]>,
-): SQL =>
+const inLabel = (label: NonNullable<SearchOptions["label"]>): SQL =>
 	sql`(${inList(threadMessageTable.mailboxId, label.folderMailboxIds)} or exists (select 1 from ${messageLabelTable} where ${messageLabelTable.messageId} = ${threadMessageTable.messageId} and ${messageLabelTable.labelId} = ${label.labelId}))`;
 
 // The columns the search index is built from, and the snippet, which body sync

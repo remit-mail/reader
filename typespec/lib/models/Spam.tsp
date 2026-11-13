@@ -41,11 +41,14 @@ model SpamRequestEnvelope {
   @doc("The account's own addresses.")
   rcpt: string[];
 
-  @doc("The connecting IP from the receiving server's Received header, or empty.")
+  @doc("The sending server's IP: the hop the provider's SPF check judged, else the first hop from a public address, or empty.")
   ip: string;
 
-  @doc("The HELO name from the receiving server's Received header, or empty.")
+  @doc("The HELO name the sending server gave, or empty.")
   helo: string;
+
+  @doc("The sending server's reverse DNS name as the receiving server recorded it, or empty.")
+  hostname: string;
 }
 
 @doc("The provider's authentication results, read from its Authentication-Results.")
@@ -209,7 +212,7 @@ union SpamThresholds {
 
 @doc("How Remit acts on spam verdicts for the caller.")
 model SpamSettings {
-  @doc("The thresholds in effect. They come from the deployment (`SPAM_CLEAN_BELOW` and `SPAM_AT`).")
+  @doc("The thresholds in effect. They come from the deployment (`SPAM_CLEAN_BELOW` and `SPAM_AT`). `Unset` when the deployment uses rspamd, which applies its own.")
   thresholds: SpamThresholds;
 
   @doc("What a `Junk` verdict of kind `Spam` does.")

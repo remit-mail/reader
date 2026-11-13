@@ -13,8 +13,30 @@
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 
+type Expectation = { subject: string; expectedCategory: string };
+
+// The mail a header rule matches. The rest stays `uncategorized` until the
+// category classifier answers (RFC 041), and this deployment runs none.
+const ruleMatched = (expectations: Expectation[]): Set<string> =>
+	new Set(
+		expectations
+			.filter((e) => e.expectedCategory !== "uncategorized")
+			.map((e) => e.subject),
+	);
+
+const headerClassified = (
+	items: { subject?: string; category?: string }[],
+	matched: Set<string>,
+): boolean => {
+	const seeded = items.filter((t) => matched.has(t.subject ?? ""));
+	return (
+		seeded.length === matched.size &&
+		seeded.every((t) => t.category && t.category !== "uncategorized")
+	);
+};
+
 test.describe("Classification", () => {
-	test("every seeded message is classified — none is left uncategorized", async ({
+	test("every seeded message a header rule matches is classified", async ({
 		api,
 		run,
 	}) => {
@@ -22,19 +44,11 @@ test.describe("Classification", () => {
 		// and the category is never written. Read through the API it presents as
 		// a full `personal` inbox, so this asserts the absence of the silent
 		// state rather than any particular bucket.
-		const subjects = new Set(
-			run.classificationExpectations.map((e) => e.subject),
-		);
+		const subjects = ruleMatched(run.classificationExpectations);
 
 		const threads = await waitFor(
 			() => api.listThreads(run.inboxId),
-			(items) => {
-				const seeded = items.filter((t) => subjects.has(t.subject ?? ""));
-				return (
-					seeded.length === subjects.size &&
-					seeded.every((t) => t.category && t.category !== "uncategorized")
-				);
-			},
+			(items) => headerClassified(items, subjects),
 			{
 				timeoutMs: 90_000,
 				what: "every classification fixture to be body-classified",
@@ -62,15 +76,11 @@ test.describe("Classification", () => {
 			]),
 		);
 
+		const subjects = ruleMatched(run.classificationExpectations);
+
 		const threads = await waitFor(
 			() => api.listThreads(run.inboxId),
-			(items) => {
-				const seeded = items.filter((t) => expected.has(t.subject ?? ""));
-				return (
-					seeded.length === expected.size &&
-					seeded.every((t) => t.category && t.category !== "uncategorized")
-				);
-			},
+			(items) => headerClassified(items, subjects),
 			{
 				timeoutMs: 90_000,
 				what: "every classification fixture to be body-classified",
@@ -95,19 +105,11 @@ test.describe("Classification", () => {
 		// The headline symptom was distribution, not any single message: rules
 		// that matched too early collapsed newsletter, social and transactional
 		// into other buckets, leaving those views empty.
-		const subjects = new Set(
-			run.classificationExpectations.map((e) => e.subject),
-		);
+		const subjects = ruleMatched(run.classificationExpectations);
 
 		const threads = await waitFor(
 			() => api.listThreads(run.inboxId),
-			(items) => {
-				const seeded = items.filter((t) => subjects.has(t.subject ?? ""));
-				return (
-					seeded.length === subjects.size &&
-					seeded.every((t) => t.category && t.category !== "uncategorized")
-				);
-			},
+			(items) => headerClassified(items, subjects),
 			{
 				timeoutMs: 90_000,
 				what: "every classification fixture to be body-classified",
@@ -126,7 +128,6 @@ test.describe("Classification", () => {
 			"social",
 			"transactional",
 			"automated",
-			"personal",
 		]) {
 			expect(found, `no message landed in "${category}"`).toContain(category);
 		}

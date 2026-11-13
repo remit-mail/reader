@@ -23,7 +23,7 @@ const request = (
 		html: overrides.html ?? "",
 		links: overrides.links ?? [],
 	},
-	envelope: { mailFrom: "", rcpt: [], ip: "", helo: "" },
+	envelope: { mailFrom: "", rcpt: [], ip: "", helo: "", hostname: "" },
 	authentication: {
 		dmarc: "Pass",
 		spf: "Pass",

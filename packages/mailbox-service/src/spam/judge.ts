@@ -42,14 +42,24 @@ export const WEIGHTS: Readonly<Record<CheckName, number>> = {
 	DisplayNameLookalike: 0.4,
 };
 
-const IMPERSONATION: ReadonlySet<CheckName> = new Set([
+type ReasonName = (typeof SpamReasonName)[keyof typeof SpamReasonName];
+type Kind = (typeof SpamKind)[keyof typeof SpamKind];
+
+const IMPERSONATION: ReadonlySet<ReasonName> = new Set([
 	SpamReasonName.LinkTextMismatch,
 	SpamReasonName.MixedScriptDomain,
 	SpamReasonName.ConfusableDomains,
 	SpamReasonName.ClassifierPhishing,
 	SpamReasonName.DisplayNameForeignAddress,
 	SpamReasonName.DisplayNameLookalike,
+	SpamReasonName.ListedPhishingLink,
 ]);
+
+/** Phishing when any reason says the message impersonates someone. */
+export const kindOf = (reasons: readonly { name: ReasonName }[]): Kind =>
+	reasons.some((reason) => IMPERSONATION.has(reason.name))
+		? SpamKind.Phishing
+		: SpamKind.Spam;
 
 /** Weights combine as independent evidence: each one closes part of the gap to 1. */
 export const scoreOf = (findings: readonly Finding[]): number => {
@@ -84,9 +94,7 @@ export const judge = (
 		state: "Checked",
 		score,
 		action: actionOf(score, thresholds),
-		kind: findings.some((finding) => IMPERSONATION.has(finding.name))
-			? SpamKind.Phishing
-			: SpamKind.Spam,
+		kind: kindOf(findings),
 		reasons: findings.map((finding) => ({
 			name: finding.name,
 			symbol: finding.name,

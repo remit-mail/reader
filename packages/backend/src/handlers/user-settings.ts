@@ -103,7 +103,6 @@ export const readUserSettings = async (
 	};
 };
 
-
 export type UserSettingsOutcome =
 	| { ok: true; value: UserSettingsResponse }
 	| { ok: false; error: { code: string; message: string } };

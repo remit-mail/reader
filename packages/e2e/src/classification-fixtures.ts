@@ -109,9 +109,10 @@ export const buildClassificationFixtures = (): ClassificationFixture[] => {
 		},
 		{
 			subject: `Lunch tomorrow ${tag}`,
-			expectedCategory: "personal",
+			expectedCategory: "uncategorized",
 			// The control: a person writing to a person must not be swept up by
-			// any of the rules above.
+			// any of the rules above. It stays uncategorized until the category
+			// classifier answers (RFC 041), and this deployment runs none.
 			message: {
 				subject: `Lunch tomorrow ${tag}`,
 				from: "Alice <alice@friends.test>",

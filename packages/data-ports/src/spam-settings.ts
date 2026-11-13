@@ -35,7 +35,8 @@ const resolveSpamSettings = (
 	rows: readonly Pick<AccountSettingItem, "name" | "value">[],
 	deployment: SpamDeployment,
 ): SpamSettingsItem => ({
-	thresholds: deployment.thresholds,
+	thresholds:
+		deployment.name === "Inline" ? deployment.thresholds : { state: "Unset" },
 	spamPlacement: placementOf(rows, AccountSettingName.SpamPlacementSpam),
 	phishingPlacement: placementOf(
 		rows,

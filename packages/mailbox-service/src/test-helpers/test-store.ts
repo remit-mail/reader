@@ -226,7 +226,7 @@ export const spamConfigFor = (
 	>,
 ): SpamConfig => ({
 	spamService: new InlineSpamService({ state: "Unset" }),
-	spamDeployment: { thresholds: { state: "Unset" } },
+	spamDeployment: { name: "Inline", thresholds: { state: "Unset" } },
 	domainRegistration: store.domainRegistration,
 	rdap: { lookup: async () => undefined },
 	accountService: store.account,

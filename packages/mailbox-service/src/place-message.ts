@@ -45,8 +45,7 @@ export const placeMessage = async (
 	deps: PlaceMessageDeps,
 	input: PlaceMessageInput,
 ): Promise<PlaceMessageResult> => {
-	const { account, message, placement, roles, sender, junk, now } =
-		input;
+	const { account, message, placement, roles, sender, junk, now } = input;
 	const archiveMailbox = sender.autoArchive
 		? await deps.mailboxSpecialUseService.findArchiveMailbox(account.accountId)
 		: null;

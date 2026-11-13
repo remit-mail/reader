@@ -8,6 +8,6 @@ export interface SpamService {
 	check(request: SpamRequest): Promise<SpamResponse>;
 }
 
-export interface SpamDeployment {
-	thresholds: SpamThresholds;
-}
+export type SpamDeployment =
+	| { name: "Inline"; thresholds: SpamThresholds }
+	| { name: "Rspamd"; url: string };
