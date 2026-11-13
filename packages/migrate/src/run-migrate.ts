@@ -206,12 +206,20 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const app = appSqlite.db;
 	const db = mailSqlite.db;
 	const searchDb = searchSqlite.db;
-	const search = new SearchIndex(db, syncStore(searchDb, NODE_SQLITE_LIMITS));
+	const search = new SearchIndex(
+		db,
+		syncStore(searchDb, NODE_SQLITE_LIMITS, searchSqlite.immediate),
+	);
 	const specialUse = createSqliteRepositories(
 		{
 			app,
 			mail: db,
 			search: searchDb,
+			transactions: {
+				app: appSqlite.immediate,
+				mail: mailSqlite.immediate,
+				search: searchSqlite.immediate,
+			},
 		},
 		NODE_SQLITE_LIMITS,
 		{

@@ -47,20 +47,26 @@ const emptyResponse = <
 	T extends readonly SqliteBatchItem[],
 >(): BatchResponse<T> => [] as unknown as BatchResponse<T>;
 
+export type TransactionRunner = <T>(work: () => T) => T;
+
 /**
- * A batch as one synchronous transaction. On node:sqlite it is IMMEDIATE:
- * it never yields the event loop, so no other write on the shared connection
- * lands inside it, and it takes the file's write lock before the first
- * statement so a writer in another process waits out the busy timeout. On a
- * Durable Object's `durable-sqlite` handle it is one `transactionSync`.
+ * A batch as one synchronous transaction. It never yields the event loop, so
+ * no other write on the shared connection lands inside it. The runner opens
+ * the transaction without a config, because a Durable Object's
+ * `durable-sqlite` handle rejects any; there it is one `transactionSync`.
+ * node:sqlite passes its handle's `immediate`, which takes the file's write
+ * lock before the first statement so a writer in another process waits out
+ * the busy timeout.
  */
 export const syncBatch =
-	(db: Db): WriteBatch =>
+	(
+		db: Db,
+		run: TransactionRunner = (work) =>
+			db.transaction(() => ({ value: work() })).value,
+	): WriteBatch =>
 	async (items) => {
 		if (items.length === 0) return emptyResponse();
-		const results = db.transaction(() => items.map(runSync), {
-			behavior: "immediate",
-		});
+		const results = run(() => items.map(runSync));
 		return results as unknown as BatchResponse<typeof items>;
 	};
 

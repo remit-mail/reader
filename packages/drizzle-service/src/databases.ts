@@ -1,4 +1,4 @@
-import { syncBatch } from "./batch.js";
+import { syncBatch, type TransactionRunner } from "./batch.js";
 import type { SqliteLimits } from "./bound-parameters.js";
 import type { Db, SqliteStore } from "./db.js";
 
@@ -13,6 +13,13 @@ export interface SqliteDatabases {
 	app: Db;
 	mail: Db;
 	search: Db;
+	transactions?: SqliteTransactions;
+}
+
+export interface SqliteTransactions {
+	app: TransactionRunner;
+	mail: TransactionRunner;
+	search: TransactionRunner;
 }
 
 export interface SqliteStores {
@@ -24,19 +31,20 @@ export interface SqliteStores {
 export const syncStore = (
 	db: Db,
 	{ maxBoundParameters }: SqliteLimits,
+	run?: TransactionRunner,
 ): SqliteStore<Record<string, unknown>> => ({
 	db,
-	batch: syncBatch(db),
+	batch: syncBatch(db, run),
 	maxBoundParameters,
 });
 
 export const syncStores = (
-	{ app, mail, search }: SqliteDatabases,
+	{ app, mail, search, transactions }: SqliteDatabases,
 	limits: SqliteLimits,
 ): SqliteStores => ({
-	app: syncStore(app, limits),
-	mail: syncStore(mail, limits),
-	search: syncStore(search, limits),
+	app: syncStore(app, limits, transactions?.app),
+	mail: syncStore(mail, limits, transactions?.mail),
+	search: syncStore(search, limits, transactions?.search),
 });
 
 export interface SqliteDatabasePaths {
@@ -86,6 +94,11 @@ export const openSqliteDatabases = async (
 		app: app.db,
 		mail: mail.db,
 		search: search.db,
+		transactions: {
+			app: app.immediate,
+			mail: mail.immediate,
+			search: search.immediate,
+		},
 		close: async () => {
 			app.close();
 			mail.close();
