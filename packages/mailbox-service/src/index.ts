@@ -297,6 +297,13 @@ export {
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
+	type MovedMessages,
+	type MoveMessagesDeps,
+	type MoveToLabelDeps,
+	moveMessagesToFolder,
+	moveMessagesToLabel,
+} from "./move-messages.js";
+export {
 	backApplyNeverSpam,
 	type NeverSpamBackApplyDeps,
 	type NeverSpamBackApplyResult,

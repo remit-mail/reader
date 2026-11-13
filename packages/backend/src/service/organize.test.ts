@@ -237,6 +237,25 @@ describe("matchOrganize", () => {
 		assert.deepEqual(messageIds, []);
 	});
 
+	it("matches every message of one source folder when the predicate has no clause", async () => {
+		const queried: Array<readonly string[] | undefined> = [];
+		const { messageIds } = await matchAccepted(
+			{
+				listAccountFilterMessages: async (_accountConfigId, query) => {
+					queried.push(query.mailboxIds);
+					return { items: [reservation("msg-1"), candidate("msg-2")] };
+				},
+			},
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+			ORGANIZE_MATCH_LIMIT,
+			{ mailboxIds: ["mbox-src"] },
+		);
+
+		assert.deepEqual(messageIds, ["msg-1", "msg-2"]);
+		assert.deepEqual(queried, [["mbox-src"]]);
+	});
+
 	it("matches a literal predicate against the corpus", async () => {
 		const { messageIds } = await matchAccepted(
 			corpusDeps([

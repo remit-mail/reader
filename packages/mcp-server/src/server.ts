@@ -10,6 +10,7 @@ import {
 	registerLabelReadTools,
 	registerLabelWriteTools,
 } from "./label-tools.js";
+import { registerMoveTools } from "./move-tools.js";
 import { registerReadTools } from "./read-tools.js";
 
 export interface McpPrincipal {
@@ -48,6 +49,7 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 			deriveAccountConfigId(principal.userId),
 		);
 		registerFilterTools(server, deps, principal.userId);
+		registerMoveTools(server, deps, principal.userId);
 	}
 	return server;
 };

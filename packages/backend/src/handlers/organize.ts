@@ -4,7 +4,7 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
-import { filterRuleFromClauses } from "@remit/data-ports";
+import { FILTER_NO_ACTION, filterRuleFromClauses } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger";
 import {
@@ -95,10 +95,8 @@ const requestedJob = async (
 	return {
 		...owner,
 		predicate: {
-			matchOperator: input.matchOperator,
-			literalClauses: input.literalClauses,
-			actionLabelId: input.actionLabelId,
-			actionMailboxId: input.actionMailboxId,
+			...predicateFromInput(input),
+			sourceMailboxId: FILTER_NO_ACTION,
 		},
 	};
 };

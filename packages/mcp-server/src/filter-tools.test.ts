@@ -428,10 +428,13 @@ describe("get_organize_job", () => {
 			accountConfigId: theirAccount.accountConfigId,
 			userId: OTHER_USER_ID,
 			filterId: theirFilter.filterId,
-			matchOperator: FilterMatchOperator.And,
-			literalClauses: [],
+			rule: filterRuleFromClauses({
+				matchOperator: FilterMatchOperator.And,
+				literalClauses: [],
+			}),
 			actionLabelId: "None",
 			actionMailboxId: "None",
+			sourceMailboxId: "None",
 			ttl: 0,
 		});
 

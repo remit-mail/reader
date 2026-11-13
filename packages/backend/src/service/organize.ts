@@ -55,6 +55,14 @@ export const predicateFromJob = (
 	actionMailboxId: job.actionMailboxId,
 });
 
+/** The folders a snapshot job runs over: its source folder, or every folder. */
+export const scopeFromJob = (
+	job: Pick<OrganizeJobRequestItem, "sourceMailboxId">,
+): OrganizeMatchScope =>
+	job.sourceMailboxId === FILTER_NO_ACTION
+		? {}
+		: { mailboxIds: [job.sourceMailboxId] };
+
 /**
  * One corpus message projected onto the fields a literal clause matches
  * against, paired with its id. Sourced from the core thread rows.
@@ -169,6 +177,18 @@ export const organizePredicateRejection = (
 	predicate: OrganizePredicate,
 ): OrganizeRejection | null => bodyContentRejection(predicate.rule);
 
+// A rule with no tests sweeps a folder only when the pass is scoped to one;
+// over the whole corpus it still matches nothing.
+const folderSweep = (
+	rule: FilterRuleV1Item,
+	scope: OrganizeMatchScope,
+): RuleNarrowing | null =>
+	rule.test.test === "allof" &&
+	filterRuleLeaves(rule).length === 0 &&
+	scope.mailboxIds?.length === 1
+		? { terms: [], operator: "and" }
+		: null;
+
 /**
  * The store selects on the clause terms, this refines what it returned and
  * stops at `limit` MATCHES. Serves `From`/`Subject` clauses at
@@ -189,7 +209,9 @@ const matchLiteral = async (
 	scope: OrganizeMatchScope,
 ): Promise<string[]> => {
 	const { getDomain } = await import("tldts");
-	const narrowing = ruleNarrowing(predicate.rule, getDomain);
+	const narrowing =
+		ruleNarrowing(predicate.rule, getDomain) ??
+		folderSweep(predicate.rule, scope);
 	if (!narrowing) return [];
 
 	const matched: string[] = [];

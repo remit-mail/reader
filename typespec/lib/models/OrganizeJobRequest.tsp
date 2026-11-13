@@ -100,6 +100,10 @@ model OrganizeJobRequest {
   @visibility(Lifecycle.Read)
   actionMailboxId: string = "None";
 
+  @doc("Snapshot of the one folder the pass runs over, or `\"None\"` for every folder. With a folder, a rule with no tests matches every message in it.")
+  @visibility(Lifecycle.Read)
+  sourceMailboxId: string = "None";
+
   @doc("Number of messages matched by the predicate, set when the pass completes")
   @visibility(Lifecycle.Read)
   matchedCount: int32 = 0;

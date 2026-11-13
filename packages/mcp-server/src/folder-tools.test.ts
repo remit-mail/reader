@@ -80,6 +80,8 @@ beforeEach(async () => {
 		labelMailbox: client.labelMailbox,
 		mailbox: client.mailbox,
 		message: client.message,
+		messageLabel: client.messageLabel,
+		messageMove: client.messageMove,
 		threadMessage: client.threadMessage,
 		filter: client.filter,
 		organizeJobRequest: client.organizeJobRequest,
