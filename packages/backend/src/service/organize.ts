@@ -6,6 +6,7 @@ import {
 	filterRuleTestsClassification,
 	type MessageItem,
 	type OrganizeJobRequestItem,
+	type SentDateRange,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
@@ -19,6 +20,7 @@ import {
 	type PreparedFilters,
 	type RuleNarrowing,
 	ruleNarrowing,
+	sentDateRange,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import type { RemitClient } from "./data-client.js";
@@ -37,23 +39,38 @@ export const ORGANIZE_MATCH_LIMIT = 500;
  * flattened. The action fields carry absence as the `"None"` sentinel (RFC 034
  * Decision 3.1).
  */
-export interface OrganizePredicate {
+export interface OrganizePredicate extends SentDateRange {
 	rule: FilterRuleV1Item;
 	actionLabelId: string;
 	actionMailboxId: string;
 }
 
+const boundOf = (bound: string): string | undefined =>
+	bound === FILTER_NO_ACTION ? undefined : bound;
+
 /**
  * The predicate a back-apply job snapshotted onto its row, read back verbatim so
- * the worker runs exactly what the request asked for.
+ * the worker runs exactly what the request asked for, date facet included.
  */
 export const predicateFromJob = (
 	job: OrganizeJobRequestItem,
-): OrganizePredicate => ({
-	rule: job.rule,
-	actionLabelId: job.actionLabelId,
-	actionMailboxId: job.actionMailboxId,
-});
+): OrganizePredicate => {
+	const sent = sentDateRange({
+		before: boundOf(job.sentBefore),
+		after: boundOf(job.sentAfter),
+	});
+	if (!sent.ok) {
+		throw new Error(
+			`Organize job ${job.organizeJobId} carries an unreadable date facet: ${sent.refusal.message}`,
+		);
+	}
+	return {
+		rule: job.rule,
+		actionLabelId: job.actionLabelId,
+		actionMailboxId: job.actionMailboxId,
+		...sent.value,
+	};
+};
 
 /** The folders a snapshot job runs over: its source folder, or every folder. */
 export const scopeFromJob = (
@@ -83,7 +100,7 @@ export interface OrganizeCandidatePage {
 }
 
 /** What to ask the store for, and where to resume. */
-export interface OrganizeCandidateQuery extends RuleNarrowing {
+export interface OrganizeCandidateQuery extends RuleNarrowing, SentDateRange {
 	readsClassifierScores: boolean;
 	limit: number;
 	continuationToken?: string;
@@ -241,6 +258,8 @@ const matchLiteral = async (
 			limit,
 			continuationToken,
 			mailboxIds: scopeMailboxIds(scope),
+			sentAfter: predicate.sentAfter,
+			sentBefore: predicate.sentBefore,
 		});
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
@@ -314,6 +333,8 @@ const listAccountFilterMessagesFromClient =
 				continuationToken: query.continuationToken,
 				excludeDeleted: true,
 				mailboxIds: query.mailboxIds,
+				sentAfter: query.sentAfter,
+				sentBefore: query.sentBefore,
 			},
 		);
 		const scoresById = new Map(

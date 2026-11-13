@@ -2,6 +2,7 @@ import type {
 	CreateThreadMessageInput,
 	ResultList,
 	SearchOptions,
+	SentDateRange,
 	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
@@ -123,7 +124,7 @@ export interface IThreadMessageRepository {
 			continuationToken?: string;
 			excludeDeleted?: boolean;
 			mailboxIds?: readonly string[];
-		},
+		} & SentDateRange,
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
 	 * List starred rows for a config, newest first, across every mailbox.

@@ -731,12 +731,24 @@ export class MailboxManagementService {
 		mailboxId: string,
 		path: string,
 		getConnection: () => Promise<IImapConnection>,
+		requireEmpty: boolean,
 	): Promise<MailboxManagementSyncResult> => {
 		if (!(await this.deleteIntentStanding(accountId, mailboxId))) {
 			return { success: true };
 		}
 
 		const connection = await getConnection();
+
+		// DELETE takes whatever the folder holds, including mail Remit never
+		// synced, so a delete that must not lose mail asks the server first.
+		if (requireEmpty) {
+			const { messages } = await connection.getMailboxStatus(path);
+			if (messages > 0) {
+				const reason = `The folder still holds ${messages} ${messages === 1 ? "message" : "messages"} on the mail server, so it was not deleted`;
+				await this.failDelete(accountId, mailboxId, reason);
+				return { success: false, error: reason };
+			}
+		}
 
 		await connection.deleteMailbox(path);
 

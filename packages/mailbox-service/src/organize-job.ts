@@ -18,7 +18,12 @@ export interface OrganizeJobOwner {
 
 export type OrganizeJobPredicate = Pick<
 	CreateOrganizeJobRequestInput,
-	"rule" | "sourceMailboxId" | "actionLabelId" | "actionMailboxId"
+	| "rule"
+	| "sourceMailboxId"
+	| "sentAfter"
+	| "sentBefore"
+	| "actionLabelId"
+	| "actionMailboxId"
 >;
 
 export type OrganizeJobRequest = OrganizeJobOwner &
@@ -47,6 +52,8 @@ const jobColumns = (
 			actionLabelId: FILTER_NO_ACTION,
 			actionMailboxId: FILTER_NO_ACTION,
 			sourceMailboxId: FILTER_NO_ACTION,
+			sentAfter: FILTER_NO_ACTION,
+			sentBefore: FILTER_NO_ACTION,
 		};
 	}
 	return { filterId: FILTER_NO_ACTION, ...request.predicate };

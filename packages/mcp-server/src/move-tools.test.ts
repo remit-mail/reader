@@ -3,7 +3,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import { MessageStatus } from "@remit/domain-enums";
+import { MailboxSpecialUse, MessageStatus } from "@remit/domain-enums";
 import { processMailboxManagement } from "@remit/imap-worker/mailbox-management";
 import {
 	openStore,
@@ -58,6 +58,8 @@ beforeEach(async () => {
 		label: client.label,
 		labelMailbox: client.labelMailbox,
 		mailbox: client.mailbox,
+		accountSetting: client.accountSetting,
+		mailboxSpecialUse: client.mailboxSpecialUse,
 		message: client.message,
 		messageLabel: client.messageLabel,
 		messageMove: client.messageMove,
@@ -172,5 +174,29 @@ describe("move_messages", () => {
 		assert.equal(result.isError, true);
 		assert.match(result.content[0].text, /not both/);
 		assert.equal((await mine.row(messageId))?.mailboxId, inbox.mailboxId);
+	});
+});
+
+describe("trash_messages", () => {
+	it("leaves a message already in Trash untouched", async () => {
+		const trash = await mine.folder("Trash", {
+			specialUse: MailboxSpecialUse.Trash,
+		});
+		const fresh = await mine.message(inbox);
+		const trashed = await mine.message(trash);
+
+		const result = await callToolJson("trash_messages", {
+			messageIds: [fresh.messageId, trashed.messageId],
+		});
+
+		assert.deepEqual(result, {
+			trashed: 1,
+			alreadyInTrash: [trashed.messageId],
+		});
+		const kept = await mine.row(trashed.messageId);
+		assert.equal(kept?.mailboxId, trash.mailboxId);
+		assert.equal(kept?.uid, trashed.uid);
+		assert.equal(kept?.status, MessageStatus.active);
+		assert.equal((await mine.row(fresh.messageId))?.mailboxId, trash.mailboxId);
 	});
 });

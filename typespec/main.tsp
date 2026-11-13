@@ -1109,6 +1109,14 @@ namespace RemitApi {
       @query(#{ explode: true })
       attachments?: boolean,
 
+      @doc("Only messages dated before this instant, exclusive. An ISO 8601 date-time with a zone offset, matched against the message date. Composes with `after` into a range and with every mode, and narrows the `count` as it narrows the listing.")
+      @query(#{ explode: true })
+      before?: offsetDateTime,
+
+      @doc("Only messages dated at or after this instant. An ISO 8601 date-time with a zone offset, matched against the message date. Composes with `before` into a range and with every mode, and narrows the `count` as it narrows the listing.")
+      @query(#{ explode: true })
+      after?: offsetDateTime,
+
       @doc("Include how many conversations the listing matches, exactly, over the whole scope. Opt-in because it is a second read over the entire match set rather than a by-product of the page: ask for it on a deliberate act, never on a keystroke.")
       @query(#{ explode: true })
       count?: boolean,

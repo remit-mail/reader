@@ -3,8 +3,9 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import { MailboxSyncStatus } from "@remit/domain-enums";
+import { MailboxSpecialUse, MailboxSyncStatus } from "@remit/domain-enums";
 import { processMailboxManagement } from "@remit/imap-worker/mailbox-management";
+import { processEvent, type WorkerEvent } from "@remit/imap-worker/process";
 import {
 	openStore,
 	type World,
@@ -69,6 +70,9 @@ beforeEach(async () => {
 		if (worker === "settles" && last && isMailboxEvent(last)) {
 			await runWorker(last as unknown as MailboxEvent);
 		}
+		if (worker === "settles" && last?.type === "MESSAGE_MOVE") {
+			await processEvent(last as unknown as WorkerEvent, mine.ctx(), 1);
+		}
 		return {};
 	});
 
@@ -79,6 +83,8 @@ beforeEach(async () => {
 		label: client.label,
 		labelMailbox: client.labelMailbox,
 		mailbox: client.mailbox,
+		accountSetting: client.accountSetting,
+		mailboxSpecialUse: client.mailboxSpecialUse,
 		message: client.message,
 		messageLabel: client.messageLabel,
 		messageMove: client.messageMove,
@@ -321,5 +327,38 @@ describe("rename_folder", () => {
 		assert.equal(settled.syncStatus, MailboxSyncStatus.synced);
 		assert.equal(mailboxEvents().length, 1);
 		assert.equal(mine.imap.hasFolder("Bills"), true);
+	});
+});
+
+describe("delete_folder", () => {
+	it("refuses a folder that still holds mail, naming the count", async () => {
+		await mine.message(receipts);
+		await mine.message(receipts);
+
+		assert.match(
+			await refusalOf("delete_folder", {
+				accountId: account.accountId,
+				mailboxId: receipts.mailboxId,
+			}),
+			/still holds 2 messages/,
+		);
+		assert.equal(mine.imap.hasFolder("Receipts"), true);
+	});
+
+	it("force trashes the mail, then deletes the folder", async () => {
+		await mine.folder("Trash", { specialUse: MailboxSpecialUse.Trash });
+		await mine.message(receipts);
+		await mine.message(receipts);
+
+		const deleted = await callTool("delete_folder", {
+			accountId: account.accountId,
+			mailboxId: receipts.mailboxId,
+			force: true,
+		});
+
+		assert.notEqual(deleted.isError, true, deleted.content[0]?.text);
+		assert.deepEqual(JSON.parse(deleted.content[0].text), { deleted: true });
+		assert.equal(mine.imap.hasFolder("Receipts"), false);
+		assert.equal(mine.imap.messages("Trash").length, 2);
 	});
 });

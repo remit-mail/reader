@@ -435,6 +435,8 @@ describe("get_organize_job", () => {
 			actionLabelId: "None",
 			actionMailboxId: "None",
 			sourceMailboxId: "None",
+			sentAfter: "None",
+			sentBefore: "None",
 			ttl: 0,
 		});
 

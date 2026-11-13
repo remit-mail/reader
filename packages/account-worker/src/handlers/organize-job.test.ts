@@ -7,6 +7,7 @@ import {
 	type OrganizeMatchDeps,
 } from "@remit/backend/organize";
 import {
+	type CreateOrganizeJobRequestInput,
 	type FilterClauses,
 	type FilterItem,
 	filterRuleFromClauses,
@@ -427,7 +428,12 @@ describe("processOrganizeJob for a source-folder job", () => {
 	let close: (() => void) | undefined;
 	afterEach(() => close?.());
 
-	it("moves every message out of the source folder into the target", async () => {
+	const OLD = Date.parse("2026-01-10T09:00:00+01:00");
+	const RECENT = Date.parse("2026-10-10T09:00:00+02:00");
+
+	const runSourceFolderJob = async (
+		range: Pick<CreateOrganizeJobRequestInput, "sentAfter" | "sentBefore">,
+	) => {
 		const store = createShippedSqliteDb();
 		close = store.close;
 		const repos = createSqliteRepositories(
@@ -475,7 +481,10 @@ describe("processOrganizeJob for a source-folder job", () => {
 		};
 		const source = await folder("Promoties");
 		const target = await folder("remit/Promotions");
-		for (const uid of [1, 2]) {
+		for (const [uid, sentDate] of [
+			[1, OLD],
+			[2, RECENT],
+		]) {
 			const message = await repos.message.create({
 				messageId: randomUUID(),
 				mailboxId: source,
@@ -494,7 +503,7 @@ describe("processOrganizeJob for a source-folder job", () => {
 				uid,
 				referenceOrder: 0,
 				internalDate: uid,
-				sentDate: uid,
+				sentDate,
 				subject: `Offer ${uid}`,
 				isRead: false,
 				isDeleted: false,
@@ -510,6 +519,7 @@ describe("processOrganizeJob for a source-folder job", () => {
 			actionLabelId: "None",
 			actionMailboxId: target,
 			sourceMailboxId: source,
+			...range,
 			ttl: 0,
 		});
 		const client = {
@@ -533,10 +543,29 @@ describe("processOrganizeJob for a source-folder job", () => {
 					excludeDeleted: true,
 				})
 			).items.length;
-		assert.equal(await inFolder(source), 0);
-		assert.equal(await inFolder(target), 2);
 		const done = await repos.organizeJobRequest.get(job.organizeJobId);
-		assert.equal(done.state, "Complete");
-		assert.equal(done.appliedCount, 2);
+		return {
+			inSource: await inFolder(source),
+			inTarget: await inFolder(target),
+			state: done.state,
+			appliedCount: done.appliedCount,
+		};
+	};
+
+	it("moves every message out of the source folder into the target", async () => {
+		assert.deepEqual(
+			await runSourceFolderJob({ sentAfter: "None", sentBefore: "None" }),
+			{ inSource: 0, inTarget: 2, state: "Complete", appliedCount: 2 },
+		);
+	});
+
+	it("moves only the messages dated before the job's cutoff", async () => {
+		assert.deepEqual(
+			await runSourceFolderJob({
+				sentAfter: "None",
+				sentBefore: "2026-08-13T00:00:00+02:00",
+			}),
+			{ inSource: 1, inTarget: 1, state: "Complete", appliedCount: 1 },
+		);
 	});
 });

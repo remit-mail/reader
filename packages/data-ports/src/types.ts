@@ -723,7 +723,16 @@ export type SearchOptions = {
 	 * whose authenticity is not yet set matches neither value.
 	 */
 	dkimMismatch?: boolean;
+	/**
+	 * The message date facet, over the row's `sentDate` in epoch millis:
+	 * `sentAfter` is inclusive, `sentBefore` exclusive, and either alone is an
+	 * open range.
+	 */
+	sentAfter?: number;
+	sentBefore?: number;
 };
+
+export type SentDateRange = Pick<SearchOptions, "sentAfter" | "sentBefore">;
 
 export type CreateLabelInput = Omit<
 	LabelItem,

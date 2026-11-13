@@ -198,6 +198,7 @@ const buildEvent = () => {
 				mailboxId: values.mailboxId!,
 				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				path: values.path!,
+				requireEmpty: true,
 			};
 		default:
 			throw new Error(`Unknown event type: ${values.type}`);

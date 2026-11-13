@@ -20,6 +20,7 @@ import {
 	type PendingUnseenFlagPush,
 } from "../derive/pendingMoveCounts.js";
 import type { RemitClient } from "../service/data-client.js";
+import { deleteFolder } from "../service/folder-delete.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -35,7 +36,6 @@ import {
 	loadMailboxOverridesForConfig,
 	type MailboxOverrides,
 } from "./account-overrides.js";
-import { assertNoBindings, loadMailboxBindings } from "./mailbox-bindings.js";
 
 /**
  * The mute flag and the display-name override are user preferences that live
@@ -323,39 +323,13 @@ export const MailboxDetailOperations = {
 			mailboxId: string;
 		};
 
-		const client = ctx.client;
-		const account = await client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "act"));
-
-		const mailbox = await client.mailbox.get(accountId, mailboxId);
-		unwrap(folderInAccount(mailbox, accountId, "act"));
-
-		// Cheapest first (D4, D13). None of the three becomes possible by
-		// retrying the same request, so all three are 400 and all three run
-		// before anything is recorded.
-		if (mailbox.fullPath.toUpperCase() === "INBOX") {
-			throw new BadRequestError("The inbox can't be deleted.");
-		}
-
-		const children = await client.mailbox.findByPathPrefix(
-			accountId,
-			mailbox.fullPath,
-			mailbox.hierarchyDelimiter,
+		unwrap(
+			await deleteFolder(ctx.client, accountConfigId, {
+				accountId,
+				mailboxId,
+				requireEmpty: false,
+			}),
 		);
-		if (children.length > 0) {
-			// The server would keep the parent's name as a placeholder and leave the
-			// children untouched — an outcome no local row describes (D9).
-			throw new BadRequestError(
-				`“${mailbox.fullPath}” has folders inside it. Delete those first.`,
-			);
-		}
-
-		assertNoBindings(
-			mailbox,
-			await loadMailboxBindings(client, accountConfigId, accountId, mailboxId),
-		);
-
-		await client.mailboxQueue.deleteMailbox(mailboxId, accountId);
 		return { statusCode: 204 };
 	},
 } satisfies Record<

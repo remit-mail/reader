@@ -97,6 +97,8 @@ const requestedJob = async (
 		predicate: {
 			...predicateFromInput(input),
 			sourceMailboxId: FILTER_NO_ACTION,
+			sentAfter: FILTER_NO_ACTION,
+			sentBefore: FILTER_NO_ACTION,
 		},
 	};
 };

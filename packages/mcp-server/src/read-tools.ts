@@ -16,10 +16,11 @@ import {
 	materializeBodyParts,
 	ownedMessages,
 	readClassifierStats,
+	sentDateRange,
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
-import { toolError } from "./tool-result.js";
+import { refused, toolError } from "./tool-result.js";
 
 export const MAX_BODY_BYTES = 20 * 1024;
 const DEFAULT_PAGE_SIZE = 50;
@@ -47,6 +48,20 @@ const continuationToken = z
 	.describe("Opaque cursor from a previous response's continuationToken");
 
 const order = z.enum(["asc", "desc"]).optional().describe("Sort order by date");
+
+const before = z
+	.string()
+	.optional()
+	.describe(
+		"Only messages dated before this, an ISO 8601 date-time with zone offset such as 2026-08-13T00:00:00+02:00",
+	);
+
+const after = z
+	.string()
+	.optional()
+	.describe(
+		"Only messages dated at or after this, an ISO 8601 date-time with zone offset",
+	);
 
 type ScoreDetail = "All" | "Confident";
 
@@ -205,39 +220,41 @@ export const registerReadTools = (
 		"list_threads",
 		{
 			description:
-				"List the messages in one folder, newest first, a page at a time.",
+				"List the messages in one folder, newest first, a page at a time; before and after narrow it to a date range.",
 			inputSchema: {
 				mailboxId: z.string().min(1).describe("Folder from list_mailboxes"),
+				before,
+				after,
 				limit: pageSize,
 				continuationToken,
 				order,
 			},
 			annotations: READ_ONLY,
 		},
-		async (args) =>
-			asJson(
+		async (args) => {
+			const sent = sentDateRange(args);
+			if (!sent.ok) return refused(sent.refusal);
+			return asJson(
 				await toPage(
 					deps,
-					await deps.threadMessage.listByMailbox(
-						accountConfigId,
-						args.mailboxId,
-						{
-							order: args.order ?? "desc",
-							limit: args.limit ?? DEFAULT_PAGE_SIZE,
-							continuationToken: args.continuationToken,
-							excludeDeleted: true,
-						},
-					),
+					await deps.threadMessage.searchByDate(accountConfigId, sent.value, {
+						order: args.order ?? "desc",
+						limit: args.limit ?? DEFAULT_PAGE_SIZE,
+						continuationToken: args.continuationToken,
+						mailboxIds: new Set([args.mailboxId]),
+						excludeDeleted: true,
+					}),
 					"Confident",
 				),
-			),
+			);
+		},
 	);
 
 	server.registerTool(
 		"search_threads",
 		{
 			description:
-				"Search the user's mail by free text, with optional sender, subject and state filters; narrow to one folder with mailboxId.",
+				"Search the user's mail by free text, with optional sender, subject, state and date filters; narrow to one folder with mailboxId.",
 			inputSchema: {
 				query: z.string().trim().min(1).describe("Free-text search"),
 				from: z.string().optional().describe("Sender address or name"),
@@ -249,19 +266,24 @@ export const registerReadTools = (
 					.boolean()
 					.optional()
 					.describe("Only with, or only without, attachments"),
+				before,
+				after,
 				limit: pageSize,
 				continuationToken,
 				order,
 			},
 			annotations: READ_ONLY,
 		},
-		async (args) =>
-			asJson(
+		async (args) => {
+			const sent = sentDateRange(args);
+			if (!sent.ok) return refused(sent.refusal);
+			return asJson(
 				await toPage(
 					deps,
 					await deps.threadMessage.searchByDate(
 						accountConfigId,
 						{
+							...sent.value,
 							query: args.query,
 							from: args.from,
 							subject: args.subject,
@@ -281,7 +303,8 @@ export const registerReadTools = (
 					),
 					"Confident",
 				),
-			),
+			);
+		},
 	);
 
 	server.registerTool(
