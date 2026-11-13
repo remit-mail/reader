@@ -29,7 +29,7 @@ const ACTIONS: Readonly<Record<string, Action>> = {
 	greylist: SpamAction.Warn,
 	"rewrite subject": SpamAction.Warn,
 	"soft reject": SpamAction.Warn,
-	"add header": SpamAction.Junk,
+	"add header": SpamAction.Warn,
 	reject: SpamAction.Junk,
 };
 

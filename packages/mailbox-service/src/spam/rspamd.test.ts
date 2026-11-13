@@ -49,12 +49,12 @@ describe("fromRspamd", () => {
 		});
 	});
 
-	it("maps add header to Junk and a phished link to phishing", () => {
+	it("maps add header to Warn and a phished link to phishing", () => {
 		const response = fromRspamd(fixture("add-header"));
 		assert.equal(response.state, "Checked");
 		if (response.state !== "Checked") return;
 		assert.equal(response.score, 0.5);
-		assert.equal(response.action, "Junk");
+		assert.equal(response.action, "Warn");
 		assert.equal(response.kind, "Phishing");
 		assert.deepEqual(response.reasons[0], {
 			name: "LinkTextMismatch",
