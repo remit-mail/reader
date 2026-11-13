@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	FilterClauseField,
 	FilterDisabledReason,
+	FilterMatchOperator,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
@@ -16,6 +18,10 @@ const standing = {
 	state: FilterState.Active,
 	disabledReason: FilterDisabledReason.None,
 	actionMailboxId: "mbx-invoices",
+	matchOperator: FilterMatchOperator.And,
+	literalClauses: [
+		{ field: FilterClauseField.From, value: "billing@example.com" },
+	],
 };
 
 const awaiting = {
@@ -308,6 +314,32 @@ describe("resolveFilterUpdate: scope and expiry (reader #266)", () => {
 				assert.equal((error as { statusCode?: number }).statusCode, 400);
 				return true;
 			},
+		);
+	});
+});
+
+describe("resolveFilterUpdate: clauses", () => {
+	it("fills the clauses from the stored filter when the patch changes only the operator", () => {
+		assert.deepEqual(
+			acceptedValue(
+				resolveFilterUpdate(standing, {
+					matchOperator: FilterMatchOperator.Or,
+				}),
+			),
+			{
+				matchOperator: FilterMatchOperator.Or,
+				literalClauses: standing.literalClauses,
+			},
+		);
+	});
+
+	it("fills the operator from the stored filter when the patch changes only the clauses", () => {
+		const literalClauses = [
+			{ field: FilterClauseField.HasWords, value: "weekly digest" },
+		];
+		assert.deepEqual(
+			acceptedValue(resolveFilterUpdate(standing, { literalClauses })),
+			{ matchOperator: FilterMatchOperator.And, literalClauses },
 		);
 	});
 });

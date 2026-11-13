@@ -142,7 +142,7 @@ model Account {
 
   @doc("Services this account syncs. Never empty. A password account holds `Mail` alone. Every account written before this field existed holds `#[AccountService.Mail]`.")
   @visibility(Lifecycle.Read)
-  syncedServices: AccountService[] = #[AccountService.Mail];
+  syncedServices: AccountService[];
 
   @doc("OAuth scopes the provider confirmed on the last consent, as full scope URIs. Empty on a password account. A Microsoft account can only select a service these scopes cover; one that lacks it goes back through POST /accounts/oauth/microsoft/start carrying that service.")
   @visibility(Lifecycle.Read)

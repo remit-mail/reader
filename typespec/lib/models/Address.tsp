@@ -150,7 +150,7 @@ model Address {
 
   @doc("Sender-level flags (trust/block/mute/etc). Always present; an empty map means no flags are set. Individual flag keys remain sparse — a key's presence means that flag is set.")
   @visibility(Lifecycle.Read)
-  flags: AddressFlags = #{};
+  flags: AddressFlags;
 
   @doc("Number of inbound messages received from this address. Defaults to zero.")
   @visibility(Lifecycle.Read)

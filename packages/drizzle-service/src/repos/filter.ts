@@ -1,9 +1,11 @@
-import type {
-	CreateFilterInput,
-	FilterItem,
-	IFilterRepository,
-	ResultList,
-	UpdateFilterInput,
+import {
+	type CreateFilterInput,
+	type FilterItem,
+	filterRuleFromClauses,
+	type IFilterRepository,
+	type ResultList,
+	readStoredFilterRule,
+	type UpdateFilterInput,
 } from "@remit/data-ports";
 import {
 	FilterDisabledReason,
@@ -81,8 +83,10 @@ function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 		disabledReason: row.disabledReason,
 		ruleChangedAt: row.ruleChangedAt,
 		actionChangedAt: row.actionChangedAt,
-		matchOperator: row.matchOperator,
-		literalClauses: row.literalClauses as FilterItem["literalClauses"],
+		...readStoredFilterRule(row.rule, {
+			matchOperator: row.matchOperator,
+			literalClauses: row.literalClauses as FilterItem["literalClauses"],
+		}),
 		actionLabelId: row.actionLabelId,
 		actionMailboxId: row.actionMailboxId,
 		createdAt: row.createdAt,
@@ -101,6 +105,7 @@ export class FilterRepo implements IFilterRepository {
 	async create(input: CreateFilterInput): Promise<FilterItem> {
 		const now = Date.now();
 		const createdRuleChangedAt = nowSeconds();
+		const matchOperator = input.matchOperator ?? FilterMatchOperator.And;
 		const [row] = await this.db
 			.insert(filterTable)
 			.values({
@@ -114,8 +119,12 @@ export class FilterRepo implements IFilterRepository {
 				disabledReason: input.disabledReason ?? FilterDisabledReason.None,
 				ruleChangedAt: createdRuleChangedAt,
 				actionChangedAt: createdRuleChangedAt,
-				matchOperator: input.matchOperator ?? FilterMatchOperator.And,
-				literalClauses: input.literalClauses,
+				matchOperator,
+				literalClauses: [],
+				rule: filterRuleFromClauses({
+					matchOperator,
+					literalClauses: input.literalClauses,
+				}),
 				actionLabelId: input.actionLabelId ?? "None",
 				actionMailboxId: input.actionMailboxId ?? "None",
 				createdAt: now,
@@ -174,6 +183,17 @@ export class FilterRepo implements IFilterRepository {
 			...patch,
 			updatedAt: Date.now(),
 		};
+		const { matchOperator, literalClauses } = input;
+		if (matchOperator !== undefined || literalClauses !== undefined) {
+			if (matchOperator === undefined || literalClauses === undefined) {
+				throw new Error(
+					"A filter update sets matchOperator and literalClauses together",
+				);
+			}
+			updates.matchOperator = matchOperator;
+			updates.literalClauses = [];
+			updates.rule = filterRuleFromClauses({ matchOperator, literalClauses });
+		}
 		if (patch.scope === FilterScope.Standing) {
 			updates.expiresAt = null;
 			updates.ttl = null;

@@ -1,0 +1,1 @@
+ALTER TABLE `filter` ADD `rule` text DEFAULT '{"version":0}' NOT NULL;

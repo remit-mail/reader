@@ -14,6 +14,7 @@ import type {
 	ConfigImportUnresolvedRefSchema,
 	EnvelopeAddressSchema,
 	EnvelopeSchema,
+	FilterRuleV1Schema,
 	FilterSchema,
 	LabelSchema,
 	MailboxLockSchema,
@@ -105,7 +106,16 @@ export type MailboxSpecialUseItem = z.infer<
 export type AddressItem = z.infer<typeof AddressSchema>;
 export type LabelItem = z.infer<typeof LabelSchema>;
 export type MessageLabelItem = z.infer<typeof MessageLabelSchema>;
-export type FilterItem = z.infer<typeof FilterSchema>;
+export type FilterRuleV1Item = z.infer<typeof FilterRuleV1Schema>;
+export type FilterTestItem = FilterRuleV1Item["test"];
+export type FilterItem = Omit<z.infer<typeof FilterSchema>, "rule"> & {
+	rule: FilterRuleV1Item;
+};
+export type FilterClauseItem = FilterItem["literalClauses"][number];
+export type FilterClauses = Pick<
+	FilterItem,
+	"matchOperator" | "literalClauses"
+>;
 export type MessagePlacementMoveItem = z.infer<
 	typeof MessagePlacementMoveSchema
 >;
@@ -280,11 +290,15 @@ export type UpdateAccountExportRequestInput = Partial<
 	}
 >;
 
-export type OrganizeJobRequestItem = z.infer<typeof OrganizeJobRequestSchema>;
+export type OrganizeJobRequestItem = Omit<
+	z.infer<typeof OrganizeJobRequestSchema>,
+	"rule"
+> & { rule: FilterRuleV1Item };
 
 export type CreateOrganizeJobRequestInput = Omit<
 	OrganizeJobRequestItem,
 	| "organizeJobId"
+	| "rule"
 	| "createdAt"
 	| "updatedAt"
 	| "state"
@@ -714,6 +728,7 @@ export type CreateMessageLabelInput = Omit<
 export type CreateFilterInput = Omit<
 	FilterItem,
 	| "filterId"
+	| "rule"
 	| "createdAt"
 	| "updatedAt"
 	| "state"

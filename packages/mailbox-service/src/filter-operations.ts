@@ -153,10 +153,27 @@ const folderlessMessage = (reason: FilterItem["disabledReason"]): string =>
 		? "This filter has no folder to move mail into yet. Wait for its folder to be created on the mail server, or pick a folder in the rule, then turn it on."
 		: "The mail server refused to create this filter's folder. Pick a folder in the rule, then turn it on.";
 
+const filledClauses = (
+	current: Pick<FilterItem, "matchOperator" | "literalClauses">,
+	patch: FilterPatch,
+): Pick<UpdateFilterInput, "matchOperator" | "literalClauses"> =>
+	patch.matchOperator === undefined && patch.literalClauses === undefined
+		? {}
+		: {
+				matchOperator: patch.matchOperator ?? current.matchOperator,
+				literalClauses: patch.literalClauses ?? current.literalClauses,
+			};
+
 export const resolveFilterUpdate = (
 	current: Pick<
 		FilterItem,
-		"scope" | "expiresAt" | "state" | "disabledReason" | "actionMailboxId"
+		| "scope"
+		| "expiresAt"
+		| "state"
+		| "disabledReason"
+		| "actionMailboxId"
+		| "matchOperator"
+		| "literalClauses"
 	>,
 	patch: FilterPatch,
 	now: number = Date.now(),
@@ -175,10 +192,11 @@ export const resolveFilterUpdate = (
 		? { disabledReason: FilterDisabledReason.UserDisabled }
 		: {};
 
+	const clauses = filledClauses(current, patch);
 	const touchesTiming =
 		Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
 	if (!touchesTiming && patch.state === undefined) {
-		return accept({ ...patch, ...pickedReason });
+		return accept({ ...patch, ...clauses, ...pickedReason });
 	}
 
 	let timing: ResolvedScopeExpiry | undefined;
@@ -198,7 +216,7 @@ export const resolveFilterUpdate = (
 	}
 
 	const wanted = patch.state ?? current.state;
-	const merged = { ...patch, ...timing };
+	const merged = { ...patch, ...clauses, ...timing };
 	if (wanted === FilterState.Disabled) {
 		return accept({
 			...merged,

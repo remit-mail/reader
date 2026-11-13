@@ -132,6 +132,20 @@ export const makeFilter = (
 	actionChangedAt: NOW,
 	matchOperator: "And",
 	literalClauses: [{ field: "Subject", value: "release notes" }],
+	rule: {
+		version: 1,
+		test: {
+			test: "allof",
+			tests: [
+				{
+					test: "header",
+					match: "Contains",
+					header: "Subject",
+					key: "release notes",
+				},
+			],
+		},
+	},
 	actionLabelId: "None",
 	actionMailboxId: "None",
 	createdAt: NOW,

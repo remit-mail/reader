@@ -18,6 +18,73 @@ model FilterClause {
   value: String256;
 }
 
+@doc("Matches when every test in `tests` matches (Sieve `allof`).")
+model FilterAllOfTest {
+  test: "allof";
+  tests: FilterTest[];
+}
+
+@doc("Matches when any test in `tests` matches (Sieve `anyof`).")
+model FilterAnyOfTest {
+  test: "anyof";
+  tests: FilterTest[];
+}
+
+@doc("Matches when `operand` does not (Sieve `not`).")
+model FilterNotTest {
+  test: "not";
+  operand: FilterTest;
+}
+
+@doc("Compares one header against one key (Sieve `header`).")
+model FilterHeaderTest {
+  test: "header";
+  match: FilterRuleMatch;
+  header: FilterRuleHeader;
+  key: String256;
+}
+
+@doc("Compares one part of the From address against one key (Sieve `address`). Reads `from` only.")
+model FilterAddressTest {
+  test: "address";
+  match: FilterRuleMatch;
+  part: FilterRuleAddressPart;
+  key: String256;
+}
+
+@doc("Matches when every word occurs in the sender, the subject or the body.")
+model FilterHasWordsTest {
+  test: "hasWords";
+  words: String256[];
+}
+
+@doc("A node of a filter rule's test tree (RFC 040).")
+union FilterTest {
+  allof: FilterAllOfTest,
+  anyof: FilterAnyOfTest,
+  not: FilterNotTest,
+  header: FilterHeaderTest,
+  address: FilterAddressTest,
+  hasWords: FilterHasWordsTest,
+}
+
+@doc("A row written before rules existed: the filter's literal clauses are the truth.")
+model FilterRuleV0 {
+  version: 0;
+}
+
+@doc("A rule whose test is the truth; the row's literal clauses are empty.")
+model FilterRuleV1 {
+  version: 1;
+  test: FilterTest;
+}
+
+@doc("A filter's stored rule (RFC 040). Repositories read a version 0 row as version 1, built from its literal clauses.")
+union FilterRule {
+  v0: FilterRuleV0,
+  v1: FilterRuleV1,
+}
+
 @doc("""
   A standing user rule that matches messages by literal clauses (RFC 031,
   RFC 034). One row per **standing** filter — `Standing` or `Temporary` scope
@@ -91,6 +158,10 @@ model Filter {
   @minItems(1)
   literalClauses: FilterClause[];
 
+  @doc("The stored rule. A version 0 row predates rules and its literalClauses are the truth. Not surfaced on the API yet.")
+  @visibility(Lifecycle.Read)
+  rule: FilterRule = #{ version: 0 };
+
   @doc("Label applied when this filter matches — additive action, any number of filters can independently apply their own label (RFC 034 Decision 3.1). The named sentinel `\"None\"` means no label action; never an empty/optional field.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   actionLabelId: string = "None";
@@ -144,7 +215,7 @@ model UpdateFilterInput is Update<Filter>;
 
 @doc("Filter item returned by list/get/create/update operations. `ttl` is internal bookkeeping (RFC 034 Decision 1.3) and not surfaced.")
 model FilterResponse {
-  ...OmitProperties<Filter, "ttl">;
+  ...OmitProperties<Filter, "ttl" | "rule">;
 }
 
 @doc("Response body for POST /accounts/{accountId}/filters: the created filter, plus the back-apply job that runs it over the inbox.")

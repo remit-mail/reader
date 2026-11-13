@@ -136,6 +136,20 @@ const standingFilter = (over: Partial<FilterItem> = {}): FilterItem => ({
 	actionChangedAt: 1,
 	matchOperator: "And",
 	literalClauses: [{ field: "From", value: "billing@example.com" }],
+	rule: {
+		version: 1,
+		test: {
+			test: "allof",
+			tests: [
+				{
+					test: "header",
+					match: "Contains",
+					header: "From",
+					key: "billing@example.com",
+				},
+			],
+		},
+	},
 	actionLabelId: "None",
 	actionMailboxId: "mbx-invoices",
 	createdAt: 0,

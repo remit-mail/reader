@@ -187,6 +187,20 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		actionChangedAt: 1,
 		matchOperator: FilterMatchOperator.And,
 		literalClauses: [{ field: "From", value: "billing@example.com" }],
+		rule: {
+			version: 1,
+			test: {
+				test: "allof",
+				tests: [
+					{
+						test: "header",
+						match: "Contains",
+						header: "From",
+						key: "billing@example.com",
+					},
+				],
+			},
+		},
 		actionLabelId: "None",
 		actionMailboxId: "mbx-invoices",
 		createdAt: 0,
