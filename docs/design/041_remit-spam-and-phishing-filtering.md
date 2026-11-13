@@ -42,6 +42,7 @@ type SpamRequest = {
     headers: { name: string; value: string }[]; // X-Spam-* and the like
   };
   context: {
+    receivedAt: string; // ISO 8601 with offset, when the server received the message
     knownSender: boolean; // the owner has sent mail to this address
     senderMessagesSeen: number; // earlier messages from this address
     senderDomainMessagesSeen: number; // earlier messages from its registrable domain
@@ -54,7 +55,7 @@ type SpamRequest = {
 
 Remit parses the message once, so a backend needs no MIME parser. The raw message travels too, for a backend that does its own parsing. Remit fills the authentication fields with `extractAuthResult` and the provider fields with `extractProviderSpam`.
 
-Remit fetches `senderDomainRegisteredAt` over RDAP while it gathers the evidence, in `mailbox-service`. It caches the answer in one row per registrable domain, because the date never changes. A registry that publishes no date leaves the field absent, and Remit never fills in a placeholder. DENIC's RDAP answer for a .de domain carries no registration event, so a missing date weighs lightly in the judge's score.
+The judge compares `senderDomainRegisteredAt` with `receivedAt`, so it never reads the clock. Remit fetches `senderDomainRegisteredAt` over RDAP while it gathers the evidence, in `mailbox-service`. It caches the answer in one row per registrable domain, because the date never changes. A registry that publishes no date leaves the field absent, and Remit never fills in a placeholder. DENIC's RDAP answer for a .de domain carries no registration event, so a missing date weighs lightly in the judge's score.
 
 ### Response
 
@@ -65,18 +66,38 @@ type SpamResponse =
       score: number; // 0 to 1
       action: "None" | "Warn" | "Junk";
       kind: "Spam" | "Phishing";
-      reasons: { name: string; score: number; options: string[] }[];
+      reasons: SpamReason[];
       modelCalled: boolean;
     }
   | { state: "Failed"; kind: SpamFailureKind };
+
+type SpamReasonName =
+  | "DmarcFail"
+  | "ReplyToMismatch"
+  | "LinkTextMismatch"
+  | "DistantLinkDomain"
+  | "ConfusableDomain"
+  | "SingleOffDomainLink"
+  | "HighEntropyName"
+  | "NewSenderDomain"
+  | "RecentlyRegisteredDomain"
+  | "ClassifierSpam"
+  | "ProviderSpam"
+  | "DisplayNameMismatch"
+  | "ModelImpersonation"
+  | "ModelSpam";
+
+type SpamReason =
+  | { name: SpamReasonName; score: number; options: string[] }
+  | { name: "BackendSymbol"; symbol: string; score: number; options: string[] };
 ```
 
-The service compares the score with two thresholds to pick the action. Calibration sets both. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. `modelCalled` tells Remit to count the call against the daily cap.
+The service compares the score with two thresholds to pick the action. Calibration sets both. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. The names form a closed enum, so the mail app maps each one to one plain sentence. `BackendSymbol` carries a backend's own name in `symbol`, and the mail app shows it as an unknown reason. `modelCalled` tells Remit to count the call against the daily cap.
 
 ### Backends
 
 1. The inline engine runs inside Remit. Remit builds it as the default backend.
-2. The rspamd adapter posts `message.raw` to `/checkv2`. It sends `envelope` as the `From`, `Rcpt`, `IP` and `Helo` headers. It drops `context`, which rspamd has no field for. Each symbol in the answer becomes a reason, and the adapter divides `score` by `required_score` to get the 0 to 1 score. Rspamd's `no action` maps to `None`, `add header` to `Warn`, and `reject` to `Junk`.
+2. The rspamd adapter posts `message.raw` to `/checkv2`. It sends `envelope` as the `From`, `Rcpt`, `IP` and `Helo` headers. It drops `context`, which rspamd has no field for. Each symbol in the answer becomes a `BackendSymbol` reason, and the adapter divides `score` by `required_score` to get the 0 to 1 score. Rspamd's `no action` maps to `None`, `add header` to `Warn`, and `reject` to `Junk`.
 3. The spam Worker takes the same request as JSON over HTTPS. It serves the Cloudflare host, which never calls a VPS.
 
 The backend is deployment config, as the category classifier's provider is.
