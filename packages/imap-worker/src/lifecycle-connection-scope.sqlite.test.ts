@@ -16,7 +16,10 @@ import {
 	createSqliteRepositories,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import type { ConnectionScope } from "@remit/mailbox-service";
@@ -85,7 +88,7 @@ before(() => {
 	const db = createShippedSqliteDb();
 	close = db.close;
 	repo = createSqliteRepositories(
-		{ app: db.db, mail: db.db, search: db.db },
+		sharedDatabases(db),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).account;

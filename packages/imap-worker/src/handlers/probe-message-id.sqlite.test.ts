@@ -16,7 +16,10 @@ import {
 	NODE_SQLITE_LIMITS,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import {
 	type IImapConnection,
 	MessageMoveService,
@@ -131,11 +134,7 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 		const store = createShippedSqliteDb();
 		close = store.close;
 		repos = createSqliteRepositories(
-			{
-				app: store.db,
-				mail: store.db,
-				search: store.db,
-			},
+			sharedDatabases(store),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);

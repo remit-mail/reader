@@ -15,6 +15,7 @@ import {
 } from "../schema.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import type { AccountSettingRepo } from "./i4-account-setting.js";
 import type { MailboxRepo } from "./i4-mailbox.js";
 import type { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
@@ -60,11 +61,7 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		close = testDb.close;
 		db = testDb.db;
 		const repos = createSqliteRepositories(
-			{
-				app: testDb.db,
-				mail: testDb.db,
-				search: testDb.db,
-			},
+			sharedDatabases(testDb),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);

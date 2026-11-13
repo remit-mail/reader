@@ -13,11 +13,13 @@ import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { NODE_SQLITE_LIMITS } from "../bound-parameters.js";
 import type { Db } from "../db.js";
+import type { SqliteHandle } from "../sqlite.js";
 import {
 	createSqliteRepositories,
 	type SqliteRepositories,
 } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 const ACCOUNT_CONFIG_ID = "cfg-objects";
@@ -35,6 +37,7 @@ const bodyPart = (partPath: string) => ({
 
 describe("message objects follow the last row that references them", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let close: () => Promise<void>;
 	let directory: string;
 	let storage: StorageService;
@@ -43,7 +46,7 @@ describe("message objects follow the last row that references them", () => {
 	let deleteCalls: number[] = [];
 
 	before(async () => {
-		({ db, close } = await createTestDb());
+		({ db, immediate, close } = await createTestDb());
 		directory = mkdtempSync(join(tmpdir(), "message-objects-"));
 		storage = createFilesystemStorageService(directory);
 		const counted: Pick<StorageService, "deleteKeys"> = {
@@ -57,9 +60,11 @@ describe("message objects follow the last row that references them", () => {
 			},
 		};
 		repos = createSqliteRepositories(
-			{ app: db, mail: db, search: db },
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
-			{ storage: counted },
+			{
+				storage: counted,
+			},
 		);
 	});
 

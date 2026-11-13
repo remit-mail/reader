@@ -6,14 +6,17 @@ import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
 } from "../id.js";
+import type { SqliteHandle } from "../sqlite.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb } from "../test-db.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import type { DrizzleMessageRepository } from "./message.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
 describe("DrizzleMessageRepository", () => {
 	let db: Db;
+	let immediate: SqliteHandle["immediate"];
 	let stop: () => Promise<void>;
 	let messageRepo: DrizzleMessageRepository;
 	let envelopeRepo: DrizzleEnvelopeRepository;
@@ -39,9 +42,9 @@ describe("DrizzleMessageRepository", () => {
 	};
 
 	before(async () => {
-		({ db, close: stop } = await createTestDb());
+		({ db, immediate, close: stop } = await createTestDb());
 		const repos = createSqliteRepositories(
-			{ app: db, mail: db, search: db },
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		);

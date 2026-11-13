@@ -11,7 +11,10 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import { MessageSyncService, SyncWarningService } from "@remit/mailbox-service";
 import type { ImapMessage } from "@remit/mailbox-service/types";
 
@@ -59,9 +62,9 @@ const REPLY = message(2, "<r@example.com>", "<p@example.com>");
 const syncInOrder = async (
 	messages: ImapMessage[],
 ): Promise<{ threadIds: (messageId: string) => string[] }> => {
-	const { db, sqlite } = createShippedSqliteDb();
+	const { db, sqlite, immediate } = createShippedSqliteDb();
 	const repos = createSqliteRepositories(
-		{ app: db, mail: db, search: db },
+		sharedDatabases({ db, immediate }),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

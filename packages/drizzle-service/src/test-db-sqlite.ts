@@ -1,6 +1,11 @@
 import { pushSchema } from "drizzle-kit/payload/sqlite";
 import type { Db } from "./db.js";
-import { openSqlite, openTestSqlite, type SqliteConnection } from "./sqlite.js";
+import {
+	openSqlite,
+	openTestSqlite,
+	type SqliteConnection,
+	type SqliteHandle,
+} from "./sqlite.js";
 import { statementLog } from "./test-query-plan.js";
 import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
 
@@ -15,6 +20,7 @@ export async function createSqliteTestDb(
 	db: Db;
 	sqlite: SqliteConnection;
 	exec: (sql: string) => void;
+	immediate: SqliteHandle["immediate"];
 	close: () => Promise<void>;
 }> {
 	const sqlite = options?.filename
@@ -51,6 +57,7 @@ export async function createSqliteTestDb(
 		db: sqlite.db,
 		sqlite: sqlite.sqlite,
 		exec: sqlite.exec,
+		immediate: sqlite.immediate,
 		close: async () => {
 			sqlite.close();
 		},

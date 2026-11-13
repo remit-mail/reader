@@ -7,6 +7,7 @@ import {
 } from "./schema.js";
 import { createTestDb } from "./test-db.js";
 import { createSqliteTestDb } from "./test-db-sqlite.js";
+import { sharedDatabases } from "./test-sqlite.js";
 
 /** The stores a repository suite runs against, opened once per test file. */
 export type OpenTestStores = () => Promise<{
@@ -16,22 +17,22 @@ export type OpenTestStores = () => Promise<{
 
 /** The whole schema on one in-memory node:sqlite handle that plays all three databases. */
 export const openSqliteTestStores: OpenTestStores = async () => {
-	const { db, close } = await createTestDb();
+	const { db, immediate, close } = await createTestDb();
 	return {
-		stores: syncStores({ app: db, mail: db, search: db }, NODE_SQLITE_LIMITS),
+		stores: syncStores(sharedDatabases({ db, immediate }), NODE_SQLITE_LIMITS),
 		close,
 	};
 };
 
 /** The three calendar tables alone on one in-memory node:sqlite handle. */
 export const openCalendarSqliteTestStores: OpenTestStores = async () => {
-	const { db, close } = await createSqliteTestDb({
+	const { db, immediate, close } = await createSqliteTestDb({
 		calendars: calendarTable,
 		calendarObjects: calendarObjectTable,
 		calendarEventIndexes: calendarEventIndexTable,
 	});
 	return {
-		stores: syncStores({ app: db, mail: db, search: db }, NODE_SQLITE_LIMITS),
+		stores: syncStores(sharedDatabases({ db, immediate }), NODE_SQLITE_LIMITS),
 		close,
 	};
 };

@@ -7,14 +7,14 @@ import {
 	queryPlan,
 	selectsIssuedDuring,
 } from "../test-query-plan.js";
-import { createShippedSqliteDb } from "../test-sqlite.js";
+import { createShippedSqliteDb, sharedDatabases } from "../test-sqlite.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 
 describe("thread-message lookups without sqlite_stat1", () => {
-	const { db, sqlite, close } = createShippedSqliteDb();
+	const { db, sqlite, immediate, close } = createShippedSqliteDb();
 	after(close);
 	const repos = createSqliteRepositories(
-		{ app: db, mail: db, search: db },
+		sharedDatabases({ db, immediate }),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

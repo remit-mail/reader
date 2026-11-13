@@ -19,7 +19,10 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
 import { createConnectionPool } from "./connection-pool.js";
 import type { ProcessContext } from "./context.js";
@@ -56,11 +59,7 @@ beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
 	const repos = createSqliteRepositories(
-		{
-			app: store.db,
-			mail: store.db,
-			search: store.db,
-		},
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

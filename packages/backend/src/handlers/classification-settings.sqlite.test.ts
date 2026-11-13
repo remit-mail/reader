@@ -17,7 +17,10 @@ import {
 	NODE_SQLITE_LIMITS,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import {
 	createSecretsService,
 	deserializeEncryptedPayload,
@@ -136,7 +139,7 @@ beforeEach(async () => {
 	close = store.close;
 	classificationDefault = { state: "None" };
 	repos = createSqliteRepositories(
-		{ app: store.db, mail: store.db, search: store.db },
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	);

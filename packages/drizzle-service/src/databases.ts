@@ -13,7 +13,7 @@ export interface SqliteDatabases {
 	app: Db;
 	mail: Db;
 	search: Db;
-	transactions?: SqliteTransactions;
+	transactions: SqliteTransactions;
 }
 
 export interface SqliteTransactions {
@@ -31,10 +31,10 @@ export interface SqliteStores {
 export const syncStore = (
 	db: Db,
 	{ maxBoundParameters }: SqliteLimits,
-	run?: TransactionRunner,
+	run: TransactionRunner,
 ): SqliteStore<Record<string, unknown>> => ({
 	db,
-	batch: syncBatch(db, run),
+	batch: syncBatch(run),
 	maxBoundParameters,
 });
 
@@ -42,9 +42,9 @@ export const syncStores = (
 	{ app, mail, search, transactions }: SqliteDatabases,
 	limits: SqliteLimits,
 ): SqliteStores => ({
-	app: syncStore(app, limits, transactions?.app),
-	mail: syncStore(mail, limits, transactions?.mail),
-	search: syncStore(search, limits, transactions?.search),
+	app: syncStore(app, limits, transactions.app),
+	mail: syncStore(mail, limits, transactions.mail),
+	search: syncStore(search, limits, transactions.search),
 });
 
 export interface SqliteDatabasePaths {

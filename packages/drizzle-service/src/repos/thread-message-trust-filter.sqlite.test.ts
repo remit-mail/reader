@@ -10,6 +10,7 @@ import {
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 import type { DrizzleThreadMessageRepository } from "./thread-message.js";
 
@@ -26,6 +27,7 @@ const RESCUE = {
 
 describe("thread-message search by sender trust and DKIM (sqlite)", () => {
 	let db: Awaited<ReturnType<typeof createSqliteTestDb>>["db"];
+	let immediate: Awaited<ReturnType<typeof createSqliteTestDb>>["immediate"];
 	let close: () => Promise<void>;
 	let repo: DrizzleThreadMessageRepository;
 	let sequence = 0;
@@ -90,7 +92,7 @@ describe("thread-message search by sender trust and DKIM (sqlite)", () => {
 	const trusted: string[] = [];
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(
+		({ db, immediate, close } = await createSqliteTestDb(
 			{
 				threadMessage: threadMessageTable,
 				address: addressTable,
@@ -100,7 +102,7 @@ describe("thread-message search by sender trust and DKIM (sqlite)", () => {
 			{ searchIndex: true },
 		));
 		repo = createSqliteRepositories(
-			{ app: db, mail: db, search: db },
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;

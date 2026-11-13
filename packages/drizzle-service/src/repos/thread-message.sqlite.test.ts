@@ -7,6 +7,7 @@ import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { queryPlan, selectsIssuedDuring } from "../test-query-plan.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import {
 	BASE_DATE,
 	type Category,
@@ -51,12 +52,13 @@ function makeInput(
 
 describe("DrizzleThreadMessageRepository (sqlite)", () => {
 	let db: Awaited<ReturnType<typeof createSqliteTestDb>>["db"];
+	let immediate: Awaited<ReturnType<typeof createSqliteTestDb>>["immediate"];
 	let sqlite: Awaited<ReturnType<typeof createSqliteTestDb>>["sqlite"];
 	let close: () => Promise<void>;
 	let repo: DrizzleThreadMessageRepository;
 
 	before(async () => {
-		({ db, sqlite, close } = await createSqliteTestDb(
+		({ db, immediate, sqlite, close } = await createSqliteTestDb(
 			{
 				threadMessage: threadMessageTable,
 				messageSearchText: messageSearchTextTable,
@@ -64,11 +66,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 			{ searchIndex: true },
 		));
 		repo = createSqliteRepositories(
-			{
-				app: db,
-				mail: db,
-				search: db,
-			},
+			sharedDatabases({ db, immediate }),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).threadMessage;

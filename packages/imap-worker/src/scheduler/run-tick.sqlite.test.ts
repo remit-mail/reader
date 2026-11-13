@@ -13,7 +13,10 @@ import {
 	messageObjectsInMemory,
 	NODE_SQLITE_LIMITS,
 } from "@remit/drizzle-service";
-import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import {
+	createShippedSqliteDb,
+	sharedDatabases,
+} from "@remit/drizzle-service/test-sqlite";
 import { capturingLogger, type LogLine } from "../test-helpers/test-world.js";
 import { runSchedulerTick } from "./run-tick.js";
 
@@ -28,11 +31,7 @@ beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
 	accounts = createSqliteRepositories(
-		{
-			app: store.db,
-			mail: store.db,
-			search: store.db,
-		},
+		sharedDatabases(store),
 		NODE_SQLITE_LIMITS,
 		messageObjectsInMemory(),
 	).account;

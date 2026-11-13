@@ -12,6 +12,7 @@ import {
 	applyMigrationSet,
 	shippedTableDdl,
 } from "../test-shipped-sqlite-schema.js";
+import { sharedDatabases } from "../test-sqlite.js";
 import type { MailboxRepo } from "./i4-mailbox.js";
 import { messageObjectsInMemory } from "./message-objects.js";
 import { mailboxCreated } from "./test-helpers.js";
@@ -44,11 +45,7 @@ describe("MailboxRepo (sqlite)", () => {
 		const testDb = await createSqliteTestDb({ mailbox: mailboxTable });
 		close = testDb.close;
 		repo = createSqliteRepositories(
-			{
-				app: testDb.db,
-				mail: testDb.db,
-				search: testDb.db,
-			},
+			sharedDatabases(testDb),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
@@ -218,13 +215,8 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 	before(() => {
 		const sqlite = openTestSqlite();
 		applyMigrationSet(sqlite, "mail");
-		const { db } = sqlite;
 		repo = createSqliteRepositories(
-			{
-				app: db,
-				mail: db,
-				search: db,
-			},
+			sharedDatabases(sqlite),
 			NODE_SQLITE_LIMITS,
 			messageObjectsInMemory(),
 		).mailbox;
