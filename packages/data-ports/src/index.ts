@@ -1,11 +1,6 @@
 export {
-	type ClassifierCategoryCounts,
-	type ClassifierFolderCounts,
-	type ClassifierLabelCounts,
 	type ClassifierStatsItem,
-	emptyCategoryCounts,
-	emptyFolderCounts,
-	emptyLabelCounts,
+	readClassifierLabelCounts,
 	readStoredClassifierScores,
 } from "./classifier-scores.js";
 export type { TestResult } from "./connection-test.js";

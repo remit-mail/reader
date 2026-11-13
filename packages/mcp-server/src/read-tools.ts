@@ -9,7 +9,6 @@ import type {
 import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	AddressRole,
-	AuthResultVerdict,
 	ContentDisposition,
 	MediaType,
 } from "@remit/domain-enums";
@@ -49,18 +48,27 @@ const continuationToken = z
 
 const order = z.enum(["asc", "desc"]).optional().describe("Sort order by date");
 
-const classificationOf = (message: MessageItem) => ({
+type ScoreDetail = "All" | "Confident";
+
+const classificationOf = (message: MessageItem, detail: ScoreDetail) => ({
+	classificationState: message.classificationState,
 	category: message.category,
-	scores: message.classifierScores,
+	scores:
+		detail === "All"
+			? message.classifierScores
+			: message.classifierScores.filter((score) => score.confident),
 });
 
-const authOf = (message: MessageItem) => ({
-	dmarc: message.authResult?.dmarc ?? AuthResultVerdict.None,
-	spf: message.authResult?.spf ?? AuthResultVerdict.None,
-	dkim: message.authResult?.dkim ?? AuthResultVerdict.None,
-});
+const authOf = (message: MessageItem) =>
+	message.authResult === undefined
+		? { state: "NotParsed" as const }
+		: { state: "Parsed" as const, ...message.authResult };
 
-const toThreadRow = (row: ThreadMessageItem, message: MessageItem) => ({
+const toThreadRow = (
+	row: ThreadMessageItem,
+	message: MessageItem,
+	detail: ScoreDetail,
+) => ({
 	threadId: row.threadId,
 	messageId: row.messageId,
 	mailboxId: row.mailboxId,
@@ -72,7 +80,7 @@ const toThreadRow = (row: ThreadMessageItem, message: MessageItem) => ({
 	isRead: row.isRead,
 	hasAttachment: row.hasAttachment,
 	hasStars: row.hasStars,
-	classification: classificationOf(message),
+	classification: classificationOf(message, detail),
 	auth: authOf(message),
 });
 
@@ -82,17 +90,25 @@ const toPage = async (
 		items: ThreadMessageItem[];
 		continuationToken?: string;
 	},
+	detail: ScoreDetail,
 ) => {
 	const messages = new Map(
 		(await deps.message.get(result.items.map((row) => row.messageId))).map(
 			(message) => [message.messageId, message],
 		),
 	);
+	const items = result.items.flatMap((row) => {
+		const message = messages.get(row.messageId);
+		return message === undefined ? [] : [toThreadRow(row, message, detail)];
+	});
+	if (items.length !== result.items.length) {
+		const missing = result.items
+			.map((row) => row.messageId)
+			.filter((messageId) => !messages.has(messageId));
+		throw new NotFoundError(`Message not found: ${missing.join(", ")}`);
+	}
 	return {
-		items: result.items.flatMap((row) => {
-			const message = messages.get(row.messageId);
-			return message === undefined ? [] : [toThreadRow(row, message)];
-		}),
+		items,
 		continuationToken: result.continuationToken,
 	};
 };
@@ -212,6 +228,7 @@ export const registerReadTools = (
 							excludeDeleted: true,
 						},
 					),
+					"Confident",
 				),
 			),
 	);
@@ -262,6 +279,7 @@ export const registerReadTools = (
 							excludeDeleted: true,
 						},
 					),
+					"Confident",
 				),
 			),
 	);
@@ -292,6 +310,7 @@ export const registerReadTools = (
 							excludeDeleted: true,
 						},
 					),
+					"All",
 				),
 			),
 	);

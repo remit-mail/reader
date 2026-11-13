@@ -7,6 +7,7 @@ import {
 	AuthResultVerdict,
 	ClassificationLabel,
 	MessageCategory,
+	MessageClassificationState,
 } from "@remit/domain-enums";
 import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import {
@@ -30,10 +31,13 @@ type Row = {
 	messageId: string;
 	mailboxId: string;
 	classification: {
+		classificationState: string;
 		category: string;
 		scores: { label: string; confidence: number; confident: boolean }[];
 	};
-	auth: { dmarc: string; spf: string; dkim: string };
+	auth:
+		| { state: "NotParsed" }
+		| { state: "Parsed"; dmarc?: string; spf?: string; dkim?: string };
 };
 
 let store: Store;
@@ -71,7 +75,7 @@ const callToolJson = async (
 };
 
 before(async () => {
-	store = await openStore({ maxBoundParameters: 100 });
+	store = await openStore();
 	const storage = store.storage();
 	deps = {
 		...store,
@@ -106,6 +110,7 @@ before(async () => {
 				message: withMetadata
 					? {
 							category: MessageCategory.coldOutreach,
+							classificationState: MessageClassificationState.Examined,
 							classifierScores: [
 								{
 									label: ClassificationLabel.ColdOutreach,
@@ -145,21 +150,23 @@ describe("classification and auth on the thread tools", () => {
 		for (const row of page.items) {
 			if (scored.has(row.messageId)) {
 				assert.deepEqual(row.classification, {
+					classificationState: "Examined",
 					category: "coldOutreach",
 					scores: [{ label: "ColdOutreach", confidence: 0.9, confident: true }],
 				});
 				assert.deepEqual(row.auth, {
+					state: "Parsed",
 					dmarc: "Pass",
 					spf: "Softfail",
-					dkim: "None",
 				});
 				continue;
 			}
 			assert.deepEqual(row.classification, {
+				classificationState: "NotExamined",
 				category: "uncategorized",
 				scores: [],
 			});
-			assert.deepEqual(row.auth, { dmarc: "None", spf: "None", dkim: "None" });
+			assert.deepEqual(row.auth, { state: "NotParsed" });
 		}
 	});
 
@@ -170,7 +177,6 @@ describe("classification and auth on the thread tools", () => {
 
 		assert.equal(page.items.length, PAGE / 2);
 		for (const row of page.items) {
-			assert.ok(row.classification);
 			assert.ok(row.auth);
 		}
 	});

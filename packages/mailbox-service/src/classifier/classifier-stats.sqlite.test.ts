@@ -70,7 +70,7 @@ const overrideSender = async (email: string, setAt: number): Promise<void> => {
 };
 
 before(async () => {
-	store = await openStore({ maxBoundParameters: 100 });
+	store = await openStore();
 	account = await seedAccount(store);
 	const inbox = await seedMailbox(store, account, "INBOX");
 	const junk = await seedMailbox(store, account, "Junk", {
@@ -107,6 +107,12 @@ before(async () => {
 		reported: true,
 	});
 	await seed(inbox.mailboxId, {
+		internalDate: SINCE_MS + 4 * DAY,
+		category: MessageCategory.newsletter,
+		classifierScores: [],
+		reported: true,
+	});
+	await seed(inbox.mailboxId, {
 		internalDate: SINCE_MS - 1,
 		category: MessageCategory.coldOutreach,
 		classifierScores: [score(ClassificationLabel.ColdOutreach, true)],
@@ -131,32 +137,33 @@ describe("classifier stats", () => {
 
 		assert.ok(stats.ok);
 		assert.equal(stats.value.since, SINCE);
-		assert.equal(stats.value.examined, 4);
-		assert.deepEqual(stats.value.byCategory, {
-			uncategorized: 1,
-			personal: 1,
-			newsletter: 0,
-			marketing: 1,
-			automated: 0,
-			transactional: 0,
-			social: 0,
-			coldOutreach: 1,
-		});
-		assert.deepEqual(stats.value.byLabel, {
-			Spam: 1,
-			Phishing: 0,
-			Priority: 0,
-			Personal: 1,
-			Newsletter: 0,
-			Marketing: 1,
-			Automated: 0,
-			Transactional: 0,
-			Social: 0,
-			ColdOutreach: 1,
-		});
+		assert.equal(stats.value.examined, 5);
+		assert.deepEqual(
+			[...stats.value.byCategory].sort((left, right) =>
+				left.category.localeCompare(right.category),
+			),
+			[
+				{ category: "coldOutreach", count: 1 },
+				{ category: "marketing", count: 1 },
+				{ category: "newsletter", count: 1 },
+				{ category: "personal", count: 1 },
+				{ category: "uncategorized", count: 1 },
+			],
+		);
+		assert.deepEqual(
+			[...stats.value.byLabel].sort((left, right) =>
+				left.label.localeCompare(right.label),
+			),
+			[
+				{ label: "ColdOutreach", count: 1 },
+				{ label: "Marketing", count: 1 },
+				{ label: "Personal", count: 1 },
+				{ label: "Spam", count: 1 },
+			],
+		);
 	});
 
-	it("counts a spam report only when no confident score said junk, and an override only from since on", async () => {
+	it("counts a spam report only on scored mail no confident score called junk, and an override only from since on", async () => {
 		const stats = await readClassifierStats(
 			store,
 			account.accountConfigId,

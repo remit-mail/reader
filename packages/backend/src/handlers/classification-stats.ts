@@ -22,7 +22,7 @@ export const ClassificationStatsOperations: Record<
 				address: ctx.client.address,
 			},
 			ctx.identity.accountConfigId,
-			typeof since === "string" ? since : "",
+			since,
 		);
 		if (!stats.ok) {
 			return {

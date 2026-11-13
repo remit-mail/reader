@@ -1,29 +1,15 @@
 namespace RemitImap;
 
-@doc("Messages per category, one count for every `MessageCategory`.")
-model ClassifierCategoryCounts {
-  uncategorized: int32;
-  personal: int32;
-  newsletter: int32;
-  marketing: int32;
-  automated: int32;
-  transactional: int32;
-  social: int32;
-  coldOutreach: int32;
+@doc("Examined messages in one category.")
+model ClassifierCategoryCount {
+  category: MessageCategory;
+  count: int32;
 }
 
-@doc("Confident scores per label, one count for every `ClassificationLabel`.")
-model ClassifierLabelCounts {
-  Spam: int32;
-  Phishing: int32;
-  Priority: int32;
-  Personal: int32;
-  Newsletter: int32;
-  Marketing: int32;
-  Automated: int32;
-  Transactional: int32;
-  Social: int32;
-  ColdOutreach: int32;
+@doc("Confident scores for one label.")
+model ClassifierLabelCount {
+  label: ClassificationLabel;
+  count: int32;
 }
 
 @doc("Times the reader disagreed with the classifier since `since`.")
@@ -43,11 +29,11 @@ model ClassifierStats {
   @doc("Messages that arrived on or after `since` whose body sync classified them.")
   examined: int32;
 
-  @doc("Examined messages per category.")
-  byCategory: ClassifierCategoryCounts;
+  @doc("Examined messages per category; a category with none is absent.")
+  byCategory: ClassifierCategoryCount[];
 
-  @doc("Confident scores per label, over the examined messages.")
-  byLabel: ClassifierLabelCounts;
+  @doc("Confident scores per label, over the examined messages; a label with none is absent.")
+  byLabel: ClassifierLabelCount[];
 
   corrections: ClassifierCorrections;
 }

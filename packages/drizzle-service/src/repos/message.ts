@@ -1,14 +1,12 @@
 import {
-	type ClassifierFolderCounts,
 	type CreateMessageInput,
-	emptyFolderCounts,
 	type IMessageRepository,
 	type MessageDescription,
 	type MessageItem,
 	type PlacementPredicate,
+	readClassifierLabelCounts,
 	readStoredClassifierScores,
 } from "@remit/data-ports";
-import { ClassificationLabel } from "@remit/domain-enums";
 import {
 	and,
 	asc,
@@ -428,20 +426,17 @@ export class DrizzleMessageRepository implements IMessageRepository {
 	}
 
 	async countClassifiedSince(
-		mailboxId: string,
+		mailboxIds: string[],
 		since: number,
-	): Promise<ClassifierFolderCounts> {
-		const arrived = and(
-			eq(messageTable.mailboxId, mailboxId),
-			gte(messageTable.internalDate, since),
-		);
+	): ReturnType<IMessageRepository["countClassifiedSince"]> {
+		const mailboxes = inList(messageTable.mailboxId, mailboxIds);
 		const examined = and(
-			arrived,
+			mailboxes,
+			gte(messageTable.internalDate, since),
 			eq(messageTable.classificationState, "Examined"),
 		);
-		const counts = emptyFolderCounts();
 
-		const categories = await this.db
+		const byCategory = await this.db
 			.select({
 				category: messageTable.category,
 				count: sql<number>`cast(count(*) as int)`,
@@ -449,35 +444,25 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.from(messageTable)
 			.where(examined)
 			.groupBy(messageTable.category);
-		for (const row of categories) {
-			counts.byCategory[row.category] = row.count;
-			counts.examined += row.count;
-		}
 
-		const labels = await this.db.all<{ label: unknown; count: unknown }>(
-			sql`select json_extract(score.value, '$.label') as label, count(*) as count from ${messageTable}, json_each(${messageTable.classifierScores}) as score where ${messageTable.mailboxId} = ${mailboxId} and ${messageTable.internalDate} >= ${since} and ${messageTable.classificationState} = 'Examined' and json_extract(score.value, '$.confident') = 1 group by label`,
+		const byLabel = readClassifierLabelCounts(
+			await this.db.all(
+				sql`select json_extract(score.value, '$.label') as label, count(*) as count from ${messageTable}, json_each(${messageTable.classifierScores}) as score where ${examined} and json_extract(score.value, '$.confident') = 1 group by label`,
+			),
 		);
-		for (const row of labels) {
-			const label = Object.values(ClassificationLabel).find(
-				(candidate) => candidate === row.label,
-			);
-			if (label !== undefined && typeof row.count === "number") {
-				counts.byLabel[label] = row.count;
-			}
-		}
 
 		const [reported] = await this.db
 			.select({ count: sql<number>`cast(count(*) as int)` })
 			.from(messageTable)
 			.where(
 				and(
-					arrived,
+					examined,
 					isNotNull(messageTable.spamReport),
+					sql`json_array_length(${messageTable.classifierScores}) > 0`,
 					sql`not exists (select 1 from json_each(${messageTable.classifierScores}) as score where json_extract(score.value, '$.label') in ('Spam', 'Phishing') and json_extract(score.value, '$.confident') = 1)`,
 				),
 			);
-		counts.spamReportedNotJunk = reported.count;
-		return counts;
+		return { byCategory, byLabel, spamReportedNotJunk: reported.count };
 	}
 
 	async describe(messageId: string): Promise<MessageDescription> {
