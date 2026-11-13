@@ -102,17 +102,18 @@ export interface MessageOwnershipClient {
 }
 
 // Messages carry no tenant, so ownership resolves through the caller's own
-// accounts: a mailbox resolves only under the account that owns it, and the
-// whole batch must land on one account because the downstream services take
-// a single accountId.
-export const ownedMessages = async (
+// accounts: a mailbox resolves only under the account that owns it.
+export const ownedMessagesByAccount = async (
 	client: MessageOwnershipClient,
 	messageIds: string[],
 	callerAccountConfigId: string,
 	mode: AccessMode,
-): Promise<Refusable<string>> => {
+): Promise<Refusable<Map<string, string[]>>> => {
 	const messages = await Promise.all(
-		messageIds.map((id) => client.message.get(id)),
+		messageIds.map(async (id) => ({
+			messageId: id,
+			mailboxId: (await client.message.get(id)).mailboxId,
+		})),
 	);
 	const mailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
 
@@ -128,19 +129,40 @@ export const ownedMessages = async (
 		}
 	}
 
-	if (mailboxIds.some((id) => !accountByMailbox.has(id))) {
-		if (mode === "read") {
-			return refuse({ kind: "NotFound", message: "Message not found" });
+	const byAccount = new Map<string, string[]>();
+	for (const { messageId, mailboxId } of messages) {
+		const accountId = accountByMailbox.get(mailboxId);
+		if (accountId === undefined) {
+			if (mode === "read") {
+				return refuse({ kind: "NotFound", message: "Message not found" });
+			}
+			return refuse({
+				kind: "Forbidden",
+				message: "Message not in account config",
+			});
 		}
-		return refuse({
-			kind: "Forbidden",
-			message: "Message not in account config",
-		});
+		byAccount.set(accountId, [...(byAccount.get(accountId) ?? []), messageId]);
 	}
+	return accept(byAccount);
+};
 
-	const accountIds = [...new Set(accountByMailbox.values())];
-	const [accountId] = accountIds;
-	if (accountIds.length !== 1 || accountId === undefined) {
+// The whole batch must land on one account where the downstream services take
+// a single accountId.
+export const ownedMessages = async (
+	client: MessageOwnershipClient,
+	messageIds: string[],
+	callerAccountConfigId: string,
+	mode: AccessMode,
+): Promise<Refusable<string>> => {
+	const owned = await ownedMessagesByAccount(
+		client,
+		messageIds,
+		callerAccountConfigId,
+		mode,
+	);
+	if (!owned.ok) return owned;
+	const [accountId, ...others] = owned.value.keys();
+	if (others.length > 0 || accountId === undefined) {
 		return invalid("All messages must belong to the same account");
 	}
 	return accept(accountId);

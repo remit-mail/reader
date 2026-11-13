@@ -55,6 +55,14 @@ export const predicateFromJob = (
 	actionMailboxId: job.actionMailboxId,
 });
 
+/** The folders a snapshot job runs over: its source folder, or every folder. */
+export const scopeFromJob = (
+	job: Pick<OrganizeJobRequestItem, "sourceMailboxId">,
+): OrganizeMatchScope =>
+	job.sourceMailboxId === FILTER_NO_ACTION
+		? WHOLE_CORPUS
+		: { kind: "SourceFolder", mailboxId: job.sourceMailboxId };
+
 /**
  * One corpus message projected onto the fields a literal clause matches
  * against, paired with its id. Sourced from the core thread rows.
@@ -85,12 +93,28 @@ export interface OrganizeCandidateQuery extends RuleNarrowing {
 /**
  * Where a pass looks and which standing filter it runs for. A filter
  * back-apply narrows the corpus to the inbox and matches a body-content clause
- * on the stored preview; an "all like these" pass sets neither.
+ * on the stored preview; an "all like these" pass reads every folder, or the
+ * one source folder its job names.
  */
-export interface OrganizeMatchScope {
-	filterId?: string;
-	mailboxIds?: readonly string[];
-}
+export type OrganizeMatchScope =
+	| { kind: "Corpus" }
+	| { kind: "Filter"; filterId: string; mailboxIds: readonly string[] }
+	| { kind: "SourceFolder"; mailboxId: string };
+
+export const WHOLE_CORPUS: OrganizeMatchScope = { kind: "Corpus" };
+
+const scopeMailboxIds = (
+	scope: OrganizeMatchScope,
+): readonly string[] | undefined => {
+	switch (scope.kind) {
+		case "Filter":
+			return scope.mailboxIds;
+		case "SourceFolder":
+			return [scope.mailboxId];
+		default:
+			return undefined;
+	}
+};
 
 export interface OrganizeMatchDeps {
 	/**
@@ -169,6 +193,18 @@ export const organizePredicateRejection = (
 	predicate: OrganizePredicate,
 ): OrganizeRejection | null => bodyContentRejection(predicate.rule);
 
+// A rule with no tests sweeps the source folder a snapshot job names. Over the
+// whole corpus, for a standing filter, and at index time it matches nothing.
+const isFolderSweep = (
+	rule: FilterRuleV1Item,
+	scope: OrganizeMatchScope,
+): boolean =>
+	scope.kind === "SourceFolder" &&
+	rule.test.test === "allof" &&
+	filterRuleLeaves(rule).length === 0;
+
+const FOLDER_SWEEP: RuleNarrowing = { terms: [], operator: "and" };
+
 /**
  * The store selects on the clause terms, this refines what it returned and
  * stops at `limit` MATCHES. Serves `From`/`Subject` clauses at
@@ -189,7 +225,10 @@ const matchLiteral = async (
 	scope: OrganizeMatchScope,
 ): Promise<string[]> => {
 	const { getDomain } = await import("tldts");
-	const narrowing = ruleNarrowing(predicate.rule, getDomain);
+	const sweep = isFolderSweep(predicate.rule, scope);
+	const narrowing = sweep
+		? FOLDER_SWEEP
+		: ruleNarrowing(predicate.rule, getDomain);
 	if (!narrowing) return [];
 
 	const matched: string[] = [];
@@ -201,12 +240,14 @@ const matchLiteral = async (
 			readsClassifierScores: filterRuleTestsClassification(predicate.rule),
 			limit,
 			continuationToken,
-			mailboxIds: scope.mailboxIds,
+			mailboxIds: scopeMailboxIds(scope),
 		});
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
 			seen.add(messageId);
-			if (!evaluateRule(predicate.rule, message, getDomain)) continue;
+			if (!sweep && !evaluateRule(predicate.rule, message, getDomain)) {
+				continue;
+			}
 			matched.push(messageId);
 			if (matched.length >= limit) return matched;
 		}
@@ -231,11 +272,10 @@ export const matchOrganize = async (
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number = ORGANIZE_MATCH_LIMIT,
-	scope: OrganizeMatchScope = {},
+	scope: OrganizeMatchScope = WHOLE_CORPUS,
 ): Promise<OrganizeMatchResult> => {
-	const rejection = scope.filterId
-		? null
-		: organizePredicateRejection(predicate);
+	const rejection =
+		scope.kind === "Filter" ? null : organizePredicateRejection(predicate);
 	if (rejection) return { rejected: rejection };
 	const messageIds = await matchLiteral(
 		deps,
@@ -578,7 +618,7 @@ export const backApplyFilter = async (
 		accountConfigId,
 		loaded.predicate,
 		ORGANIZE_MATCH_LIMIT,
-		{ filterId, mailboxIds },
+		{ kind: "Filter", filterId, mailboxIds },
 	);
 	if (match.rejected) return match;
 

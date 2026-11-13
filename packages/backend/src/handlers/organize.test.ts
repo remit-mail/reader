@@ -238,7 +238,7 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		assert.equal(response.statusCode, 202);
 		assert.equal(createdRows[0]?.filterId, "flt-1");
 		assert.equal(createdRows[0]?.actionMailboxId, "None");
-		assert.deepEqual(createdRows[0]?.literalClauses, []);
+		assert.deepEqual(createdRows[0]?.rule.test, { test: "allof", tests: [] });
 		assert.equal(fanout.sent.length, 1);
 	});
 

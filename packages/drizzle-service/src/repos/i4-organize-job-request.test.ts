@@ -96,10 +96,13 @@ describe("OrganizeJobRequestRepo", () => {
 				accountConfigId: randomId(),
 				userId: randomId(),
 				filterId: "None",
-				matchOperator: FilterMatchOperator.And,
-				literalClauses,
+				rule: filterRuleFromClauses({
+					matchOperator: FilterMatchOperator.And,
+					literalClauses,
+				}),
 				actionLabelId: "None",
 				actionMailboxId: "None",
+				sourceMailboxId: "None",
 				ttl: 0,
 			});
 

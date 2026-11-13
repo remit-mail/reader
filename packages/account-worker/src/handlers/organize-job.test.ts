@@ -422,3 +422,121 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 		assert.match(String(current.updates.at(-1)?.errorMessage), /deleted/);
 	});
 });
+
+describe("processOrganizeJob for a source-folder job", () => {
+	let close: (() => void) | undefined;
+	afterEach(() => close?.());
+
+	it("moves every message out of the source folder into the target", async () => {
+		const store = createShippedSqliteDb();
+		close = store.close;
+		const repos = createSqliteRepositories(
+			sharedDatabases(store),
+			NODE_SQLITE_LIMITS,
+			messageObjectsInMemory(),
+		);
+		const config = await repos.accountConfig.create({
+			userId: "user-1",
+			name: "Me",
+		});
+		const accountConfigId = config.accountConfigId;
+		const account = await repos.account.create({
+			accountConfigId,
+			username: "me@example.com",
+			email: "me@example.com",
+			authType: "password",
+			passwordHash: '{"ciphertext":"x"}',
+			imapHost: "imap.example.com",
+			imapPort: 993,
+			imapTls: true,
+			imapStartTls: false,
+			isActive: true,
+			connectionState: "authenticated",
+		});
+		const folder = async (fullPath: string): Promise<string> => {
+			const created = await repos.mailbox.create({
+				accountId: account.accountId,
+				namespacePrefix: "",
+				hierarchyDelimiter: "/",
+				fullPath,
+				uidValidity: 7,
+				uidNext: 1,
+				highestModseq: "0",
+				messageCount: 0,
+				unseenCount: 0,
+				deletedCount: 0,
+				totalSize: 0,
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				lastMessageSyncAt: 0,
+			});
+			assert.equal(created.outcome, "Created");
+			return created.mailbox.mailboxId;
+		};
+		const source = await folder("Promoties");
+		const target = await folder("remit/Promotions");
+		for (const uid of [1, 2]) {
+			const message = await repos.message.create({
+				messageId: randomUUID(),
+				mailboxId: source,
+				uid,
+				sequenceNumber: uid,
+				rfc822Size: 100,
+				internalDate: uid,
+				status: "active",
+				syncStatus: "synced",
+			});
+			await repos.threadMessage.create({
+				accountConfigId,
+				threadId: message.messageId,
+				messageId: message.messageId,
+				mailboxId: source,
+				uid,
+				referenceOrder: 0,
+				internalDate: uid,
+				sentDate: uid,
+				subject: `Offer ${uid}`,
+				isRead: false,
+				isDeleted: false,
+				hasAttachment: false,
+				hasStars: false,
+			});
+		}
+		const job = await repos.organizeJobRequest.create({
+			accountConfigId,
+			userId: "user-1",
+			filterId: "None",
+			rule: filterRuleFromClauses({ matchOperator: "And", literalClauses: [] }),
+			actionLabelId: "None",
+			actionMailboxId: target,
+			sourceMailboxId: source,
+			ttl: 0,
+		});
+		const client = {
+			...repos,
+			queues: { messageManagement: recordingQueue() },
+		} as unknown as RemitClient<"messageManagement">;
+
+		await processOrganizeJob(
+			{
+				type: "OrganizeJob",
+				accountConfigId,
+				organizeJobId: job.organizeJobId,
+			},
+			noopLogger,
+			{ client },
+		);
+
+		const inFolder = async (mailboxId: string) =>
+			(
+				await repos.threadMessage.listByMailbox(accountConfigId, mailboxId, {
+					excludeDeleted: true,
+				})
+			).items.length;
+		assert.equal(await inFolder(source), 0);
+		assert.equal(await inFolder(target), 2);
+		const done = await repos.organizeJobRequest.get(job.organizeJobId);
+		assert.equal(done.state, "Complete");
+		assert.equal(done.appliedCount, 2);
+	});
+});

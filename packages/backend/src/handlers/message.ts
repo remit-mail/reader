@@ -24,6 +24,7 @@ import {
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 	materializeBodyParts,
+	moveMessagesTo,
 	type NeverSpamGrant,
 	NoJunkMailboxError,
 	ownedMessages,
@@ -787,32 +788,10 @@ export const MessageBulkOperations = {
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = ctx.client;
-		const accountId = unwrap(
-			await ownedMessages(client, messageIds, accountConfigId, "act"),
-		);
-
-		// Destination must belong to the same (caller-owned) account, and must be
-		// a folder the mail server has settled: the row records the destination
-		// before the move confirms, so binding to a folder that may never exist
-		// leaves the message pointing at nothing (D12, first row).
-		const destination = await client.mailbox.get(
-			accountId,
-			destinationMailboxId,
-		);
-		if (destination.accountId !== accountId) {
-			throw new ForbiddenError(
-				`Destination mailbox ${destinationMailboxId} not in account`,
-			);
-		}
-		unwrap(settledFolder(destination));
-
-		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
-		await client.messageMove.moveMessages(
-			accountConfigId,
-			messageIds,
-			destinationMailboxId,
-			accountId,
+		unwrap(
+			await moveMessagesTo(ctx.client, accountConfigId, messageIds, {
+				mailboxId: destinationMailboxId,
+			}),
 		);
 
 		return {

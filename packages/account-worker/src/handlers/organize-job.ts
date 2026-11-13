@@ -11,6 +11,7 @@ import {
 	type OrganizeMatchDeps,
 	type OrganizeRejection,
 	predicateFromJob,
+	scopeFromJob,
 } from "@remit/backend/organize";
 import type { Logger } from "@remit/logger";
 import type { OrganizeJobEvent } from "../events.js";
@@ -38,8 +39,8 @@ const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
 });
 
 /**
- * The "all like these" pass: the predicate snapshotted on the row, over every
- * folder, every requested move applied (reader #497).
+ * The "all like these" pass: the predicate snapshotted on the row, over its
+ * source folder or every folder, every requested move applied (reader #497).
  */
 const runSnapshot = async (
 	client: RemitClient<"messageManagement">,
@@ -53,6 +54,7 @@ const runSnapshot = async (
 		job.accountConfigId,
 		predicate,
 		ORGANIZE_MATCH_LIMIT,
+		scopeFromJob(job),
 	);
 	if (match.rejected) return rejectedOutcome(match.rejected);
 	const { applied, failed, failures } = await applyOrganize(

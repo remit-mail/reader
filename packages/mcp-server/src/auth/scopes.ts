@@ -8,7 +8,7 @@ export const MCP_SCOPES = [MCP_READ_SCOPE, MCP_RULES_SCOPE] as const;
 
 const SCOPE_DESCRIPTIONS: Readonly<Record<string, string>> = {
 	[MCP_READ_SCOPE]: "Read your mail",
-	[MCP_RULES_SCOPE]: "Create and change folders and filters",
+	[MCP_RULES_SCOPE]: "Create and change folders and filters, and move mail",
 	[OFFLINE_ACCESS_SCOPE]: "Stay connected until you disconnect it",
 };
 

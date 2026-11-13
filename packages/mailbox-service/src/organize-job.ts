@@ -1,6 +1,7 @@
 import {
 	type CreateOrganizeJobRequestInput,
 	FILTER_NO_ACTION,
+	filterRuleFromClauses,
 	type IOrganizeJobRequestRepository,
 	type OrganizeJobEvent,
 	type OrganizeJobRequestItem,
@@ -17,7 +18,7 @@ export interface OrganizeJobOwner {
 
 export type OrganizeJobPredicate = Pick<
 	CreateOrganizeJobRequestInput,
-	"matchOperator" | "literalClauses" | "actionLabelId" | "actionMailboxId"
+	"rule" | "sourceMailboxId" | "actionLabelId" | "actionMailboxId"
 >;
 
 export type OrganizeJobRequest = OrganizeJobOwner &
@@ -39,10 +40,13 @@ const jobColumns = (
 	if ("filterId" in request) {
 		return {
 			filterId: request.filterId,
-			matchOperator: FilterMatchOperator.And,
-			literalClauses: [],
+			rule: filterRuleFromClauses({
+				matchOperator: FilterMatchOperator.And,
+				literalClauses: [],
+			}),
 			actionLabelId: FILTER_NO_ACTION,
 			actionMailboxId: FILTER_NO_ACTION,
+			sourceMailboxId: FILTER_NO_ACTION,
 		};
 	}
 	return { filterId: FILTER_NO_ACTION, ...request.predicate };

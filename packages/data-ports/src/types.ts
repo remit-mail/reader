@@ -309,7 +309,8 @@ export type OrganizeJobRequestItem = Omit<
 export type CreateOrganizeJobRequestInput = Omit<
 	OrganizeJobRequestItem,
 	| "organizeJobId"
-	| "rule"
+	| "matchOperator"
+	| "literalClauses"
 	| "createdAt"
 	| "updatedAt"
 	| "state"

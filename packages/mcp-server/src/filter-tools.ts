@@ -22,13 +22,11 @@ import {
 	listAccountFilters,
 	ownedAccount,
 	queueOrganizeJob,
-	type Refused,
-	refuse,
 	updateFilter,
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
-import { asJson, refused, toolError } from "./tool-result.js";
+import { asJson, notFoundRefusal, refused, toolError } from "./tool-result.js";
 
 const FILTER_WRITE = {
 	readOnlyHint: false,
@@ -72,14 +70,7 @@ const absentJob = (error: unknown): null => {
 	return null;
 };
 
-const notFound = (error: unknown): Refused => {
-	if (!isNotFoundError(error)) throw error;
-	const message = error instanceof Error ? error.message : "Not found";
-	return refuse({
-		kind: "NotFound",
-		message: `${message}. Check the filterId against list_filters.`,
-	});
-};
+const notFound = notFoundRefusal("Check the filterId against list_filters.");
 
 const accountId = z.string().min(1).describe("Account from list_mailboxes");
 
@@ -253,12 +244,14 @@ export const registerFilterTools = (
 		"get_organize_job",
 		{
 			description:
-				"Read an organize job that applies a filter to existing mail: its state (Pending, Running, Complete, Failed), how many messages it matched, applied and failed, and the error when it failed.",
+				"Read an organize job that applies a filter to existing mail or moves a folder's messages: its state (Pending, Running, Complete, Failed), how many messages it matched, applied and failed, and the error when it failed.",
 			inputSchema: {
 				organizeJobId: z
 					.string()
 					.min(1)
-					.describe("organizeJobId from create_filter or update_filter"),
+					.describe(
+						"organizeJobId from create_filter, update_filter, apply_filter or move_folder_messages",
+					),
 			},
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
@@ -268,7 +261,7 @@ export const registerFilterTools = (
 				.catch(absentJob);
 			if (!job || job.accountConfigId !== accountConfigId) {
 				return toolError(
-					`Organize job not found: ${organizeJobId}. Use the organizeJobId create_filter or update_filter returned.`,
+					`Organize job not found: ${organizeJobId}. Use the organizeJobId a create_filter, update_filter, apply_filter or move_folder_messages call returned.`,
 				);
 			}
 			return asJson(toOrganizeJob(job));

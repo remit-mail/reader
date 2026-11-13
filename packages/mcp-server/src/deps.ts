@@ -6,6 +6,7 @@ import type {
 	ILabelMailboxRepository,
 	ILabelRepository,
 	IMailboxRepository,
+	IMessageLabelRepository,
 	IMessageRepository,
 	IOrganizeJobRequestRepository,
 	IThreadMessageRepository,
@@ -17,6 +18,7 @@ import type {
 	BodySyncCue,
 	MailboxQueueService,
 	MaterializeLogger,
+	MessageMoveService,
 	OrganizeJobLogger,
 } from "@remit/mailbox-service";
 import type { StorageService } from "@remit/storage-service";
@@ -61,6 +63,8 @@ export interface McpDeps {
 		IMessageRepository,
 		"get" | "describe" | "countClassifiedSince"
 	>;
+	messageLabel: Pick<IMessageLabelRepository, "apply">;
+	messageMove: Pick<MessageMoveService, "moveMessages">;
 	threadMessage: Pick<
 		IThreadMessageRepository,
 		"listByMailbox" | "listByThread" | "searchByDate"
@@ -93,6 +97,8 @@ export const mcpDepsOf = (
 	label: client.label,
 	labelMailbox: client.labelMailbox,
 	message: client.message,
+	messageLabel: client.messageLabel,
+	messageMove: client.messageMove,
 	threadMessage: client.threadMessage,
 	filter: client.filter,
 	organizeJobRequest: client.organizeJobRequest,

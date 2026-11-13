@@ -3,6 +3,7 @@ import type { RecordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	fifoMailboxManagement,
 	MailboxQueueService,
+	MessageMoveService,
 } from "@remit/mailbox-service";
 import {
 	type Store,
@@ -13,7 +14,7 @@ import type { McpDeps } from "./deps.js";
 export const ruleDeps = (
 	store: Store,
 	queue: RecordingQueue,
-): Pick<McpDeps, "folders" | "filters"> => ({
+): Pick<McpDeps, "folders" | "filters" | "messageMove"> => ({
 	folders: {
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: store.mailbox,
@@ -27,4 +28,12 @@ export const ruleDeps = (
 		organizeQueue: queue,
 		logger: silentLog,
 	},
+	messageMove: new MessageMoveService({
+		messageService: store.message,
+		mailboxService: store.mailbox,
+		mailboxSpecialUseService: store.mailboxSpecialUse,
+		threadMessageService: store.threadMessage,
+		addressService: store.address,
+		queue: queue.fifo,
+	}),
 });

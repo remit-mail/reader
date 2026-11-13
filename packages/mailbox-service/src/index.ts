@@ -297,6 +297,15 @@ export {
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
+	type DestinationDeps,
+	type MoveDestination,
+	type MovedGroup,
+	type MoveMessagesDeps,
+	type MoveTarget,
+	moveMessagesTo,
+	resolveMoveDestination,
+} from "./move-messages.js";
+export {
 	backApplyNeverSpam,
 	type NeverSpamBackApplyDeps,
 	type NeverSpamBackApplyResult,
@@ -340,6 +349,7 @@ export {
 	type MessageOwnershipClient,
 	ownedAccount,
 	ownedMessages,
+	ownedMessagesByAccount,
 	settledFolder,
 } from "./ownership.js";
 export {
