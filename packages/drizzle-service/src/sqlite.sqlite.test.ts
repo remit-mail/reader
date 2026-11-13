@@ -137,6 +137,26 @@ describe("a node:sqlite handle", () => {
 		handle.close();
 	});
 
+	test("immediate inside immediate throws and rolls back the outer work", () => {
+		const handle = withPeople();
+		assert.throws(
+			() =>
+				handle.immediate(() => {
+					handle.db
+						.insert(people)
+						.values({ personId: "p2", email: "b@x" })
+						.run();
+					handle.immediate(() => undefined);
+				}),
+			failedWith(/cannot start a transaction within a transaction/),
+		);
+		assert.deepEqual(
+			handle.sqlite.prepare("SELECT person_id FROM people").all(),
+			[{ person_id: "p1" }],
+		);
+		handle.close();
+	});
+
 	test("immediate rolls back every write when the work throws", () => {
 		const handle = withPeople();
 		assert.throws(
