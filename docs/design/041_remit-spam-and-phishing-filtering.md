@@ -220,6 +220,7 @@ Fake Netflix, Belastingdienst and PostNL mail reached the inbox under these rule
 5. Remit queries no DNS blocklist. The provider already checks URLs, and a Worker cannot send raw DNS queries.
 6. The engine holds no lists. Microsoft protects a named set of users and domains, and Chrome compares against its top sites. The engine compares the strings inside one message.
 7. The engine learns nothing from Report spam. The owner's reports block senders in Remit, outside the engine.
+8. The engine ignores ARC seals (RFC 8617). Calibration decides whether forwarded mail needs them.
 
 ## Delivery order
 
@@ -234,10 +235,6 @@ Each stage is one PR. Placement uses the verdicts from stage 7 on.
 7. Placement: the action feeds `classifyPlacement`, with the `Spam` and `Phishing` labels, the warning in the mail app, and cleanup items 2 to 5. Packages: `drizzle-service`, `data-ports`, `web-client`, `mailbox-service`.
 8. The rspamd adapter. Package: `mailbox-service`.
 9. The spam Worker for the Cloudflare host.
-
-## Open questions
-
-1. Whether Remit passes ARC results, so that a trusted forwarder's seal excuses a DMARC failure (RFC 8617).
 
 ## FAQ
 
