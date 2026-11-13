@@ -23,6 +23,7 @@ import { openSqlite } from "@remit/drizzle-service/sqlite";
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
+import { resolveFolderRoleMailboxes } from "../folder-placement.js";
 import { MessageSyncService } from "../message-sync.js";
 import { PlacementMoveService } from "../placement-move.js";
 import { InlineSpamService, type SpamConfig } from "../spam/index.js";
@@ -252,6 +253,9 @@ export const rescanServiceFor = (
 		message: store.message,
 		messageFlag: store.messageFlag,
 		messageLabel: store.messageLabel,
+		classifierLabels: store.messageLabel,
+		roles: (accountId) =>
+			resolveFolderRoleMailboxes(store.mailboxSpecialUse, accountId),
 		mailbox: store.mailbox,
 		address: store.address,
 		threadMessage: store.threadMessage,
