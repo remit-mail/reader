@@ -1,13 +1,20 @@
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type BetterSqlite3 from "better-sqlite3";
-import type { drizzle as drizzleBetterSqlite3 } from "drizzle-orm/better-sqlite3";
+import {
+	migrateSqlite,
+	openSqlite,
+	openTestSqlite,
+	type SqliteConnection,
+	type SqliteHandle,
+	type SqliteMode,
+} from "@remit/drizzle-service/sqlite";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { SqliteDatabasePaths } from "../../drizzle-service/src/databases.js";
 import {
 	type BeforeState,
 	captureBefore,
 	DROPPED_TABLES,
+	firstValue,
 	verifyAfter,
 } from "./in-place-verify.js";
 import { applyMigrationSets, MIGRATION_SETS } from "./migration-sets.js";
@@ -20,14 +27,12 @@ import { applyMigrationSets, MIGRATION_SETS } from "./migration-sets.js";
  * shape, then the ordinary sets. Nothing is copied out of the file.
  */
 
-// The native driver is handed in rather than imported, so this module bundles
-// with better-sqlite3 marked external (see npm-scripts/docker-bundle.mjs).
-export interface SqliteDriver {
-	Database: typeof BetterSqlite3;
-	drizzle: typeof drizzleBetterSqlite3;
-}
+type Handle = SqliteConnection;
 
-type Handle = BetterSqlite3.Database;
+type SqliteFile = SqliteHandle<Record<string, never>>;
+
+export const openFile = (filename: string, mode: SqliteMode): SqliteFile =>
+	openSqlite({ filename, mode, synchronous: "FULL", schema: {} });
 
 export type MigrateLog = (fields: Record<string, unknown>, msg: string) => void;
 
@@ -82,8 +87,8 @@ const tablesOf = (db: Handle): Set<string> =>
 			.prepare(
 				"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
 			)
-			.pluck()
-			.all() as string[],
+			.all()
+			.map(firstValue) as string[],
 	);
 
 const hasColumn = (db: Handle, table: string, column: string): boolean =>
@@ -92,9 +97,12 @@ const hasColumn = (db: Handle, table: string, column: string): boolean =>
 		.get(table, column) !== undefined;
 
 const count = (db: Handle, sql: string): number =>
-	db.prepare(sql).pluck().get() as number;
+	firstValue(db.prepare(sql).get()) as number;
 
-const applyStatements = (db: Handle, statements: readonly string[]): void => {
+const applyStatements = (
+	db: SqliteFile,
+	statements: readonly string[],
+): void => {
 	for (const statement of statements) {
 		if (statement.trim()) db.exec(statement);
 	}
@@ -102,24 +110,23 @@ const applyStatements = (db: Handle, statements: readonly string[]): void => {
 
 /** The tables the first migration of a set creates, on an empty database. */
 const baselineTables = (
-	driver: SqliteDriver,
 	root: string,
 	database: "app" | "mail",
 ): Set<string> => {
-	const memory = new driver.Database(":memory:");
+	const memory = openTestSqlite({});
 	try {
 		const [baseline] = migrationsOf(root, setOf(database).migrationsFolder);
 		applyStatements(memory, baseline.sql);
-		return tablesOf(memory);
+		return tablesOf(memory.sqlite);
 	} finally {
 		memory.close();
 	}
 };
 
-const readTables = (driver: SqliteDriver, path: string): Set<string> => {
-	const db = new driver.Database(path, { readonly: true, fileMustExist: true });
+const readTables = (path: string): Set<string> => {
+	const db = openFile(path, "readonly");
 	try {
-		return tablesOf(db);
+		return tablesOf(db.sqlite);
 	} finally {
 		db.close();
 	}
@@ -132,7 +139,6 @@ const nothingChanged = "Nothing was changed.";
  * cannot be migrated forward safely.
  */
 const refuseUnknownHistory = (
-	driver: SqliteDriver,
 	root: string,
 	paths: SqliteDatabasePaths,
 	tables: ReadonlyMap<string, Set<string>>,
@@ -142,7 +148,7 @@ const refuseUnknownHistory = (
 		if (!held) continue;
 		if (held.has(LEGACY_JOURNAL)) continue;
 		if (held.has(`__drizzle_migrations_${database}`)) continue;
-		const own = baselineTables(driver, root, database);
+		const own = baselineTables(root, database);
 		if (![...own].some((table) => held.has(table))) continue;
 		throw new Error(
 			`${basename(paths[database])} holds tables but no migration history, so its shape is unknown. ${nothingChanged}`,
@@ -154,7 +160,9 @@ const refuseUnknownHistory = (
 const preflight = (db: Handle, root: string, fileName: string): void => {
 	const known = migrationsOf(root, LEGACY_SETS[0].migrationsFolder).at(-1);
 	const newest = Number(
-		db.prepare(`SELECT max(created_at) FROM ${LEGACY_JOURNAL}`).pluck().get(),
+		firstValue(
+			db.prepare(`SELECT max(created_at) FROM ${LEGACY_JOURNAL}`).get(),
+		),
 	);
 	// drizzle 0.x stamped a row to the millisecond; a migration folder names
 	// only the second.
@@ -178,12 +186,13 @@ const preflight = (db: Handle, root: string, fileName: string): void => {
 		}
 	}
 
-	const running = db
-		.prepare(
-			"SELECT organize_job_id FROM organize_job_request WHERE state IN ('Pending','Running') ORDER BY 1",
-		)
-		.pluck()
-		.get() as string | undefined;
+	const running = firstValue(
+		db
+			.prepare(
+				"SELECT organize_job_id FROM organize_job_request WHERE state IN ('Pending','Running') ORDER BY 1",
+			)
+			.get(),
+	) as string | undefined;
 	if (running) {
 		throw new Error(
 			`Organize job ${running} has not finished. Let it finish on the running release, then update again. ${nothingChanged}`,
@@ -351,8 +360,7 @@ const JOURNAL_DDL = (table: string): string =>
  * and then their first migration is recorded as applied rather than run.
  */
 const adoptBaselines = (
-	db: Handle,
-	driver: SqliteDriver,
+	db: SqliteFile,
 	root: string,
 	fileName: string,
 ): void => {
@@ -361,8 +369,8 @@ const adoptBaselines = (
 		const [first] = migrationsOf(root, set.migrationsFolder);
 		return { table: set.migrationsTable, migration: first };
 	});
-	const mcpTables = new driver.Database(":memory:");
-	const expected = new driver.Database(":memory:");
+	const mcpTables = openTestSqlite({});
+	const expected = openTestSqlite({});
 	try {
 		for (const set of MIGRATION_SETS) {
 			if (set.migrationsTable !== "__drizzle_migrations_mcp") continue;
@@ -374,9 +382,9 @@ const adoptBaselines = (
 			applyStatements(expected, migration.sql);
 		}
 		const differences = baselineDifferences(
-			expected,
-			db,
-			new Set([...KEPT_LEGACY_TABLES, ...tablesOf(mcpTables)]),
+			expected.sqlite,
+			db.sqlite,
+			new Set([...KEPT_LEGACY_TABLES, ...tablesOf(mcpTables.sqlite)]),
 		);
 		if (differences.length > 0) {
 			throw new Error(
@@ -387,19 +395,21 @@ const adoptBaselines = (
 		mcpTables.close();
 		expected.close();
 	}
-	db.transaction(() => {
+	db.db.transaction(() => {
 		for (const { table, migration } of baselines) {
 			db.exec(JOURNAL_DDL(table));
-			db.prepare(
-				`INSERT INTO "${table}" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)`,
-			).run(
-				migration.hash,
-				migration.folderMillis,
-				migration.name,
-				new Date().toISOString(),
-			);
+			db.sqlite
+				.prepare(
+					`INSERT INTO "${table}" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)`,
+				)
+				.run(
+					migration.hash,
+					migration.folderMillis,
+					migration.name,
+					new Date().toISOString(),
+				);
 		}
-	})();
+	});
 };
 
 /**
@@ -408,13 +418,13 @@ const adoptBaselines = (
  * that name, and the old triggers would write into it on every thread write.
  * The index is rebuilt from the mail rows after migrating.
  */
-const dropLegacySearchIndex = (db: Handle): void => {
-	db.transaction(() => {
+const dropLegacySearchIndex = (db: SqliteFile): void => {
+	db.db.transaction(() => {
 		for (const suffix of ["ai", "ad", "au"]) {
 			db.exec(`DROP TRIGGER IF EXISTS thread_message_fts_${suffix}`);
 		}
 		db.exec("DROP TABLE IF EXISTS thread_message_fts");
-	})();
+	});
 };
 
 const logRemovals = (db: Handle, log: MigrateLog): void => {
@@ -477,13 +487,13 @@ const refuseSplitInstall = (paths: SqliteDatabasePaths): void => {
  */
 const VERIFIED_TABLE = "__remit_in_place_verified";
 
-const markVerified = (db: Handle): void => {
+const markVerified = (db: SqliteFile): void => {
 	db.exec(
 		`CREATE TABLE IF NOT EXISTS "${VERIFIED_TABLE}" (verified_at integer NOT NULL)`,
 	);
-	db.prepare(`INSERT INTO "${VERIFIED_TABLE}" (verified_at) VALUES (?)`).run(
-		Date.now(),
-	);
+	db.sqlite
+		.prepare(`INSERT INTO "${VERIFIED_TABLE}" (verified_at) VALUES (?)`)
+		.run(Date.now());
 };
 
 export interface InPlaceMigration {
@@ -495,18 +505,17 @@ export interface InPlaceMigration {
  * verification pairs' before half. Returns null when there is no v0.9 file to
  * bring forward. The ordinary sets run next, then {@link InPlaceMigration.verify}.
  */
-export const prepareInPlace = async (
+export const prepareInPlace = (
 	paths: SqliteDatabasePaths,
-	driver: SqliteDriver,
 	root: string,
 	log: MigrateLog,
-): Promise<InPlaceMigration | null> => {
+): InPlaceMigration | null => {
 	refuseSplitInstall(paths);
 	const files = [...new Set([paths.app, paths.mail, paths.search])].filter(
 		(path) => existsSync(path),
 	);
-	const tables = new Map(files.map((path) => [path, readTables(driver, path)]));
-	refuseUnknownHistory(driver, root, paths, tables);
+	const tables = new Map(files.map((path) => [path, readTables(path)]));
+	refuseUnknownHistory(root, paths, tables);
 
 	const legacy = files.find((path) => tables.get(path)?.has(LEGACY_JOURNAL));
 	if (!legacy) return null;
@@ -525,33 +534,26 @@ export const prepareInPlace = async (
 	}
 
 	let before: BeforeState;
-	const reader = new driver.Database(legacy, {
-		readonly: true,
-		fileMustExist: true,
-	});
+	const reader = openFile(legacy, "readonly");
 	try {
-		preflight(reader, root, fileName);
-		before = captureBefore(reader);
+		preflight(reader.sqlite, root, fileName);
+		before = captureBefore(reader.sqlite);
 	} finally {
 		reader.close();
 	}
 
-	const db = new driver.Database(legacy, { fileMustExist: true });
+	const db = openFile(legacy, "open");
 	try {
-		db.pragma("journal_mode = WAL");
-		db.pragma("busy_timeout = 5000");
-		db.pragma("foreign_keys = ON");
-		logRemovals(db, log);
+		logRemovals(db.sqlite, log);
 		dropLegacySearchIndex(db);
-		const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
 		for (const set of LEGACY_SETS) {
 			log({ database: set.migrationsTable }, "applying the v0.9 migrations");
-			migrate(driver.drizzle({ client: db }), {
+			migrateSqlite(db, {
 				migrationsFolder: join(root, set.migrationsFolder),
 				migrationsTable: set.migrationsTable,
 			});
 		}
-		adoptBaselines(db, driver, root, fileName);
+		adoptBaselines(db, root, fileName);
 		log({ step: "in-place" }, "recorded the v0.10 baselines as applied");
 	} finally {
 		db.close();
@@ -559,12 +561,9 @@ export const prepareInPlace = async (
 
 	return {
 		verify: () => {
-			const check = new driver.Database(legacy, {
-				readonly: true,
-				fileMustExist: true,
-			});
+			const check = openFile(legacy, "readonly");
 			try {
-				const result = verifyAfter(check, before, fileName);
+				const result = verifyAfter(check.sqlite, before, fileName);
 				for (const pair of result.pairs) {
 					log({ step: "in-place-verify", ...pair }, "unchanged");
 				}
@@ -575,9 +574,8 @@ export const prepareInPlace = async (
 			} finally {
 				check.close();
 			}
-			const writer = new driver.Database(legacy, { fileMustExist: true });
+			const writer = openFile(legacy, "open");
 			try {
-				writer.pragma("busy_timeout = 5000");
 				markVerified(writer);
 			} finally {
 				writer.close();
@@ -591,40 +589,30 @@ export const prepareInPlace = async (
  * forward in place, every set applied, and the in-place result verified before
  * anything else writes to it.
  */
-export const migrateSqliteFiles = async (
+export const migrateSqliteFiles = (
 	paths: SqliteDatabasePaths,
-	driver: SqliteDriver,
 	root: string,
 	log: MigrateLog,
-): Promise<void> => {
-	const inPlace = await prepareInPlace(paths, driver, root, log);
-	const files = [...new Set([paths.app, paths.mail, paths.search])];
-	const handles = new Map(
-		files.map((path) => {
-			const sqlite = new driver.Database(path);
-			sqlite.pragma("journal_mode = WAL");
-			sqlite.pragma("busy_timeout = 5000");
-			sqlite.pragma("foreign_keys = ON");
-			return [path, sqlite] as const;
-		}),
-	);
-	const drizzleOf = (path: string) => {
-		const sqlite = handles.get(path);
-		if (!sqlite) throw new Error(`${path} is not open`);
-		return driver.drizzle({ client: sqlite });
+): void => {
+	const inPlace = prepareInPlace(paths, root, log);
+	const handles = new Map<string, SqliteFile>();
+	const open = (path: string): SqliteFile => {
+		const handle = handles.get(path) ?? openFile(path, "create");
+		handles.set(path, handle);
+		return handle;
 	};
 	try {
-		await applyMigrationSets(
+		applyMigrationSets(
 			{
-				app: drizzleOf(paths.app),
-				mail: drizzleOf(paths.mail),
-				search: drizzleOf(paths.search),
+				app: open(paths.app),
+				mail: open(paths.mail),
+				search: open(paths.search),
 			},
 			root,
 			(database) => log({ database }, "applying schema migrations (sqlite)"),
 		);
 	} finally {
-		for (const sqlite of handles.values()) sqlite.close();
+		for (const handle of handles.values()) handle.close();
 	}
 	inPlace?.verify();
 };
