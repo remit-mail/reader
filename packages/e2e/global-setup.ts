@@ -34,10 +34,6 @@ const PRE_FLAGGED_SUBJECT = "Flagged before you ever saw it";
  * more: every seeding budget in the suite is sized against the inbox count, and
  * a thirteenth message through the sync pipeline put the slowest of them past
  * its wait (#290).
- *
- * It carries no Authentication-Results, so the placement heuristic has no DMARC
- * verdict to demote on and the message stays in the inbox where the spec looks
- * for it.
  */
 const DKIM_MISMATCH = {
 	subject: "Your receipt from the hardware store",

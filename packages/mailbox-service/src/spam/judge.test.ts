@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SpamRequest } from "@remit/data-ports";
 import { SpamAction, SpamKind, SpamReasonName } from "@remit/domain-enums";
+import { simpleParser } from "mailparser";
 import * as tldts from "tldts";
 import { looksGenerated, skeleton } from "./domains.js";
+import { buildSpamRequest } from "./evidence.js";
 import { actionOf, judge } from "./judge.js";
 
 const request = (
@@ -64,6 +66,96 @@ describe("the inline judge", () => {
 		);
 		assert.deepEqual(found?.options, ["esp.example"]);
 	});
+
+	const SET = { state: "Set", cleanBelow: 0.3, spamAt: 0.9 } as const;
+
+	const arrived = async (lines: string[]): Promise<SpamRequest> => {
+		const raw = Buffer.from([...lines, "", "body"].join("\r\n"));
+		return buildSpamRequest(
+			await simpleParser(raw),
+			raw,
+			{
+				rcpt: [],
+				receivedAt: Date.parse("2026-11-13T10:00:00Z"),
+				knownSender: false,
+				senderMessagesSeen: 0,
+				senderDomainMessagesSeen: 4,
+				senderDomainRegisteredAt: undefined,
+				classifierScores: [],
+				modelAllowed: false,
+			},
+			tldts,
+		);
+	};
+
+	const FROM = "From: Support <support@evil-mimic.example>";
+	const RELAY_SIGNATURE =
+		"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx";
+	const OWN_SIGNATURE =
+		"DKIM-Signature: v=1; a=rsa-sha256; d=evil-mimic.example; s=sel; b=xxx";
+	const FORGED =
+		"Authentication-Results: whatever; dkim=pass header.d=evil-mimic.example; dmarc=pass header.from=evil-mimic.example";
+	const REAL = "Authentication-Results: mx.example.com; dmarc=fail";
+
+	const failing: Record<string, string[]> = {
+		"a failing DKIM signature": [
+			FROM,
+			OWN_SIGNATURE,
+			"Authentication-Results: mx.example.com; dkim=fail header.d=evil-mimic.example; dmarc=fail",
+		],
+		"a signature from another domain": [FROM, RELAY_SIGNATURE, REAL],
+		"a forged passing result ahead of the receiver's": [
+			FORGED,
+			REAL,
+			FROM,
+			RELAY_SIGNATURE,
+		],
+		"a forged passing result after the receiver's": [
+			REAL,
+			FORGED,
+			FROM,
+			RELAY_SIGNATURE,
+		],
+	};
+
+	for (const [label, lines] of Object.entries(failing)) {
+		it(`sends a DMARC fail with ${label} to Junk at a spamAt of 0.9`, async () => {
+			const verdict = judge(await arrived(lines), SET, tldts);
+			assert.ok(
+				verdict.reasons.some(
+					(reason) => reason.name === SpamReasonName.DkimDmarcFail,
+				),
+			);
+			assert.ok(verdict.score >= 0.9);
+			assert.equal(verdict.action, SpamAction.Junk);
+		});
+	}
+
+	const passing: Record<string, string[]> = {
+		"a signature from another domain without a DMARC fail": [
+			FROM,
+			RELAY_SIGNATURE,
+			"Authentication-Results: mx.example.com; dkim=pass header.d=relay.example.net; dmarc=pass",
+		],
+		"a failing DKIM signature without a DMARC fail": [
+			FROM,
+			OWN_SIGNATURE,
+			"Authentication-Results: mx.example.com; dkim=fail header.d=evil-mimic.example; dmarc=pass",
+		],
+		"a DMARC fail with the sender's own passing signature": [
+			FROM,
+			OWN_SIGNATURE,
+			"Authentication-Results: mx.example.com; dkim=pass header.d=evil-mimic.example; dmarc=fail",
+		],
+	};
+
+	for (const [label, lines] of Object.entries(passing)) {
+		it(`does not flag ${label}`, async () => {
+			assert.ok(
+				!reasons(await arrived(lines)).includes(SpamReasonName.DkimDmarcFail),
+			);
+		});
+	}
 
 	it("flags a punycode link domain", () => {
 		assert.ok(

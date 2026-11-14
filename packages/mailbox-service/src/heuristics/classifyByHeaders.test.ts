@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { MessageItem } from "@remit/data-ports";
-import {
-	MessageCategory,
-	SenderOverride,
-	SenderTrust,
-} from "@remit/domain-enums";
+import { MessageCategory } from "@remit/domain-enums";
 import { type ParsedMail, simpleParser } from "mailparser";
 import {
 	classifyByHeaders,
@@ -14,7 +9,6 @@ import {
 	extractHasListUnsubscribe,
 	extractProviderSpam,
 } from "./classifyByHeaders.js";
-import { classifyPlacement } from "./classifyPlacement.js";
 
 const buildEml = (lines: string[]): Buffer => Buffer.from(lines.join("\r\n"));
 
@@ -500,41 +494,6 @@ describe("extractHasListUnsubscribe", () => {
 	});
 });
 
-const messageFrom = (parsed: ParsedMail): MessageItem => ({
-	messageId: "m-1",
-	mailboxId: "mb-1",
-	uid: 1,
-	sequenceNumber: 1,
-	rfc822Size: 1,
-	internalDate: 1,
-	envelopeId: "e-1",
-	rootBodyPartId: "bp-1",
-	status: "active",
-	syncStatus: "synced",
-	abandonedMutation: "none",
-	category: "uncategorized",
-	classificationState: "NotExamined",
-	classifierScores: [],
-	spamVerdict: { state: "NotChecked" },
-	spamCleared: false,
-	hasListUnsubscribe: false,
-	movedByRemit: false,
-	createdAt: 1,
-	updatedAt: 1,
-	providerSpam: extractProviderSpam(parsed) ?? undefined,
-	authResult: extractAuthResult(parsed) ?? undefined,
-	authenticity: extractAuthenticity(parsed) ?? undefined,
-});
-
-const inboxVerdict = (parsed: ParsedMail) =>
-	classifyPlacement(
-		messageFrom(parsed),
-		"inbox",
-		SenderTrust.Unknown,
-		SenderOverride.None,
-		false,
-	);
-
 const withBody = (lines: string[]): string[] => [...lines, "", "body"];
 
 const verdictsOf = (parsed: ParsedMail) => {
@@ -572,8 +531,6 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 		const without = await header("");
 		const withEsp = await header("dkim=pass header.d=esp-mailer.example; ");
 		assert.deepEqual(verdictsOf(withEsp), verdictsOf(without));
-		assert.deepEqual(inboxVerdict(withEsp), inboxVerdict(without));
-		assert.equal(inboxVerdict(withEsp).action, "leave");
 	});
 
 	it("never junks list mail whose relay stripped the original signature", async () => {
@@ -587,7 +544,6 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 			]),
 		);
 		assert.equal(extractAuthenticity(parsed), null);
-		assert.equal(inboxVerdict(parsed).action, "leave");
 	});
 
 	it("never lets a prepended header override the raw signing domain", async () => {
@@ -625,7 +581,6 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 		for (const order of ["forged-first", "real-first"] as const) {
 			const parsed = await parse(lines(order));
 			assert.equal(extractAuthResult(parsed)?.dmarc, "Fail", order);
-			assert.equal(inboxVerdict(parsed).action, "move-to-junk", order);
 		}
 	});
 

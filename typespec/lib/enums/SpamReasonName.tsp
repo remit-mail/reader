@@ -5,6 +5,9 @@ enum SpamReasonName {
   @doc("Check 1: DMARC failed.")
   DmarcFail: "DmarcFail",
 
+  @doc("Check 1: DMARC failed, and DKIM failed or the signature belongs to another domain than the sender's.")
+  DkimDmarcFail: "DkimDmarcFail",
+
   @doc("Check 1: the message is signed by a different registrable domain than its sender's.")
   SignerMismatch: "SignerMismatch",
 
