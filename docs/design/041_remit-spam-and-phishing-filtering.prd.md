@@ -1,10 +1,10 @@
 # Product requirements for spam and phishing in Remit
 
-Companion to RFC 041 (`041_remit-spam-and-phishing-filtering.md`). Status: built, 2026-11-14, in reader #1648 to #1653 and reader-ui #44 and #45, except the stories under Not built.
+Companion to RFC 041 (`041_remit-spam-and-phishing-filtering.md`). Status: built, 2026-11-14, in reader #1648 to #1654 and reader-ui #44 and #45, except the stories under Not built.
 
 ## Summary
 
-Remit never hides a spam decision from the owner. Every message Remit warns about or moves carries its reasons in plain words. The owner sees the score and the two thresholds behind each decision. The owner can clear a wrong verdict, report a sender, exempt a sender, and set Warn only per kind. Both thresholds come from the deployment. A settings page counts the mail Remit flagged per day, lists the latest of it, and links to the lists where the owner rescues good mail.
+Remit never hides a spam decision from the owner. Every message Remit warns about or moves carries its reasons in plain words. The owner sees the score and the two thresholds behind each decision. The owner can clear a wrong verdict, report a sender, exempt a sender, and set Warn only per kind. Deployment config sets the thresholds, in `SPAM_PIPELINE`. A settings page counts the mail Remit flagged per day, lists the latest of it, and links to the lists where the owner rescues good mail.
 
 A suspect message stays where it arrived, under a banner that names the suspicion and its cause. Deleting spam moves it to Trash. Remit deletes nothing on its own, and nothing runs on a schedule.
 
@@ -74,8 +74,8 @@ As the owner managing senders, I want to exempt a sender from spam checks, so th
 
 As the owner tuning the filter, I want to see the scores at which Remit warns and moves, so that I can read each decision against them.
 
-1. Settings, Spam shows "Warn from" and "Move to Spam from" as the deployment sets them in `SPAM_CLEAN_BELOW` and `SPAM_AT`.
-2. While the deployment sets neither, Remit warns about and moves nothing on a spam verdict.
+1. Settings, Spam shows "Warn from" and "Move to Spam from" as the deployment sets them for the inline judge in `SPAM_PIPELINE`.
+2. While `SPAM_PIPELINE` is unset, Remit warns about and moves nothing on a spam verdict.
 
 ### S7, pick an action per label
 
@@ -117,7 +117,7 @@ As the owner after a threshold change, I want to re-check the messages I pick, s
 3. A `Warn` the model never judged, because the account has no model or reached its daily cap, says which in its banner, and says only the basic checks ran.
 4. After `RateLimited` or `DailyCap` failures, Check again lists those messages with "Try again in a minute" or "Try again tomorrow". Its retry sends only those ids.
 5. After `NotFound` or `NotPermitted` failures, the page names each message and its cause, holds no retry, and links to report an issue.
-6. A host whose `SPAM_CLEAN_BELOW` exceeds `SPAM_AT`, or holds a value outside 0 to 1, refuses to start and names the broken rule.
+6. A host whose `SPAM_PIPELINE` breaks the schema, or that still sets a replaced `SPAM_*` key, refuses to start and names the broken rule.
 7. A failed Report spam or Not spam shows a banner naming the action, with Try again, as "Couldn't report this message as spam" does today.
 8. A 401 or 403 on the counts, the latest list or Check again shows the signed-out notice. It never shows an empty list or a zero.
 
@@ -137,7 +137,7 @@ As the owner after a threshold change, I want to re-check the messages I pick, s
 
 The build closed the gaps the first draft listed.
 
-1. `Message.spamVerdict` carries action, kind, score, reasons and `modelOutcome`.
+1. `Message.spamVerdict` carries action, kind, score, reasons, `modelOutcome` and `decidedBy`.
 2. `SpamReasonName` is a closed enum, so the app holds a sentence for each name.
 3. Stage 3 adds `ModelImpersonation`, `ModelSpam` or `ModelClean` with the model's reason, and `modelOutcome` names a skipped call and its cause.
 4. `ScreenedOut` records the stage 1 rule, with the filter's id.
@@ -148,7 +148,7 @@ The build closed the gaps the first draft listed.
 
 ## Not built
 
-1. The owner cannot set the thresholds in the app. They are deployment variables.
+1. The owner cannot set the thresholds in the app. They live in the deployment's `SPAM_PIPELINE`.
 2. No preview counts the mail that new thresholds warn about or move.
 3. No count of Not spam marks per day exists.
 
@@ -207,7 +207,7 @@ Each criterion maps to one test. Unit tests feed their own inputs. Playwright te
 | N1.3 | Story | `Design System/Spam/SpamWarningBanner` `ModelSkipped` |
 | N1.4 | Unit | retry picks only retryable ids, web-client |
 | N1.5 | Story | `Playground/Proposed/Spam check again` `PartialFailure` |
-| N1.6 | Unit | the host refuses a broken threshold pair |
+| N1.6 | Unit | the host refuses a broken `SPAM_PIPELINE` |
 | N1.7 | Story | `Playground/Shipped/Mail/ErrorBanner` `ReportSpamFailed` |
 | N1.8 | Story | `Playground/Proposed/Spam settings` `SignedOut` |
 | N2.1 | Playwright | `spam-warning.spec.ts`: Tab order |

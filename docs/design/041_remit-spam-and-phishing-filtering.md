@@ -1,12 +1,12 @@
 # Remit spam and phishing filtering
 
-RFC 041. Status: built, 2026-11-14, in reader #1648 to #1653 and reader-ui #44 and #45. Calibration has not run yet, so the thresholds are unset.
+RFC 041. Status: built, 2026-11-14, in reader #1648 to #1654 and reader-ui #44 and #45. Calibration has not run yet, so the thresholds are unset.
 
 ## Goal
 
 Remit decides itself whether a new message is spam or phishing. It moves a high-scoring message to Junk. A message in the uncertain band stays in place, with a warning to the owner. A spam service makes the call. The service is a judge: it weighs what the request presents and returns a score, an action and named reasons. It never goes out to collect evidence. Remit gathers the evidence and sends it in one request. That evidence includes sender history, the provider's verdict and the authentication results.
 
-The check runs in three stages, cheapest first, and each stage can end it. Remit first lets known and trusted senders through without a call. The spam service then runs cheap checks on the message itself. A language model judges only the messages those checks leave undecided.
+The check runs in three stages, cheapest first, and each stage can end it. Remit first lets known and trusted senders through without a call. The spam service then runs cheap checks on the message itself. A language model judges only the messages those checks leave undecided. Behind the one service interface sits an ordered list of judges, which the deployment sets in `SPAM_PIPELINE`.
 
 ## The contract
 
@@ -26,8 +26,9 @@ type SpamRequest = {
   envelope: {
     mailFrom: string; // Return-Path
     rcpt: string[]; // the account's own addresses
-    ip: string; // from the receiving server's Received header, or empty
-    helo: string; // likewise, or empty
+    ip: string; // the hop the provider's SPF check judged, else the first public hop, or empty
+    helo: string; // that hop's HELO name, or empty
+    hostname: string; // that hop's reverse DNS name, or empty
   };
   authentication: {
     dmarc: AuthResultVerdict;
@@ -68,6 +69,7 @@ type SpamResponse =
       kind: "Spam" | "Phishing";
       reasons: SpamReason[];
       modelOutcome: "Answered" | "NotConfigured" | "DailyLimit" | "RateLimited" | "OutOfBand";
+      decidedBy: "Inline" | "Rspamd" | "Model";
     }
   | { state: "Failed"; kind: SpamFailureKind };
 
@@ -104,14 +106,25 @@ type SpamReason = {
 };
 ```
 
-The service compares the score with two thresholds to pick the action. While the thresholds are unset, every action is `None`. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. The names form a closed enum, so the mail app maps each one to one plain sentence. `symbol` holds the backend's own name for the check, and the inline engine sets it to `name`. A backend symbol with no matching name arrives as `BackendSymbol`, and the mail app shows it as an unknown reason. Only a backend such as rspamd reports `ListedPhishingLink`, for a link a phishing feed lists. `modelOutcome` names why the model did not answer, when it did not.
+`decidedBy` names the judge whose score and action stand, and `reasons` holds the reasons of every judge that ran. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. The names form a closed enum, so the mail app maps each one to one plain sentence. `symbol` holds the backend's own name for the check, and the inline engine sets it to `name`. A backend symbol with no matching name arrives as `BackendSymbol`, and the mail app shows it as an unknown reason. Only a backend such as rspamd reports `ListedPhishingLink`, for a link a phishing feed lists. `modelOutcome` names why the model did not answer, when it did not.
 
-### Backends
+### Judges
 
-1. The inline engine runs inside Remit. Remit builds it as the default backend.
-2. The rspamd adapter posts `message.raw` to `/checkv2`. It sends `envelope` as the `From`, `Rcpt`, `IP` and `Helo` headers. It drops `context`, which rspamd has no field for. The adapter divides `score` by `required_score` to get the 0 to 1 score, and maps symbols and actions as the next section lists.
+`SPAM_PIPELINE` is a JSON list of judges, in the order they run. Each judge maps its score to an action, sure or unsure.
 
-The backend is deployment config: `SPAM_BACKEND` is `Inline` (the default) or `Rspamd`, with `SPAM_RSPAMD_URL`. Both hosts read the same variables, the VPS from its environment and the Cloudflare host from its Worker vars. A spam Worker backend is not built, so the Cloudflare host runs the inline engine.
+1. `Inline` runs the stage 2 checks. Its thresholds are `Set`, with `cleanBelow` and `spamAt`, or `Unset`. Set thresholds make it sure below `cleanBelow` (`None`) and from `spamAt` up (`Junk`). Between them it warns. Unset thresholds give `None` and leave it unsure.
+2. `Rspamd` posts `message.raw` to `/checkv2` under its `url`, over plain HTTP with no authentication. It sends `envelope` as the `From`, `Rcpt` (first recipient only), `IP`, `Helo` and `Hostname` headers, and drops `context`. The score is `score` divided by `required_score`, capped at 1. Rspamd takes no thresholds. The next section maps its actions.
+3. `Model` is stage 3. Its thresholds are always set.
+
+The run follows these rules:
+
+1. The first sure judge ends the run, and its action stands.
+2. When no judge is sure, the action is `Warn` if any judge warned, else `None`. The last judge to judge sets score and kind.
+3. A failing judge ends the run as `Failed`.
+4. Without `SPAM_PIPELINE`, the inline judge runs alone with thresholds unset, and nothing moves.
+5. The backend refuses to start on a list the schema rejects: only `Model`, `cleanBelow` above `spamAt`, a non-HTTP rspamd URL, or a field no judge reads. It also refuses while `SPAM_BACKEND`, `SPAM_CLEAN_BELOW`, `SPAM_AT` or `SPAM_RSPAMD_URL` is set.
+
+A spam service behind an HTTP Worker becomes one more judge in the list when someone builds it.
 
 ### Rspamd mapping
 
@@ -127,10 +140,9 @@ The backend is deployment config: `SPAM_BACKEND` is `Inline` (the default) or `R
 | `PHISHED_*` | `ListedPhishingLink` |
 
 2. Every other symbol becomes `BackendSymbol`, with its rspamd name in `symbol`.
-3. `reject`, `discard` and `quarantine` map to `Junk`.
-4. `add header`, `greylist`, `rewrite subject` and `soft reject` map to `Warn`.
-5. `no action` maps to `None`.
-6. Rspamd keeps its own action, so a deployment that names rspamd refuses the two threshold variables.
+3. `reject`, `discard` and `quarantine` map to `Junk`, and rspamd is sure.
+4. `add header`, `greylist`, `rewrite subject` and `soft reject` map to `Warn`, and the next judge runs.
+5. `no action` maps to `None`, and rspamd is sure.
 
 ## The pipeline
 
@@ -161,13 +173,13 @@ The inline engine runs these checks as a pure function of the request, with no l
 10. The provider calls the message spam. The engine trusts it least, since the provider misjudges mail both ways.
 11. The display name spells out an email at another domain, or sits a short edit distance from a sender or link domain label (today's `ForeignAddress` and `Lookalike`).
 
-Link checks count only for a new sender. The engine turns the checks into one score, for example with a fixed weight per check. A score under `cleanBelow` means `None`, and a score from `spamAt` up means `Junk`. Between those two thresholds the message is ambiguous, and goes to stage 3.
+Link checks count only for a new sender. The engine turns the checks into one score, for example with a fixed weight per check. A message between the two thresholds is ambiguous and goes to the next judge.
 
 ### Stage 3 asks the model about ambiguous mail
 
-Stage 3 runs in Remit after the spam service answers `Warn`. Remit calls the account's model once, with the message and the stage 2 reasons. The model judges impersonation: does the message claim an organisation the sender's domain does not belong to. Its score replaces the stage 2 score and sets the action again, and its verdict adds `ModelImpersonation`, `ModelSpam` or `ModelClean` with the model's reason quoted. An impersonation makes the kind `Phishing`.
+The model judge runs when no earlier judge was sure. Remit calls the account's model once, with the message and the earlier judges' reasons. The model judges impersonation: does the message claim an organisation the sender's domain does not belong to. Its score and its own thresholds set the action, and its verdict adds `ModelImpersonation`, `ModelSpam` or `ModelClean` with the model's reason quoted. An impersonation makes the kind `Phishing`.
 
-Stage 3 runs only when `modelAllowed` is true. A message that stays between the thresholds after stage 3, or never reaches the model, gets `Warn`. A rate-limited call skips the model and records `RateLimited`, and any other model failure makes the verdict `Failed`.
+The model judge abstains when the account has no model (`NotConfigured`), has reached its daily cap (`DailyLimit`), or the provider refuses the call for its rate limit (`RateLimited`). The run then goes on to the next judge. Any other model failure makes the verdict `Failed`.
 
 The two services stay apart. One answers where a message belongs, and the other answers whether the message is safe. They can share one model provider.
 
@@ -191,7 +203,7 @@ The owner's mail provider checks URL blocklists, authenticates the message and a
 
 ## Cost per message
 
-Stage 1 reads the sender's row that body sync already reads for placement, and counts the earlier mail the request reports. Remit makes one RDAP query per registrable domain it has not cached yet. Stage 2 makes no network call. Stage 3 makes one model call, which claims one unit of the account's daily cap of 500 (`DEFAULT_CLASSIFICATION_DAILY_LIMIT`), shared with the category classifier. No count exists yet of the mail that reaches stage 3.
+Stage 1 reads the sender's row that body sync already reads for placement, and counts the earlier mail the request reports. Remit makes one RDAP query per registrable domain it has not cached yet. The inline judge makes no network call, and an rspamd judge makes one HTTP call. Stage 3 makes one model call, which claims one unit of the account's daily cap of 500 (`DEFAULT_CLASSIFICATION_DAILY_LIMIT`), shared with the category classifier. No count exists yet of the mail that reaches stage 3.
 
 ## Rescan
 
@@ -228,8 +240,8 @@ type RescanResult = {
 1. The owner rescans the existing mailboxes with `move` off. Every message gets a category classifier answer and a stored spam score.
 2. Known spam is the mail the owner reported. Known good is the mail from VIP and well-known senders.
 3. `spamAt` sits where the known spam scores begin and the known good scores have thinned out. `cleanBelow` sits below the bulk of the known spam.
-4. The values go in `SPAM_CLEAN_BELOW` and `SPAM_AT` on both hosts. Both or neither must be set, each from 0 to 1, and a host refuses to start on a broken pair. `getUserSettings` returns them read-only in `spam.thresholds`, the place a per-user setting can later fill.
-5. `getClassificationStats` returns `spamScoreBands`, counts per score band of width 0.05, so the owner can read where the bands fall.
+4. The values go in the judge's `thresholds` in `SPAM_PIPELINE`, each from 0 to 1. `getUserSettings` returns the inline judge's thresholds read-only in `spam.thresholds`, the place a per-user setting can later fill.
+5. `getClassificationStats` returns `spamScoreBands`, counts of inline-decided verdicts per score band of width 0.05, so the owner can read where the bands fall.
 
 ## Cleanup
 
@@ -266,17 +278,18 @@ Each item below either became evidence for the spam service or went. Items 1, 2,
 ## Delivery order
 
 1. #1648: the contract, the inline judge, evidence gathering with RDAP, `Message.spamVerdict` and the stage 1 screens.
-2. #1649: the rspamd backend.
+2. #1649: the rspamd judge.
 3. #1650: stage 3 and the rescan operation.
 4. #1651: placement and the two spam labels.
 5. #1652: one classify-and-record step shared by body sync and rescan.
 6. #1653: `spamCleared` on Not spam.
-7. The two reader-ui PRs: the banner, the row mark, the rail section, Check again and Settings, Spam.
-8. Not built yet: calibration, then the deletion of the DKIM demote, then a spam Worker backend.
+7. #1654: the judges as a pipeline in `SPAM_PIPELINE`, with `decidedBy`.
+8. The two reader-ui PRs: the banner, the row mark, the rail section, Check again and Settings, Spam.
+9. Not built yet: calibration, then the deletion of the DKIM demote.
 
 ## FAQ
 
-Why not run rspamd as the default? Its rule files need an admin team. Rspamd stays available as an adapter.
+Why not run rspamd as the default? Its rule files need an admin team. A deployment can add rspamd as a judge.
 
 Why not let the category classifier decide spam? It answers where mail belongs. Its answer reaches the spam service as one input.
 
