@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import type { SpamRequest, SpamResponse } from "@remit/data-ports";
+import {
+	type SpamPipeline,
+	type SpamRequest,
+	spamPipelineFromEnv,
+} from "@remit/data-ports";
 import {
 	ClassificationAdapterShape,
 	SpamAction,
 	SpamModelOutcome,
+	SpamReasonName,
 } from "@remit/domain-enums";
 import {
 	type StubHttpServer,
 	startStubHttpServer,
 } from "../test-helpers/stub-http-server.js";
-import { consultSpamModel, type SpamModelAccess } from "./model.js";
+import { spamServiceFor } from "./index.js";
+import { SPAM_MODEL_OFF, type SpamModelAccess } from "./model.js";
 
 const THRESHOLDS = { state: "Set", cleanBelow: 0.2, spamAt: 0.8 } as const;
 
@@ -40,16 +46,6 @@ const REQUEST: SpamRequest = {
 		modelAllowed: true,
 	},
 };
-
-const checked = (score: number): SpamResponse => ({
-	state: "Checked",
-	score,
-	action: score < 0.2 ? SpamAction.None : SpamAction.Warn,
-	kind: "Spam",
-	reasons: [],
-	modelOutcome:
-		score < 0.2 ? SpamModelOutcome.OutOfBand : SpamModelOutcome.NotConfigured,
-});
 
 const decision = (choice: string, clean: number) => ({
 	status: 200,
@@ -101,51 +97,109 @@ const access = (claims: string[]): SpamModelAccess => ({
 	account: { accountId: "acct", accountConfigId: "cfg" },
 });
 
-describe("consultSpamModel", () => {
-	const cases = [
-		{
-			name: "in band, the model calls it clean",
-			score: 0.5,
-			reply: decision("Clean", 0.9),
-			claims: 1,
-			action: SpamAction.None,
-		},
-		{
-			name: "in band, the model calls it spam",
-			score: 0.5,
-			reply: decision("Spam", 0.05),
-			claims: 1,
-			action: SpamAction.Junk,
-		},
-		{
-			name: "out of band",
-			score: 0.1,
-			reply: decision("Spam", 0.05),
-			claims: 0,
-			action: SpamAction.None,
-		},
-	];
-	for (const row of cases) {
-		it(row.name, async () => {
-			answer = row.reply;
-			const claims: string[] = [];
+const IN_BAND = { state: "Set", cleanBelow: 0.01, spamAt: 0.99 } as const;
 
-			const verdict = await consultSpamModel(
-				access(claims),
-				REQUEST,
-				checked(row.score),
-				THRESHOLDS,
-				Date.now(),
-			);
+const pipeline = (model: SpamPipeline[number]): SpamPipeline => [
+	{ name: "Inline", thresholds: IN_BAND },
+	model,
+];
 
-			assert.equal(claims.length, row.claims);
-			assert.equal(verdict.state === "Checked" && verdict.action, row.action);
-			assert.equal(
-				verdict.state === "Checked" && verdict.modelOutcome,
-				row.claims === 1
-					? SpamModelOutcome.Answered
-					: SpamModelOutcome.OutOfBand,
-			);
-		});
-	}
+describe("the model judge", () => {
+	it("decides with its own thresholds after the inline judge is unsure", async () => {
+		answer = decision("Spam", 0.05);
+		const claims: string[] = [];
+
+		const verdict = await spamServiceFor(
+			pipeline({ name: "Model", thresholds: THRESHOLDS }),
+			access(claims),
+			Date.now(),
+		).check(REQUEST);
+
+		assert.equal(claims.length, 1);
+		assert.equal(verdict.state, "Checked");
+		if (verdict.state !== "Checked") return;
+		assert.equal(verdict.action, SpamAction.Junk);
+		assert.equal(verdict.score, 0.95);
+		assert.equal(verdict.decidedBy, "Model");
+		assert.equal(verdict.modelOutcome, SpamModelOutcome.Answered);
+		assert.equal(verdict.reasons.at(-1)?.name, SpamReasonName.ModelSpam);
+		assert.ok(verdict.reasons.length > 1);
+	});
+
+	it("warns for a model score inside its own band", async () => {
+		answer = decision("Spam", 0.5);
+
+		const verdict = await spamServiceFor(
+			pipeline({ name: "Model", thresholds: THRESHOLDS }),
+			access([]),
+			Date.now(),
+		).check(REQUEST);
+
+		assert.equal(
+			verdict.state === "Checked" && verdict.action,
+			SpamAction.Warn,
+		);
+	});
+
+	it("is not asked when the inline judge is sure", async () => {
+		answer = decision("Spam", 0.05);
+		const claims: string[] = [];
+
+		const verdict = await spamServiceFor(
+			[
+				{
+					name: "Inline",
+					thresholds: { state: "Set", cleanBelow: 0.99, spamAt: 1 },
+				},
+				{ name: "Model", thresholds: THRESHOLDS },
+			],
+			access(claims),
+			Date.now(),
+		).check(REQUEST);
+
+		assert.equal(claims.length, 0);
+		assert.equal(
+			verdict.state === "Checked" && verdict.action,
+			SpamAction.None,
+		);
+		assert.equal(
+			verdict.state === "Checked" && verdict.modelOutcome,
+			SpamModelOutcome.OutOfBand,
+		);
+	});
+
+	it("abstains for an account without a model, leaving the inline warning", async () => {
+		const verdict = await spamServiceFor(
+			pipeline({ name: "Model", thresholds: THRESHOLDS }),
+			SPAM_MODEL_OFF,
+			Date.now(),
+		).check(REQUEST);
+
+		assert.equal(verdict.state, "Checked");
+		if (verdict.state !== "Checked") return;
+		assert.equal(verdict.action, SpamAction.Warn);
+		assert.equal(verdict.decidedBy, "Inline");
+		assert.equal(verdict.modelOutcome, SpamModelOutcome.NotConfigured);
+	});
+});
+
+describe("the default pipeline", () => {
+	it("records the inline score and neither acts nor asks the model", async () => {
+		answer = decision("Spam", 0.05);
+		const claims: string[] = [];
+
+		const verdict = await spamServiceFor(
+			spamPipelineFromEnv({}),
+			access(claims),
+			Date.now(),
+		).check(REQUEST);
+
+		assert.equal(claims.length, 0);
+		assert.equal(verdict.state, "Checked");
+		if (verdict.state !== "Checked") return;
+		assert.ok(verdict.score > 0);
+		assert.equal(verdict.action, SpamAction.None);
+		assert.equal(verdict.decidedBy, "Inline");
+		assert.equal(verdict.modelOutcome, SpamModelOutcome.OutOfBand);
+	});
 });

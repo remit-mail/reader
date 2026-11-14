@@ -1,15 +1,5 @@
-import type {
-	SpamRequest,
-	SpamResponse,
-	SpamService,
-	SpamThresholds,
-} from "@remit/data-ports";
-import {
-	SpamAction,
-	SpamKind,
-	SpamModelOutcome,
-	SpamReasonName,
-} from "@remit/domain-enums";
+import type { SpamRequest, SpamThresholds } from "@remit/data-ports";
+import { SpamAction, SpamKind, SpamReasonName } from "@remit/domain-enums";
 import {
 	type CheckName,
 	type Finding,
@@ -17,10 +7,9 @@ import {
 	toCheckInput,
 } from "./checks.js";
 import type { Tldts } from "./display-name.js";
+import type { Judged, SpamJudge } from "./pipeline.js";
 
 type Action = (typeof SpamAction)[keyof typeof SpamAction];
-export type Checked = Extract<SpamResponse, { state: "Checked" }>;
-type CheckedReasonName = Checked["reasons"][number]["name"];
 
 /**
  * What each check adds. The provider's verdict weighs least: the owner's
@@ -78,7 +67,7 @@ export const scoreOf = (findings: readonly Finding[]): number => {
 
 /**
  * Below `cleanBelow` nothing happens and from `spamAt` up the message goes to
- * Junk. Between the two the model would decide; without it the message is
+ * Junk. Between the two the next judge decides; without one the message is
  * flagged. Until calibration sets both, nothing moves.
  */
 export const actionOf = (score: number, thresholds: SpamThresholds): Action => {
@@ -88,19 +77,30 @@ export const actionOf = (score: number, thresholds: SpamThresholds): Action => {
 	return SpamAction.Warn;
 };
 
+/** A judge with thresholds is sure outside the band, and never while they are unset. */
+export const byThresholds = (
+	score: number,
+	thresholds: SpamThresholds,
+): Pick<Judged, "action" | "decided"> => {
+	const action = actionOf(score, thresholds);
+	return {
+		action,
+		decided: thresholds.state === "Set" && action !== SpamAction.Warn,
+	};
+};
+
 /** Stage 2: a pure function of the request, holding no list of names. */
 export const judge = (
 	request: SpamRequest,
 	thresholds: SpamThresholds,
 	tldts: Tldts,
-): Checked => {
+): Judged => {
 	const findings = runChecks(toCheckInput(request, tldts));
 	const score = scoreOf(findings);
-	const action = actionOf(score, thresholds);
 	return {
-		state: "Checked",
+		state: "Judged",
 		score,
-		action,
+		...byThresholds(score, thresholds),
 		kind: kindOf(findings),
 		reasons: findings.map((finding) => ({
 			name: finding.name,
@@ -108,61 +108,14 @@ export const judge = (
 			score: WEIGHTS[finding.name],
 			options: finding.options,
 		})),
-		modelOutcome:
-			action === SpamAction.Warn
-				? SpamModelOutcome.NotConfigured
-				: SpamModelOutcome.OutOfBand,
 	};
 };
 
-/** What the model answered for a message in the ambiguous band. */
-export interface ModelAnswer {
-	verdict: "Impersonation" | "Spam" | "Clean";
-	score: number;
-	reason: string;
-}
-
-const ANSWERED: Record<ModelAnswer["verdict"], CheckedReasonName> = {
-	Impersonation: SpamReasonName.ModelImpersonation,
-	Spam: SpamReasonName.ModelSpam,
-	Clean: SpamReasonName.ModelClean,
-};
-
-/**
- * Stage 3, folded into a stage 2 verdict: the model saw stage 2's reasons, so
- * its score replaces stage 2's and sets the action. An impersonation makes
- * the message `Phishing`.
- */
-export const withModelAnswer = (
-	checked: Checked,
-	answer: ModelAnswer,
-	thresholds: SpamThresholds,
-): Checked => {
-	const score = Math.round(answer.score * 10_000) / 10_000;
-	const name = ANSWERED[answer.verdict];
-	return {
-		...checked,
-		score,
-		action: actionOf(score, thresholds),
-		kind: answer.verdict === "Impersonation" ? SpamKind.Phishing : checked.kind,
-		reasons: [
-			...checked.reasons,
-			{
-				name,
-				symbol: name,
-				score,
-				options: answer.reason === "" ? [] : [answer.reason],
-			},
-		],
-		modelOutcome: SpamModelOutcome.Answered,
-	};
-};
-
-/** The inline backend: the judge running inside Remit. */
-export class InlineSpamService implements SpamService {
+/** The inline judge: the checks running inside Remit. */
+export class InlineJudge implements SpamJudge {
 	constructor(private readonly thresholds: SpamThresholds) {}
 
-	async check(request: SpamRequest): Promise<SpamResponse> {
+	async check(request: SpamRequest): Promise<Judged> {
 		return judge(request, this.thresholds, await import("tldts"));
 	}
 }

@@ -104,7 +104,7 @@ export {
 	type QueueProducerOf,
 } from "./interfaces/queue.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
-export type { SpamDeployment, SpamService } from "./interfaces/spam.js";
+export type { SpamService } from "./interfaces/spam.js";
 export type {
 	ISyncWarningRepository,
 	SurfacedSyncWarnings,
@@ -121,6 +121,14 @@ export {
 	isSenderMuted,
 	isSenderMuteFilter,
 } from "./sender-mute.js";
+export {
+	DEFAULT_SPAM_PIPELINE,
+	type SpamJudgeConfig,
+	SpamJudgeConfigSchema,
+	type SpamPipeline,
+	SpamPipelineSchema,
+	spamPipelineFromEnv,
+} from "./spam-pipeline.js";
 export {
 	readResolvedSpamSettings,
 	SPAM_PLACEMENT_SETTINGS,

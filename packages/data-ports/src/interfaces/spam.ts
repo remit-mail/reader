@@ -1,4 +1,4 @@
-import type { SpamRequest, SpamResponse, SpamThresholds } from "../types.js";
+import type { SpamRequest, SpamResponse } from "../types.js";
 
 /**
  * A spam service judges what the request presents (RFC 041). It never reads
@@ -7,7 +7,3 @@ import type { SpamRequest, SpamResponse, SpamThresholds } from "../types.js";
 export interface SpamService {
 	check(request: SpamRequest): Promise<SpamResponse>;
 }
-
-export type SpamDeployment =
-	| { name: "Inline"; thresholds: SpamThresholds }
-	| { name: "Rspamd"; url: string };

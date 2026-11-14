@@ -11,6 +11,7 @@ import type {
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import { DEFAULT_SPAM_PIPELINE } from "@remit/data-ports";
 import type { RecordingQueue } from "@remit/data-ports/recording-queue";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
@@ -25,7 +26,7 @@ import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { MessageSyncService } from "../message-sync.js";
 import { PlacementMoveService } from "../placement-move.js";
-import { InlineSpamService, type SpamConfig } from "../spam/index.js";
+import type { SpamConfig } from "../spam/index.js";
 import { RescanService } from "../spam/rescan.js";
 import { SyncWarningService } from "../sync-warning.js";
 import { classifierSecrets } from "./classifier-stub.js";
@@ -229,9 +230,7 @@ export const spamConfigFor = (
 		| "messageLabel"
 	>,
 ): SpamConfig => ({
-	spamService: new InlineSpamService({ state: "Unset" }),
-	spamDeployment: { name: "Inline", thresholds: { state: "Unset" } },
-	thresholds: { state: "Unset" },
+	spamPipeline: DEFAULT_SPAM_PIPELINE,
 	domainRegistration: store.domainRegistration,
 	rdap: { lookup: async () => undefined },
 	accountService: store.account,

@@ -2,6 +2,7 @@ import "../enums/AuthResultVerdict.tsp";
 import "../enums/ProviderSpamVerdict.tsp";
 import "../enums/SpamAction.tsp";
 import "../enums/SpamFailureKind.tsp";
+import "../enums/SpamJudgeName.tsp";
 import "../enums/SpamKind.tsp";
 import "../enums/SpamLabelPlacement.tsp";
 import "../enums/SpamModelOutcome.tsp";
@@ -137,6 +138,9 @@ model SpamChecked {
 
   @doc("What happened to the model call: `Answered`, or why no answer shaped the verdict.")
   modelOutcome: SpamModelOutcome;
+
+  @doc("The judge whose score and action stand: the first one that was sure, or the last one that ran. `reasons` holds every judge that ran.")
+  decidedBy: SpamJudgeName;
 }
 
 @doc("A spam service gave no verdict.")
@@ -187,12 +191,12 @@ union MessageSpamVerdict {
   failed: SpamFailed,
 }
 
-@doc("No thresholds are set, so every verdict's action is `None` and nothing moves.")
+@doc("No thresholds are set, so the judge's action is `None` and it is never sure: the next judge runs, and nothing moves.")
 model SpamThresholdsUnset {
   state: "Unset";
 }
 
-@doc("The two scores that turn a spam score into an action: below `cleanBelow` nothing happens, from `spamAt` up the message goes to Junk, and between the two the owner is warned.")
+@doc("The two scores that turn a spam score into an action: below `cleanBelow` nothing happens, from `spamAt` up the message goes to Junk, and between the two the owner is warned. The judge is sure outside the band; inside it the next judge runs.")
 model SpamThresholdsSet {
   state: "Set";
 
@@ -205,15 +209,42 @@ model SpamThresholdsSet {
   spamAt: float64;
 }
 
-@doc("The thresholds a spam service compares a score with (RFC 041). Calibration sets them.")
+@doc("The thresholds a judge compares its score with (RFC 041). Calibration sets them.")
 union SpamThresholds {
   unset: SpamThresholdsUnset,
   set: SpamThresholdsSet,
 }
 
+@doc("The inline judge, with its own thresholds.")
+model SpamInlineJudgeConfig {
+  name: SpamJudgeName.Inline;
+  thresholds: SpamThresholds;
+}
+
+@doc("An rspamd judge. Its action is its verdict: `no action` and `Junk` actions are sure, softer ones pass the message on.")
+model SpamRspamdJudgeConfig {
+  name: SpamJudgeName.Rspamd;
+
+  @doc("The rspamd normal worker's http or https URL.")
+  url: string;
+}
+
+@doc("The model judge. It spends a unit of the daily model cap per call, so it always has thresholds.")
+model SpamModelJudgeConfig {
+  name: SpamJudgeName.Model;
+  thresholds: SpamThresholdsSet;
+}
+
+@doc("One judge in the deployment's `SPAM_PIPELINE` (RFC 041).")
+union SpamJudgeConfig {
+  inlineJudge: SpamInlineJudgeConfig,
+  rspamdJudge: SpamRspamdJudgeConfig,
+  modelJudge: SpamModelJudgeConfig,
+}
+
 @doc("How Remit acts on spam verdicts for the caller.")
 model SpamSettings {
-  @doc("The thresholds in effect. They come from the deployment (`SPAM_CLEAN_BELOW` and `SPAM_AT`). `Unset` when the deployment uses rspamd, which applies its own.")
+  @doc("The inline judge's thresholds, from the deployment's `SPAM_PIPELINE`. `Unset` when the pipeline has no inline judge.")
   thresholds: SpamThresholds;
 
   @doc("What a `Junk` verdict of kind `Spam` does.")

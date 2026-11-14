@@ -1,7 +1,11 @@
-import { AccountSettingName, SpamLabelPlacement } from "@remit/domain-enums";
+import {
+	AccountSettingName,
+	SpamJudgeName,
+	SpamLabelPlacement,
+} from "@remit/domain-enums";
 import { parseAccountSettingValue } from "./account-settings.js";
 import type { IAccountSettingRepository } from "./interfaces/account-setting.js";
-import type { SpamDeployment } from "./interfaces/spam.js";
+import type { SpamJudgeConfig, SpamPipeline } from "./spam-pipeline.js";
 import type {
 	AccountSettingItem,
 	SpamLabelPlacementValue,
@@ -18,7 +22,7 @@ type SpamSettingName = (typeof SPAM_PLACEMENT_SETTINGS)[number][1];
 
 export interface SpamSettingsDeps {
 	accountSetting: Pick<IAccountSettingRepository, "getMany">;
-	spamDeployment: SpamDeployment;
+	spamPipeline: SpamPipeline;
 }
 
 const placementOf = (
@@ -33,10 +37,12 @@ const placementOf = (
 
 const resolveSpamSettings = (
 	rows: readonly Pick<AccountSettingItem, "name" | "value">[],
-	deployment: SpamDeployment,
+	pipeline: SpamPipeline,
 ): SpamSettingsItem => ({
-	thresholds:
-		deployment.name === "Inline" ? deployment.thresholds : { state: "Unset" },
+	thresholds: pipeline.find(
+		(judge): judge is Extract<SpamJudgeConfig, { name: "Inline" }> =>
+			judge.name === SpamJudgeName.Inline,
+	)?.thresholds ?? { state: "Unset" },
 	spamPlacement: placementOf(rows, AccountSettingName.SpamPlacementSpam),
 	phishingPlacement: placementOf(
 		rows,
@@ -53,5 +59,5 @@ export const readResolvedSpamSettings = async (
 			[accountConfigId],
 			SPAM_PLACEMENT_SETTINGS.map(([, name]) => name),
 		),
-		deps.spamDeployment,
+		deps.spamPipeline,
 	);

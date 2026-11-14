@@ -3,8 +3,6 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type {
 	AccountItem,
 	MailboxItem,
-	SpamRequest,
-	SpamService,
 	SpamThresholds,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
@@ -17,7 +15,6 @@ import {
 } from "@remit/domain-enums";
 import { BodySyncService } from "./body-sync.js";
 import { PlacementMoveService } from "./placement-move.js";
-import { InlineSpamService } from "./spam/index.js";
 import { SyncWarningService } from "./sync-warning.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
@@ -44,7 +41,6 @@ interface World {
 	account: AccountItem;
 	inbox: MailboxItem;
 	junk: MailboxItem;
-	requests: SpamRequest[];
 }
 
 const JUNK_FROM_A_SCORE_OF_005: SpamThresholds = {
@@ -76,7 +72,6 @@ beforeEach(async () => {
 		account,
 		inbox,
 		junk,
-		requests: [],
 	};
 });
 
@@ -86,13 +81,6 @@ afterEach(async () => {
 
 const bodySync = (thresholds: SpamThresholds): BodySyncService => {
 	const { store } = world;
-	const inline = new InlineSpamService(thresholds);
-	const spamService: SpamService = {
-		check: (request) => {
-			world.requests.push(request);
-			return inline.check(request);
-		},
-	};
 	const placementMoveService = new PlacementMoveService({
 		messageService: store.message,
 		threadMessageService: store.threadMessage,
@@ -110,9 +98,7 @@ const bodySync = (thresholds: SpamThresholds): BodySyncService => {
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
 		{
-			spamService,
-			spamDeployment: { name: "Inline", thresholds },
-			thresholds,
+			spamPipeline: [{ name: "Inline", thresholds }],
 			domainRegistration: store.domainRegistration,
 			rdap: { lookup: async () => ({ state: "Unpublished" }) },
 			accountService: store.account,
@@ -256,7 +242,6 @@ describe("body sync with a spam service", () => {
 			state: "ScreenedOut",
 			screen: { rule: "ReportedSender" },
 		});
-		assert.deepEqual(world.requests, []);
 		assert.equal(row.mailboxId, world.junk.mailboxId);
 		assert.equal(row.movedByRemit, true);
 		assert.deepEqual(await labelNames(messageId), ["Spam"]);
@@ -284,6 +269,5 @@ describe("body sync with a spam service", () => {
 			state: "ScreenedOut",
 			screen: { rule: "Vip" },
 		});
-		assert.deepEqual(world.requests, []);
 	});
 });

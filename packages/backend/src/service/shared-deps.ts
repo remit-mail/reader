@@ -1,4 +1,4 @@
-import type { SpamDeployment } from "@remit/data-ports";
+import type { SpamPipeline } from "@remit/data-ports";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { nodeTransport } from "@remit/mailbox-service/node-transport";
 import {
@@ -45,7 +45,7 @@ export const sqsQueues = (urls: SqsQueueUrls): RemitClientQueues => ({
 export const buildSharedDeps = (
 	queues: RemitClientQueues,
 	classificationDefault: ClassificationDeploymentDefault,
-	spamDeployment: SpamDeployment,
+	spamPipeline: SpamPipeline,
 ): RemitClientSharedDeps => {
 	const imapTransport = nodeTransport();
 	return {
@@ -59,6 +59,6 @@ export const buildSharedDeps = (
 		mailTransports: { imap: () => imapTransport, smtp: directSmtpSocket },
 		queues,
 		classificationDefault,
-		spamDeployment,
+		spamPipeline,
 	};
 };

@@ -1,14 +1,14 @@
 import type {
 	SpamReason,
 	SpamRequest,
-	SpamResponse,
 	SpamThresholds,
 } from "@remit/data-ports";
 import {
 	ClassificationFailureKind,
-	SpamAction,
 	SpamFailureKind,
+	SpamKind,
 	SpamModelOutcome,
+	SpamReasonName,
 } from "@remit/domain-enums";
 import {
 	type ClassifierResult,
@@ -21,9 +21,23 @@ import type {
 	ClassifierConfig,
 	ClassifierGate,
 } from "../classifier/classifier-gate.js";
-import { type Checked, type ModelAnswer, withModelAnswer } from "./judge.js";
+import { byThresholds, kindOf } from "./judge.js";
+import type { Judgement, ModelJudged, SpamJudge } from "./pipeline.js";
+
+/** What the model answered for a message. */
+interface ModelAnswer {
+	verdict: "Impersonation" | "Spam" | "Clean";
+	score: number;
+	reason: string;
+}
 
 type Verdict = ModelAnswer["verdict"];
+
+const ANSWERED = {
+	Impersonation: SpamReasonName.ModelImpersonation,
+	Spam: SpamReasonName.ModelSpam,
+	Clean: SpamReasonName.ModelClean,
+} as const satisfies Record<Verdict, SpamReason["name"]>;
 
 const SPAM_LABELS: readonly Verdict[] = ["Impersonation", "Spam", "Clean"];
 
@@ -90,47 +104,80 @@ const answerOf = (
 };
 
 /**
- * Stage 3, run by Remit after the spam service answers: a `Warn` is the
- * ambiguous band, and gets one model call that claims a unit of the daily cap
- * the category classifier uses. Only a 429 is a skip; any other model failure
- * is the contract's `Failed`.
+ * The model weighed against its own thresholds. Its score replaces the
+ * earlier judges' scores, since it saw their reasons; an impersonation makes
+ * the message `Phishing`.
  */
-export const consultSpamModel = async (
-	access: SpamModelAccess,
-	request: SpamRequest,
-	response: SpamResponse,
+const judgedOf = (
+	answer: ModelAnswer,
+	earlier: readonly SpamReason[],
 	thresholds: SpamThresholds,
-	now: number,
-): Promise<SpamResponse> => {
-	if (response.state !== "Checked") return response;
-	if (response.action !== SpamAction.Warn || thresholds.state === "Unset") {
-		return response;
-	}
-	const checked: Checked = response;
-	if (access.state === "Off") {
-		return { ...checked, modelOutcome: SpamModelOutcome.NotConfigured };
-	}
-	const { gate, config, account } = access;
-	if (!(await claimClassifierCall(config, gate, account, now))) {
-		return { ...checked, modelOutcome: SpamModelOutcome.DailyLimit };
-	}
-	const result = await classifyWithProvider(
-		{
-			provider: gate.provider,
-			labels: SPAM_LABELS,
-			message: {
-				headers: request.message.headers,
-				text: `${findingsOf(checked.reasons)}\n\n${request.message.text}`,
-			},
-		},
-		{ logger: config.logger },
-	);
-	if (result.ok) return withModelAnswer(checked, answerOf(result), thresholds);
-	if (result.kind === ClassificationFailureKind.RateLimited) {
-		return { ...checked, modelOutcome: SpamModelOutcome.RateLimited };
-	}
+): ModelJudged => {
+	const score = Math.round(answer.score * 10_000) / 10_000;
+	const name = ANSWERED[answer.verdict];
 	return {
-		state: "Failed",
-		kind: FAILURE_OF[result.kind] ?? SpamFailureKind.ServiceError,
+		state: "Judged",
+		score,
+		...byThresholds(score, thresholds),
+		kind:
+			answer.verdict === "Impersonation" ? SpamKind.Phishing : kindOf(earlier),
+		reasons: [
+			{
+				name,
+				symbol: name,
+				score,
+				options: answer.reason === "" ? [] : [answer.reason],
+			},
+		],
+		modelOutcome: SpamModelOutcome.Answered,
 	};
 };
+
+/**
+ * Stage 3: one model call that claims a unit of the daily cap the category
+ * classifier uses. The judge abstains for an account without a model, out of
+ * calls, or refused for the provider's rate limit; any other model failure is
+ * the contract's `Failed`. Remit passes the account's model and the time.
+ */
+export class ModelJudge implements SpamJudge {
+	constructor(
+		private readonly thresholds: SpamThresholds,
+		private readonly access: SpamModelAccess,
+		private readonly now: number,
+	) {}
+
+	async check(
+		request: SpamRequest,
+		earlier: readonly SpamReason[],
+	): Promise<Judgement> {
+		if (this.access.state === "Off") {
+			return {
+				state: "Abstained",
+				modelOutcome: SpamModelOutcome.NotConfigured,
+			};
+		}
+		const { gate, config, account } = this.access;
+		if (!(await claimClassifierCall(config, gate, account, this.now))) {
+			return { state: "Abstained", modelOutcome: SpamModelOutcome.DailyLimit };
+		}
+		const result = await classifyWithProvider(
+			{
+				provider: gate.provider,
+				labels: SPAM_LABELS,
+				message: {
+					headers: request.message.headers,
+					text: `${findingsOf(earlier)}\n\n${request.message.text}`,
+				},
+			},
+			{ logger: config.logger },
+		);
+		if (result.ok) return judgedOf(answerOf(result), earlier, this.thresholds);
+		if (result.kind === ClassificationFailureKind.RateLimited) {
+			return { state: "Abstained", modelOutcome: SpamModelOutcome.RateLimited };
+		}
+		return {
+			state: "Failed",
+			kind: FAILURE_OF[result.kind] ?? SpamFailureKind.ServiceError,
+		};
+	}
+}

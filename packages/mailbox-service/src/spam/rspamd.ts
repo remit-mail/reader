@@ -1,16 +1,16 @@
-import type { SpamRequest, SpamResponse, SpamService } from "@remit/data-ports";
+import type { SpamRequest } from "@remit/data-ports";
 import {
 	SpamAction,
 	SpamFailureKind,
-	SpamModelOutcome,
 	SpamReasonName,
 } from "@remit/domain-enums";
 import { kindOf } from "./judge.js";
+import type { Judged, SpamJudge } from "./pipeline.js";
 
 type Action = (typeof SpamAction)[keyof typeof SpamAction];
 type FailureKind = (typeof SpamFailureKind)[keyof typeof SpamFailureKind];
 type ReasonName = (typeof SpamReasonName)[keyof typeof SpamReasonName];
-type Failed = Extract<SpamResponse, { state: "Failed" }>;
+type Failed = { state: "Failed"; kind: FailureKind };
 
 const TIMEOUT_MS = 10_000;
 
@@ -57,8 +57,10 @@ const isSymbol = (
 /**
  * Maps a `/checkv2` answer onto the contract. The score is rspamd's score as a
  * share of its `required_score`; rspamd's action is kept as rspamd chose it.
+ * Rspamd is sure of `None` and `Junk`; a softer action is a `Warn` the next
+ * judge decides.
  */
-export const fromRspamd = (body: unknown): SpamResponse => {
+export const fromRspamd = (body: unknown): Failed | Judged => {
 	if (!isRecord(body)) return failed(SpamFailureKind.Unparseable);
 	if (body.is_skipped === true) return failed(SpamFailureKind.ServiceError);
 	const { score, required_score: requiredScore, action, symbols } = body;
@@ -89,15 +91,12 @@ export const fromRspamd = (body: unknown): SpamResponse => {
 		return failed(SpamFailureKind.Unparseable);
 	}
 	return {
-		state: "Checked",
+		state: "Judged",
 		score: Math.min(1, Math.max(0, score / requiredScore)),
 		action: ACTIONS[action],
 		kind: kindOf(reasons),
 		reasons,
-		modelOutcome:
-			ACTIONS[action] === SpamAction.Warn
-				? SpamModelOutcome.NotConfigured
-				: SpamModelOutcome.OutOfBand,
+		decided: ACTIONS[action] !== SpamAction.Warn,
 	};
 };
 
@@ -128,8 +127,8 @@ const parseJson = (text: string): unknown => {
 	}
 };
 
-/** The rspamd backend: posts the raw message to rspamd's `/checkv2`. */
-export class RspamdSpamService implements SpamService {
+/** The rspamd judge: posts the raw message to rspamd's `/checkv2`. */
+export class RspamdJudge implements SpamJudge {
 	private readonly checkUrl: string;
 
 	constructor(url: string) {
@@ -139,7 +138,7 @@ export class RspamdSpamService implements SpamService {
 		).href;
 	}
 
-	async check(request: SpamRequest): Promise<SpamResponse> {
+	async check(request: SpamRequest): Promise<Failed | Judged> {
 		const answer = await fetch(this.checkUrl, {
 			method: "POST",
 			headers: envelopeHeaders(request),

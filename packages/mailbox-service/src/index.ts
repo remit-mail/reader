@@ -401,12 +401,9 @@ export {
 } from "./snippet.js";
 export { classifyDisplayNameCorrespondence } from "./spam/display-name.js";
 export {
-	InlineSpamService,
 	RdapClient,
 	type RdapFetch,
 	type SpamConfig,
-	spamServiceFor,
-	spamThresholdsFor,
 } from "./spam/index.js";
 export {
 	RESCAN_LIMIT,
