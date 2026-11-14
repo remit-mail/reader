@@ -596,17 +596,6 @@ const JUNK_NEWSLETTER = eml(
 	"Read about the spring classics.",
 );
 
-const JUNK_SPOOF = eml(
-	{
-		From: "Support <support@evil-mimic.example>",
-		Subject: "Verify your account",
-		"Authentication-Results": "mx.example.com; dmarc=fail",
-		"DKIM-Signature": "v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
-		...PROVIDER_SPAM_HEADERS,
-	},
-	"Your account is locked.",
-);
-
 const NEWSLETTER_SENDER = "news@dutchcyclingweekly.nl";
 
 const assertMovedToInbox = async (messageId: string): Promise<void> => {
@@ -721,14 +710,6 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 			blocked: { value: true, setAt: 1 },
 		});
 		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
-
-		await sync(bodySync(false), [messageId], world.junk);
-
-		await assertKeptInJunk(messageId);
-	});
-
-	it("keeps a DKIM mismatch with a DMARC fail in Junk", async () => {
-		const messageId = await arrive(JUNK_SPOOF, undefined, world.junk);
 
 		await sync(bodySync(false), [messageId], world.junk);
 

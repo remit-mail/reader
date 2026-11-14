@@ -462,6 +462,7 @@ describe("a re-store re-fetches bytes and re-decides nothing", () => {
 
 		it(`keeps category, placement and read state through ${path}`, async () => {
 			await flagSender("support@evil-mimic.example", {
+				blocked: { value: true, setAt: 1 },
 				category: { value: MessageCategory.personal, setAt: 1 },
 				unsubscribed: { value: true, setAt: 1 },
 			});

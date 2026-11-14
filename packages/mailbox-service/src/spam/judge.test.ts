@@ -65,6 +65,32 @@ describe("the inline judge", () => {
 		assert.deepEqual(found?.options, ["esp.example"]);
 	});
 
+	it("sends mail failing both DKIM and DMARC to Junk at a spamAt of 0.9", () => {
+		const spoofed = request();
+		spoofed.authentication.dmarc = "Fail";
+		spoofed.authentication.dkim = "Fail";
+		const verdict = judge(
+			spoofed,
+			{ state: "Set", cleanBelow: 0.3, spamAt: 0.9 },
+			tldts,
+		);
+		assert.ok(
+			verdict.reasons.some(
+				(reason) => reason.name === SpamReasonName.DkimDmarcFail,
+			),
+		);
+		assert.ok(verdict.score >= 0.9);
+		assert.equal(verdict.action, SpamAction.Junk);
+	});
+
+	for (const failing of ["dmarc", "dkim"] as const) {
+		it(`does not flag both failing when only ${failing} fails`, () => {
+			const spoofed = request();
+			spoofed.authentication[failing] = "Fail";
+			assert.ok(!reasons(spoofed).includes(SpamReasonName.DkimDmarcFail));
+		});
+	}
+
 	it("flags a punycode link domain", () => {
 		assert.ok(
 			reasons(

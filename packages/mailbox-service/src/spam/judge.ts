@@ -18,6 +18,7 @@ type Action = (typeof SpamAction)[keyof typeof SpamAction];
  */
 export const WEIGHTS: Readonly<Record<CheckName, number>> = {
 	DmarcFail: 0.45,
+	DkimDmarcFail: 0.85,
 	SignerMismatch: 0.1,
 	ReplyToMismatch: 0.2,
 	LinkTextMismatch: 0.45,
