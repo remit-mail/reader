@@ -75,25 +75,26 @@ export const toCheckInput = (
 	};
 };
 
-/** Check 1: DMARC failed, DKIM failed with it, or a passing signature belongs to another domain. */
+/** Check 1: DMARC failed, a passing signature belongs to another domain, or both, or DMARC failed with DKIM. */
 export const authenticationFails = (input: CheckInput): Finding[] => {
 	const { authentication } = input.request;
 	const findings: Finding[] = [];
-	if (authentication.dmarc === AuthResultVerdict.Fail) {
+	const dmarcFailed = authentication.dmarc === AuthResultVerdict.Fail;
+	const signer = authentication.signerDomain;
+	const signerMismatch =
+		signer !== UNVERIFIED &&
+		input.senderDomain !== undefined &&
+		registrable(input.tldts, signer) !== input.senderDomain;
+	if (dmarcFailed) {
 		findings.push({ name: SpamReasonName.DmarcFail, options: [] });
 	}
 	if (
-		authentication.dmarc === AuthResultVerdict.Fail &&
-		authentication.dkim === AuthResultVerdict.Fail
+		dmarcFailed &&
+		(authentication.dkim === AuthResultVerdict.Fail || signerMismatch)
 	) {
 		findings.push({ name: SpamReasonName.DkimDmarcFail, options: [] });
 	}
-	const signer = authentication.signerDomain;
-	if (
-		signer !== UNVERIFIED &&
-		input.senderDomain !== undefined &&
-		registrable(input.tldts, signer) !== input.senderDomain
-	) {
+	if (signerMismatch) {
 		findings.push({ name: SpamReasonName.SignerMismatch, options: [signer] });
 	}
 	return findings;

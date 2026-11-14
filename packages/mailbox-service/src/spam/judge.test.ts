@@ -65,31 +65,45 @@ describe("the inline judge", () => {
 		assert.deepEqual(found?.options, ["esp.example"]);
 	});
 
-	it("sends mail failing both DKIM and DMARC to Junk at a spamAt of 0.9", () => {
-		const spoofed = request();
-		spoofed.authentication.dmarc = "Fail";
-		spoofed.authentication.dkim = "Fail";
-		const verdict = judge(
-			spoofed,
-			{ state: "Set", cleanBelow: 0.3, spamAt: 0.9 },
-			tldts,
-		);
-		assert.ok(
-			verdict.reasons.some(
-				(reason) => reason.name === SpamReasonName.DkimDmarcFail,
-			),
-		);
-		assert.ok(verdict.score >= 0.9);
-		assert.equal(verdict.action, SpamAction.Junk);
-	});
+	const failingDkim = {
+		"a failing DKIM signature": { dkim: "Fail" },
+		"a signature from another domain": { signerDomain: "esp.example" },
+	} as const;
 
-	for (const failing of ["dmarc", "dkim"] as const) {
-		it(`does not flag both failing when only ${failing} fails`, () => {
+	for (const [label, dkim] of Object.entries(failingDkim)) {
+		it(`sends a DMARC fail with ${label} to Junk at a spamAt of 0.9`, () => {
 			const spoofed = request();
-			spoofed.authentication[failing] = "Fail";
+			spoofed.authentication = {
+				...spoofed.authentication,
+				...dkim,
+				dmarc: "Fail",
+			};
+			const verdict = judge(
+				spoofed,
+				{ state: "Set", cleanBelow: 0.3, spamAt: 0.9 },
+				tldts,
+			);
+			assert.ok(
+				verdict.reasons.some(
+					(reason) => reason.name === SpamReasonName.DkimDmarcFail,
+				),
+			);
+			assert.ok(verdict.score >= 0.9);
+			assert.equal(verdict.action, SpamAction.Junk);
+		});
+
+		it(`does not flag ${label} without a DMARC fail`, () => {
+			const spoofed = request();
+			spoofed.authentication = { ...spoofed.authentication, ...dkim };
 			assert.ok(!reasons(spoofed).includes(SpamReasonName.DkimDmarcFail));
 		});
 	}
+
+	it("does not flag a DMARC fail whose DKIM signature passes for the sender", () => {
+		const spoofed = request();
+		spoofed.authentication.dmarc = "Fail";
+		assert.ok(!reasons(spoofed).includes(SpamReasonName.DkimDmarcFail));
+	});
 
 	it("flags a punycode link domain", () => {
 		assert.ok(
