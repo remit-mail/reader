@@ -75,7 +75,27 @@ export const toCheckInput = (
 	};
 };
 
-/** Check 1: DMARC failed, a passing signature belongs to another domain, or both, or DMARC failed with DKIM. */
+const DKIM_SIGNER = /(?:^|;)\s*d\s*=\s*([^;\s]+)/i;
+
+const aligned = (signer: string, fromDomain: string): boolean =>
+	signer === fromDomain ||
+	fromDomain.endsWith(`.${signer}`) ||
+	signer.endsWith(`.${fromDomain}`);
+
+const signaturesMisaligned = (input: CheckInput): boolean => {
+	const fromDomain = input.from?.domain;
+	if (!fromDomain) return false;
+	const signers = input.request.message.headers.flatMap((header) => {
+		if (header.name.toLowerCase() !== "dkim-signature") return [];
+		const signer = DKIM_SIGNER.exec(header.value)?.[1];
+		return signer ? [signer.toLowerCase()] : [];
+	});
+	return (
+		signers.length > 0 && !signers.some((signer) => aligned(signer, fromDomain))
+	);
+};
+
+/** Check 1: DMARC failed, or a signature belongs to another domain. */
 export const authenticationFails = (input: CheckInput): Finding[] => {
 	const { authentication } = input.request;
 	const findings: Finding[] = [];
@@ -90,7 +110,8 @@ export const authenticationFails = (input: CheckInput): Finding[] => {
 	}
 	if (
 		dmarcFailed &&
-		(authentication.dkim === AuthResultVerdict.Fail || signerMismatch)
+		(authentication.dkim === AuthResultVerdict.Fail ||
+			signaturesMisaligned(input))
 	) {
 		findings.push({ name: SpamReasonName.DkimDmarcFail, options: [] });
 	}
