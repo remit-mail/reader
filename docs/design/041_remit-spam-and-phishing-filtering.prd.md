@@ -1,10 +1,10 @@
 # Product requirements for spam and phishing in Remit
 
-Companion to RFC 041 (`041_remit-spam-and-phishing-filtering.md`). Status: proposed, 2026-11-13. Requirements only. Nothing here is built.
+Companion to RFC 041 (`041_remit-spam-and-phishing-filtering.md`). Status: built, 2026-11-14, in reader #1648 to #1653 and reader-ui #44 and #45, except the stories under Not built.
 
 ## Summary
 
-Remit never hides a spam decision from the owner. Every message Remit warns about or moves carries its reasons in plain words. The owner sees the score and the two thresholds behind each decision. The owner can clear a wrong verdict, report a sender, exempt a sender, and tune both thresholds. A settings page counts the mail Remit flagged per day, lists the latest of it, and links to the lists where the owner rescues good mail.
+Remit never hides a spam decision from the owner. Every message Remit warns about or moves carries its reasons in plain words. The owner sees the score and the two thresholds behind each decision. The owner can clear a wrong verdict, report a sender, exempt a sender, and set Warn only per kind. Both thresholds come from the deployment. A settings page counts the mail Remit flagged per day, lists the latest of it, and links to the lists where the owner rescues good mail.
 
 A suspect message stays where it arrived, under a banner that names the suspicion and its cause. Deleting spam moves it to Trash. Remit deletes nothing on its own, and nothing runs on a schedule.
 
@@ -54,8 +54,8 @@ As the owner of a suspect message, I want it to stay where it arrived and say wh
 As the owner facing a false alarm, I want to mark one message as not spam, so that the warning goes and the message leaves Junk.
 
 1. Not spam on a warned message removes its label and its banner. The message keeps its folder.
-2. Not spam on a message Remit moved to Junk returns it to the Inbox without its label, then shows the "Never put this sender in Spam" offer (#612).
-3. A re-check of a cleared message adds no `Spam` or `Phishing` label.
+2. Not spam on a message in Junk that the owner never reported returns it to the Inbox without its label, and sets the sender's `neverSpam` flag. The app makes no separate Never in Spam offer.
+3. Not spam sets `Message.spamCleared`. A re-check of a cleared message records its verdict and adds no `Spam` or `Phishing` label, and the app draws no mark on it.
 
 ### S4, report a sender
 
@@ -70,14 +70,12 @@ As the owner managing senders, I want to exempt a sender from spam checks, so th
 
 1. Mail from a sender marked Never in Spam arrives with no label and no banner. Its rail states that the check was skipped for that reason.
 
-### S6, set the thresholds
+### S6, see the thresholds
 
-As the owner tuning the filter, I want to set the scores at which Remit warns and moves, so that I choose between missed spam and false alarms.
+As the owner tuning the filter, I want to see the scores at which Remit warns and moves, so that I can read each decision against them.
 
-1. In Settings, Spam, the owner saves "Warn from" and "Move to Spam from". A reload shows the saved values.
-2. Reset returns both values to the deployment default, and the page names that default.
-3. Before a save, the page counts the messages from the last 30 days that the new values warn about and move.
-4. Beside the saved values, the page states that they apply to mail arriving from now on, and that Check again updates older mail.
+1. Settings, Spam shows "Warn from" and "Move to Spam from" as the deployment sets them in `SPAM_CLEAN_BELOW` and `SPAM_AT`.
+2. While the deployment sets neither, Remit warns about and moves nothing on a spam verdict.
 
 ### S7, pick an action per label
 
@@ -91,8 +89,7 @@ As the owner deciding what leaves my inbox, I want to choose for `Spam` and for 
 As the owner checking the filter, I want daily counts of what Remit flagged, so that I can tell whether the filter works.
 
 1. Settings, Spam shows one count per day for the last 30 days, split into moved and warned, and into `Spam` and `Phishing`.
-2. Next to those counts, the page shows the number of messages the owner marked Not spam over the same days.
-3. For an account with no checked mail, the page reads "Remit has not checked any mail yet" in place of a chart of zeros.
+2. For an account with no checked mail, the page reads "Remit has not checked any mail yet" in place of a chart of zeros.
 
 ### S9, review and rescue
 
@@ -120,7 +117,7 @@ As the owner after a threshold change, I want to re-check the messages I pick, s
 3. A `Warn` the model never judged, because the account has no model or reached its daily cap, says which in its banner, and says only the basic checks ran.
 4. After `RateLimited` or `DailyCap` failures, Check again lists those messages with "Try again in a minute" or "Try again tomorrow". Its retry sends only those ids.
 5. After `NotFound` or `NotPermitted` failures, the page names each message and its cause, holds no retry, and links to report an issue.
-6. Saving thresholds where "Warn from" is not below "Move to Spam from", or a value outside 0 to 1, saves nothing and names the broken rule.
+6. A host whose `SPAM_CLEAN_BELOW` exceeds `SPAM_AT`, or holds a value outside 0 to 1, refuses to start and names the broken rule.
 7. A failed Report spam or Not spam shows a banner naming the action, with Try again, as "Couldn't report this message as spam" does today.
 8. A 401 or 403 on the counts, the latest list or Check again shows the signed-out notice. It never shows an empty list or a zero.
 
@@ -128,7 +125,7 @@ As the owner after a threshold change, I want to re-check the messages I pick, s
 
 1. Tab moves focus through the three banner buttons in reading order, each with a visible focus ring.
 2. A screen reader reads the banner text before the body. An icon and the text carry the tone, besides colour.
-3. The threshold form can be filled in, saved and reset with the keyboard alone.
+3. The per-kind setting can be changed and saved with the keyboard alone.
 
 ### N3, URL and phone
 
@@ -136,27 +133,30 @@ As the owner after a threshold change, I want to re-check the messages I pick, s
 2. A rail opened by Why comes back on reload from the message itself, never from the fragment (url-state R6).
 3. At phone width, the banner and its three buttons fit without horizontal scroll.
 
-## RFC gaps
+## RFC gaps, closed
 
-The requirements need these, and the RFC does not give them.
+The build closed the gaps the first draft listed.
 
-1. The message response and thread rows carry no `spamVerdict`. S1, S2.3 and N1.1 need action, kind, score, reasons and `modelCalled` on the message, and action and kind on the row.
-2. Reason names are free strings. A TypeSpec enum, as #1579 sets for placement reasons, lets the app hold a sentence for each one.
-3. Stage 3 returns a score with no named reason. S1.3 needs the model's reason as text, and N1.3 needs a reason naming a skipped model call and its cause.
-4. `ScreenedOut` records no rule. S1.4 and S5.1 need the stage 1 rule, with the filter's id.
-5. No mark stops a re-check from labelling a message the owner cleared (S3.3).
-6. No setting holds "Warn only" per kind (S7). It follows the threshold path through `readResolvedClassification`.
-7. The RFC names no setting fields or validation for the per-user thresholds (S6.1, N1.6).
-8. `getClassificationStats` (#1620) counts categories since a date. S8 needs spam verdicts per day, by action and kind, plus Not spam counts, as an optional field on that operation.
-9. No operation returns recent scores by band, which the count in S6.3 needs.
-10. Search takes one `labelId`, and the latest list in S9.1 spans `Spam` and `Phishing`.
+1. `Message.spamVerdict` carries action, kind, score, reasons and `modelOutcome`.
+2. `SpamReasonName` is a closed enum, so the app holds a sentence for each name.
+3. Stage 3 adds `ModelImpersonation`, `ModelSpam` or `ModelClean` with the model's reason, and `modelOutcome` names a skipped call and its cause.
+4. `ScreenedOut` records the stage 1 rule, with the filter's id.
+5. `spamCleared` stops a re-check from labelling a cleared message.
+6. `spamPlacementSpam` and `spamPlacementPhishing` hold Warn only per kind, as account settings.
+7. `getClassificationStats` returns `spamByDay` and `spamScoreBands`.
+8. The latest list reads each label's list and merges them.
+
+## Not built
+
+1. The owner cannot set the thresholds in the app. They are deployment variables.
+2. No preview counts the mail that new thresholds warn about or move.
+3. No count of Not spam marks per day exists.
 
 ## Open questions
 
-1. No UX spec or wireframes exist yet. The story names in the appendix are proposals for the `ux-designer` agent to confirm.
-2. #605 moves a Never in Spam sender's mail out of Junk. Whether the grant also clears `Warn` labels on that sender's older mail is undecided.
-3. Whether a `Phishing` warning disables the links in the body is undecided.
-4. Proton blocks and allows whole domains. Remit's flags apply to one sender.
+1. #605 moves a Never in Spam sender's mail out of Junk. Whether the grant also clears `Warn` labels on that sender's older mail is undecided.
+2. Whether a `Phishing` warning disables the links in the body is undecided.
+3. Proton blocks and allows whole domains. Remit's flags apply to one sender.
 
 ## FAQ
 
@@ -189,15 +189,12 @@ Each criterion maps to one test. Unit tests feed their own inputs. Playwright te
 | S4.1 | Playwright | `report-spam.spec.ts` |
 | S4.2 | Unit | blocked sender to Junk with no judge call, mailbox-service |
 | S5.1 | Unit | Never in Spam screens out, mailbox-service |
-| S6.1 | Playwright | `spam-settings.spec.ts`: save and reload |
-| S6.2 | Playwright | `spam-settings.spec.ts`: reset |
-| S6.3 | Story | `Playground/Proposed/Spam settings` `Preview` |
-| S6.4 | Story | `Playground/Proposed/Spam settings` `Default` |
+| S6.1 | Story | `Playground/Proposed/Spam settings` `Default` |
+| S6.2 | Unit | unset thresholds give `None`, mailbox-service |
 | S7.1 | Unit | Warn only keeps a high-scoring `Spam` in place, mailbox-service |
 | S7.2 | Unit | Move to Junk moves a high-scoring `Phishing`, mailbox-service |
 | S8.1 | Unit | per-day counts by action and kind, in the account's time zone |
-| S8.2 | Unit | Not spam count over the same days |
-| S8.3 | Story | `Playground/Proposed/Spam settings` `NothingChecked` |
+| S8.2 | Story | `Playground/Proposed/Spam settings` `NothingChecked` |
 | S9.1 | Story | `Playground/Proposed/Spam settings` `Default` |
 | S9.2 | Playwright | `spam-settings.spec.ts`: Review all |
 | S9.3 | Playwright | `spam-rescue.spec.ts`: bulk Not spam |
@@ -210,12 +207,12 @@ Each criterion maps to one test. Unit tests feed their own inputs. Playwright te
 | N1.3 | Story | `Design System/Spam/SpamWarningBanner` `ModelSkipped` |
 | N1.4 | Unit | retry picks only retryable ids, web-client |
 | N1.5 | Story | `Playground/Proposed/Spam check again` `PartialFailure` |
-| N1.6 | Unit | threshold validation |
+| N1.6 | Unit | the host refuses a broken threshold pair |
 | N1.7 | Story | `Playground/Shipped/Mail/ErrorBanner` `ReportSpamFailed` |
 | N1.8 | Story | `Playground/Proposed/Spam settings` `SignedOut` |
 | N2.1 | Playwright | `spam-warning.spec.ts`: Tab order |
 | N2.2 | Story | `Design System/Spam/SpamWarningBanner` `ReadingOrder` |
-| N2.3 | Playwright | `spam-settings.spec.ts`: keyboard only |
+| N2.3 | Playwright | `spam-settings.spec.ts`: per-kind setting, keyboard only |
 | N3.1 | Playwright | `spam-settings.spec.ts`: path and reload |
 | N3.2 | Playwright | `spam-warning.spec.ts`: reload after Why |
 | N3.3 | Story | `Design System/Spam/SpamWarningBanner` `Phone` |
@@ -223,4 +220,4 @@ Each criterion maps to one test. Unit tests feed their own inputs. Playwright te
 Findings:
 
 1. S9.5 states an absence, and no test proves an absence. Review holds it, with ruling 6.
-2. S3.3, S6.3, S7 and S8 test behaviour that RFC gaps 5, 6, 8 and 9 must supply first.
+2. Every RFC gap the first draft listed has closed.
