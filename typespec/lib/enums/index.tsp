@@ -113,6 +113,7 @@ import "./ProviderSpamVerdict.tsp";
 import "./RescanFailureCode.tsp";
 import "./SpamAction.tsp";
 import "./SpamFailureKind.tsp";
+import "./SpamJudgeName.tsp";
 import "./SpamKind.tsp";
 import "./SpamLabelPlacement.tsp";
 import "./SpamModelOutcome.tsp";

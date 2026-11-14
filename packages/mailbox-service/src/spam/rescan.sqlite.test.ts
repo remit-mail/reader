@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { AccountItem, MailboxItem } from "@remit/data-ports";
+import type { AccountItem, MailboxItem, SpamPipeline } from "@remit/data-ports";
 import {
 	classificationUsageName,
 	utcDateOf,
@@ -34,7 +34,11 @@ import {
 	spamConfigFor,
 	syncFolder,
 } from "../test-helpers/test-store.js";
-import { InlineSpamService, type SpamConfig } from "./index.js";
+import type { SpamConfig } from "./index.js";
+
+const WARN_ALL: SpamPipeline = [
+	{ name: "Inline", thresholds: { state: "Set", cleanBelow: 0, spamAt: 1 } },
+];
 
 const from = (email: string, subject: string): Buffer =>
 	eml({ From: `Sender <${email}>`, Subject: subject }, "Hello there.");
@@ -204,11 +208,6 @@ describe("rescan", () => {
 			from("desk@parcel-notice.example", "Your parcel again"),
 		);
 		await world.store.messageFlag.addFlag(cleared, MessageKeywordFlag.NotJunk);
-		const warnAll = new InlineSpamService({
-			state: "Set",
-			cleanBelow: 0,
-			spamAt: 1,
-		});
 
 		const result = await rescanServiceFor(
 			world.store,
@@ -216,8 +215,7 @@ describe("rescan", () => {
 			recordingQueue(),
 			{
 				...spamConfigFor(world.store),
-				spamService: warnAll,
-				thresholds: { state: "Set", cleanBelow: 0, spamAt: 1 },
+				spamPipeline: WARN_ALL,
 			},
 		).rescan(world.account, { messageIds: [cleared, suspect], move: true });
 
@@ -242,12 +240,7 @@ describe("rescan", () => {
 		const { store, storage, account } = world;
 		const warnAll: SpamConfig = {
 			...spamConfigFor(store),
-			spamService: new InlineSpamService({
-				state: "Set",
-				cleanBelow: 0,
-				spamAt: 1,
-			}),
-			thresholds: { state: "Set", cleanBelow: 0, spamAt: 1 },
+			spamPipeline: WARN_ALL,
 		};
 		const messageId = await arriveAndSync(
 			from("desk@parcel-notice.example", "Your parcel"),

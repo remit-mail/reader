@@ -13,7 +13,7 @@ import {
 	type IAccountSettingRepository,
 	readResolvedSpamSettings,
 	SPAM_PLACEMENT_SETTINGS,
-	type SpamDeployment,
+	type SpamPipeline,
 } from "@remit/data-ports";
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
@@ -46,7 +46,7 @@ export interface UserSettingsDeps {
 	>;
 	accountConfig: Pick<IAccountConfigRepository, "get">;
 	classificationDefault: ClassificationDeploymentDefault;
-	spamDeployment: SpamDeployment;
+	spamPipeline: SpamPipeline;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 	secrets: Pick<SecretsService, "encrypt">;
 	label: ClassificationLabelDeps;
@@ -154,7 +154,7 @@ const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
 	accountSetting: ctx.client.accountSetting,
 	accountConfig: ctx.client.accountConfig,
 	classificationDefault: ctx.client.classificationDefault,
-	spamDeployment: ctx.client.spam.spamDeployment,
+	spamPipeline: ctx.client.spam.spamPipeline,
 	accounts: ctx.client.account,
 	secrets: ctx.client.secrets,
 	label: ctx.client.label,

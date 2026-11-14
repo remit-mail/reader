@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import { describe, it } from "node:test";
 import type { SpamRequest } from "@remit/data-ports";
-import { fromRspamd, RspamdSpamService } from "./rspamd.js";
+import { fromRspamd, RspamdJudge } from "./rspamd.js";
 
 const symbol = (score: number, options: string[] = []) => ({
 	score,
@@ -18,6 +18,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 0,
 				action: "None",
+				decided: true,
 				kind: "Spam",
 				reasons: [["BackendSymbol", "R_SPF_ALLOW"]],
 			},
@@ -29,6 +30,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 0.3,
 				action: "Warn",
+				decided: false,
 				kind: "Spam",
 				reasons: [["ReplyToMismatch", "REPLYTO_DOM_NEQ_FROM_DOM"]],
 			},
@@ -40,6 +42,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 0.5,
 				action: "Warn",
+				decided: false,
 				kind: "Phishing",
 				reasons: [["LinkTextMismatch", "PHISHING"]],
 			},
@@ -51,6 +54,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 0.6,
 				action: "Warn",
+				decided: false,
 				kind: "Spam",
 				reasons: [
 					["DmarcFail", "DMARC_POLICY_SOFTFAIL"],
@@ -65,6 +69,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 0.8,
 				action: "Warn",
+				decided: false,
 				kind: "Spam",
 				reasons: [["BackendSymbol", "FUZZY_DENIED"]],
 			},
@@ -80,6 +85,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 1,
 				action: "Junk",
+				decided: true,
 				kind: "Phishing",
 				reasons: [
 					["ListedPhishingLink", "PHISHED_OPENPHISH"],
@@ -95,6 +101,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 1,
 				action: "Junk",
+				decided: true,
 				kind: "Spam",
 				reasons: [["BackendSymbol", "BAYES_SPAM"]],
 			},
@@ -106,6 +113,7 @@ describe("fromRspamd", () => {
 			expected: {
 				score: 14 / 15,
 				action: "Junk",
+				decided: true,
 				kind: "Spam",
 				reasons: [["DmarcFail", "DMARC_POLICY_QUARANTINE"]],
 			},
@@ -120,12 +128,13 @@ describe("fromRspamd", () => {
 				action,
 				symbols,
 			});
-			assert.equal(response.state, "Checked");
-			if (response.state !== "Checked") return;
+			assert.equal(response.state, "Judged");
+			if (response.state !== "Judged") return;
 			assert.deepEqual(
 				{
 					score: response.score,
 					action: response.action,
+					decided: response.decided,
 					kind: response.kind,
 					reasons: response.reasons.map((reason) => [
 						reason.name,
@@ -144,8 +153,8 @@ describe("fromRspamd", () => {
 			action: "add header",
 			symbols: { PHISHING: symbol(4.5, ["bank.example->login.example.net"]) },
 		});
-		assert.equal(response.state, "Checked");
-		if (response.state !== "Checked") return;
+		assert.equal(response.state, "Judged");
+		if (response.state !== "Judged") return;
 		assert.deepEqual(response.reasons, [
 			{
 				name: "LinkTextMismatch",
@@ -193,7 +202,7 @@ describe("fromRspamd", () => {
 	});
 });
 
-describe("RspamdSpamService", () => {
+describe("RspamdJudge", () => {
 	it("posts the raw message to /checkv2 with the envelope as headers", async () => {
 		const seen: { url?: string; headers?: IncomingHttpHeaders; body?: string } =
 			{};
@@ -254,12 +263,12 @@ describe("RspamdSpamService", () => {
 			},
 		};
 
-		const response = await new RspamdSpamService(
+		const response = await new RspamdJudge(
 			`http://127.0.0.1:${address.port}`,
 		).check(request);
 		server.close();
 
-		assert.equal(response.state, "Checked");
+		assert.equal(response.state, "Judged");
 		assert.equal(seen.url, "/checkv2");
 		assert.equal(seen.body, raw);
 		assert.equal(seen.headers?.from, "bounce@shop.example");

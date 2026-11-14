@@ -33,7 +33,7 @@ import type {
 	ISenderSignerStandingRepository,
 	ISyncWarningRepository,
 	IThreadMessageRepository,
-	SpamDeployment,
+	SpamPipeline,
 } from "@remit/data-ports";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { logger } from "@remit/logger";
@@ -57,8 +57,6 @@ import {
 	type SpamConfig,
 	SpamReportService,
 	SyncWarningService,
-	spamServiceFor,
-	spamThresholdsFor,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import {
@@ -260,7 +258,7 @@ export interface RemitClientSharedDeps {
 	mailTransports: MailTransports;
 	queues: RemitClientQueues;
 	classificationDefault: ClassificationDeploymentDefault;
-	spamDeployment: SpamDeployment;
+	spamPipeline: SpamPipeline;
 }
 
 export interface RemitClientDeps extends RemitClientSharedDeps {
@@ -344,7 +342,7 @@ export const createRemitCore = (
 		connectionScope,
 		mailTransports,
 		classificationDefault,
-		spamDeployment,
+		spamPipeline,
 	} = deps;
 	return {
 		accountConfig: repositories.accountConfig,
@@ -393,9 +391,7 @@ export const createRemitCore = (
 		mailTransports,
 		classificationDefault,
 		spam: {
-			spamService: spamServiceFor(spamDeployment),
-			spamDeployment,
-			thresholds: spamThresholdsFor(spamDeployment),
+			spamPipeline,
 			domainRegistration: repositories.domainRegistration,
 			rdap: new RdapClient(fetch),
 			accountService: repositories.account,
