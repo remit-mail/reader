@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { spamPipelineFromEnv } from "./spam-pipeline.js";
 
+const SET = { state: "Set", cleanBelow: 0.3, spamAt: 0.8 };
+
 const pipeline = (judges: unknown) =>
 	spamPipelineFromEnv({ SPAM_PIPELINE: JSON.stringify(judges) });
 
@@ -19,7 +21,7 @@ describe("spamPipelineFromEnv", () => {
 				thresholds: { state: "Set", cleanBelow: 0.2, spamAt: 0.9 },
 			},
 			{ name: "Rspamd", url: "http://rspamd:11333" },
-			{ name: "Model", thresholds: { state: "Unset" } },
+			{ name: "Model", thresholds: SET },
 		];
 		assert.deepEqual(pipeline(judges), judges);
 	});
@@ -36,7 +38,15 @@ describe("spamPipelineFromEnv", () => {
 					thresholds: { state: "Unset" },
 				},
 			],
-			/thresholds/,
+			/fields no judge reads: 0\.thresholds/,
+		],
+		[
+			"the model without thresholds",
+			[
+				{ name: "Inline", thresholds: { state: "Unset" } },
+				{ name: "Model", thresholds: { state: "Unset" } },
+			],
+			/1\.thresholds/,
 		],
 		[
 			"an rspamd URL that is not http",
@@ -65,13 +75,27 @@ describe("spamPipelineFromEnv", () => {
 		],
 		[
 			"the model alone",
-			[{ name: "Model", thresholds: { state: "Unset" } }],
+			[{ name: "Model", thresholds: SET }],
 			/needs a judge other than Model/,
 		],
 	];
 	for (const [name, judges, message] of refused) {
 		it(`refuses ${name}`, () => {
 			assert.throws(() => pipeline(judges), message);
+		});
+	}
+
+	for (const key of [
+		"SPAM_BACKEND",
+		"SPAM_CLEAN_BELOW",
+		"SPAM_AT",
+		"SPAM_RSPAMD_URL",
+	]) {
+		it(`refuses ${key}, which SPAM_PIPELINE replaced`, () => {
+			assert.throws(
+				() => spamPipelineFromEnv({ [key]: "0.5" }),
+				new RegExp(`${key} is no longer read.*SPAM_PIPELINE`),
+			);
 		});
 	}
 

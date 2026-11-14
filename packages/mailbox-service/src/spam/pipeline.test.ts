@@ -165,6 +165,33 @@ describe("the spam pipeline", () => {
 		);
 	});
 
+	it("keeps a warning when a later judge is unsure without one", async () => {
+		const verdict = await run([
+			{
+				name: "Rspamd",
+				judge: recording(
+					[],
+					"warn",
+					judged("warn", 0.4, SpamAction.Warn, false),
+				),
+			},
+			{
+				name: "Inline",
+				judge: recording(
+					[],
+					"unset",
+					judged("unset", 0.7, SpamAction.None, false),
+				),
+			},
+		]);
+
+		assert.equal(verdict.state, "Checked");
+		if (verdict.state !== "Checked") return;
+		assert.equal(verdict.action, SpamAction.Warn);
+		assert.equal(verdict.score, 0.7);
+		assert.equal(verdict.decidedBy, "Inline");
+	});
+
 	it("ends with a judge's failure", async () => {
 		const calls: { symbol: string; earlier: string[] }[] = [];
 

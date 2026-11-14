@@ -22,7 +22,7 @@ import type {
 	ClassifierGate,
 } from "../classifier/classifier-gate.js";
 import { byThresholds, kindOf } from "./judge.js";
-import type { Judged, Judgement, SpamJudge } from "./pipeline.js";
+import type { Judgement, ModelJudged, SpamJudge } from "./pipeline.js";
 
 /** What the model answered for a message. */
 interface ModelAnswer {
@@ -112,7 +112,7 @@ const judgedOf = (
 	answer: ModelAnswer,
 	earlier: readonly SpamReason[],
 	thresholds: SpamThresholds,
-): Judged => {
+): ModelJudged => {
 	const score = Math.round(answer.score * 10_000) / 10_000;
 	const name = ANSWERED[answer.verdict];
 	return {
@@ -129,6 +129,7 @@ const judgedOf = (
 				options: answer.reason === "" ? [] : [answer.reason],
 			},
 		],
+		modelOutcome: SpamModelOutcome.Answered,
 	};
 };
 

@@ -477,7 +477,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		);
 		const spamScoreBands = readSpamScoreBands(
 			await this.db.all(
-				sql`select min(cast(round(json_extract(${messageTable.spamVerdict}, '$.score') / ${SPAM_SCORE_BAND_WIDTH}, 9) as int), ${Math.round(1 / SPAM_SCORE_BAND_WIDTH) - 1}) as band, count(*) as count from ${messageTable} where ${checked} group by band order by band`,
+				sql`select min(cast(round(json_extract(${messageTable.spamVerdict}, '$.score') / ${SPAM_SCORE_BAND_WIDTH}, 9) as int), ${Math.round(1 / SPAM_SCORE_BAND_WIDTH) - 1}) as band, count(*) as count from ${messageTable} where ${checked} and json_extract(${messageTable.spamVerdict}, '$.decidedBy') = 'Inline' group by band order by band`,
 			),
 		);
 		return {

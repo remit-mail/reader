@@ -10,7 +10,6 @@ import type {
 	AccountSettingItem,
 	SpamLabelPlacementValue,
 	SpamSettingsItem,
-	SpamThresholds,
 } from "./types.js";
 
 /** Each per-label placement field of `UpdateUserSettingsInput` and the setting it saves. */
@@ -36,21 +35,14 @@ const placementOf = (
 		: SpamLabelPlacement.MoveToSpam;
 };
 
-const UNSET: SpamThresholds = { state: "Unset" };
-
 const resolveSpamSettings = (
 	rows: readonly Pick<AccountSettingItem, "name" | "value">[],
 	pipeline: SpamPipeline,
 ): SpamSettingsItem => ({
-	thresholds:
-		pipeline.find(
-			(judge): judge is Extract<SpamJudgeConfig, { name: "Inline" }> =>
-				judge.name === SpamJudgeName.Inline,
-		)?.thresholds ?? UNSET,
-	judges: pipeline.map((judge) => ({
-		name: judge.name,
-		thresholds: "thresholds" in judge ? judge.thresholds : UNSET,
-	})),
+	thresholds: pipeline.find(
+		(judge): judge is Extract<SpamJudgeConfig, { name: "Inline" }> =>
+			judge.name === SpamJudgeName.Inline,
+	)?.thresholds ?? { state: "Unset" },
 	spamPlacement: placementOf(rows, AccountSettingName.SpamPlacementSpam),
 	phishingPlacement: placementOf(
 		rows,

@@ -215,21 +215,37 @@ union SpamThresholds {
   set: SpamThresholdsSet,
 }
 
-@doc("One judge of the deployment's spam pipeline.")
-model SpamJudgeSettings {
-  name: SpamJudgeName;
-
-  @doc("`Unset` for rspamd, which picks its own action.")
+@doc("The inline judge, with its own thresholds.")
+model SpamInlineJudgeConfig {
+  name: SpamJudgeName.Inline;
   thresholds: SpamThresholds;
+}
+
+@doc("An rspamd judge. Its action is its verdict: `no action` and `Junk` actions are sure, softer ones pass the message on.")
+model SpamRspamdJudgeConfig {
+  name: SpamJudgeName.Rspamd;
+
+  @doc("The rspamd normal worker's http or https URL.")
+  url: string;
+}
+
+@doc("The model judge. It spends a unit of the daily model cap per call, so it always has thresholds.")
+model SpamModelJudgeConfig {
+  name: SpamJudgeName.Model;
+  thresholds: SpamThresholdsSet;
+}
+
+@doc("One judge in the deployment's `SPAM_PIPELINE` (RFC 041).")
+union SpamJudgeConfig {
+  inlineJudge: SpamInlineJudgeConfig,
+  rspamdJudge: SpamRspamdJudgeConfig,
+  modelJudge: SpamModelJudgeConfig,
 }
 
 @doc("How Remit acts on spam verdicts for the caller.")
 model SpamSettings {
   @doc("The inline judge's thresholds, from the deployment's `SPAM_PIPELINE`. `Unset` when the pipeline has no inline judge.")
   thresholds: SpamThresholds;
-
-  @doc("The deployment's judges, in the order they run.")
-  judges: SpamJudgeSettings[];
 
   @doc("What a `Junk` verdict of kind `Spam` does.")
   spamPlacement: SpamLabelPlacement;
