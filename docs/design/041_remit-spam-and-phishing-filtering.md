@@ -1,6 +1,6 @@
 # Remit spam and phishing filtering
 
-RFC 041. Status: built, 2026-11-14, in reader #1648 to #1654 and reader-ui #44 and #45. Calibration has not run yet, so the thresholds are unset.
+RFC 041. Status: built, 2026-11-15, in reader #1648 to #1656, #1658 and #1661, and reader-ui #44 and #45. Calibration has not run yet, so the thresholds are unset.
 
 ## Goal
 
@@ -75,6 +75,7 @@ type SpamResponse =
 
 type SpamReasonName =
   | "DmarcFail" // check 1
+  | "DkimDmarcFail" // check 1
   | "SignerMismatch" // check 1
   | "ReplyToMismatch" // check 2
   | "LinkTextMismatch" // check 3
@@ -106,14 +107,14 @@ type SpamReason = {
 };
 ```
 
-`decidedBy` names the judge whose score and action stand, and `reasons` holds the reasons of every judge that ran. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. The names form a closed enum, so the mail app maps each one to one plain sentence. `symbol` holds the backend's own name for the check, and the inline engine sets it to `name`. A backend symbol with no matching name arrives as `BackendSymbol`, and the mail app shows it as an unknown reason. Only a backend such as rspamd reports `ListedPhishingLink`, for a link a phishing feed lists. `modelOutcome` names why the model did not answer, when it did not.
+`decidedBy` names the judge whose score and kind stand, and `reasons` holds the reasons of every judge that ran. `kind` is `Phishing` when the message impersonates someone, and `Spam` otherwise. A reason has the shape of an rspamd symbol: the check's name, what it added to the score, and what it found, such as the domain behind a link. The names form a closed enum, so the mail app maps each one to one plain sentence. `symbol` holds the backend's own name for the check, and the inline engine sets it to `name`. A backend symbol with no matching name arrives as `BackendSymbol`, and the mail app shows it as an unknown reason. Only a backend such as rspamd reports `ListedPhishingLink`, for a link a phishing feed lists. `modelOutcome` names why the model did not answer, when it did not.
 
 ### Judges
 
 `SPAM_PIPELINE` is a JSON list of judges, in the order they run. Each judge maps its score to an action, sure or unsure.
 
 1. `Inline` runs the stage 2 checks. Its thresholds are `Set`, with `cleanBelow` and `spamAt`, or `Unset`. Set thresholds make it sure below `cleanBelow` (`None`) and from `spamAt` up (`Junk`). Between them it warns. Unset thresholds give `None` and leave it unsure.
-2. `Rspamd` posts `message.raw` to `/checkv2` under its `url`, over plain HTTP with no authentication. It sends `envelope` as the `From`, `Rcpt` (first recipient only), `IP`, `Helo` and `Hostname` headers, and drops `context`. The score is `score` divided by `required_score`, capped at 1. Rspamd takes no thresholds. The next section maps its actions.
+2. `Rspamd` posts `message.raw` to `/checkv2` under its `url`, over plain HTTP with no authentication. It sends `envelope` as the `From`, `Rcpt` (first recipient only), `IP`, `Helo` and `Hostname` headers, and drops `context`. The score is `score` divided by `required_score`, capped at 1. The next section maps its actions.
 3. `Model` is stage 3. Its thresholds are always set.
 
 The run follows these rules:
@@ -121,7 +122,7 @@ The run follows these rules:
 1. The first sure judge ends the run, and its action stands.
 2. When no judge is sure, the action is `Warn` if any judge warned, else `None`. The last judge to judge sets score and kind.
 3. A failing judge ends the run as `Failed`.
-4. Without `SPAM_PIPELINE`, the inline judge runs alone with thresholds unset, and nothing moves.
+4. Without `SPAM_PIPELINE`, the inline judge runs alone with thresholds unset, and no spam verdict moves mail.
 5. The backend refuses to start on a list the schema rejects: only `Model`, `cleanBelow` above `spamAt`, a non-HTTP rspamd URL, or a field no judge reads. It also refuses while `SPAM_BACKEND`, `SPAM_CLEAN_BELOW`, `SPAM_AT` or `SPAM_RSPAMD_URL` is set.
 
 A spam service behind an HTTP Worker becomes one more judge in the list when someone builds it.
@@ -161,7 +162,7 @@ Report spam sets the sender's `blocked` flag, and a blocked sender goes straight
 
 The inline engine runs these checks as a pure function of the request, with no list of brands, providers or domains:
 
-1. DMARC fails, or the DKIM signer is another domain (`SignerMismatch`).
+1. DMARC fails, or the DKIM signer is another domain (`SignerMismatch`). DMARC failing with a failed or misaligned DKIM signature adds `DkimDmarcFail`.
 2. The Reply-To domain differs from the From domain.
 3. A link's visible text shows a domain that differs from its href.
 4. A link points to a domain far from the sender's, by edit distance.
@@ -193,13 +194,15 @@ The owner's mail provider checks URL blocklists, authenticates the message and a
 
 ## Placement and labels
 
-1. `Junk` sets the `junk` input of `classifyPlacement`, next to the category classifier's junk answer. The VIP, well-known and sender-flag rules keep precedence.
-2. A `Junk` message moves to Junk and gets one Remit label, `Phishing` or `Spam` after `kind`. The owner can set each kind to `WarnOnly` in Settings, Spam (`spamPlacementSpam`, `spamPlacementPhishing`), and then a `Junk` verdict of that kind stays in place.
-3. A `Warn` message stays where it arrived and gets the same label. The mail app warns that Remit suspects the message but cannot confirm it.
-4. `Message.spamVerdict` holds the response, the score included. It defaults to `NotChecked`. A message stage 1 let through records `ScreenedOut` with the rule that let it through.
-5. Not spam removes the `Spam` and `Phishing` labels and sets `Message.spamCleared`. A later Report spam clears it. A rescan records a cleared message's verdict without a label or a move.
-6. Not spam on a message in Junk that the owner never reported also sets the sender's `neverSpam` flag.
-7. The mail app draws its spam marks from those two labels, and draws none while `spamCleared` is true. It makes no Never in Spam offer, because Not spam already sets the flag.
+1. `Junk` sets the `junk` input of `classifyPlacement`. Sender trust and sender flags keep precedence.
+2. A confident `Spam` or `Phishing` score from the category classifier (0.7 calibrated, 0.8 advisory) also moves the message to Junk, outside the pipeline. Folding it into the pipeline waits on an owner decision.
+3. A `Junk` message moves to Junk and gets one Remit label, `Phishing` or `Spam` after `kind`. The owner can set each kind to `WarnOnly` in Settings, Spam, so a `Junk` verdict of that kind stays in place.
+4. A `Warn` message stays where it arrived and gets the same label.
+5. `Message.spamVerdict` holds the response. A message stage 1 let through records `ScreenedOut` with its rule.
+6. Not spam removes the `Spam` and `Phishing` labels and sets `Message.spamCleared`. A later Report spam clears it. A rescan records a cleared message's verdict without a label or a move.
+7. Not spam on a message in Junk that the owner never reported also sets the sender's `neverSpam` flag.
+8. The mail app draws its spam marks from those two labels, and draws none while `spamCleared` is true. A labelled message outside Spam shows as suspected. The app makes no Never in Spam offer.
+9. A rescan with `move` returns a message in Junk to the Inbox for a VIP, well-known or `neverSpam` sender whose DMARC did not fail, or for a score below the deciding judge's `cleanBelow`. A spam report, a blocked sender or the owner's move into Junk keeps it there.
 
 ## Cost per message
 
@@ -231,7 +234,8 @@ type RescanResult = {
 4. Remit scans the messages in parallel, within the model provider's rate limit and the daily cap. The response follows SQS `SendMessageBatch` and Lambda's `batchItemFailures`: the call succeeds, and each message lands in `successful` or `failed`. `successful` carries the verdict and the labels written.
 5. `RateLimited`, `DailyCap` and `NotSettled` are retryable. `NotSettled` means a move of the message is still settling, so `move` cannot place it yet. `NotFound` and `NotPermitted` are not retryable. The caller retries only the retryable ids.
 6. The backfill is a loop in the caller. It pages through `list_threads` or `search_threads`, with the message-date facet where it needs one, and sends ten ids per call.
-7. Both hosts serve the operation, because it runs in the request like any other message operation.
+7. Both hosts serve the operation.
+8. A bulk move, such as emptying Junk, is client-driven too. Each organize job moves up to 500 messages and returns `remainingCount` and `nextPosition`. The caller starts the next job at that position.
 
 ## Calibration
 
@@ -245,11 +249,11 @@ type RescanResult = {
 
 ## Cleanup
 
-Each item below either became evidence for the spam service or went. Items 1, 2, 4, 5 and 6 shipped. Unless stated, each path sits in `packages/mailbox-service/src`.
+Each item below either became evidence for the spam service or went. Every item shipped. Unless stated, each path sits in `packages/mailbox-service/src`.
 
 1. `classifyDisplayNameCorrespondence` and `extractOffDomainLinkDomains` in `heuristics/senderMismatch.ts` move into the inline engine as checks 11 and 4. Their DKIM and List-Unsubscribe gates go. The stored `displayNameCorrespondence` and `offDomainLinkDomains` fields, their TypeSpec enum and the call in `classify-message.ts` are deleted. The response reasons hold what they found.
 2. `authenticityVerdict` and its `AuthenticityVerdict` enum are deleted from `typespec/lib/models/Message.tsp`, `packages/data-ports/src/types.ts` and `packages/drizzle-service/src/repos/message.ts`. `Message.spamVerdict` holds the same fact.
-3. In `heuristics/classifyPlacement.ts` the `deferred-to-llm` branch is gone. The demote for DKIM mismatch with DMARC fail stays until the thresholds are set, and goes after that. DMARC failure is check 1.
+3. In `heuristics/classifyPlacement.ts` the `deferred-to-llm` branch and the demote for DKIM mismatch with DMARC fail are gone. That rule is now `DkimDmarcFail` in check 1.
 4. In `heuristics/classifyByHeaders.ts`, the rule that files a DKIM mismatch as `automated` is deleted. The mismatch reaches the service as `signerDomain`.
 5. The `personal` fallback in `classifyByHeaders` is deleted. Mail no header rule matches stays `uncategorized` until the category classifier answers.
 6. `packages/backend/scripts/backfill-classification.ts` and `classification-backfill.ts` are deleted, replaced by rescan.
@@ -284,8 +288,9 @@ Each item below either became evidence for the spam service or went. Items 1, 2,
 5. #1652: one classify-and-record step shared by body sync and rescan.
 6. #1653: `spamCleared` on Not spam.
 7. #1654: the judges as a pipeline in `SPAM_PIPELINE`, with `decidedBy`.
-8. The two reader-ui PRs: the banner, the row mark, the rail section, Check again and Settings, Spam.
-9. Not built yet: calibration, then the deletion of the DKIM demote.
+8. #1655, #1658 and #1661: `DkimDmarcFail` in place of the DKIM demote, the return of clean mail from Junk, and the bulk move position.
+9. The two reader-ui PRs: the banner, the row mark, the rail section, Check again and Settings, Spam.
+10. Not built yet: calibration, and folding the classifier's junk move into the pipeline.
 
 ## FAQ
 

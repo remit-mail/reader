@@ -1,6 +1,6 @@
 # Product requirements for spam and phishing in Remit
 
-Companion to RFC 041 (`041_remit-spam-and-phishing-filtering.md`). Status: built, 2026-11-14, in reader #1648 to #1654 and reader-ui #44 and #45, except the stories under Not built.
+Companion to RFC 041 (`041_remit-spam-and-phishing-filtering.md`). Status: built, 2026-11-15, in reader #1648 to #1656, #1658 and #1661, and reader-ui #44 and #45, except the stories under Not built.
 
 ## Summary
 
@@ -46,7 +46,7 @@ As the owner of a suspect message, I want it to stay where it arrived and say wh
 
 1. Opening a warned message of kind `Spam` shows a banner above the body: "Remit suspects this is spam". The banner names the top reason and holds three buttons: Not spam, Report spam and Why.
 2. A warned `Phishing` message carries the banner "Remit suspects this message impersonates someone", in the danger tone, with the same three buttons.
-3. In any message list, a warned row carries the `Spam` or `Phishing` chip plus a "Suspected" marker. A row Remit moved to Junk carries the chip alone.
+3. In any message list, a row with the `Spam` or `Phishing` label carries that chip, plus a "Suspected" marker while it sits outside Spam. In Spam the row carries the chip alone.
 4. Pressing Why opens the intelligence rail on that message, scrolled to the verdict.
 
 ### S3, clear a wrong verdict
@@ -75,7 +75,7 @@ As the owner managing senders, I want to exempt a sender from spam checks, so th
 As the owner tuning the filter, I want to see the scores at which Remit warns and moves, so that I can read each decision against them.
 
 1. Settings, Spam shows "Warn from" and "Move to Spam from" as the deployment sets them for the inline judge in `SPAM_PIPELINE`.
-2. While `SPAM_PIPELINE` is unset, Remit warns about and moves nothing on a spam verdict.
+2. While `SPAM_PIPELINE` is unset, Remit warns about and moves nothing on a spam verdict. The category classifier still moves mail it scores confidently as `Spam` or `Phishing`.
 
 ### S7, pick an action per label
 
@@ -100,6 +100,7 @@ As the owner looking for lost mail, I want to review the latest flagged messages
 3. Selecting messages in a label list and pressing Not spam treats each one as S3.1 or S3.2 does.
 4. Deleting messages from a label list or from Junk moves them to Trash.
 5. Remit leaves flagged mail of any age in place until the owner moves or deletes it.
+6. A rescan with move returns mail in Junk to the Inbox for a VIP, well-known or Never in Spam sender, or for a verdict a judge called clean.
 
 ### S10, check again
 
@@ -157,6 +158,7 @@ The build closed the gaps the first draft listed.
 1. #605 moves a Never in Spam sender's mail out of Junk. Whether the grant also clears `Warn` labels on that sender's older mail is undecided.
 2. Whether a `Phishing` warning disables the links in the body is undecided.
 3. Proton blocks and allows whole domains. Remit's flags apply to one sender.
+4. The category classifier moves a confident `Spam` or `Phishing` answer to Junk outside `SPAM_PIPELINE`. Whether that move folds into the pipeline waits on an owner decision.
 
 ## FAQ
 
@@ -200,6 +202,7 @@ Each criterion maps to one test. Unit tests feed their own inputs. Playwright te
 | S9.3 | Playwright | `spam-rescue.spec.ts`: bulk Not spam |
 | S9.4 | Playwright | `spam-rescue.spec.ts`: delete moves to Trash |
 | S9.5 | None | finding 1 |
+| S9.6 | Unit | trusted and clean mail leaves Junk on a rescan, mailbox-service |
 | S10.1 | Unit | batches of ten and the progress count, web-client |
 | S10.2 | Story | `Design System/Spam/SpamWarningBanner` `NowJunk` |
 | N1.1 | Story | `Design System/Spam/SpamWarningBanner` `CheckFailed` |
