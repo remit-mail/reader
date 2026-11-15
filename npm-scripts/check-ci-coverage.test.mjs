@@ -27,7 +27,11 @@ function write(root, path, contents) {
 }
 
 // Two packages with a suite each, both picked up by test-parallel.
-function fixture({ extraScripts = {} } = {}) {
+function fixture({
+	extraScripts = {},
+	packages = ["collected", "other"],
+	testCommands = ["npm run test:ci"],
+} = {}) {
 	const root = mkdtempSync(join(tmpdir(), "ci-coverage-"));
 	roots.push(root);
 	write(
@@ -38,7 +42,7 @@ function fixture({ extraScripts = {} } = {}) {
 		}),
 	);
 	write(root, "npm-scripts/lib/tooling.test.mjs", "");
-	for (const name of ["collected", "other"]) {
+	for (const name of packages) {
 		write(
 			root,
 			`packages/${name}/package.json`,
@@ -56,8 +60,10 @@ function fixture({ extraScripts = {} } = {}) {
 			"jobs:",
 			"  test:",
 			"    steps:",
-			"      - name: Unit tests",
-			"        run: npm run test:ci",
+			...testCommands.flatMap((command) => [
+				"      - name: Unit tests",
+				`        run: ${command}`,
+			]),
 			"",
 		].join("\n"),
 	);
@@ -80,5 +86,43 @@ describe("check:ci-coverage seeding", () => {
 		);
 		assert.equal(status, 1);
 		assert.match(stderr, /"check:orphan" is not reached by any workflow/);
+	});
+
+	const groups = (...names) =>
+		names.map((name) => `npm run test:ci -- --group ${name}`);
+
+	it("accepts groups that run every suite once", () => {
+		const { status, stdout } = check(
+			fixture({
+				packages: ["mailbox-service", "other"],
+				testCommands: groups("shared", "mailbox-service"),
+			}),
+		);
+		assert.equal(status, 0, stdout);
+	});
+
+	it("rejects a suite that two groups run", () => {
+		const { status, stderr } = check(
+			fixture({
+				packages: ["mailbox-service", "other"],
+				testCommands: ["npm run test:ci", ...groups("mailbox-service")],
+			}),
+		);
+		assert.equal(status, 1);
+		assert.match(
+			stderr,
+			/suite "packages\/mailbox-service" runs in 2 test:ci jobs/,
+		);
+	});
+
+	it("rejects a solo suite no group runs", () => {
+		const { status, stderr } = check(
+			fixture({
+				packages: ["mailbox-service", "other"],
+				testCommands: groups("shared"),
+			}),
+		);
+		assert.equal(status, 1);
+		assert.match(stderr, /"packages\/mailbox-service#test:run" is not reached/);
 	});
 });

@@ -164,17 +164,33 @@ jobs:
       - name: Typecheck reaches every TypeScript file
         run: npm run check:typecheck-coverage
 
-  # Every workspace suite, each with its own native coverage floor;
-  # test-parallel runs them three-wide.
+  # Every workspace suite, each with its own native coverage floor, split
+  # across runners by npm-scripts/lib/test-groups.mjs: the three suites that
+  # take about five minutes each get a runner of their own, and test-parallel
+  # runs the rest together. check:ci-coverage proves each suite is in exactly
+  # one entry below.
   test-rest:
     runs-on: ubuntu-latest
     needs: [docs-only]
     if: needs['docs-only'].outputs.result != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: shared
+            command: npm run test:ci -- --group shared
+          - group: mailbox-service
+            command: npm run test:ci -- --group mailbox-service
+          - group: imap-worker
+            command: npm run test:ci -- --group imap-worker
+          - group: drizzle-service
+            command: npm run test:ci -- --group drizzle-service
+    name: test-rest (${{ matrix.group }})
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - name: Unit tests
-        run: npm run test:ci
+      - name: Unit tests — ${{ matrix.group }}
+        run: ${{ matrix.command }}
 
       # The e2e suite's own unit checks. They stub `fetch`, so they need neither
       # a deployment nor a browser and belong with the unit tests rather than in
@@ -182,6 +198,7 @@ jobs:
       # workspace root, which is why it is a step of its own and not something
       # test-parallel collects.
       - name: e2e suite — unit checks
+        if: matrix.group == 'shared'
         run: npm run test:e2e-unit
 
   # This job assembles the stack from the branch under review — queue sidecar,
@@ -201,11 +218,12 @@ jobs:
   # whole critical path at about 29 minutes on one worker. Every shard's global
   # setup signs up a fresh user against a fresh mailbox, and the specs already
   # restore what they change for the specs that follow, so a shard starts from
-  # the same state a single run does. Playwright splits the spec files in order
-  # by test count, so a file never spans two shards.
+  # the same state a single run does. npm-scripts/e2e-shard.mjs splits the spec
+  # files by the seconds each took on CI (packages/e2e/spec-durations.json), so
+  # the shards finish close together and a file never spans two shards.
   #
-  # SHARD_TOTAL must equal the matrix length; a mismatch would drop or duplicate
-  # specs. The two are kept in step here by hand.
+  # SHARD_TOTAL must equal the matrix length; a mismatch would drop specs. The
+  # two are kept in step here by hand.
   e2e-dev:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -236,7 +254,9 @@ jobs:
         run: npm run e2e:dev:up
 
       - name: Black-box suite — shard ${{ matrix.shard }}/6
-        run: npm run e2e:test -- --shard="${{ matrix.shard }}/$SHARD_TOTAL"
+        run: |
+          specs=$(node npm-scripts/e2e-shard.mjs "${{ matrix.shard }}" "$SHARD_TOTAL")
+          npm run e2e:test -- $specs
 
       - name: Collect stack logs
         if: failure()
@@ -348,6 +368,7 @@ jobs:
           VALIDATE: ${{ needs.validate.result }}
           LINT: ${{ needs.lint.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
+          # A matrix job: success only when every group succeeded.
           TEST_REST: ${{ needs['test-rest'].result }}
           # A matrix job: success only when every shard succeeded.
           E2E_DEV: ${{ needs['e2e-dev'].result }}

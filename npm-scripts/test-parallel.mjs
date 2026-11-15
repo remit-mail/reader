@@ -2,11 +2,13 @@
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import {
 	NODE_TEST_FLAGS_VAR,
 	nodeTestFlags,
 	suiteConcurrency,
 } from "./lib/test-bounds.mjs";
+import { selectGroup } from "./lib/test-groups.mjs";
 import {
 	discoverWorkspaces,
 	WORKSPACE_SCRIPT,
@@ -14,9 +16,14 @@ import {
 
 // The tree to run, this repo unless a path is given. The suite points it at a
 // fixture tree so the exclusion check below is exercised as the runner calls
-// it, not only as a pure function.
+// it, not only as a pure function. `--group` narrows the run to one CI runner's
+// share (lib/test-groups.mjs).
+const { values: options, positionals } = parseArgs({
+	options: { group: { type: "string" } },
+	allowPositionals: true,
+});
 const root = resolve(
-	process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), ".."),
+	positionals[0] ?? join(dirname(fileURLToPath(import.meta.url)), ".."),
 );
 
 const OUTPUT_LIMIT = 64 * 1024 * 1024;
@@ -122,7 +129,9 @@ async function main() {
 	if (skipped.length > 0) {
 		console.log(`no tests to run for: ${skipped.join(", ")}`);
 	}
-	const units = suites
+	const selected = selectGroup(suites, options.group);
+	if (selected.error) throw new Error(selected.error);
+	const units = selected.suites
 		.map((suite) => ({
 			...suite,
 			command: ["npm", ["run", WORKSPACE_SCRIPT, "-w", suite.workspace]],
