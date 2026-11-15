@@ -34,6 +34,7 @@ export {
 	spamModelAccessOf,
 } from "./model.js";
 export {
+	classifierMayJunk,
 	isConfidentlyClean,
 	type SpamPlacement,
 	spamPlacementOf,

@@ -11,6 +11,7 @@ import {
 	SpamLabelPlacement,
 	SpamSenderScreenRule,
 } from "@remit/domain-enums";
+import type { SenderPlacement } from "../sender-placement.js";
 import { byThresholds } from "./judge.js";
 
 type Kind = (typeof SpamKind)[keyof typeof SpamKind];
@@ -37,6 +38,26 @@ export const isConfidentlyClean = (
 	if (!judge || judge.name === SpamJudgeName.Rspamd) return false;
 	const { action, decided } = byThresholds(score, judge.thresholds);
 	return decided && action === SpamAction.None;
+};
+
+/**
+ * Whether the category classifier's junk answer may move a message on its
+ * own. It may not when screening let the message through, when the owner has
+ * written to the sender, or when a calibrated judge decided: the inline judge
+ * already weighs the classifier's answer, and its verdict stands.
+ */
+export const classifierMayJunk = (
+	verdict: MessageSpamVerdict,
+	sender: Pick<SenderPlacement, "knownSender">,
+	pipeline: SpamPipeline,
+): boolean => {
+	if (verdict.state === "ScreenedOut" || sender.knownSender) return false;
+	if (verdict.state !== "Checked") return true;
+	const judge = pipeline.find((config) => config.name === verdict.decidedBy);
+	if (!judge) return true;
+	return (
+		judge.name !== SpamJudgeName.Rspamd && judge.thresholds.state === "Unset"
+	);
 };
 
 const NONE: SpamPlacement = { action: "None" };

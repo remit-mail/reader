@@ -33,6 +33,7 @@ import {
 } from "./place-message.js";
 import type { SenderPlacement } from "./sender-placement.js";
 import {
+	classifierMayJunk,
 	type SpamArrival,
 	type SpamConfig,
 	type SpamPlacement,
@@ -93,6 +94,7 @@ export interface ArrivalRecordInput {
 }
 
 const place = async (
+	spam: Pick<SpamConfig, "spamPipeline">,
 	input: ArrivalRecordInput,
 	placement: ArrivalPlacement,
 ): Promise<PlacementUpdate> => {
@@ -103,7 +105,12 @@ const place = async (
 		roles: placement.roles,
 		sender: placement.sender,
 		junk:
-			input.classifierVerdict.kind === "Junk" ||
+			(input.classifierVerdict.kind === "Junk" &&
+				classifierMayJunk(
+					input.spamVerdict,
+					placement.sender,
+					spam.spamPipeline,
+				)) ||
 			input.spamPlacement.action === "Junk",
 		move: placement.move,
 		junkExit: placement.junkExit,
@@ -121,7 +128,10 @@ const place = async (
  * waits for the move to settle nor needs reconciling after it.
  */
 export const recordArrival = async (
-	spam: Pick<SpamConfig, "labelService" | "messageLabelService">,
+	spam: Pick<
+		SpamConfig,
+		"labelService" | "messageLabelService" | "spamPipeline"
+	>,
 	input: ArrivalRecordInput,
 ): Promise<{
 	update: UpdateMessageInput & { category: MessageCategoryValue };
@@ -129,7 +139,7 @@ export const recordArrival = async (
 }> => {
 	const { account, messageId, gate, classifierVerdict } = input;
 	const placementUpdate = input.placement
-		? await place(input, input.placement)
+		? await place(spam, input, input.placement)
 		: {};
 
 	const classifierLabel = classificationLabelOf(classifierVerdict);
