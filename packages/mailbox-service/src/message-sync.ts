@@ -412,7 +412,13 @@ export class MessageSyncService {
 		// variant of sync, not a special wipe path, so it runs here under the
 		// same mailbox lock the caller already holds.
 		if (isCursorRebuildNeeded(mailbox.cursorState)) {
-			return this.rebuildCursor(mailbox, accountId, accountConfigId, mailboxId);
+			return this.rebuildCursor(
+				mailbox,
+				accountId,
+				accountConfigId,
+				mailboxId,
+				batchSize,
+			);
 		}
 
 		const lastSyncUid = mailbox.lastSyncUid || 0;
@@ -721,7 +727,10 @@ export class MessageSyncService {
 	 * - Match → rewrite the row's UID mapping in place; bodies and threads are
 	 *   untouched.
 	 * - Server message with no row → normal new-message sync (the same
-	 *   `trySaveMessage` pipeline the regular batch sync uses).
+	 *   `trySaveMessage` pipeline the regular batch sync uses), newest first and
+	 *   at most `batchSize` of them. The rest stay below `lastSyncUid`, so the
+	 *   regular enumeration backfills them one batch per round: a folder that
+	 *   lost most of its rows would otherwise be saved in one CPU-bound pass.
 	 * - Row with no counterpart → expunged; removed through `deleteIfPlacement`
 	 *   on the uid the rebuild read (#1283 — the exact same "gone upstream"
 	 *   outcome as a body-sync retry exhaustion finding a stale row), so a row
@@ -739,6 +748,7 @@ export class MessageSyncService {
 		accountId: string,
 		accountConfigId: string,
 		mailboxId: string,
+		batchSize: number,
 	): Promise<SyncMessagesResult> {
 		const mailboxPath = mailbox.fullPath;
 
@@ -814,8 +824,11 @@ export class MessageSyncService {
 				.map((row) => ({ messageId: row.messageId, uid: row.uid })),
 		);
 
+		const newestFirst = [...newUids].sort((a, b) => b - a);
+		const batchUids = newestFirst.slice(0, batchSize);
+		const deferredUids = newestFirst.slice(batchSize);
 		const newMessages =
-			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
+			batchUids.length > 0 ? await this.fetchMessageBatch(batchUids) : [];
 		const applicable = newMessages.filter(hasEnvelope);
 		const roles = await this.folderRolesFor(accountId, accountConfigId);
 		const departures = await this.probeDepartures(
@@ -860,7 +873,7 @@ export class MessageSyncService {
 		const snapshotUids = new Set(serverUids);
 		const unusableUids = [
 			...allUids.filter((uid) => !snapshotUids.has(uid)),
-			...newUids.filter((uid) => !savedUids.has(uid)),
+			...batchUids.filter((uid) => !savedUids.has(uid)),
 		];
 		if (unusableUids.length > 0) {
 			this.log.warn(
@@ -895,12 +908,20 @@ export class MessageSyncService {
 			serverUids: { kind: "Listed", uids: allUids },
 		});
 
+		const backfillFrom =
+			deferredUids.length > 0
+				? Math.max(...deferredUids) + 1
+				: serverUids.length > 0
+					? Math.min(...serverUids)
+					: 0;
+		const complete = failedUids.size === 0 && deferredUids.length === 0;
+
 		await this.mailboxService.update(accountId, mailboxId, {
 			cursorState: MailboxCursorState.normal,
 			uidValidity: box.uidvalidity,
 			highWaterMarkUid: coveredUids.length > 0 ? Math.max(...coveredUids) : 0,
-			lastSyncUid: serverUids.length > 0 ? Math.min(...serverUids) : 0,
-			highestModseq: failedUids.size === 0 ? status.highestModseq : "0",
+			lastSyncUid: backfillFrom,
+			highestModseq: complete ? status.highestModseq : "0",
 			lastMessageSyncAt: Date.now(),
 			messageCount: status.messages,
 			unseenCount: status.unseen,
@@ -913,6 +934,7 @@ export class MessageSyncService {
 				mailboxPath,
 				matched: matched.length,
 				newMessages: syncedMessages.length,
+				deferred: deferredUids.length,
 				stale: staleMessageIds.length,
 			},
 			"Mailbox cursor rebuild complete; returned to normal",
@@ -922,8 +944,8 @@ export class MessageSyncService {
 			syncedCount: syncedMessages.length,
 			syncedMessageIds: syncedMessages.map((m) => m.messageId),
 			syncedMessages,
-			hasMore: false,
-			remainingCount: 0,
+			hasMore: deferredUids.length > 0,
+			remainingCount: deferredUids.length,
 			cursorStalled: false,
 		};
 	}
