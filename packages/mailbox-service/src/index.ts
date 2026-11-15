@@ -238,6 +238,7 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
+	FolderEmptyUpstreamError,
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,

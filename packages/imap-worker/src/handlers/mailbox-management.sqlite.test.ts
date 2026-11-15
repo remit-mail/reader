@@ -253,7 +253,7 @@ describe("deleting a folder", () => {
 		await w.client.mailboxQueue.deleteMailbox(
 			old.mailboxId,
 			w.account.accountId,
-			{ requireEmpty: true },
+			{ requireEmpty: true, moveMailTo: null },
 		);
 
 		await run(w, lastEvent(w, "MAILBOX_DELETE"));

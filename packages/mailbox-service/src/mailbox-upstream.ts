@@ -93,3 +93,21 @@ export class FolderRenameSettleError extends Error {
 		this.cause = cause;
 	}
 }
+
+/**
+ * A force delete could not move the folder's mail out before the DELETE. It is
+ * a distinct kind so the server's answer about the destination — a missing
+ * Trash says it "doesn't exist" — is never read as the folder being gone, which
+ * would remove the local folder while the server still holds it and its mail.
+ */
+export class FolderEmptyUpstreamError extends Error {
+	name = "FolderEmptyUpstreamError";
+	readonly cause: unknown;
+
+	constructor(path: string, destination: string, cause: unknown) {
+		super(
+			`Moving the mail in “${path}” to “${destination}” failed: ${upstreamFailureReason(cause)}`,
+		);
+		this.cause = cause;
+	}
+}

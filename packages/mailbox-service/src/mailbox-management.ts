@@ -5,6 +5,7 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { recordedByRename } from "./mailbox-intent.js";
 import { isNotFoundError } from "./mailbox-presence.js";
 import {
+	FolderEmptyUpstreamError,
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
@@ -732,12 +733,24 @@ export class MailboxManagementService {
 		path: string,
 		getConnection: () => Promise<IImapConnection>,
 		requireEmpty: boolean,
+		moveMailTo: string | null,
 	): Promise<MailboxManagementSyncResult> => {
 		if (!(await this.deleteIntentStanding(accountId, mailboxId))) {
 			return { success: true };
 		}
 
 		const connection = await getConnection();
+
+		if (
+			moveMailTo !== null &&
+			(await connection.getMailboxStatus(path)).messages > 0
+		) {
+			await this.moveAllMail(connection, path, moveMailTo).catch(
+				(error: unknown) => {
+					throw new FolderEmptyUpstreamError(path, moveMailTo, error);
+				},
+			);
+		}
 
 		// DELETE takes whatever the folder holds, including mail Remit never
 		// synced, so a delete that must not lose mail asks the server first.
@@ -760,6 +773,26 @@ export class MailboxManagementService {
 		await this.settleDelete(accountId, mailboxId);
 
 		return { success: true };
+	};
+
+	/**
+	 * Move everything the server holds in the folder, including mail Remit never
+	 * indexed. The rows Remit did index go with the folder in `settleDelete`;
+	 * their messages now live in the destination, whose sync picks them up.
+	 */
+	private moveAllMail = async (
+		connection: IImapConnection,
+		path: string,
+		destination: string,
+	): Promise<void> => {
+		await connection.openBox(path, false);
+		const uids = await connection.search(["ALL"]);
+		await connection.moveMessages(uids, destination);
+		await connection.closeBox(false);
+		this.log.info(
+			{ path, destination, moved: uids.length, intent: "delete" },
+			"Moved the folder's mail out before deleting it",
+		);
 	};
 
 	/**
