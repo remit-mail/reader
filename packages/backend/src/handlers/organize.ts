@@ -6,6 +6,7 @@ import type {
 } from "@remit/api-openapi-types";
 import { FILTER_NO_ACTION, filterRuleFromClauses } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import { isListPosition } from "@remit/drizzle-service";
 import { logger } from "@remit/logger";
 import {
 	type OrganizeJobRequest,
@@ -77,6 +78,9 @@ const toOrganizeJobResponse = (
 	updatedAt: job.updatedAt,
 });
 
+export const START_POSITION_MALFORMED =
+	"startPosition is not a position an organize job returned: send a finished job's nextPosition.";
+
 export const START_POSITION_CONFLICT =
 	"A filter job continues from startPosition with the filter's own rule and action: send filterId and startPosition without literalClauses, actionLabelId or actionMailboxId.";
 
@@ -97,6 +101,9 @@ const requestedJob = async (
 	input: OrganizeInput,
 ): Promise<OrganizeJobRequest> => {
 	const startPosition = input.startPosition ?? "";
+	if (startPosition && !isListPosition(startPosition)) {
+		throw new BadRequestError(START_POSITION_MALFORMED);
+	}
 	if (input.filterId) {
 		if (startPosition && carriesPredicate(input)) {
 			throw new BadRequestError(START_POSITION_CONFLICT);

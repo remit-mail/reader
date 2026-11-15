@@ -15,6 +15,7 @@ import {
 } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
+import { isListPosition } from "@remit/drizzle-service";
 import {
 	accept,
 	folderInAccount,
@@ -375,7 +376,9 @@ export const registerMoveTools = (
 		encoded: string,
 	): Promise<Refusable<MoveCursor>> => {
 		const cursor = decodeMoveCursor(encoded);
-		if (!cursor) return invalid(CURSOR_REFUSAL);
+		if (!cursor || !isListPosition(cursor.startPosition)) {
+			return invalid(CURSOR_REFUSAL);
+		}
 		const owned = await deps.account
 			.get(cursor.accountId)
 			.then((account) => ownedAccount(account, accountConfigId, "act"));

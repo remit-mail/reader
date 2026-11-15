@@ -84,7 +84,10 @@ export {
 export { OutboxSchedulingPartRepo } from "./repos/outbox-scheduling-part.js";
 export { QuarantineRepo } from "./repos/quarantine.js";
 export { SyncWarningRepo } from "./repos/sync-warning.js";
-export { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
+export {
+	DrizzleThreadMessageRepository,
+	isListPosition,
+} from "./repos/thread-message.js";
 export * from "./schema/i4-account-config.js";
 export * from "./schema/i4-account-export-request.js";
 export * from "./schema/i4-account-setting.js";
