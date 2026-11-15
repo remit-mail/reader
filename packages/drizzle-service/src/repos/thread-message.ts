@@ -1,6 +1,7 @@
 import type {
 	CreateThreadMessageInput,
 	IThreadMessageRepository,
+	PositionedThreadMessage,
 	ResultList,
 	SearchOptions,
 	SentDateRange,
@@ -506,7 +507,9 @@ export class DrizzleThreadMessageRepository
 	 * reading only their thread ids, and stops at {@link TEXT_SEARCH_COUNT_CAP}.
 	 */
 	private async countMatches(
-		query: Omit<PageQuery, "limit" | "after" | "order">,
+		query: Omit<PageQuery, "limit" | "after" | "order"> & {
+			after?: SearchPosition | null;
+		},
 		unit: "rows" | "threads",
 	): Promise<number> {
 		if (!query.text) {
@@ -525,13 +528,19 @@ export class DrizzleThreadMessageRepository
 							? inArray(threadMessageTable.mailboxId, [...query.mailboxIds])
 							: undefined,
 						...query.row,
+						sentDateCursorCond(
+							"desc",
+							query.after
+								? { s: query.after.sentDate, id: query.after.threadMessageId }
+								: null,
+						),
 					),
 				);
 			return count;
 		}
 		const threads = new Set<string>();
 		let rows = 0;
-		let after: SearchPosition | null = null;
+		let after: SearchPosition | null = query.after ?? null;
 		for (;;) {
 			const candidates = await this.search.candidates({
 				accountConfigId: query.accountConfigId,
@@ -904,7 +913,7 @@ export class DrizzleThreadMessageRepository
 			excludeDeleted?: boolean;
 			mailboxIds?: readonly string[];
 		} & SentDateRange,
-	): Promise<ResultList<ThreadMessageItem>> {
+	): Promise<ResultList<PositionedThreadMessage>> {
 		const limit = clampThreadSearchLimit(options?.limit);
 		const rows = await this.page({
 			accountConfigId,
@@ -926,7 +935,10 @@ export class DrizzleThreadMessageRepository
 		});
 
 		return {
-			items: rows.map(toItem),
+			items: rows.map((row) => ({
+				...toItem(row),
+				position: encodeDateCursor(row.sentDate, row.threadMessageId),
+			})),
 			continuationToken:
 				rows.length === limit && rows.at(-1)
 					? encodeDateCursor(
@@ -935,6 +947,41 @@ export class DrizzleThreadMessageRepository
 						)
 					: undefined,
 		};
+	}
+
+	/**
+	 * The rows `listByFieldTerms` would list after `position`, counted by the
+	 * store: exact when the terms are the whole verdict, and an upper bound for
+	 * a caller that refines the rows further. A text count stops at
+	 * {@link TEXT_SEARCH_COUNT_CAP}.
+	 */
+	async countByFieldTerms(
+		accountConfigId: string,
+		terms: readonly ThreadMessageFieldTerm[],
+		options: {
+			operator?: "and" | "or";
+			excludeDeleted?: boolean;
+			mailboxIds?: readonly string[];
+			position?: string;
+		} & SentDateRange,
+	): Promise<number> {
+		return this.countMatches(
+			{
+				accountConfigId,
+				mailboxIds: options.mailboxIds,
+				text: buildFieldTermCondition(terms, options.operator ?? "and"),
+				row: [
+					options.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					...sentDateConditions(options),
+				],
+				after: positionOf(
+					options.position ? decodeDateCursor(options.position) : null,
+				),
+			},
+			"rows",
+		);
 	}
 
 	/**

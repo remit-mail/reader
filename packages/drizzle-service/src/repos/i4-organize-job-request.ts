@@ -38,6 +38,9 @@ function rowToItem(
 		matchedCount: row.matchedCount,
 		appliedCount: row.appliedCount,
 		failedCount: row.failedCount,
+		startPosition: row.startPosition,
+		nextPosition: row.nextPosition,
+		remainingCount: row.remainingCount,
 		errorMessage: row.errorMessage,
 		ttl: row.ttl,
 		createdAt: row.createdAt,
@@ -71,6 +74,9 @@ export class OrganizeJobRequestRepo implements IOrganizeJobRequestRepository {
 				matchedCount: 0,
 				appliedCount: 0,
 				failedCount: 0,
+				startPosition: input.startPosition,
+				nextPosition: "",
+				remainingCount: 0,
 				errorMessage: "",
 				ttl: input.ttl,
 				createdAt: now,
@@ -107,6 +113,10 @@ export class OrganizeJobRequestRepo implements IOrganizeJobRequestRepository {
 			updates.failedCount = input.failedCount;
 		if (input.errorMessage !== undefined)
 			updates.errorMessage = input.errorMessage;
+		if (input.nextPosition !== undefined)
+			updates.nextPosition = input.nextPosition;
+		if (input.remainingCount !== undefined)
+			updates.remainingCount = input.remainingCount;
 
 		const [row] = await this.db
 			.update(organizeJobRequestTable)

@@ -103,6 +103,7 @@ describe("OrganizeJobRequestRepo", () => {
 				actionLabelId: "None",
 				actionMailboxId: "None",
 				sourceMailboxId: "None",
+				startPosition: "",
 				sentAfter: "None",
 				sentBefore: "None",
 				ttl: 0,

@@ -9,7 +9,10 @@ import {
 	type FilterRuleV1Item,
 	FilterRuleV1Schema,
 	filterRuleFromClauses,
+	filterRuleLeaves,
 	filterRuleLimitRefusal,
+	isListPosition,
+	type OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
@@ -30,6 +33,11 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
+import {
+	decodeMoveCursor,
+	type MoveCursor,
+	moveCursorOf,
+} from "./move-cursor.js";
 import { asJson, notFoundRefusal, refused } from "./tool-result.js";
 import { trashFolderOf } from "./trash.js";
 
@@ -103,6 +111,41 @@ const oneBulkTarget = (args: {
 	}
 	return accept({ trash: true });
 };
+
+interface Selection {
+	accountId: string;
+	sourceMailboxId: string;
+	job: OrganizeJobRequestItem;
+	batches: number;
+	appliedCount: number;
+	failedCount: number;
+}
+
+const isTerminal = (job: OrganizeJobRequestItem): boolean =>
+	job.state === "Complete" || job.state === "Failed";
+
+const continues = (job: OrganizeJobRequestItem): boolean =>
+	job.state === "Complete" && job.remainingCount > 0 && job.nextPosition !== "";
+
+const selectionReport = ({ job, ...selection }: Selection) => ({
+	accountId: selection.accountId,
+	sourceMailboxId: selection.sourceMailboxId,
+	organizeJobId: job.organizeJobId,
+	state: job.state,
+	batches: selection.batches,
+	appliedCount: selection.appliedCount,
+	failedCount: selection.failedCount,
+	...(isTerminal(job)
+		? {
+				remainingCount: job.remainingCount,
+				cursor: moveCursorOf(selection.accountId, job),
+			}
+		: {}),
+	...(job.state === "Failed" ? { errorMessage: job.errorMessage } : {}),
+});
+
+const CONTINUE_MESSAGE =
+	"Not every message is moved yet. Call move_folder_messages with a cursor to continue; a job still running reports its cursor through get_organize_job once it finishes.";
 
 const jobAction = (destination: MoveDestination): JobAction => ({
 	actionMailboxId: destination.mailboxId,
@@ -311,10 +354,95 @@ export const registerMoveTools = (
 		},
 	);
 
+	const queueContinuation = (job: OrganizeJobRequestItem) =>
+		queueOrganizeJob(organizeDeps, {
+			accountConfigId,
+			userId,
+			predicate: {
+				rule: job.rule,
+				sourceMailboxId: job.sourceMailboxId,
+				sentAfter: job.sentAfter,
+				sentBefore: job.sentBefore,
+				actionMailboxId: job.actionMailboxId,
+				actionLabelId: job.actionLabelId,
+				startPosition: job.nextPosition,
+			},
+		});
+
+	const CURSOR_REFUSAL =
+		"This cursor is not one move_folder_messages or get_organize_job returned.";
+
+	const checkedCursor = async (
+		encoded: string,
+	): Promise<Refusable<MoveCursor>> => {
+		const cursor = decodeMoveCursor(encoded);
+		if (!cursor || !isListPosition(cursor.startPosition)) {
+			return invalid(CURSOR_REFUSAL);
+		}
+		const owned = await deps.account
+			.get(cursor.accountId)
+			.then((account) => ownedAccount(account, accountConfigId, "act"));
+		if (!owned.ok) return owned;
+		for (const mailboxId of [cursor.sourceMailboxId, cursor.actionMailboxId]) {
+			const folder = folderInAccount(
+				await deps.mailbox.get(cursor.accountId, mailboxId),
+				cursor.accountId,
+				"act",
+			);
+			if (!folder.ok) return folder;
+		}
+		if (cursor.actionLabelId !== FILTER_NO_ACTION) {
+			await deps.label.get(accountConfigId, cursor.actionLabelId);
+		}
+		const tooBig =
+			filterRuleLeaves(cursor.rule).length > 0 &&
+			filterRuleLimitRefusal(cursor.rule);
+		if (tooBig) return invalid(tooBig);
+		const rejection = organizePredicateRejection({
+			rule: cursor.rule,
+			actionLabelId: cursor.actionLabelId,
+			actionMailboxId: cursor.actionMailboxId,
+		});
+		return rejection ? invalid(rejection.message) : accept(cursor);
+	};
+
+	const driveBatches = async (selections: Selection[]): Promise<void> => {
+		const { budgetMs, pollIntervalMs, sleep, now } = deps.moves;
+		const deadline = now() + budgetMs;
+		for (;;) {
+			for (const selection of selections) {
+				if (isTerminal(selection.job)) continue;
+				selection.job = await deps.organizeJobRequest.get(
+					selection.job.organizeJobId,
+				);
+				if (!isTerminal(selection.job)) continue;
+				selection.appliedCount += selection.job.appliedCount;
+				selection.failedCount += selection.job.failedCount;
+				if (!continues(selection.job) || now() >= deadline) continue;
+				selection.job = await queueContinuation(selection.job);
+				selection.batches += 1;
+			}
+			if (selections.every(({ job }) => isTerminal(job))) return;
+			const left = deadline - now();
+			if (left <= 0) return;
+			await sleep(Math.min(pollIntervalMs, left));
+		}
+	};
+
+	const report = (selections: Selection[]) => {
+		const unfinished = selections.some(
+			({ job }) => !isTerminal(job) || continues(job),
+		);
+		return {
+			jobs: selections.map(selectionReport),
+			...(unfinished ? { continue: CONTINUE_MESSAGE } : {}),
+		};
+	};
+
 	server.registerTool(
 		"move_folder_messages",
 		{
-			description: `Move every message in a folder, or in a label's folders, or only those matching a filter's rule or a given rule, and optionally only those dated within before/after, into another folder, a label's folder, or Trash. Runs as organize jobs, one per account: returns their organizeJobIds, which get_organize_job reports on. One job moves at most ${ORGANIZE_MATCH_LIMIT} messages; call again while a finished job reports appliedCount above 0.`,
+			description: `Move every message in a folder, or in a label's folders, or only those matching a filter's rule or a given rule, and optionally only those dated within before/after, into another folder, a label's folder, or Trash. Runs as organize jobs, one per account, each moving at most ${ORGANIZE_MATCH_LIMIT} messages. The tool runs jobs back to back for up to ${Math.round(deps.moves.budgetMs / 1000)} seconds, then reports per account the messages moved, how many still match (remainingCount) and a cursor. While a cursor is not empty, call again with only that cursor to continue the same selection. A job still running when the time is up comes back without a cursor; get_organize_job reports its remainingCount and cursor once it finishes.`,
 			inputSchema: {
 				accountId: z
 					.string()
@@ -367,6 +495,13 @@ export const registerMoveTools = (
 				rule: FilterRuleV1Schema.optional().describe(
 					"Only move messages this rule matches, in the shape create_filter takes. Send this or filterId, or neither to move everything.",
 				),
+				cursor: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Continue a move where it stopped: a cursor from move_folder_messages or get_organize_job. Send it alone; it carries the source, target and rule.",
+					),
 			},
 			annotations: { ...MOVE_WRITE, idempotentHint: false },
 		},
@@ -379,8 +514,47 @@ export const registerMoveTools = (
 			trash,
 			before,
 			after,
+			cursor,
 			...match
 		}): Promise<CallToolResult> => {
+			if (cursor) {
+				const selectionArgs = [
+					accountId,
+					sourceMailboxId,
+					sourceLabelId,
+					mailboxId,
+					labelId,
+					trash,
+					before,
+					after,
+					match.filterId,
+					match.rule,
+				];
+				if (selectionArgs.some((arg) => arg !== undefined)) {
+					return refused(
+						invalid(
+							"Send cursor alone: it already carries the source, target and rule.",
+						).refusal,
+					);
+				}
+				const checked = await checkedCursor(cursor).catch(notFound);
+				if (!checked.ok) return refused(checked.refusal);
+				const { accountId: cursorAccountId, ...predicate } = checked.value;
+				const selection: Selection = {
+					accountId: cursorAccountId,
+					sourceMailboxId: predicate.sourceMailboxId,
+					job: await queueOrganizeJob(organizeDeps, {
+						accountConfigId,
+						userId,
+						predicate,
+					}),
+					batches: 1,
+					appliedCount: 0,
+					failedCount: 0,
+				};
+				await driveBatches([selection]);
+				return asJson(report([selection]));
+			}
 			const target = oneBulkTarget({ mailboxId, labelId, trash });
 			if (!target.ok) return refused(target.refusal);
 			const sent = sentDateRange({ before, after });
@@ -411,7 +585,7 @@ export const registerMoveTools = (
 				});
 				if (rejection) return refused(invalid(rejection.message).refusal);
 			}
-			const jobs = [];
+			const selections: Selection[] = [];
 			for (const { source, action } of planned) {
 				const job = await queueOrganizeJob(organizeDeps, {
 					accountConfigId,
@@ -421,19 +595,23 @@ export const registerMoveTools = (
 						sourceMailboxId: source.mailboxId,
 						sentAfter: after ?? FILTER_NO_ACTION,
 						sentBefore: before ?? FILTER_NO_ACTION,
+						startPosition: "",
 						...action,
 					},
 				});
-				jobs.push({
+				selections.push({
 					accountId: source.accountId,
 					sourceMailboxId: source.mailboxId,
-					organizeJobId: job.organizeJobId,
-					state: job.state,
+					job,
+					batches: 1,
+					appliedCount: 0,
+					failedCount: 0,
 				});
 			}
+			await driveBatches(selections);
 			const { skipped } = sources.value;
 			return asJson({
-				jobs,
+				...report(selections),
 				...(skipped.length > 0
 					? {
 							skipped,

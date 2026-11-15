@@ -68,6 +68,8 @@ export {
 	type FolderToolDeps,
 	type McpDeps,
 	type McpDepsExtras,
+	MOVE_BATCH_BUDGET_MS,
+	type MoveToolDeps,
 	mcpDepsOf,
 } from "./deps.js";
 export { STYLESHEET_PATH } from "./pages/assets.js";

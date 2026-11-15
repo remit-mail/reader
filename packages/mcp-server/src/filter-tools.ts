@@ -26,6 +26,7 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
+import { moveCursorOf } from "./move-cursor.js";
 import { asJson, notFoundRefusal, refused, toolError } from "./tool-result.js";
 
 const FILTER_WRITE = {
@@ -60,6 +61,7 @@ const toOrganizeJob = (job: OrganizeJobRequestItem) => ({
 	matchedCount: job.matchedCount,
 	appliedCount: job.appliedCount,
 	failedCount: job.failedCount,
+	remainingCount: job.remainingCount,
 	errorMessage: job.errorMessage,
 	createdAt: job.createdAt,
 	updatedAt: job.updatedAt,
@@ -235,6 +237,7 @@ export const registerFilterTools = (
 				accountConfigId,
 				userId,
 				filterId,
+				startPosition: "",
 			});
 			return asJson({ filter, organizeJobId: job.organizeJobId });
 		},
@@ -244,7 +247,7 @@ export const registerFilterTools = (
 		"get_organize_job",
 		{
 			description:
-				"Read an organize job that applies a filter to existing mail or moves a folder's messages: its state (Pending, Running, Complete, Failed), how many messages it matched, applied and failed, and the error when it failed.",
+				"Read an organize job that applies a filter to existing mail or moves a folder's messages: its state (Pending, Running, Complete, Failed), how many messages it matched, applied and failed, how many still match after it (remainingCount), the cursor that continues the selection in move_folder_messages, and the error when it failed.",
 			inputSchema: {
 				organizeJobId: z
 					.string()
@@ -264,7 +267,14 @@ export const registerFilterTools = (
 					`Organize job not found: ${organizeJobId}. Use the organizeJobId a create_filter, update_filter, apply_filter or move_folder_messages call returned.`,
 				);
 			}
-			return asJson(toOrganizeJob(job));
+			const sourceAccountId =
+				job.sourceMailboxId === FILTER_NO_ACTION
+					? null
+					: await deps.mailbox.resolveAccountId(job.sourceMailboxId);
+			return asJson({
+				...toOrganizeJob(job),
+				cursor: sourceAccountId ? moveCursorOf(sourceAccountId, job) : "",
+			});
 		},
 	);
 
@@ -294,6 +304,7 @@ export const registerFilterTools = (
 				accountConfigId,
 				userId,
 				filterId,
+				startPosition: "",
 			});
 			return asJson({ organizeJobId: job.organizeJobId, state: job.state });
 		},

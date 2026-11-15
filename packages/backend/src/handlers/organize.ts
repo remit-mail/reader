@@ -4,7 +4,11 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
-import { FILTER_NO_ACTION, filterRuleFromClauses } from "@remit/data-ports";
+import {
+	FILTER_NO_ACTION,
+	filterRuleFromClauses,
+	isListPosition,
+} from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger";
 import {
@@ -70,10 +74,23 @@ const toOrganizeJobResponse = (
 	matchedCount: job.matchedCount,
 	appliedCount: job.appliedCount,
 	failedCount: job.failedCount,
+	remainingCount: job.remainingCount,
+	nextPosition: job.nextPosition,
 	errorMessage: job.errorMessage,
 	createdAt: job.createdAt,
 	updatedAt: job.updatedAt,
 });
+
+export const START_POSITION_MALFORMED =
+	"startPosition is not a position an organize job returned: send a finished job's nextPosition.";
+
+export const START_POSITION_CONFLICT =
+	"A filter job continues from startPosition with the filter's own rule and action: send filterId and startPosition without literalClauses, actionLabelId or actionMailboxId.";
+
+const carriesPredicate = (input: OrganizeInput): boolean =>
+	input.literalClauses.length > 0 ||
+	input.actionLabelId !== FILTER_NO_ACTION ||
+	input.actionMailboxId !== FILTER_NO_ACTION;
 
 /**
  * What a create asks the worker to run. A saved filter is named and read when
@@ -86,9 +103,16 @@ const requestedJob = async (
 	owner: { accountConfigId: string; userId: string },
 	input: OrganizeInput,
 ): Promise<OrganizeJobRequest> => {
+	const startPosition = input.startPosition ?? "";
+	if (startPosition && !isListPosition(startPosition)) {
+		throw new BadRequestError(START_POSITION_MALFORMED);
+	}
 	if (input.filterId) {
+		if (startPosition && carriesPredicate(input)) {
+			throw new BadRequestError(START_POSITION_CONFLICT);
+		}
 		await client.filter.get(owner.accountConfigId, input.filterId);
-		return { ...owner, filterId: input.filterId };
+		return { ...owner, filterId: input.filterId, startPosition };
 	}
 	const rejection = organizePredicateRejection(predicateFromInput(input));
 	if (rejection) throw new BadRequestError(rejection.message);
@@ -99,6 +123,7 @@ const requestedJob = async (
 			sourceMailboxId: FILTER_NO_ACTION,
 			sentAfter: FILTER_NO_ACTION,
 			sentBefore: FILTER_NO_ACTION,
+			startPosition,
 		},
 	};
 };

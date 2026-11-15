@@ -507,6 +507,7 @@ export const createFilter = async (
 		accountConfigId,
 		userId,
 		filterId: filter.filterId,
+		startPosition: "",
 	});
 	return accept({ filter, organizeJob });
 };

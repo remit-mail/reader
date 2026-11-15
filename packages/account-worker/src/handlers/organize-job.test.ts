@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
 import {
 	buildOrganizeMatchDeps,
@@ -25,6 +25,13 @@ import {
 	sharedDatabases,
 } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
+import {
+	openStore,
+	type Store,
+	seedAccount,
+	seedMailbox,
+	seedMessage,
+} from "@remit/mailbox-service/test-helpers/test-store";
 import type { OrganizeJobEvent } from "../events.js";
 import {
 	type ProcessOrganizeJobDeps,
@@ -78,6 +85,7 @@ const explodingMatchDeps = (): OrganizeMatchDeps =>
 		listAccountFilterMessages: async () => {
 			throw new Error("SQLITE_BUSY");
 		},
+		countAccountFilterMessages: async () => 0,
 	}) as OrganizeMatchDeps;
 
 describe("processOrganizeJob (reader #463)", () => {
@@ -519,6 +527,7 @@ describe("processOrganizeJob for a source-folder job", () => {
 			actionLabelId: "None",
 			actionMailboxId: target,
 			sourceMailboxId: source,
+			startPosition: "",
 			...range,
 			ttl: 0,
 		});
@@ -567,5 +576,119 @@ describe("processOrganizeJob for a source-folder job", () => {
 			}),
 			{ inSource: 1, inTarget: 1, state: "Complete", appliedCount: 1 },
 		);
+	});
+});
+
+describe("processOrganizeJob across capped batches", () => {
+	const BATCH = 2;
+	const MESSAGES = 5;
+	let store: Store;
+
+	beforeEach(async () => {
+		store = await openStore();
+	});
+	afterEach(() => store.close());
+
+	const promotionsFolder = async () => {
+		const account = await seedAccount(store);
+		const source = await seedMailbox(store, account, "Promoties");
+		const target = await seedMailbox(store, account, "remit/Promotions");
+		const messageIds: string[] = [];
+		for (let uid = 1; uid <= MESSAGES; uid += 1) {
+			const { message } = await seedMessage(store, account, source, uid);
+			messageIds.push(message.messageId);
+		}
+		const inSource = async () =>
+			(
+				await store.threadMessage.listByMailbox(
+					account.accountConfigId,
+					source.mailboxId,
+					{ excludeDeleted: true },
+				)
+			).items.length;
+		return { account, source, target, messageIds, inSource };
+	};
+
+	const runChain = async (
+		folder: Awaited<ReturnType<typeof promotionsFolder>>,
+		moveService?: ProcessOrganizeJobDeps["moveService"],
+	) => {
+		const { accountConfigId } = folder.account;
+		const client = {
+			...store,
+			queues: { messageManagement: recordingQueue() },
+		} as unknown as RemitClient<"messageManagement">;
+		const selection: CreateOrganizeJobRequestInput = {
+			accountConfigId,
+			userId: "user-1",
+			filterId: "None",
+			rule: filterRuleFromClauses({ matchOperator: "And", literalClauses: [] }),
+			actionLabelId: "None",
+			actionMailboxId: folder.target.mailboxId,
+			sourceMailboxId: folder.source.mailboxId,
+			sentAfter: "None",
+			sentBefore: "None",
+			startPosition: "",
+			ttl: 0,
+		};
+		const done = [];
+		let startPosition = "";
+		do {
+			const job = await store.organizeJobRequest.create({
+				...selection,
+				startPosition,
+			});
+			await processOrganizeJob(
+				{
+					type: "OrganizeJob",
+					accountConfigId,
+					organizeJobId: job.organizeJobId,
+				},
+				noopLogger,
+				{ client, moveService, matchLimit: BATCH },
+			);
+			const finished = await store.organizeJobRequest.get(job.organizeJobId);
+			done.push(finished);
+			startPosition = finished.nextPosition;
+			assert.ok(done.length <= MESSAGES, "the chain never ends");
+		} while (startPosition);
+		return done;
+	};
+
+	it("continues where a batch stopped when its messages stay in the folder", async () => {
+		const folder = await promotionsFolder();
+		const moves: Move[] = [];
+
+		const done = await runChain(folder, recordingMoves(moves));
+
+		assert.deepEqual(
+			done.map((job) => [job.appliedCount, job.remainingCount]),
+			[
+				[2, 3],
+				[2, 1],
+				[1, 0],
+			],
+		);
+		assert.deepEqual(
+			moves.map((move) => move.messageId),
+			[...folder.messageIds].reverse(),
+			"every message once, newest first: nothing repeated, nothing skipped",
+		);
+	});
+
+	it("moves the whole folder in capped batches that report what is left", async () => {
+		const folder = await promotionsFolder();
+
+		const done = await runChain(folder);
+
+		assert.deepEqual(
+			done.map((job) => [job.appliedCount, job.remainingCount]),
+			[
+				[2, 3],
+				[2, 1],
+				[1, 0],
+			],
+		);
+		assert.equal(await folder.inSource(), 0);
 	});
 });

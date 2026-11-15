@@ -116,6 +116,7 @@ beforeEach(async () => {
 			organizeQueue: client.queues.accountFanout,
 			logger: silentLog,
 		},
+		moves: { budgetMs: 100, pollIntervalMs: 10, sleep, now: Date.now },
 	};
 });
 

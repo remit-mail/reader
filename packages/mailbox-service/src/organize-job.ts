@@ -24,10 +24,14 @@ export type OrganizeJobPredicate = Pick<
 	| "sentBefore"
 	| "actionLabelId"
 	| "actionMailboxId"
+	| "startPosition"
 >;
 
 export type OrganizeJobRequest = OrganizeJobOwner &
-	({ predicate: OrganizeJobPredicate } | { filterId: string });
+	(
+		| { predicate: OrganizeJobPredicate }
+		| { filterId: string; startPosition: string }
+	);
 
 export interface OrganizeJobLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -54,6 +58,7 @@ const jobColumns = (
 			sourceMailboxId: FILTER_NO_ACTION,
 			sentAfter: FILTER_NO_ACTION,
 			sentBefore: FILTER_NO_ACTION,
+			startPosition: request.startPosition,
 		};
 	}
 	return { filterId: FILTER_NO_ACTION, ...request.predicate };

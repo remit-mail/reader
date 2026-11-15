@@ -20,6 +20,7 @@ export {
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
 	narrowFromDomainRule,
+	OrganizeJobRuleSchema,
 	readStoredFilterRule,
 } from "./filter-rule.js";
 export { deriveFilterTtl } from "./filter-ttl.js";
@@ -110,6 +111,7 @@ export type {
 	SurfacedSyncWarnings,
 } from "./interfaces/sync-warning.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
+export { isListPosition } from "./list-position.js";
 export type { MessageSettlementFields } from "./message-settlement.js";
 export {
 	abandonedMutationOf,
@@ -224,6 +226,7 @@ export type {
 	OutboxSchedulingPartItem,
 	PlacementPredicate,
 	PlacementTransitionInput,
+	PositionedThreadMessage,
 	PutCalendarFeedTokenInput,
 	PutCalendarObjectInput,
 	PutCalendarSuggestionInput,

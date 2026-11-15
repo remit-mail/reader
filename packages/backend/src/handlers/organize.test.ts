@@ -29,6 +29,10 @@ import type {
 } from "../types.js";
 import { OrganizeOperations, predicateFromInput } from "./organize.js";
 
+const POSITION = Buffer.from(
+	JSON.stringify({ s: 1_700_000_000_000, id: "tm-500" }),
+).toString("base64");
+
 const input = (over: Partial<OrganizeInput> = {}): OrganizeInput => ({
 	matchOperator: FilterMatchOperator.And,
 	literalClauses: [],
@@ -262,6 +266,47 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		const response = await postOrganize(input({ filterId: "flt-gone" }));
 
 		assert.equal(response.statusCode, 404);
+		assert.deepEqual(createdRows, []);
+		assert.deepEqual(fanout.sent, []);
+	});
+
+	it("starts a continued filter job at the position the request names", async () => {
+		withFilter(standing("Active"));
+
+		const response = await postOrganize(
+			input({ filterId: "flt-1", startPosition: POSITION }),
+		);
+
+		assert.equal(response.statusCode, 202);
+		assert.equal(createdRows[0]?.startPosition, POSITION);
+	});
+
+	it("refuses a start position no job handed out and queues nothing", async () => {
+		withFilter(standing("Active"));
+
+		const response = await postOrganize(
+			input({ filterId: "flt-1", startPosition: "position-500" }),
+		);
+
+		assert.equal(response.statusCode, 400);
+		assert.match(JSON.parse(response.body).message, /not a position/);
+		assert.deepEqual(createdRows, []);
+		assert.deepEqual(fanout.sent, []);
+	});
+
+	it("refuses a predicate sent beside a filter's start position", async () => {
+		withFilter(standing("Active"));
+
+		const response = await postOrganize(
+			input({
+				filterId: "flt-1",
+				startPosition: POSITION,
+				actionMailboxId: "mbx-elsewhere",
+			}),
+		);
+
+		assert.equal(response.statusCode, 400);
+		assert.match(JSON.parse(response.body).message, /startPosition/);
 		assert.deepEqual(createdRows, []);
 		assert.deepEqual(fanout.sent, []);
 	});

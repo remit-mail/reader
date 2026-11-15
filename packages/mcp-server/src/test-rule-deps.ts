@@ -15,7 +15,10 @@ import type { McpDeps } from "./deps.js";
 export const ruleDeps = (
 	store: Store,
 	queue: RecordingQueue,
-): Pick<McpDeps, "folders" | "filters" | "messageMove" | "rescan"> => ({
+): Pick<
+	McpDeps,
+	"folders" | "filters" | "moves" | "messageMove" | "rescan"
+> => ({
 	folders: {
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: store.mailbox,
@@ -29,6 +32,7 @@ export const ruleDeps = (
 		organizeQueue: queue,
 		logger: silentLog,
 	},
+	moves: { budgetMs: 100, pollIntervalMs: 10, sleep, now: Date.now },
 	messageMove: new MessageMoveService({
 		messageService: store.message,
 		mailboxService: store.mailbox,

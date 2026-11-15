@@ -1,5 +1,6 @@
 import type {
 	CreateThreadMessageInput,
+	PositionedThreadMessage,
 	ResultList,
 	SearchOptions,
 	SentDateRange,
@@ -113,6 +114,9 @@ export interface IThreadMessageRepository {
 	 * Rows are per mailbox, not per conversation: the same mail filed in two
 	 * folders is two rows sharing a `threadId`. `mailboxIds` narrows the rows
 	 * to those folders; omitting it reads every mailbox.
+	 *
+	 * Each row carries its `position`: a continuation token that resumes the
+	 * listing right after that row.
 	 */
 	listByFieldTerms(
 		accountConfigId: string,
@@ -125,7 +129,22 @@ export interface IThreadMessageRepository {
 			excludeDeleted?: boolean;
 			mailboxIds?: readonly string[];
 		} & SentDateRange,
-	): Promise<ResultList<ThreadMessageItem>>;
+	): Promise<ResultList<PositionedThreadMessage>>;
+	/**
+	 * How many rows the newest-first `listByFieldTerms` lists after
+	 * `position` (every row without one). Exact when the terms are the whole
+	 * verdict; an upper bound for a caller that refines the rows further.
+	 */
+	countByFieldTerms(
+		accountConfigId: string,
+		terms: readonly ThreadMessageFieldTerm[],
+		options: {
+			operator?: "and" | "or";
+			excludeDeleted?: boolean;
+			mailboxIds?: readonly string[];
+			position?: string;
+		} & SentDateRange,
+	): Promise<number>;
 	/**
 	 * List starred rows for a config, newest first, across every mailbox.
 	 *

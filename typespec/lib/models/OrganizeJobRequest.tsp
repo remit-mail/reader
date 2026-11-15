@@ -17,6 +17,9 @@ namespace RemitImap;
   rule.
   """)
 model OrganizeInput {
+  @doc("Start the pass at this position: the nextPosition of a finished job, to continue its selection. Send the predicate and action, or the filterId, that job ran.")
+  startPosition?: string;
+
   @doc("Back-apply this standing filter instead of the predicate in this body. The server reads the filter's persisted predicate and action, runs the pass over the inbox, and skips a move another active filter outranks, as index time does. The predicate and action fields of this body are ignored when it is set.")
   filterId?: UUID;
 
@@ -120,6 +123,18 @@ model OrganizeJobRequest {
   @visibility(Lifecycle.Read)
   appliedCount: int32 = 0;
 
+  @doc("Where in the selection this job starts: the store position the job it continues stopped at, or empty to start at the newest message.")
+  @visibility(Lifecycle.Read)
+  startPosition: string = "";
+
+  @doc("Where in the selection the next job continues, or empty when no message after this batch still matches.")
+  @visibility(Lifecycle.Read)
+  nextPosition: string = "";
+
+  @doc("Number of messages after this batch that still match the selection, set when the pass completes. A job is capped, so a selection larger than the cap continues in a new job started at this job's nextPosition. Exact for a folder sweep; an upper bound for a rule, whose remaining rows are still refined by the rule.")
+  @visibility(Lifecycle.Read)
+  remainingCount: int32 = 0;
+
   @doc("Number of matches whose action apply failed")
   @visibility(Lifecycle.Read)
   failedCount: int32 = 0;
@@ -173,6 +188,8 @@ model OrganizeJobResponse is PickProperties<
   | "matchedCount"
   | "appliedCount"
   | "failedCount"
+  | "remainingCount"
+  | "nextPosition"
   | "errorMessage"
   | "createdAt"
   | "updatedAt"
