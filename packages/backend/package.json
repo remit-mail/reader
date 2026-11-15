@@ -51,6 +51,10 @@
       "types": "./src/service/never-spam.ts",
       "default": "./src/service/never-spam.ts"
     },
+    "./enrich-thread-rows": {
+      "types": "./src/derive/enrichThreadRows.ts",
+      "default": "./src/derive/enrichThreadRows.ts"
+    },
     "./folder-delete": {
       "types": "./src/service/folder-delete.ts",
       "default": "./src/service/folder-delete.ts"
@@ -135,6 +139,10 @@
       "./never-spam": {
         "types": "./dist/src/service/never-spam.d.ts",
         "default": "./dist/src/service/never-spam.js"
+      },
+      "./enrich-thread-rows": {
+        "types": "./dist/src/derive/enrichThreadRows.d.ts",
+        "default": "./dist/src/derive/enrichThreadRows.js"
       },
       "./folder-delete": {
         "types": "./dist/src/service/folder-delete.d.ts",

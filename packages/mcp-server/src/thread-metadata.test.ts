@@ -8,6 +8,13 @@ import {
 	ClassificationLabel,
 	MessageCategory,
 	MessageClassificationState,
+	PlacementAction,
+	PlacementConfidence,
+	SpamAction,
+	SpamJudgeName,
+	SpamKind,
+	SpamModelOutcome,
+	SpamReasonName,
 } from "@remit/domain-enums";
 import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import {
@@ -26,6 +33,7 @@ import { ruleDeps } from "./test-rule-deps.js";
 
 const USER_ID = "mcp-metadata-user";
 const THREAD_ID = "thread-across-two-folders";
+const JUNKED_THREAD_ID = "thread-junked-by-remit";
 const PAGE = 50;
 
 type Row = {
@@ -39,6 +47,9 @@ type Row = {
 	auth:
 		| { state: "NotParsed" }
 		| { state: "Parsed"; dmarc?: string; spf?: string; dkim?: string };
+	autoMoved?: unknown;
+	placementVerdict?: { reasons: string[] };
+	spamVerdict: unknown;
 };
 
 let store: Store;
@@ -46,6 +57,7 @@ let deps: McpDeps;
 let account: AccountItem;
 let inbox: MailboxItem;
 let archive: MailboxItem;
+let junk: MailboxItem;
 const scored = new Set<string>();
 
 const callToolJson = async (
@@ -100,6 +112,37 @@ before(async () => {
 	});
 	inbox = await seedMailbox(store, account, "INBOX");
 	archive = await seedMailbox(store, account, "Archive");
+	junk = await seedMailbox(store, account, "Junk");
+	await seedMessage(store, account, junk, PAGE + 1, {
+		message: {
+			movedByRemit: true,
+			placementVerdict: {
+				action: PlacementAction.MoveToJunk,
+				confidence: PlacementConfidence.Confident,
+				fromPlacement: "inbox",
+				reasons: ["dmarc-fail"],
+				dryRun: false,
+				decidedAt: 1_700_000_000_000,
+			},
+			spamVerdict: {
+				state: "Checked",
+				score: 0.95,
+				action: SpamAction.Junk,
+				kind: SpamKind.Spam,
+				reasons: [
+					{
+						name: SpamReasonName.DmarcFail,
+						symbol: "DMARC_POLICY_REJECT",
+						score: 0.95,
+						options: [],
+					},
+				],
+				modelOutcome: SpamModelOutcome.NotConfigured,
+				decidedBy: SpamJudgeName.Inline,
+			},
+		},
+		threadMessage: { threadId: JUNKED_THREAD_ID },
+	});
 
 	for (let uid = 1; uid <= PAGE; uid += 1) {
 		const withMetadata = uid % 2 === 0;
@@ -181,5 +224,38 @@ describe("classification and auth on the thread tools", () => {
 		for (const row of page.items) {
 			assert.ok(row.auth);
 		}
+	});
+});
+
+describe("placement on get_thread", () => {
+	it("says why Remit junked a message", async () => {
+		const page = await callToolJson("get_thread", {
+			threadId: JUNKED_THREAD_ID,
+		});
+
+		assert.equal(page.items.length, 1);
+		const [row] = page.items;
+		assert.equal(row?.mailboxId, junk.mailboxId);
+		assert.deepEqual(row?.autoMoved, {
+			action: "MoveToJunk",
+			fromPlacement: "inbox",
+		});
+		assert.deepEqual(row?.placementVerdict?.reasons, ["dmarc-fail"]);
+		assert.deepEqual(row?.spamVerdict, {
+			state: "Checked",
+			score: 0.95,
+			action: "Junk",
+			kind: "Spam",
+			reasons: [
+				{
+					name: "DmarcFail",
+					symbol: "DMARC_POLICY_REJECT",
+					score: 0.95,
+					options: [],
+				},
+			],
+			modelOutcome: "NotConfigured",
+			decidedBy: "Inline",
+		});
 	});
 });

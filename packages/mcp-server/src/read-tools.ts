@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { enrichThreadRows } from "@remit/backend/enrich-thread-rows";
 import type {
 	BodyPartItem,
 	EnvelopeAddressItem,
@@ -7,6 +8,7 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { deriveAddressId } from "@remit/data-ports/id";
 import {
 	AddressRole,
 	ContentDisposition,
@@ -127,6 +129,52 @@ const toPage = async (
 		continuationToken: result.continuationToken,
 	};
 };
+
+const placementOf = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	rows: ThreadMessageItem[],
+) => {
+	const enriched = await enrichThreadRows(rows, deps, accountConfigId);
+	const addressIdOf = (fromEmail: string | undefined) =>
+		fromEmail ? deriveAddressId(accountConfigId, fromEmail) : undefined;
+	const addressIds = [
+		...new Set(
+			rows.flatMap((row) => {
+				const addressId = addressIdOf(row.fromEmail);
+				return addressId === undefined ? [] : [addressId];
+			}),
+		),
+	];
+	const addresses =
+		addressIds.length === 0
+			? []
+			: await deps.address.getAddress(accountConfigId, addressIds);
+	const flagsByAddressId = new Map(
+		addresses.map((address) => [address.addressId, address.flags]),
+	);
+	return enriched.map((row) => {
+		const addressId = addressIdOf(row.fromEmail);
+		const flags =
+			addressId === undefined ? undefined : flagsByAddressId.get(addressId);
+		return {
+			spamVerdict: row.spamVerdict,
+			spamCleared: row.spamCleared,
+			placementVerdict: row.placementVerdict,
+			autoMoved: row.autoMoved,
+			spamReport: row.spamReport,
+			labels: row.labels ?? [],
+			sender: {
+				trust: row.senderTrust,
+				blocked: flags?.blocked?.value === true,
+				neverSpam: flags?.neverSpam?.value === true,
+			},
+		};
+	});
+};
+
+const PLACEMENT_FIELDS =
+	"why it sits where it does: the spam verdict (score, action, reasons, decidedBy, modelOutcome), Remit's placement verdict (action, fromPlacement, reasons) and autoMoved (the move Remit made, with the filterId when a filter made it), a user spam report, labels, and the sender's trust (Vip, Wellknown or Unknown) with its blocked and neverSpam flags";
 
 const addressesByRole = (addresses: EnvelopeAddressItem[], role: string) =>
 	addresses
@@ -310,8 +358,7 @@ export const registerReadTools = (
 	server.registerTool(
 		"get_thread",
 		{
-			description:
-				"Fetch the messages of one conversation, oldest first, at envelope level.",
+			description: `Fetch the messages of one conversation, oldest first, at envelope level, each with ${PLACEMENT_FIELDS}.`,
 			inputSchema: {
 				threadId: z.string().min(1).describe("Thread to fetch"),
 				limit: pageSize,
@@ -319,23 +366,27 @@ export const registerReadTools = (
 			},
 			annotations: READ_ONLY,
 		},
-		async (args) =>
-			asJson(
-				await toPage(
-					deps,
-					await deps.threadMessage.listByThread(
-						args.threadId,
-						accountConfigId,
-						{
-							order: "asc",
-							limit: args.limit ?? DEFAULT_PAGE_SIZE,
-							continuationToken: args.continuationToken,
-							excludeDeleted: true,
-						},
-					),
-					"All",
-				),
-			),
+		async (args) => {
+			const result = await deps.threadMessage.listByThread(
+				args.threadId,
+				accountConfigId,
+				{
+					order: "asc",
+					limit: args.limit ?? DEFAULT_PAGE_SIZE,
+					continuationToken: args.continuationToken,
+					excludeDeleted: true,
+				},
+			);
+			const page = await toPage(deps, result, "All");
+			const placement = await placementOf(deps, accountConfigId, result.items);
+			return asJson({
+				...page,
+				items: page.items.map((item, index) => ({
+					...item,
+					...placement[index],
+				})),
+			});
+		},
 	);
 
 	server.registerTool(
@@ -367,7 +418,7 @@ export const registerReadTools = (
 	server.registerTool(
 		"get_message",
 		{
-			description: `Read one message: envelope, flags, attachment metadata and its plain-text body, up to ${MAX_BODY_BYTES / 1024} KB.`,
+			description: `Read one message: envelope, flags, attachment metadata, its plain-text body up to ${MAX_BODY_BYTES / 1024} KB, and ${PLACEMENT_FIELDS}.`,
 			inputSchema: {
 				messageId: z.string().min(1).describe("Message to read"),
 			},
@@ -398,6 +449,12 @@ export const registerReadTools = (
 			});
 			const bodyAvailable =
 				Boolean(message.bodyStorageKey) && materialized.ready;
+			const [placement] = await placementOf(deps, accountConfigId, [
+				await deps.threadMessage.getByMessageId(
+					accountConfigId,
+					message.messageId,
+				),
+			]);
 			const envelope = description.envelope[0];
 			const addresses = description.envelopeAddress;
 			return asJson({
@@ -421,6 +478,7 @@ export const registerReadTools = (
 						mediaType: `${part.mediaType}/${part.mediaSubtype}`.toLowerCase(),
 						sizeOctets: part.sizeOctets,
 					})),
+				...placement,
 				bodyAvailable,
 				...(bodyAvailable
 					? await readPlainText(
