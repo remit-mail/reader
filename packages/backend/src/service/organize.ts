@@ -232,7 +232,10 @@ const FOLDER_SWEEP: RuleNarrowing = { terms: [], operator: "and" };
  * through the rule — and paging
  * continues until the cap fills or the store runs out, which is what makes the
  * bound a bound on results rather than on the newest `limit` rows (#459).
- * Deduped by message id: the same mail filed in two folders is one match.
+ * Deduped by message id, so a row a page repeats is one match. The same mail
+ * filed in two folders is two rows, a copy row per folder past the first
+ * (`deriveCopyMessageId`), except on a Gmail account, which keeps one row per
+ * message; each row is its own match, because each is a placement to act on.
  */
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,

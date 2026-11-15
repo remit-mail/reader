@@ -54,10 +54,11 @@ The lanes are genuinely concurrent, which is what makes this load-bearing. User 
 
 Two give-ups deliberately carry no marker. `flag-push` never writes a placement at all — its give-up lives on its own marker row and in an operator alert. `placement-move-push` does write one: an exhausted push restores the row to the source the server confirmed and drops its marker, so the message stops being stuck. It leaves `abandonedMutation` at `none` all the same, because Remit's own classification filing is not a mutation the user asked for, and a per-message treatment would report a failure against an intent nobody formed. The alert is that give-up's whole surface.
 
-Two consequences every reader gets from this:
+Three consequences every reader gets from this:
 
 - A dependent mutation blocked on an unsettled placement waits on any in-flight or retrying state and refuses only `abandoned`. A mid-retry row is about to succeed; that is what the settle ceiling is for.
 - A sighting from the server repairs any `active` row, whatever its `syncStatus`. `active` is exactly the set nothing else is coming for.
+- Sync waits on a row that is mid-move or mid-delete: a sighting it cannot place because the row is in flight holds the folder's UID cursor below it until the mutation settles, so the next round serves it again.
 
 ## FAQ
 
