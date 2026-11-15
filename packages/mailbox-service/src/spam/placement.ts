@@ -1,10 +1,12 @@
 import type {
 	MessageSpamVerdict,
 	SpamLabelPlacementValue,
+	SpamPipeline,
 	SpamSettingsItem,
 } from "@remit/data-ports";
 import {
 	SpamAction,
+	SpamJudgeName,
 	SpamKind,
 	SpamLabelPlacement,
 	SpamSenderScreenRule,
@@ -19,6 +21,23 @@ type Kind = (typeof SpamKind)[keyof typeof SpamKind];
 export type SpamPlacement =
 	| { action: "None" }
 	| { action: "Warn" | "Junk"; label: Kind };
+
+/**
+ * A checked verdict scored below the clean threshold the deciding judge sets.
+ * While that judge's thresholds are unset nothing is clean.
+ */
+export const isConfidentlyClean = (
+	verdict: MessageSpamVerdict,
+	pipeline: SpamPipeline,
+): boolean => {
+	if (verdict.state !== "Checked") return false;
+	const { decidedBy, score } = verdict;
+	const judge = pipeline.find((config) => config.name === decidedBy);
+	if (!judge || judge.name === SpamJudgeName.Rspamd) return false;
+	return (
+		judge.thresholds.state === "Set" && score < judge.thresholds.cleanBelow
+	);
+};
 
 const NONE: SpamPlacement = { action: "None" };
 

@@ -155,6 +155,34 @@ export const classifyPlacement = (
 export type PlacementDestination = "inbox" | "archive" | "junk";
 
 /**
+ * How a message may leave Junk. `Arrival`: new mail, where the provider's
+ * Junk folder is no verdict. `Rescue`: mail that sat in Junk before Remit
+ * judged it (pre-existing mail, a rescan), which leaves only for a trusted
+ * sender or, when `clean`, a spam verdict a judge called clean.
+ */
+export type JunkExit =
+	| { state: "Arrival" }
+	| { state: "Rescue"; clean: boolean };
+
+const rescueReason = (
+	senderTrust: SenderTrustValue,
+	senderOverride: SenderOverrideValue,
+	clean: boolean,
+): string | undefined => {
+	if (senderOverride === SenderOverride.NeverSpam) return "sender=never-spam";
+	if (senderTrust === SenderTrust.Vip) return "sender=vip";
+	if (senderTrust === SenderTrust.Wellknown) return "sender=wellknown";
+	if (clean) return "spam=clean";
+	return undefined;
+};
+
+const filedIntoJunkByRemit = (message: MessageItem): boolean =>
+	message.movedByRemit === true &&
+	message.filterMove === undefined &&
+	message.placementVerdict?.action === PlacementActionValue.MoveToJunk &&
+	message.placementVerdict.fromPlacement !== "junk";
+
+/**
  * What body sync does with a message's placement. `verdict.action` is relative
  * to the folder the message sits in; `destination` is where it moves, and an
  * actionable verdict with no destination is recorded only.
@@ -168,7 +196,7 @@ export interface PlacementDecision {
  * Decide a message's placement (issue #1553). Pure.
  *
  * A message Remit already moved is never re-decided, whatever the user did
- * with it since.
+ * with it since, except that a rescue may bring back one Remit filed in Junk.
  *
  * A message in Junk is judged as if it had arrived in the Inbox: the
  * provider's spam folder is not a signal. One that verdict would demote stays
@@ -176,7 +204,8 @@ export interface PlacementDecision {
  * the confidence, since `unsure` is not junk. A Junk message somebody already
  * placed is never touched (issue #383): a spam report and a user move
  * (`originalMailboxId`) each mean the folder is a decision, not the
- * provider's arrival.
+ * provider's arrival. A rescue leaves only for the reasons {@link JunkExit}
+ * names.
  *
  * Outside Junk only a confident actionable verdict moves; an unsure one is
  * recorded.
@@ -191,8 +220,13 @@ export const decidePlacement = (
 	senderOverride: SenderOverrideValue,
 	junk: boolean,
 	autoArchive: boolean,
+	junkExit: JunkExit,
 ): PlacementDecision => {
-	if (message.movedByRemit === true) {
+	const rescuable =
+		junkExit.state === "Rescue" &&
+		placement === "junk" &&
+		filedIntoJunkByRemit(message);
+	if (message.movedByRemit === true && !rescuable) {
 		return {
 			verdict: {
 				action: "leave",
@@ -219,7 +253,7 @@ export const decidePlacement = (
 		};
 	}
 
-	if (message.spamReport || message.originalMailboxId) {
+	if (message.spamReport || (message.originalMailboxId && !rescuable)) {
 		return {
 			verdict: {
 				action: "leave",
@@ -233,6 +267,27 @@ export const decidePlacement = (
 	const asInbox = classifyPlacement("inbox", senderTrust, senderOverride, junk);
 	if (asInbox.action === "move-to-junk") {
 		return { verdict: asInbox, destination: undefined };
+	}
+	if (junkExit.state === "Rescue") {
+		const reason = rescueReason(senderTrust, senderOverride, junkExit.clean);
+		if (!reason) {
+			return {
+				verdict: {
+					action: "leave",
+					confidence: "unsure",
+					reasons: ["junk-not-rescued"],
+				},
+				destination: undefined,
+			};
+		}
+		return {
+			verdict: {
+				action: "move-to-inbox",
+				confidence: "confident",
+				reasons: [reason],
+			},
+			destination: autoArchive ? "archive" : "inbox",
+		};
 	}
 	return {
 		verdict: {

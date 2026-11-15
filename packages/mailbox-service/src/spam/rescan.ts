@@ -46,6 +46,7 @@ import { isPlacementUnsettled } from "../placement-settled.js";
 import { readSenderPlacement } from "../sender-placement.js";
 import {
 	decideSpamVerdict,
+	isConfidentlyClean,
 	type SpamConfig,
 	spamPlacementOf,
 } from "./index.js";
@@ -131,8 +132,9 @@ const spamFailure = (verdict: MessageSpamVerdict): FailureCode | undefined =>
  * classifier and the spam service (RFC 041), in parallel, and answers per
  * message as SQS `SendMessageBatch` does. Category stays write-once (RFC 034):
  * only `uncategorized` mail gets one. A message the owner cleared (Not spam,
- * or a Never in Spam sender) gets its verdict recorded and no spam label, and
- * never moves.
+ * or a Never in Spam sender) gets its verdict recorded and no spam label; one
+ * marked Not spam never moves. With `move`, a message in Junk returns to the
+ * Inbox for a trusted sender or a verdict a judge called clean.
  */
 export class RescanService {
 	constructor(private readonly deps: RescanDeps) {}
@@ -245,10 +247,11 @@ export class RescanService {
 		const spamCode = spamFailure(verdict);
 		if (spamCode) return failed(messageId, spamCode);
 
-		const cleared =
-			sender.senderOverride === SenderOverride.NeverSpam ||
+		const markedNotSpam =
 			message.spamCleared ||
 			(await deps.messageFlag.hasFlag(messageId, MessageKeywordFlag.NotJunk));
+		const cleared =
+			sender.senderOverride === SenderOverride.NeverSpam || markedNotSpam;
 		const { update, labels } = await recordArrival(deps.spam, {
 			account,
 			messageId,
@@ -266,7 +269,7 @@ export class RescanService {
 						await readResolvedSpamSettings(deps.spam, accountConfigId),
 					),
 			placement:
-				move && !cleared
+				move && !markedNotSpam
 					? {
 							deps: deps.placement,
 							row: message,
@@ -276,7 +279,10 @@ export class RescanService {
 							),
 							sender,
 							move: true,
-							leaveJunk: true,
+							junkExit: {
+								state: "Rescue",
+								clean: isConfidentlyClean(verdict, deps.spam.spamPipeline),
+							},
 						}
 					: undefined,
 		});

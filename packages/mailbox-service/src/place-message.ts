@@ -7,6 +7,7 @@ import type { FolderRoleMailboxes } from "./folder-placement.js";
 import {
 	decidePlacement,
 	type FolderPlacement,
+	type JunkExit,
 	placementVerdictRecord,
 } from "./heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "./placement-move.js";
@@ -29,6 +30,7 @@ export interface PlaceMessageInput {
 	sender: SenderPlacement;
 	junk: boolean;
 	move: boolean;
+	junkExit: JunkExit;
 	now: number;
 }
 
@@ -56,6 +58,7 @@ export const placeMessage = async (
 		sender.senderOverride,
 		junk,
 		archiveMailbox !== null,
+		input.junkExit,
 	);
 	const record = placementVerdictRecord(decision, placement, now);
 	const decided: PlacementUpdate = {

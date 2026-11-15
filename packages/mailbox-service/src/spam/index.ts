@@ -33,7 +33,11 @@ export {
 	type SpamModelAccess,
 	spamModelAccessOf,
 } from "./model.js";
-export { type SpamPlacement, spamPlacementOf } from "./placement.js";
+export {
+	isConfidentlyClean,
+	type SpamPlacement,
+	spamPlacementOf,
+} from "./placement.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";
 export { fromRspamd } from "./rspamd.js";
 
