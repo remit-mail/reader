@@ -237,6 +237,33 @@ describe("delete_label", () => {
 		assert.equal(kept.syncStatus, MailboxSyncStatus.synced);
 	});
 
+	it("keeps every account's label folder when one account's server still holds mail", async () => {
+		const sibling = await mine.siblingFolder("INBOX");
+		const { labelId, folder } = await createLabel("Newsletters");
+		const mappings = await mine.client.labelMailbox.listByLabel(labelId);
+		const theirs = mappings.find(
+			(mapping) => mapping.accountId === sibling.accountId,
+		);
+		assert.ok(theirs);
+		const siblingFolder = await mine.client.mailbox.get(
+			theirs.accountId,
+			theirs.mailboxId,
+		);
+		mine.imap.deliver(siblingFolder.fullPath, mail("<unsynced@example.com>"));
+
+		assert.match(
+			await refusalOf("delete_label", { labelId }),
+			/still holds 1 message on the mail server/,
+		);
+		assert.equal(await labelExists(labelId), true);
+		assert.equal(mine.imap.hasFolder(folder.fullPath), true);
+		assert.equal(mine.imap.hasFolder(siblingFolder.fullPath), true);
+		assert.equal(
+			(await mine.client.labelMailbox.listByLabel(labelId)).length,
+			2,
+		);
+	});
+
 	it("with force moves the mail to Trash, deletes the filters it reports, then the label", async () => {
 		const { labelId, folder } = await createLabel("Newsletters");
 		const filterId = await createFilter(labelId);

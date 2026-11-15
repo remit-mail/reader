@@ -32,6 +32,14 @@ export type Watched =
 	| { state: "Present"; folder: MailboxItem }
 	| { state: "Gone" };
 
+export const plural = (count: number, one: string, many: string): string =>
+	`${count} ${count === 1 ? one : many}`;
+
+export const absent = (error: unknown): undefined => {
+	if (isNotFoundError(error)) return undefined;
+	throw error;
+};
+
 export const awaitSettled = async (
 	deps: McpDeps,
 	folders: FolderToolDeps,
@@ -41,12 +49,7 @@ export const awaitSettled = async (
 ): Promise<Watched> => {
 	const deadline = Date.now() + folders.settleTimeoutMs;
 	for (;;) {
-		const folder = await deps.mailbox
-			.get(accountId, mailboxId)
-			.catch((error: unknown) => {
-				if (isNotFoundError(error)) return undefined;
-				throw error;
-			});
+		const folder = await deps.mailbox.get(accountId, mailboxId).catch(absent);
 		if (!folder) return { state: "Gone" };
 		if (folder.syncStatus !== inFlight || Date.now() >= deadline) {
 			return { state: "Present", folder };
@@ -197,11 +200,10 @@ const awaitMovedOut = async (
 
 // Force never loses mail: it moves what the folder holds to Trash and waits
 // for the server to confirm, and only then does the delete go ahead.
-export const trashFolderMail = async (
+const trashFolderMail = async (
 	deps: McpDeps,
 	accountConfigId: string,
 	folder: MailboxItem,
-	tool: string,
 ): Promise<CallToolResult | undefined> => {
 	const trash = await trashFolderOf(deps, folder.accountId);
 	if (!trash.ok) return refused(trash.refusal);
@@ -218,15 +220,69 @@ export const trashFolderMail = async (
 	if (pending > 0) {
 		return asJson({
 			...folderState(folder),
-			message: `${pending} ${pending === 1 ? "message is" : "messages are"} still moving to Trash. Call ${tool} again with the same arguments to keep waiting; the folder is deleted once they have arrived.`,
+			message: `${plural(pending, "message is", "messages are")} still moving to Trash. Call this tool again with the same arguments to keep waiting; the folder is deleted once they have arrived.`,
 		});
 	}
 	const left = await deps.message.listByMailbox(folder.mailboxId, { limit: 1 });
 	if (left.items.length > 0) {
 		return toolError(
-			`Not all mail in “${folder.fullPath}” could be moved to Trash, so the folder was kept. Call ${tool} again to retry.`,
+			`Not all mail in “${folder.fullPath}” could be moved to Trash, so the folder was kept. Call this tool again to retry.`,
 		);
 	}
+	return undefined;
+};
+
+const deleteDepsOf = (deps: McpDeps) => ({
+	...deps,
+	mailboxQueue: deps.folders.mailboxQueue,
+});
+
+// The refusals checked before a delete changes anything.
+export const folderDeleteRefusal = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	folder: MailboxItem,
+	force: boolean,
+): Promise<CallToolResult | undefined> => {
+	const deletable = await deletableFolder(deleteDepsOf(deps), accountConfigId, {
+		accountId: folder.accountId,
+		mailboxId: folder.mailboxId,
+	});
+	if (!deletable.ok) return refused(deletable.refusal);
+	const count = folder.messageCount;
+	if (!force && count > 0) {
+		return toolError(
+			`“${folder.fullPath}” still holds ${plural(count, "message", "messages")}. Move them out first, for example with move_folder_messages, and call again once the moves have settled; or pass force: true to move them to Trash first.`,
+		);
+	}
+	return undefined;
+};
+
+// Records the delete for the mail server, which refuses it while the folder
+// still holds mail there. With force, the folder's mail first moves to Trash.
+export const deleteFolderOnServer = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	folder: MailboxItem,
+	force: boolean,
+): Promise<CallToolResult | undefined> => {
+	const refusal = await folderDeleteRefusal(
+		deps,
+		accountConfigId,
+		folder,
+		force,
+	);
+	if (refusal) return refusal;
+	if (force) {
+		const notYet = await trashFolderMail(deps, accountConfigId, folder);
+		if (notYet) return notYet;
+	}
+	const deleted = await deleteFolder(deleteDepsOf(deps), accountConfigId, {
+		accountId: folder.accountId,
+		mailboxId: folder.mailboxId,
+		requireEmpty: true,
+	});
+	if (!deleted.ok) return refused(deleted.refusal);
 	return undefined;
 };
 
@@ -342,35 +398,15 @@ export const registerFolderTools = (
 			const folder = owned.value;
 
 			if (folder.syncStatus !== MailboxSyncStatus.deleting) {
-				const deleteDeps = { ...deps, mailboxQueue: folders.mailboxQueue };
-				const deletable = await deletableFolder(deleteDeps, accountConfigId, {
-					accountId,
-					mailboxId,
-				});
-				if (!deletable.ok) return refused(deletable.refusal);
 				const kept = await keptFolderReason(deps, accountConfigId, folder);
 				if (kept) return refused(invalid(kept).refusal);
-				const count = folder.messageCount;
-				if (!force && count > 0) {
-					return toolError(
-						`“${folder.fullPath}” still holds ${count} ${count === 1 ? "message" : "messages"}. Move them out first, for example with move_folder_messages, and call delete_folder again once the moves have settled; or pass force: true to move them to Trash and delete the folder.`,
-					);
-				}
-				if (force) {
-					const notYet = await trashFolderMail(
-						deps,
-						accountConfigId,
-						folder,
-						"delete_folder",
-					);
-					if (notYet) return notYet;
-				}
-				const deleted = await deleteFolder(deleteDeps, accountConfigId, {
-					accountId,
-					mailboxId,
-					requireEmpty: true,
-				});
-				if (!deleted.ok) return refused(deleted.refusal);
+				const stopped = await deleteFolderOnServer(
+					deps,
+					accountConfigId,
+					folder,
+					force === true,
+				);
+				if (stopped) return stopped;
 			}
 
 			return deleteOutcome(
