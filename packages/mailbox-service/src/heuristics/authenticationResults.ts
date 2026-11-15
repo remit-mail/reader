@@ -210,3 +210,18 @@ export const parseAuthenticationResults = (
 	}
 	return { authservId, results };
 };
+
+const isParsed = (
+	header: AuthenticationResults | null,
+): header is AuthenticationResults => header !== null;
+
+export const trustedAuthenticationResults = (
+	values: readonly string[],
+): AuthenticationResults[] => {
+	const parsed = values.map(parseAuthenticationResults);
+	const top = parsed[0];
+	if (!top) return [];
+	return parsed
+		.filter(isParsed)
+		.filter((header) => header.authservId === top.authservId);
+};

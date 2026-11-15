@@ -33,9 +33,8 @@ export const isPunycode = (domain: string): boolean =>
 		.split(".")
 		.some((label) => label.startsWith("xn--"));
 
-/** A domain whose skeleton is plain ASCII reads as an ASCII domain. */
 export const imitatesAscii = (domain: string): boolean =>
-	/^[\x20-\x7e]*$/.test(skeleton(domain));
+	/^[\x20-\x7e]*$/.test(skeleton(domain).replace(/\p{M}/gu, ""));
 
 const SCRIPTS: readonly [string, RegExp][] = [
 	["Latin", /\p{Script=Latin}/u],
@@ -98,10 +97,8 @@ export const entropy = (value: string): number => {
 };
 
 /**
- * Whether a name reads as machine-made: long, with near-uniform characters,
- * and unpronounceable — digits in it, or too few vowels for words — or a short
- * run of letters and digits shuffled together. Entropy alone reads any long
- * run of distinct letters, `communityupdates` among them, as random.
+ * Whether a name reads as machine-made: long, near-uniform and unpronounceable,
+ * or a short run of letters and digits shuffled together.
  */
 export const looksGenerated = (name: string): boolean => {
 	const value = name.toLowerCase().replace(/[^a-z0-9]/g, "");

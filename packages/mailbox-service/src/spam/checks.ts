@@ -7,6 +7,11 @@ import {
 	SpamReasonName,
 } from "@remit/domain-enums";
 import {
+	parseAuthenticationResults,
+	trustedAuthenticationResults,
+} from "../heuristics/authenticationResults.js";
+import { TRUSTED_ARC_SEALERS } from "./arc-sealers.js";
+import {
 	classifyDisplayNameCorrespondence,
 	editDistance,
 	type Tldts,
@@ -99,73 +104,69 @@ const signaturesMisaligned = (input: CheckInput): boolean => {
 	);
 };
 
-const LIST_ID = /<([^<>\s]+)>/;
+const tagValue = (value: string, tag: string): string | undefined =>
+	value
+		.split(";")
+		.map((part) => part.split("="))
+		.find(([key]) => key?.trim().toLowerCase() === tag)
+		?.slice(1)
+		.join("=")
+		.trim();
 
-const hasHeader = (input: CheckInput, name: string): boolean =>
-	headerValue(input.request.message.headers, name) !== undefined;
+const headerValues = (input: CheckInput, name: string): string[] =>
+	input.request.message.headers
+		.filter((header) => header.name.toLowerCase() === name)
+		.map((header) => header.value);
 
-const listIdDomain = (input: CheckInput): string | undefined => {
-	const value = headerValue(input.request.message.headers, "List-Id");
-	if (value === undefined) return undefined;
-	const id = LIST_ID.exec(value)?.[1] ?? value.trim();
-	return registrable(input.tldts, id);
+const firstInstance = (input: CheckInput, name: string): string | undefined =>
+	headerValues(input, name).find((value) => tagValue(value, "i") === "1");
+
+const trustedSealer = (sealer: string): boolean =>
+	TRUSTED_ARC_SEALERS.some(
+		(trusted) => sealer === trusted || sealer.endsWith(`.${trusted}`),
+	);
+
+const receiverPassedArc = (input: CheckInput): boolean => {
+	const arc = trustedAuthenticationResults(
+		headerValues(input, "authentication-results"),
+	)
+		.flatMap((header) => header.results)
+		.filter((result) => result.method === "arc");
+	return arc.length > 0 && arc.every((result) => result.result === "pass");
 };
 
-const RESULT_SEGMENT = /^\s*([a-z]+)\s*=\s*([a-z]+)\b(.*)$/is;
-const HEADER_D = /\bheader\.d\s*=\s*([^\s;]+)/i;
-
-const authResults = (
-	input: CheckInput,
-	method: string,
-): { result: string; signer: string | undefined }[] =>
-	input.request.message.headers.flatMap((header) => {
-		if (header.name.toLowerCase() !== "authentication-results") return [];
-		return header.value.split(";").flatMap((segment) => {
-			const match = RESULT_SEGMENT.exec(segment);
-			if (match?.[1].toLowerCase() !== method) return [];
-			return [
-				{
-					result: match[2].toLowerCase(),
-					signer: HEADER_D.exec(match[3])?.[1].toLowerCase(),
-				},
-			];
-		});
-	});
-
-const allPass = (results: readonly { result: string }[]): boolean =>
-	results.length > 0 && results.every(({ result }) => result === "pass");
-
-/**
- * A mailing list or forwarder resent the message, and the receiver verified
- * the relay: an ARC chain, or a signature of the list named in List-Id. Every
- * result must pass, so a forged passing result cannot outvote the receiver's.
- * A relay breaks the author's DKIM and with it DMARC, so neither then says the
- * From is forged.
- */
-const relayed = (input: CheckInput): boolean => {
-	if (hasHeader(input, "ARC-Seal") && allPass(authResults(input, "arc"))) {
-		return true;
-	}
-	const list = listIdDomain(input);
-	if (list === undefined) return false;
-	const ofList = (signer: string | undefined): boolean =>
-		signer !== undefined && registrable(input.tldts, signer) === list;
+const firstSealerPassedDmarc = (input: CheckInput): boolean => {
+	const fromDomain = input.from?.domain;
+	const sealer = tagValue(firstInstance(input, "arc-seal") ?? "", "d");
+	const recorded = firstInstance(input, "arc-authentication-results");
+	if (!fromDomain || !sealer || !recorded) return false;
+	if (!trustedSealer(sealer.toLowerCase())) return false;
+	const results = parseAuthenticationResults(
+		recorded.slice(recorded.indexOf(";") + 1),
+	)?.results;
 	return (
-		signers(input).some(ofList) &&
-		allPass(authResults(input, "dkim").filter(({ signer }) => ofList(signer)))
+		results?.some(
+			(result) =>
+				result.method === "dmarc" &&
+				result.result === "pass" &&
+				result.properties.get("header.from")?.toLowerCase() === fromDomain,
+		) === true
 	);
 };
 
-/** Bulk mail whose From domain passes DMARC: trackers and a separate Reply-To are how it is sent. */
-const authenticatedBulk = (input: CheckInput): boolean =>
-	input.request.authentication.dmarc === AuthResultVerdict.Pass &&
-	(hasHeader(input, "List-Unsubscribe") || hasHeader(input, "List-Id"));
-
 /**
- * Check 1: DMARC failed, or a signature belongs to another domain. DMARC
- * already weighs signature alignment, so a foreign signer counts only where
- * DMARC gave no verdict.
+ * A forwarder broke the author's DKIM and with it DMARC. Only a chain the
+ * receiver verified, first sealed by a known provider that saw DMARC pass for
+ * the From domain, says so.
  */
+const relayed = (input: CheckInput): boolean =>
+	receiverPassedArc(input) && firstSealerPassedDmarc(input);
+
+const establishedSender = (input: CheckInput): boolean =>
+	input.request.authentication.dmarc === AuthResultVerdict.Pass &&
+	input.request.context.senderDomainMessagesSeen > 0;
+
+/** Check 1: DMARC failed, or a signature belongs to another domain. */
 export const authenticationFails = (input: CheckInput): Finding[] => {
 	if (relayed(input)) return [];
 	const { authentication } = input.request;
@@ -195,9 +196,9 @@ export const authenticationFails = (input: CheckInput): Finding[] => {
 	return findings;
 };
 
-/** Check 2: authenticated bulk mail and lists answer elsewhere by design. */
+/** Check 2. */
 export const replyToDiffers = (input: CheckInput): Finding[] => {
-	if (authenticatedBulk(input) || relayed(input)) return [];
+	if (establishedSender(input) || relayed(input)) return [];
 	const replyTo = parseAddressHeader(
 		headerValue(input.request.message.headers, "Reply-To"),
 	);
@@ -207,30 +208,16 @@ export const replyToDiffers = (input: CheckInput): Finding[] => {
 	return [{ name: SpamReasonName.ReplyToMismatch, options: [replyDomain] }];
 };
 
-const SHOWN_ADDRESS =
-	/^(https?:\/\/)?((?:[\p{L}\p{N}-]+\.)+\p{L}{2,})\.?([/:?#]\S*)?$/iu;
+const DOMAINS_IN_TEXT = new RegExp(DOMAIN_IN_TEXT.source, "giu");
 
-/**
- * The domain a link's text presents as its destination: the whole text is an
- * address, and it reads as one — a scheme, `www.`, a path, or a public
- * suffix. `Node.js` in a headline names a project, not a host.
- */
 const shownDomainOf = (tldts: Tldts, text: string): string | undefined => {
-	const match = SHOWN_ADDRESS.exec(text.trim());
-	if (!match) return undefined;
-	const [, scheme, host, path] = match;
-	const looksLikeAddress =
-		scheme !== undefined ||
-		path !== undefined ||
-		/^www\./i.test(host) ||
-		tldts.parse(host).isIcann === true;
-	return looksLikeAddress ? registrable(tldts, host) : undefined;
+	for (const [, host] of text.matchAll(DOMAINS_IN_TEXT)) {
+		if (tldts.parse(host).isIcann === true) return registrable(tldts, host);
+	}
+	return undefined;
 };
 
-/**
- * Check 3: link-gated. A sender that passes DMARC showing its own domain over
- * a click tracker names itself, not someone else.
- */
+/** Check 3: link-gated. */
 export const linkTextDiffers = (input: CheckInput): Finding[] => {
 	const ownDomain =
 		input.request.authentication.dmarc === AuthResultVerdict.Pass
@@ -286,10 +273,7 @@ const domainsInMessage = (input: CheckInput): string[] => {
 	];
 };
 
-/**
- * Check 5: punycode that reads as an ASCII domain, mixed scripts, and two
- * domains with one skeleton. `café.nl` is an honest name; `аpple.com` is not.
- */
+/** Check 5: punycode, mixed scripts, and two domains with one skeleton. */
 export const confusableDomains = (input: CheckInput): Finding[] => {
 	const hosts = domainsInMessage(input);
 	const findings: Finding[] = [];
@@ -448,16 +432,12 @@ const ALWAYS = [
 
 const TRACKED_LINK_CHECKS = [linksLeaveFar, singleOffDomainLink];
 
-/**
- * Every check that found something. Link checks count only for a sender with
- * no earlier mail, and authenticated bulk mail sends every link through a
- * click tracker on another domain, so there only the link text counts.
- */
 const linkChecksFor = (input: CheckInput) => {
 	if (input.request.context.senderMessagesSeen !== 0) return [];
-	if (authenticatedBulk(input)) return [linkTextDiffers];
+	if (establishedSender(input)) return [linkTextDiffers];
 	return [linkTextDiffers, ...TRACKED_LINK_CHECKS];
 };
 
+/** Every check that found something. Link checks count only for a sender with no earlier mail. */
 export const runChecks = (input: CheckInput): Finding[] =>
 	[...ALWAYS, ...linkChecksFor(input)].flatMap((check) => check(input));
