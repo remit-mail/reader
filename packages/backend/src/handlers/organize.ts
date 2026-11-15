@@ -4,9 +4,12 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
-import { FILTER_NO_ACTION, filterRuleFromClauses } from "@remit/data-ports";
+import {
+	FILTER_NO_ACTION,
+	filterRuleFromClauses,
+	isListPosition,
+} from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { isListPosition } from "@remit/drizzle-service";
 import { logger } from "@remit/logger";
 import {
 	type OrganizeJobRequest,

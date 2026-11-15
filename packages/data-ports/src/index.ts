@@ -111,6 +111,7 @@ export type {
 	SurfacedSyncWarnings,
 } from "./interfaces/sync-warning.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
+export { isListPosition } from "./list-position.js";
 export type { MessageSettlementFields } from "./message-settlement.js";
 export {
 	abandonedMutationOf,

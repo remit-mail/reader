@@ -120,22 +120,6 @@ function decodeDateCursor(token: string): DateCursor {
 	return { s: decoded.s, id: decoded.id };
 }
 
-/** Whether a token is a position `listByFieldTerms` hands out. */
-export const isListPosition = (token: string): boolean => {
-	let decoded: unknown;
-	try {
-		decoded = JSON.parse(Buffer.from(token, "base64").toString("utf8"));
-	} catch {
-		return false;
-	}
-	return (
-		typeof decoded === "object" &&
-		decoded !== null &&
-		typeof Reflect.get(decoded, "s") === "number" &&
-		typeof Reflect.get(decoded, "id") === "string"
-	);
-};
-
 function encodeAccountCursor(threadMessageId: string): string {
 	return Buffer.from(JSON.stringify({ id: threadMessageId })).toString(
 		"base64",

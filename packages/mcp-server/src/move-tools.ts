@@ -11,11 +11,11 @@ import {
 	filterRuleFromClauses,
 	filterRuleLeaves,
 	filterRuleLimitRefusal,
+	isListPosition,
 	type OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
-import { isListPosition } from "@remit/drizzle-service";
 import {
 	accept,
 	folderInAccount,
