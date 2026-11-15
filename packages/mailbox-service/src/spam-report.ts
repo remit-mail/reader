@@ -12,6 +12,7 @@ import { deriveAddressId } from "@remit/data-ports/id";
 import { AddressRole, MessageKeywordFlag, SpamKind } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
 import type { MessageMoveService } from "./message-move.js";
+import { removeSpamLabels } from "./spam/spam-labels.js";
 
 export interface SpamReportLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -332,37 +333,19 @@ export class SpamReportService {
 
 		await this.messageService.clearSpamReport(messageId);
 		await this.messageService.update(messageId, { spamCleared: true });
-		await this.removeSpamLabels(accountConfigId, messageId);
+		await removeSpamLabels(
+			{ label: this.labelService, messageLabel: this.messageLabelService },
+			accountConfigId,
+			messageId,
+			Object.values(SpamKind),
+			[],
+		);
 
 		this.log.info(
 			{ accountId, messageId, addressId: from.addressId },
 			"Undid spam report",
 		);
 		return grant;
-	};
-
-	/**
-	 * Labels are Remit-local, never pushed to the mail server, so dropping one
-	 * is a plain row delete rather than an IMAP mutation.
-	 */
-	private removeSpamLabels = async (
-		accountConfigId: string,
-		messageId: string,
-	): Promise<void> => {
-		const applied = new Set(
-			(await this.messageLabelService.listByMessageId(messageId)).map(
-				(row) => row.labelId,
-			),
-		);
-		for (const kind of Object.values(SpamKind)) {
-			const label = await this.labelService.findByNormalizedName(
-				accountConfigId,
-				kind.toLowerCase(),
-			);
-			if (label && applied.has(label.labelId)) {
-				await this.messageLabelService.remove(messageId, label.labelId);
-			}
-		}
 	};
 
 	private isInJunk = async (
