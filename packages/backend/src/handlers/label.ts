@@ -15,6 +15,10 @@ import {
 	labelFoldersFor,
 	ownedAccount,
 } from "@remit/mailbox-service";
+import {
+	deleteLabelWithCascade,
+	findFiltersForLabel,
+} from "../service/label-delete.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,
@@ -51,19 +55,6 @@ export interface LabelCrudDeps {
 	};
 }
 
-/**
- * Every filter in the account whose action applies this label (issue #26). The
- * count backs `LabelResponse.filterCount`; the list backs the cascade delete.
- */
-export const findFiltersForLabel = async (
-	deps: Pick<LabelCrudDeps, "filter">,
-	accountConfigId: string,
-	labelId: string,
-): Promise<FilterItem[]> => {
-	const filters = await deps.filter.listByAccountConfig(accountConfigId);
-	return filters.filter((filter) => filter.actionLabelId === labelId);
-};
-
 const foldersOf = async (
 	deps: LabelFolderDeps,
 	accountConfigId: string,
@@ -91,26 +82,6 @@ const toLabelResponse = (
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });
-
-/**
- * Delete a label and cascade in both directions (issue #26): every filter
- * whose `actionLabelId` is this label is deleted outright — never left
- * dangling, never blocking the delete — and every `MessageLabel` row for it is
- * removed. The label row itself is deleted last so a failure mid-cascade never
- * leaves the label gone while its filters or applied-to-messages still exist.
- */
-export const deleteLabelWithCascade = async (
-	deps: LabelCrudDeps,
-	accountConfigId: string,
-	labelId: string,
-): Promise<void> => {
-	const filters = await findFiltersForLabel(deps, accountConfigId, labelId);
-	for (const filter of filters) {
-		await deps.filter.delete(accountConfigId, filter.filterId);
-	}
-	await deps.messageLabel.removeAllByLabelId(accountConfigId, labelId);
-	await deps.label.delete(accountConfigId, labelId);
-};
 
 export const LabelOperations: Record<
 	LabelOperationIds,

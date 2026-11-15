@@ -28,9 +28,11 @@ const FOLDER_WRITE = {
 	openWorldHint: false,
 } as const;
 
-type Watched = { state: "Present"; folder: MailboxItem } | { state: "Gone" };
+export type Watched =
+	| { state: "Present"; folder: MailboxItem }
+	| { state: "Gone" };
 
-const awaitSettled = async (
+export const awaitSettled = async (
 	deps: McpDeps,
 	folders: FolderToolDeps,
 	accountId: string,
@@ -53,7 +55,7 @@ const awaitSettled = async (
 	}
 };
 
-const folderState = (folder: MailboxItem) => ({
+export const folderState = (folder: MailboxItem) => ({
 	accountId: folder.accountId,
 	mailboxId: folder.mailboxId,
 	fullPath: folder.fullPath,
@@ -195,10 +197,11 @@ const awaitMovedOut = async (
 
 // Force never loses mail: it moves what the folder holds to Trash and waits
 // for the server to confirm, and only then does the delete go ahead.
-const trashFolderMail = async (
+export const trashFolderMail = async (
 	deps: McpDeps,
 	accountConfigId: string,
 	folder: MailboxItem,
+	tool: string,
 ): Promise<CallToolResult | undefined> => {
 	const trash = await trashFolderOf(deps, folder.accountId);
 	if (!trash.ok) return refused(trash.refusal);
@@ -215,13 +218,13 @@ const trashFolderMail = async (
 	if (pending > 0) {
 		return asJson({
 			...folderState(folder),
-			message: `${pending} ${pending === 1 ? "message is" : "messages are"} still moving to Trash. Call delete_folder again with the same arguments to keep waiting; the folder is deleted once they have arrived.`,
+			message: `${pending} ${pending === 1 ? "message is" : "messages are"} still moving to Trash. Call ${tool} again with the same arguments to keep waiting; the folder is deleted once they have arrived.`,
 		});
 	}
 	const left = await deps.message.listByMailbox(folder.mailboxId, { limit: 1 });
 	if (left.items.length > 0) {
 		return toolError(
-			`Not all mail in “${folder.fullPath}” could be moved to Trash, so the folder was kept. Call delete_folder again to retry.`,
+			`Not all mail in “${folder.fullPath}” could be moved to Trash, so the folder was kept. Call ${tool} again to retry.`,
 		);
 	}
 	return undefined;
@@ -354,7 +357,12 @@ export const registerFolderTools = (
 					);
 				}
 				if (force) {
-					const notYet = await trashFolderMail(deps, accountConfigId, folder);
+					const notYet = await trashFolderMail(
+						deps,
+						accountConfigId,
+						folder,
+						"delete_folder",
+					);
 					if (notYet) return notYet;
 				}
 				const deleted = await deleteFolder(deleteDeps, accountConfigId, {

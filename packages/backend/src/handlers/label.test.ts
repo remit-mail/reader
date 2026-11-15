@@ -4,8 +4,8 @@ import type { FilterItem, LabelItem } from "@remit/data-ports";
 import {
 	deleteLabelWithCascade,
 	findFiltersForLabel,
-	type LabelCrudDeps,
-} from "./label.js";
+} from "../service/label-delete.js";
+import type { LabelCrudDeps } from "./label.js";
 
 const filter = (filterId: string, actionLabelId: string): FilterItem =>
 	({ filterId, actionLabelId }) as unknown as FilterItem;

@@ -62,7 +62,7 @@ export interface McpDeps {
 	address: Pick<IAddressRepository, "countCategoryOverridesSince">;
 	label: Pick<
 		ILabelRepository,
-		"create" | "findByNormalizedName" | "get" | "listByAccountConfig"
+		"create" | "delete" | "findByNormalizedName" | "get" | "listByAccountConfig"
 	>;
 	labelMailbox: Pick<
 		ILabelMailboxRepository,
@@ -77,7 +77,7 @@ export interface McpDeps {
 		| "listByMailbox"
 		| "listStrandedPlacements"
 	>;
-	messageLabel: Pick<IMessageLabelRepository, "apply">;
+	messageLabel: Pick<IMessageLabelRepository, "apply" | "removeAllByLabelId">;
 	messageMove: Pick<MessageMoveService, "moveMessages">;
 	threadMessage: Pick<
 		IThreadMessageRepository,
@@ -85,7 +85,12 @@ export interface McpDeps {
 	>;
 	filter: Pick<
 		IFilterRepository,
-		"listByAccountConfig" | "refreshExpiry" | "create" | "get" | "update"
+		| "listByAccountConfig"
+		| "refreshExpiry"
+		| "create"
+		| "get"
+		| "update"
+		| "delete"
 	>;
 	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create" | "get">;
 	storage: Pick<StorageService, "retrieveBodyPart">;
