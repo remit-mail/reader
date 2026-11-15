@@ -7,12 +7,17 @@ import {
 	SpamReasonName,
 } from "@remit/domain-enums";
 import {
+	parseAuthenticationResults,
+	trustedAuthenticationResults,
+} from "../heuristics/authenticationResults.js";
+import {
 	classifyDisplayNameCorrespondence,
 	editDistance,
 	type Tldts,
 } from "./display-name.js";
 import {
 	hasMixedScriptLabel,
+	imitatesAscii,
 	isPunycode,
 	looksGenerated,
 	skeleton,
@@ -22,6 +27,7 @@ import {
 	headerValue,
 	parseAddressHeader,
 } from "./headers.js";
+import { isKnownProvider } from "./known-providers.js";
 
 /** A reason stage 2 finds itself; `BackendSymbol` is only ever a backend's, and `Model*` stage 3's. */
 export type CheckName = Exclude<
@@ -75,33 +81,104 @@ export const toCheckInput = (
 	};
 };
 
-const DKIM_SIGNER = /(?:^|;)\s*d\s*=\s*([^;\s]+)/i;
+const tagValue = (value: string, tag: string): string | undefined =>
+	value
+		.split(";")
+		.map((part) => part.split("="))
+		.find(([key]) => key?.trim().toLowerCase() === tag)
+		?.slice(1)
+		.join("=")
+		.trim();
 
 const aligned = (signer: string, fromDomain: string): boolean =>
 	signer === fromDomain ||
 	fromDomain.endsWith(`.${signer}`) ||
 	signer.endsWith(`.${fromDomain}`);
 
+const signers = (input: CheckInput): string[] =>
+	input.request.message.headers.flatMap((header) => {
+		if (header.name.toLowerCase() !== "dkim-signature") return [];
+		const signer = tagValue(header.value, "d");
+		return signer ? [signer.toLowerCase()] : [];
+	});
+
 const signaturesMisaligned = (input: CheckInput): boolean => {
 	const fromDomain = input.from?.domain;
 	if (!fromDomain) return false;
-	const signers = input.request.message.headers.flatMap((header) => {
-		if (header.name.toLowerCase() !== "dkim-signature") return [];
-		const signer = DKIM_SIGNER.exec(header.value)?.[1];
-		return signer ? [signer.toLowerCase()] : [];
-	});
+	const found = signers(input);
 	return (
-		signers.length > 0 && !signers.some((signer) => aligned(signer, fromDomain))
+		found.length > 0 && !found.some((signer) => aligned(signer, fromDomain))
 	);
 };
 
+const headerValues = (input: CheckInput, name: string): string[] =>
+	input.request.message.headers
+		.filter((header) => header.name.toLowerCase() === name)
+		.map((header) => header.value);
+
+const firstInstance = (input: CheckInput, name: string): string | undefined =>
+	headerValues(input, name).find((value) => tagValue(value, "i") === "1");
+
+const receiverResults = (input: CheckInput) =>
+	trustedAuthenticationResults(headerValues(input, "authentication-results"));
+
+const knownReceiver = (input: CheckInput): boolean => {
+	const authservId = receiverResults(input)[0]?.authservId;
+	return authservId !== undefined && isKnownProvider(authservId);
+};
+
+const receiverPassedArc = (input: CheckInput): boolean => {
+	const arc = receiverResults(input)
+		.flatMap((header) => header.results)
+		.filter((result) => result.method === "arc");
+	return arc.length > 0 && arc.every((result) => result.result === "pass");
+};
+
+const firstSealerPassedDmarc = (input: CheckInput): boolean => {
+	const fromDomain = input.from?.domain;
+	const sealer = tagValue(firstInstance(input, "arc-seal") ?? "", "d");
+	const recorded = firstInstance(input, "arc-authentication-results");
+	if (!fromDomain || !sealer || !recorded) return false;
+	if (!isKnownProvider(sealer.toLowerCase())) return false;
+	const results = parseAuthenticationResults(
+		recorded.slice(recorded.indexOf(";") + 1),
+	)?.results;
+	return (
+		results?.some(
+			(result) =>
+				result.method === "dmarc" &&
+				result.result === "pass" &&
+				result.properties.get("header.from")?.toLowerCase() === fromDomain,
+		) === true
+	);
+};
+
+/**
+ * A forwarder broke the author's DKIM and with it DMARC. Only a chain a known
+ * receiver verified, first sealed by a known provider that saw DMARC pass for
+ * the From domain, says so.
+ */
+const relayed = (input: CheckInput): boolean =>
+	knownReceiver(input) &&
+	receiverPassedArc(input) &&
+	firstSealerPassedDmarc(input);
+
+const establishedSender = (input: CheckInput): boolean =>
+	knownReceiver(input) &&
+	input.request.authentication.dmarc === AuthResultVerdict.Pass &&
+	input.request.context.senderMessagesSeen > 0;
+
 /** Check 1: DMARC failed, or a signature belongs to another domain. */
 export const authenticationFails = (input: CheckInput): Finding[] => {
+	if (relayed(input)) return [];
 	const { authentication } = input.request;
 	const findings: Finding[] = [];
 	const dmarcFailed = authentication.dmarc === AuthResultVerdict.Fail;
+	const dmarcDecided =
+		dmarcFailed || authentication.dmarc === AuthResultVerdict.Pass;
 	const signer = authentication.signerDomain;
 	const signerMismatch =
+		!dmarcDecided &&
 		signer !== UNVERIFIED &&
 		input.senderDomain !== undefined &&
 		registrable(input.tldts, signer) !== input.senderDomain;
@@ -123,6 +200,7 @@ export const authenticationFails = (input: CheckInput): Finding[] => {
 
 /** Check 2. */
 export const replyToDiffers = (input: CheckInput): Finding[] => {
+	if (establishedSender(input)) return [];
 	const replyTo = parseAddressHeader(
 		headerValue(input.request.message.headers, "Reply-To"),
 	);
@@ -132,15 +210,26 @@ export const replyToDiffers = (input: CheckInput): Finding[] => {
 	return [{ name: SpamReasonName.ReplyToMismatch, options: [replyDomain] }];
 };
 
+const DOMAINS_IN_TEXT = new RegExp(DOMAIN_IN_TEXT.source, "giu");
+
+const shownDomainsOf = (tldts: Tldts, text: string): string[] =>
+	[...text.matchAll(DOMAINS_IN_TEXT)].flatMap(([, host]) => {
+		if (tldts.parse(host).isIcann !== true) return [];
+		const domain = registrable(tldts, host);
+		return domain ? [domain] : [];
+	});
+
 /** Check 3: link-gated. */
 export const linkTextDiffers = (input: CheckInput): Finding[] => {
-	const found = input.links.flatMap((link) => {
-		const shown = DOMAIN_IN_TEXT.exec(link.text)?.[1];
-		if (!shown) return [];
-		const shownDomain = registrable(input.tldts, shown);
-		if (!shownDomain || shownDomain === link.hrefDomain) return [];
-		return [`${shownDomain} -> ${link.hrefDomain}`];
-	});
+	const ownDomain =
+		input.request.authentication.dmarc === AuthResultVerdict.Pass
+			? input.senderDomain
+			: undefined;
+	const found = input.links.flatMap((link) =>
+		shownDomainsOf(input.tldts, link.text)
+			.filter((shown) => shown !== link.hrefDomain && shown !== ownDomain)
+			.map((shown) => `${shown} -> ${link.hrefDomain}`),
+	);
 	return found.length > 0
 		? [{ name: SpamReasonName.LinkTextMismatch, options: unique(found) }]
 		: [];
@@ -189,7 +278,13 @@ const domainsInMessage = (input: CheckInput): string[] => {
 export const confusableDomains = (input: CheckInput): Finding[] => {
 	const hosts = domainsInMessage(input);
 	const findings: Finding[] = [];
-	const punycode = hosts.filter(isPunycode);
+	const ownDomain = establishedSender(input) ? input.senderDomain : undefined;
+	const punycode = hosts.filter(
+		(host) =>
+			isPunycode(host) &&
+			imitatesAscii(host) &&
+			registrable(input.tldts, host) !== ownDomain,
+	);
 	if (punycode.length > 0) {
 		findings.push({
 			name: SpamReasonName.PunycodeDomain,

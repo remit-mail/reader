@@ -11,6 +11,7 @@ import { actionOf, judge } from "./judge.js";
 const request = (
 	overrides: {
 		from?: string;
+		headers?: SpamRequest["message"]["headers"];
 		links?: SpamRequest["message"]["links"];
 		html?: string;
 		context?: Partial<SpamRequest["context"]>;
@@ -20,6 +21,7 @@ const request = (
 		raw: "",
 		headers: [
 			{ name: "From", value: overrides.from ?? "Ann <ann@shop.example>" },
+			...(overrides.headers ?? []),
 		],
 		text: "",
 		html: overrides.html ?? "",
@@ -58,8 +60,9 @@ describe("the inline judge", () => {
 		assert.equal(verdict.action, SpamAction.None);
 	});
 
-	it("flags a passing signature from another domain than the sender's", () => {
+	it("flags a passing signature from another domain where DMARC gave no verdict", () => {
 		const signed = request();
+		signed.authentication.dmarc = "None";
 		signed.authentication.signerDomain = "esp.example";
 		const found = judge(signed, UNSET, tldts).reasons.find(
 			(reason) => reason.name === SpamReasonName.SignerMismatch,
@@ -104,12 +107,6 @@ describe("the inline judge", () => {
 			"Authentication-Results: mx.example.com; dkim=fail header.d=evil-mimic.example; dmarc=fail",
 		],
 		"a signature from another domain": [FROM, RELAY_SIGNATURE, REAL],
-		"a forged passing result ahead of the receiver's": [
-			FORGED,
-			REAL,
-			FROM,
-			RELAY_SIGNATURE,
-		],
 		"a forged passing result after the receiver's": [
 			REAL,
 			FORGED,
@@ -199,14 +196,12 @@ describe("the inline judge", () => {
 	it("flags link text that shows another domain than the href", () => {
 		const found = judge(
 			request({
-				links: [
-					{ href: "https://collect.example/x", text: "www.mybank.example" },
-				],
+				links: [{ href: "https://collect.example/x", text: "www.example.com" }],
 			}),
 			UNSET,
 			tldts,
 		).reasons.find((reason) => reason.name === SpamReasonName.LinkTextMismatch);
-		assert.deepEqual(found?.options, ["mybank.example -> collect.example"]);
+		assert.deepEqual(found?.options, ["example.com -> collect.example"]);
 	});
 
 	it("ignores links for a sender with earlier mail", () => {
@@ -228,6 +223,194 @@ describe("the inline judge", () => {
 			reasons(request({ from: "x7k2q9m4p8z3@shop.example" })).includes(
 				SpamReasonName.GeneratedName,
 			),
+		);
+	});
+
+	const LIST_FROM = "From: Author <author@writer.example>";
+	const LIST_SIGNATURE =
+		"DKIM-Signature: v=1; a=rsa-sha256; d=lists.example.org; s=sel; b=xxx";
+	const AUTHOR_SIGNATURE =
+		"DKIM-Signature: v=1; a=rsa-sha256; d=writer.example; s=sel; b=xxx";
+
+	const TRUSTED_SEAL =
+		"ARC-Seal: i=1; a=rsa-sha256; d=google.com; s=arc; cv=none; b=xxx";
+	const TRUSTED_SEALER_RESULTS =
+		"ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.d=writer.example; dmarc=pass header.from=writer.example";
+
+	it("does not read the broken DMARC of a forward a trusted sealer verified as forgery", async () => {
+		const found = reasons(
+			await arrived([
+				"Authentication-Results: mx.google.com; arc=pass; dkim=fail header.d=writer.example; dmarc=fail",
+				TRUSTED_SEAL,
+				TRUSTED_SEALER_RESULTS,
+				LIST_FROM,
+				AUTHOR_SIGNATURE,
+			]),
+		);
+		for (const name of [
+			SpamReasonName.DmarcFail,
+			SpamReasonName.DkimDmarcFail,
+			SpamReasonName.SignerMismatch,
+			SpamReasonName.ReplyToMismatch,
+		]) {
+			assert.ok(!found.includes(name), name);
+		}
+	});
+
+	const forgedRelay: Record<string, string[]> = {
+		"a List-Id whose list signature fails": [
+			"Authentication-Results: mx.example.com; dkim=fail header.d=lists.example.org; dmarc=fail",
+			FROM,
+			"List-Id: <devs.lists.example.org>",
+			LIST_SIGNATURE,
+		],
+		"a forged ARC chain the receiver is silent about": [
+			"Authentication-Results: mx.google.com; dkim=fail header.d=writer.example; dmarc=fail",
+			"Authentication-Results: forger.example; arc=pass",
+			TRUSTED_SEAL,
+			TRUSTED_SEALER_RESULTS,
+			LIST_FROM,
+			AUTHOR_SIGNATURE,
+		],
+		"a self-run relay with a List-Id and its own DKIM": [
+			"Authentication-Results: mx.example.com; dkim=fail header.d=writer.example; dkim=pass header.d=lists.example.org; dmarc=fail",
+			LIST_FROM,
+			"List-Id: Devs <devs.lists.example.org>",
+			"Reply-To: devs@lists.example.org",
+			LIST_SIGNATURE,
+			AUTHOR_SIGNATURE,
+		],
+	};
+
+	for (const [label, lines] of Object.entries(forgedRelay)) {
+		it(`still flags a DMARC fail with ${label}`, async () => {
+			assert.ok(
+				reasons(await arrived(lines)).includes(SpamReasonName.DkimDmarcFail),
+			);
+		});
+	}
+
+	const GMAIL_PASS = {
+		name: "Authentication-Results",
+		value: "mx.google.com; dkim=pass header.d=esp.example; dmarc=pass",
+	};
+
+	it("finds nothing to impersonation in a newsletter from a sender with earlier mail", () => {
+		const newsletter = request({
+			from: "Tech Weekly <communityupdates@techweekly.example>",
+			headers: [
+				GMAIL_PASS,
+				{ name: "List-Unsubscribe", value: "<https://esp.example/u/1>" },
+				{ name: "Reply-To", value: "redactie@support-desk.example" },
+			],
+			context: { senderMessagesSeen: 1 },
+		});
+		newsletter.authentication.signerDomain = "esp.example";
+		const found = reasons(newsletter);
+		for (const name of [
+			SpamReasonName.SignerMismatch,
+			SpamReasonName.ReplyToMismatch,
+			SpamReasonName.GeneratedName,
+		]) {
+			assert.ok(!found.includes(name), name);
+		}
+	});
+
+	it("flags a Reply-To on another domain from a first-time sender at a shared provider", () => {
+		assert.ok(
+			reasons(
+				request({
+					from: "Ann <ann.first@gmail.com>",
+					headers: [
+						GMAIL_PASS,
+						{ name: "Reply-To", value: "payments@billing.example" },
+					],
+					context: { senderMessagesSeen: 0, senderDomainMessagesSeen: 500 },
+				}),
+			).includes(SpamReasonName.ReplyToMismatch),
+		);
+	});
+
+	it("flags every domain in link text that differs from the link", () => {
+		const found = judge(
+			request({
+				links: [
+					{
+						href: "https://secure-login.xyz/verify",
+						text: "secure-login.xyz | paypal.com",
+					},
+				],
+			}),
+			UNSET,
+			tldts,
+		).reasons.find((reason) => reason.name === SpamReasonName.LinkTextMismatch);
+		assert.deepEqual(found?.options, ["paypal.com -> secure-login.xyz"]);
+	});
+
+	it("does not take a project name in link text for a domain", () => {
+		assert.ok(
+			!reasons(
+				request({
+					links: [{ href: "https://collect.example/x", text: "Next.js" }],
+				}),
+			).includes(SpamReasonName.LinkTextMismatch),
+		);
+	});
+
+	it("flags link text that names another domain inside a sentence", () => {
+		const found = judge(
+			request({
+				links: [
+					{
+						href: "https://evil.example/login",
+						text: "Sign in to example.com",
+					},
+				],
+			}),
+			UNSET,
+			tldts,
+		).reasons.find((reason) => reason.name === SpamReasonName.LinkTextMismatch);
+		assert.deepEqual(found?.options, ["example.com -> evil.example"]);
+	});
+
+	it("flags a punycode domain that differs from an ASCII one by an accent", () => {
+		assert.ok(
+			reasons(
+				request({
+					links: [{ href: "https://xn--paypl-0qa.com/login", text: "Log in" }],
+				}),
+			).includes(SpamReasonName.PunycodeDomain),
+		);
+	});
+
+	it("does not flag an internationalised domain that imitates no ASCII one", () => {
+		const found = reasons(
+			request({
+				links: [{ href: "https://xn--cck2b3b.example/", text: "Shop" }],
+				context: { senderMessagesSeen: 2 },
+			}),
+		);
+		assert.ok(!found.includes(SpamReasonName.PunycodeDomain));
+		assert.ok(!found.includes(SpamReasonName.MixedScriptDomain));
+	});
+
+	it("does not read an accented Latin domain as mixed scripts", () => {
+		assert.ok(
+			!reasons(
+				request({
+					links: [{ href: "https://xn--caf-dma.nl/menu", text: "Menu" }],
+				}),
+			).includes(SpamReasonName.MixedScriptDomain),
+		);
+	});
+
+	it("does not flag a Japanese label mixing Han and kana", () => {
+		assert.ok(
+			!reasons(
+				request({
+					links: [{ href: "https://shop.example", text: "東京ストア.jp" }],
+				}),
+			).includes(SpamReasonName.MixedScriptDomain),
 		);
 	});
 
@@ -253,6 +436,8 @@ describe("domain helpers", () => {
 		assert.equal(looksGenerated("a8f3k2l9x7q1"), true);
 		assert.equal(looksGenerated("notifications"), false);
 		assert.equal(looksGenerated("jan.devries"), false);
+		assert.equal(looksGenerated("communityupdates"), false);
+		assert.equal(looksGenerated("xkqvbzmtplwd"), true);
 	});
 });
 

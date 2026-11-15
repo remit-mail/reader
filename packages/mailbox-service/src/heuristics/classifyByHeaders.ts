@@ -8,8 +8,7 @@ import type {
 } from "mailparser";
 import {
 	type AuthenticationResult,
-	type AuthenticationResults,
-	parseAuthenticationResults,
+	trustedAuthenticationResults,
 } from "./authenticationResults.js";
 import { hasMachineHeader, isMachineLocalPart } from "./machineSenders.js";
 import { SOCIAL_DOMAINS } from "./socialDomains.js";
@@ -216,10 +215,11 @@ const dkimResultsForFrom = (
 export const extractAuthResult = (
 	parsed: ParsedMail,
 ): AuthenticationEvidence | null => {
-	const headers = parsed.headerLines
-		.filter((l) => l.key.toLowerCase() === "authentication-results")
-		.map((l) => parseAuthenticationResults(stripHeaderName(l.line)))
-		.filter((h): h is AuthenticationResults => h !== null);
+	const headers = trustedAuthenticationResults(
+		parsed.headerLines
+			.filter((l) => l.key.toLowerCase() === "authentication-results")
+			.map((l) => stripHeaderName(l.line)),
+	);
 	if (headers.length === 0) return null;
 
 	const fromDomain = getFromDomain(parsed);

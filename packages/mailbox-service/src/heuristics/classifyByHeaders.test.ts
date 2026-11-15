@@ -564,24 +564,21 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 		});
 	});
 
-	it("never lets a prepended header hide the receiving MTA's dmarc=fail", async () => {
-		const lines = (order: "forged-first" | "real-first") => {
-			const forged =
-				"Authentication-Results: whatever; dkim=pass header.d=evil-mimic.example; dmarc=pass header.from=evil-mimic.example";
-			const real = "Authentication-Results: mx.example.com; dmarc=fail";
-			return withBody([
-				...(order === "forged-first" ? [forged, real] : [real, forged]),
+	it("never lets a sender-added header hide the receiving MTA's dmarc=fail", async () => {
+		const parsed = await parse(
+			withBody([
+				"Authentication-Results: mx.example.com; dmarc=fail",
+				"Authentication-Results: whatever; dkim=pass header.d=evil-mimic.example; dmarc=pass header.from=evil-mimic.example",
 				"From: Support <support@evil-mimic.example>",
 				"To: me@example.com",
 				"Subject: Verify your account",
 				"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
 				"X-Spam-Status: No, score=0.1",
-			]);
-		};
-		for (const order of ["forged-first", "real-first"] as const) {
-			const parsed = await parse(lines(order));
-			assert.equal(extractAuthResult(parsed)?.dmarc, "Fail", order);
-		}
+			]),
+		);
+		const result = extractAuthResult(parsed);
+		assert.equal(result?.dmarc, "Fail");
+		assert.equal(result?.signerDomain, undefined);
 	});
 
 	it("never lets a sender-added aligned dkim=pass override the receiver's verdict", async () => {
@@ -594,19 +591,10 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 			[receivers[0], "Fail"],
 			[receivers[1], "None"],
 		] as const) {
-			for (const headers of [
-				[receiver, forged],
-				[forged, receiver],
-			]) {
-				const parsed = await parse(
-					withBody([...headers, "From: B <s@bank.example>"]),
-				);
-				assert.equal(
-					extractAuthResult(parsed)?.dkim,
-					expected,
-					headers.join(" | "),
-				);
-			}
+			const parsed = await parse(
+				withBody([receiver, forged, "From: B <s@bank.example>"]),
+			);
+			assert.equal(extractAuthResult(parsed)?.dkim, expected, receiver);
 		}
 	});
 
@@ -757,12 +745,12 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 			assert.equal(extractAuthResult(parsed), null);
 		});
 
-		it("ignores an unparseable header beside one that parses", async () => {
+		it("ignores an unparseable header below the receiver's", async () => {
 			const parsed = await parse(
 				withBody([
-					"Authentication-Results: forged; dmarc=pass )",
-					"From: Alice <alice@acme.example>",
 					"Authentication-Results: mx.example.com; dmarc=fail header.from=acme.example",
+					"From: Alice <alice@acme.example>",
+					"Authentication-Results: forged; dmarc=pass )",
 				]),
 			);
 			assert.equal(extractAuthResult(parsed)?.dmarc, "Fail");
