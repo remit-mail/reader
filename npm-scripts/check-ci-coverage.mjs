@@ -5,7 +5,12 @@ import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { coverageViolations, workspaceScriptId } from "./lib/ci-coverage.mjs";
+import {
+	coverageViolations,
+	stripComments,
+	workspaceScriptId,
+} from "./lib/ci-coverage.mjs";
+import { selectGroup, testCiGroups } from "./lib/test-groups.mjs";
 import { discoverScriptSuites } from "./lib/test-suites.mjs";
 import { readWorkflowSources } from "./lib/workflows.mjs";
 import {
@@ -84,8 +89,31 @@ const { files: workflowFiles, sources: workflowSources } =
 	await readWorkflowSources(repoRoot);
 
 // What the runner behind `test:ci` executes in CI, asked of the runner rather
-// than asserted from the workflow's shape.
+// than asserted from the workflow's shape. Each `npm run test:ci` a workflow
+// names runs one group, or every suite when it names none; a suite no group
+// runs is reported below as unreached, and one two groups run is reported here.
 const { suites } = await discoverWorkspaces(repoRoot);
+const runs = new Map(suites.map((suite) => [suite.workspace, 0]));
+const groupViolations = [];
+for (const source of workflowSources) {
+	for (const group of testCiGroups(stripComments(source, "yaml"))) {
+		const selected = selectGroup(suites, group);
+		if (selected.error) {
+			groupViolations.push(selected.error);
+			continue;
+		}
+		for (const suite of selected.suites) {
+			runs.set(suite.workspace, runs.get(suite.workspace) + 1);
+		}
+	}
+}
+for (const [workspace, count] of runs) {
+	if (count > 1) {
+		groupViolations.push(
+			`suite "${workspace}" runs in ${count} test:ci jobs: give it exactly one group`,
+		);
+	}
+}
 
 // Only files the repo tracks are followed; a path a script builds at runtime, or
 // one outside the tree, simply reaches nothing further.
@@ -97,18 +125,23 @@ const readSource = (file) => {
 	}
 };
 
-const violations = coverageViolations({
-	scripts: manifest.scripts ?? {},
-	workspaces: await collectWorkspaces(),
-	workflowSources,
-	testFiles: await collectFiles(repoRoot, (name) => name.endsWith(".test.mjs")),
-	collectedFiles: await discoverScriptSuites(repoRoot),
-	collectedScripts: suites.map((suite) =>
-		workspaceScriptId(suite.workspace, WORKSPACE_SCRIPT),
-	),
-	readFile: readSource,
-	allowUnreachable: manifest.ciCoverage?.allowUnreachable ?? {},
-});
+const violations = [
+	...groupViolations,
+	...coverageViolations({
+		scripts: manifest.scripts ?? {},
+		workspaces: await collectWorkspaces(),
+		workflowSources,
+		testFiles: await collectFiles(repoRoot, (name) =>
+			name.endsWith(".test.mjs"),
+		),
+		collectedFiles: await discoverScriptSuites(repoRoot),
+		collectedScripts: suites
+			.filter((suite) => runs.get(suite.workspace) > 0)
+			.map((suite) => workspaceScriptId(suite.workspace, WORKSPACE_SCRIPT)),
+		readFile: readSource,
+		allowUnreachable: manifest.ciCoverage?.allowUnreachable ?? {},
+	}),
+];
 
 if (violations.length > 0) {
 	console.error("CI coverage violations:\n");
