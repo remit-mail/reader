@@ -3,6 +3,7 @@ import type {
 	SpamLabelPlacementValue,
 	SpamPipeline,
 	SpamSettingsItem,
+	SpamThresholds,
 } from "@remit/data-ports";
 import {
 	SpamAction,
@@ -23,6 +24,20 @@ export type SpamPlacement =
 	| { action: "None" }
 	| { action: "Warn" | "Junk"; label: Kind };
 
+type Checked = Extract<MessageSpamVerdict, { state: "Checked" }>;
+
+type Decider =
+	| { by: "Unknown" }
+	| { by: "Rspamd" }
+	| { by: "Score"; thresholds: SpamThresholds };
+
+const deciderOf = (verdict: Checked, pipeline: SpamPipeline): Decider => {
+	const judge = pipeline.find((config) => config.name === verdict.decidedBy);
+	if (!judge) return { by: "Unknown" };
+	if (judge.name === SpamJudgeName.Rspamd) return { by: "Rspamd" };
+	return { by: "Score", thresholds: judge.thresholds };
+};
+
 /**
  * A checked verdict scored below the clean threshold the deciding judge sets.
  * While that judge's thresholds are unset nothing is clean.
@@ -32,11 +47,28 @@ export const isConfidentlyClean = (
 	pipeline: SpamPipeline,
 ): boolean => {
 	if (verdict.state !== "Checked") return false;
-	const { decidedBy, score } = verdict;
-	const judge = pipeline.find((config) => config.name === decidedBy);
-	if (!judge || judge.name === SpamJudgeName.Rspamd) return false;
-	const { action, decided } = byThresholds(score, judge.thresholds);
+	const decider = deciderOf(verdict, pipeline);
+	if (decider.by !== "Score") return false;
+	const { action, decided } = byThresholds(verdict.score, decider.thresholds);
 	return decided && action === SpamAction.None;
+};
+
+/**
+ * Whether the category classifier's junk answer may move a message on its
+ * own. It may not when screening let the message through, or when a
+ * calibrated judge decided: the inline judge already weighs the classifier's
+ * answer, and its verdict stands.
+ */
+export const classifierMayJunk = (
+	verdict: MessageSpamVerdict,
+	pipeline: SpamPipeline,
+): boolean => {
+	if (verdict.state === "ScreenedOut") return false;
+	if (verdict.state !== "Checked") return true;
+	const decider = deciderOf(verdict, pipeline);
+	if (decider.by === "Unknown") return true;
+	if (decider.by === "Rspamd") return false;
+	return decider.thresholds.state === "Unset";
 };
 
 const NONE: SpamPlacement = { action: "None" };
