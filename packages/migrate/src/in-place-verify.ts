@@ -111,10 +111,13 @@ interface TableRule {
  * Rows the migration changes on purpose, left out of the row comparison and
  * checked on their own below: clause-less filters are deleted (entities 0043)
  * and `thread_message.is_deleted` is cleared where the message was never
- * expunged (mail 0005).
+ * expunged (mail 0005). `mailbox.cursor_state` is tripped on a folder holding
+ * fewer rows than the server reported, so its next sync rebuilds it (mail
+ * 0019).
  */
 const TABLE_RULES: Readonly<Record<string, TableRule>> = {
 	filter: { before: "literal_clauses <> '[]'" },
+	mailbox: { except: ["cursor_state"] },
 	thread_message: { except: ["is_deleted"] },
 };
 
@@ -179,7 +182,6 @@ const NAMED_COLUMNS: ReadonlyArray<{
 			"last_sync_uid",
 			"high_water_mark_uid",
 			"initial_sync_completed_at",
-			"cursor_state",
 			"pending_path",
 		],
 	},
