@@ -396,20 +396,24 @@ export class FakeImapConnection implements IImapConnection {
 	search = async (criteria: unknown[]): Promise<number[]> => {
 		this.server.run("SEARCH", `${this.selected} ${JSON.stringify(criteria)}`);
 		const folder = this.open();
-		const all = [...folder.messages.keys()];
-		const [first] = criteria;
-		if (criteria.length === 1 && first === "ALL") return all;
+		const undeleted = criteria.length > 1 && criteria[0] === "UNDELETED";
+		const rest = undeleted ? criteria.slice(1) : criteria;
+		const all = [...folder.messages.keys()].filter(
+			(uid) => !undeleted || !folder.messages.get(uid)?.flags.has("\\Deleted"),
+		);
+		const [first] = rest;
+		if (rest.length === 1 && first === "ALL") return all;
 		if (
-			criteria.length === 1 &&
+			rest.length === 1 &&
 			Array.isArray(first) &&
 			first.length === 2 &&
 			first[0] === "UID"
 		) {
-			const highest = Math.max(0, ...all);
+			const highest = Math.max(0, ...folder.messages.keys());
 			return all.filter((uid) => inUidSet(String(first[1]), uid, highest));
 		}
 		if (
-			criteria.length === 1 &&
+			rest.length === 1 &&
 			Array.isArray(first) &&
 			first.length === 3 &&
 			first[0] === "HEADER" &&

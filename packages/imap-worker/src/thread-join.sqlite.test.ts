@@ -25,6 +25,7 @@ const ROLES = {
 	junkMailboxId: null,
 	trashMailboxId: null,
 	configJunkRoles: { junkMailboxIds: [], trashMailboxIds: [] },
+	foldersAreLabels: false,
 };
 
 const message = (
@@ -80,14 +81,17 @@ const syncInOrder = async (
 	);
 	const save = (
 		service as unknown as {
-			saveMessage: (...args: unknown[]) => Promise<unknown>;
+			trySaveMessage: (...args: unknown[]) => Promise<{ kind: string }>;
 		}
-	).saveMessage.bind(service);
+	).trySaveMessage.bind(service);
 	for (const msg of messages) {
-		await save(MAILBOX, ACCOUNT, CONFIG, msg, ROLES, {
+		const outcome = await save(MAILBOX, ACCOUNT, CONFIG, msg, ROLES, {
 			departed: new Set(),
+			held: new Set(),
 			settled: new Set(),
+			needsSave: new Set(),
 		});
+		assert.equal(outcome.kind, "saved");
 	}
 	return {
 		threadIds: (messageIdHeader) =>

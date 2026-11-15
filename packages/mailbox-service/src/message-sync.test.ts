@@ -58,10 +58,7 @@ beforeEach(async () => {
 	});
 	trash = await seedMailbox(store, account, "Trash", { specialUse: "Trash" });
 	receipts = await seedMailbox(store, account, "Receipts");
-	allMail = await seedMailbox(store, account, "[Gmail]/All Mail", {
-		specialUse: "All",
-	});
-	for (const mailbox of [inbox, junk, trash, receipts, allMail]) {
+	for (const mailbox of [inbox, junk, trash, receipts]) {
 		imap.addFolder(mailbox.fullPath);
 	}
 	connection = imap.connection();
@@ -130,6 +127,13 @@ const settle = async (mailbox: MailboxItem) => {
 		const result = await sync(mailbox);
 		if (!result.hasMore && result.syncedCount === 0) return;
 	}
+};
+
+const seedAllMail = async () => {
+	allMail = await seedMailbox(store, account, "[Gmail]/All Mail", {
+		specialUse: "All",
+	});
+	imap.addFolder(allMail.fullPath);
 };
 
 const stored = (mailbox: MailboxItem) =>
@@ -381,6 +385,42 @@ describe("a message the database already holds, sighted in another folder", () =
 		);
 	});
 
+	it("keeps one row for a message under a second Gmail label", async () => {
+		await seedAllMail();
+		const { message } = await arrive(inbox);
+		imap.deliver("Receipts", SPAMMER);
+
+		await sync(receipts);
+
+		assert.deepEqual(
+			await store.message.listAllByMailbox(receipts.mailboxId),
+			[],
+		);
+		assert.equal(
+			(await store.message.get(message.messageId)).mailboxId,
+			inbox.mailboxId,
+		);
+		assert.equal((await stored(receipts)).highWaterMarkUid, 1);
+	});
+
+	it("follows a move made by copy and \\Deleted, with no copy row", async () => {
+		const { uid, message } = await arrive(inbox);
+		const filed = imap.deliver("Receipts", SPAMMER);
+		imap.store("INBOX", [uid], ["\\Deleted"]);
+
+		await sync(receipts);
+
+		const row = await store.message.get(message.messageId);
+		assert.equal(row.mailboxId, receipts.mailboxId);
+		assert.equal(row.uid, filed);
+		assert.deepEqual(
+			await store.message.get([
+				deriveCopyMessageId(message.messageId, receipts.mailboxId),
+			]),
+			[],
+		);
+	});
+
 	it("holds the watermark when the folder it came from cannot be asked", async () => {
 		const { uid, message } = await arrive(inbox);
 		await serverMove(inbox, uid, junk);
@@ -396,6 +436,7 @@ describe("a message the database already holds, sighted in another folder", () =
 	});
 
 	it("declines a sighting in a folder that copies every message", async () => {
+		await seedAllMail();
 		const { message } = await arrive(inbox);
 		imap.deliver("[Gmail]/All Mail", SPAMMER);
 

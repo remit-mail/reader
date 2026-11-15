@@ -110,6 +110,11 @@ export interface AccountFolderRoles {
 	 * the next.
 	 */
 	readonly configJunkRoles: JunkRoleMailboxes;
+	/**
+	 * The account files mail by label (Gmail): it has a folder that holds a
+	 * copy of every message, and each label is a folder of its own.
+	 */
+	readonly foldersAreLabels: boolean;
 }
 
 /**
@@ -494,7 +499,6 @@ export class MessageSyncService {
 				unseenCount,
 				deletedCount,
 			});
-			await this.warnIfUnindexed(mailbox, status.messages);
 
 			this.log.info(
 				{
@@ -1150,7 +1154,6 @@ export class MessageSyncService {
 			unseenCount: status.unseen,
 			deletedCount: status.deletedCount,
 		});
-		if (!hasMore) await this.warnIfUnindexed(mailbox, status.messages);
 
 		// A round that had work to do and moved nothing is stalled: the same
 		// fetch will return the same set forever, and the set only grows as the
@@ -1265,6 +1268,7 @@ export class MessageSyncService {
 		const messageId = await this.rowIdForSighting(
 			mailbox,
 			messageIdForSighting(accountId, mailbox.mailboxId, msg),
+			roles,
 			departures,
 		);
 
@@ -1278,6 +1282,7 @@ export class MessageSyncService {
 				accountId,
 				accountConfigId,
 				msg,
+				messageId,
 				roles,
 				departures,
 			);
@@ -1291,6 +1296,7 @@ export class MessageSyncService {
 			accountId,
 			accountConfigId,
 			msg,
+			messageId,
 			roles,
 			departures,
 		);
@@ -1558,15 +1564,17 @@ export class MessageSyncService {
 		accountId: string,
 		accountConfigId: string,
 	): Promise<AccountFolderRoles> {
-		const [junk, trash, configJunkRoles] = await Promise.all([
+		const [junk, trash, configJunkRoles, mailboxes] = await Promise.all([
 			this.mailboxSpecialUseService.findJunkMailbox(accountId),
 			this.mailboxSpecialUseService.findTrashMailbox(accountId),
 			this.mailboxSpecialUseService.resolveJunkRolesForConfig(accountConfigId),
+			this.mailboxService.listAllByAccount(accountId),
 		]);
 		return {
 			junkMailboxId: junk?.mailboxId ?? null,
 			trashMailboxId: trash?.mailboxId ?? null,
 			configJunkRoles,
+			foldersAreLabels: mailboxes.some(isVirtualCopyMailbox),
 		};
 	}
 
@@ -1606,26 +1614,35 @@ export class MessageSyncService {
 		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
-		msg: ImapMessage,
+		msg: ImapMessage & { envelope: ImapEnvelope },
 		roles: AccountFolderRoles,
 		departures: DepartureVerdicts,
 	): Promise<BatchOutcome> {
 		const mailboxId = mailbox.mailboxId;
-		return this.saveMessage(
+		return this.rowIdForSighting(
 			mailbox,
-			accountId,
-			accountConfigId,
-			msg,
+			messageIdForSighting(accountId, mailboxId, msg),
 			roles,
 			departures,
 		)
+			.then((messageId) =>
+				this.saveMessage(
+					mailbox,
+					accountId,
+					accountConfigId,
+					msg,
+					messageId,
+					roles,
+					departures,
+				),
+			)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
 					{
 						mailboxId,
 						uid: msg.uid,
-						messageId: msg.envelope?.messageId,
+						messageId: msg.envelope.messageId,
 						error: error instanceof Error ? error.message : String(error),
 					},
 					"Failed to save message; will retry on next sync",
@@ -1638,23 +1655,14 @@ export class MessageSyncService {
 		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
-		msg: ImapMessage,
+		msg: ImapMessage & { envelope: ImapEnvelope },
+		messageId: string,
 		roles: AccountFolderRoles,
 		departures: DepartureVerdicts,
-	): Promise<SaveMessageResult | null> {
-		if (!hasEnvelope(msg)) return null;
-
+	): Promise<SaveMessageResult> {
 		const mailboxId = mailbox.mailboxId;
 		const sighting = addressSightingIn(mailboxId, roles);
-
-		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
-
-		const messageId = await this.rowIdForSighting(
-			mailbox,
-			messageIdForSighting(accountId, mailboxId, msg),
-			departures,
-		);
 		const envelopeId = deriveEnvelopeId(messageId);
 
 		const internalDateMs = msg.internalDate.getTime();
@@ -1779,9 +1787,12 @@ export class MessageSyncService {
 
 		// A sighting that left this folder without a row of its own is never
 		// stepped over: the watermark is the only thing that serves the UID
-		// again. A folder that copies every message is the one exception — its
-		// mail is listed in the real folder that holds it.
-		const unresolvedSighting = !owned && !isVirtualCopyMailbox(mailbox);
+		// again. Two are, by design: a folder that copies every message, whose
+		// mail is listed in the real folder that holds it, and a label on an
+		// account whose folders are labels, which keeps one row per message.
+		const heldElsewhere = contested && departures.held.has(verdict);
+		const unresolvedSighting =
+			!owned && !heldElsewhere && !isVirtualCopyMailbox(mailbox);
 
 		// Withholding reads the pointer, so it is re-derived whenever the
 		// pointer could have changed the answer: a save into Junk, and a
@@ -1824,62 +1835,33 @@ export class MessageSyncService {
 
 	/**
 	 * The row a sighting lands on. A message that lives in two real folders at
-	 * once — a Sieve `fileinto` beside a `keep`, a Gmail label, a second
-	 * delivery — gets a copy row in each folder past the first, keyed the way a
-	 * user copy is (`deriveCopyMessageId`, #75), so it is listed and actionable
-	 * wherever the server holds it. Without one, the second folder lists nothing
-	 * for mail it plainly holds.
+	 * once — a Sieve `fileinto` beside a `keep`, a second delivery — gets a
+	 * copy row in each folder past the first, keyed the way a user copy is
+	 * (`deriveCopyMessageId`, #75), so it is listed and actionable wherever the
+	 * server holds it. Without one, the second folder lists nothing for mail it
+	 * plainly holds.
 	 *
-	 * A copy row already standing in this folder, the user's or an earlier
-	 * sighting's, is where the sighting lands. Otherwise only a source folder
-	 * confirmed to still hold the stored row's UID makes this a copy; a source
-	 * that released it makes the sighting a move, and an unanswered one leaves it
-	 * contested for the next round.
+	 * An account whose folders are labels (Gmail) keeps one row per message:
+	 * every label is a folder there, so a copy row per label would multiply the
+	 * mail. Elsewhere a copy row already standing in this folder, the user's or
+	 * an earlier sighting's, is where the sighting lands, and otherwise only a
+	 * source folder confirmed to still hold the stored row's UID makes it a copy.
 	 */
 	private async rowIdForSighting(
 		mailbox: MailboxItem,
 		sightedId: string,
+		roles: AccountFolderRoles,
 		departures: DepartureVerdicts,
 	): Promise<string> {
+		if (roles.foldersAreLabels) return sightedId;
 		const copyId = deriveCopyMessageId(sightedId, mailbox.mailboxId);
 		const rows = await this.messageService.get([sightedId, copyId]);
 		if (rows.some((row) => row.messageId === copyId)) return copyId;
 
 		const canonical = rows.find((row) => row.messageId === sightedId);
-		if (!canonical || !sightingContestsPlacement(mailbox, canonical)) {
-			return sightedId;
-		}
+		if (!canonical) return sightedId;
 		const verdict = placementKey(sightedId, canonical.mailboxId, canonical.uid);
-		const stillHeld =
-			departures.settled.has(verdict) && !departures.departed.has(verdict);
-		return stillHeld ? copyId : sightedId;
-	}
-
-	/**
-	 * A folder the server says holds mail while not one row lists it is the
-	 * shape of a sync that stepped over its messages without saving them.
-	 * Nothing throws on that path, so this warning is the only trace of it.
-	 */
-	private async warnIfUnindexed(
-		mailbox: MailboxItem,
-		serverMessageCount: number,
-	): Promise<void> {
-		if (serverMessageCount === 0 || isVirtualCopyMailbox(mailbox)) return;
-		const { items } = await this.messageService.listByMailbox(
-			mailbox.mailboxId,
-			{ limit: 1 },
-		);
-		if (items.length > 0) return;
-		this.log.warn(
-			{
-				alert: "message_sync_folder_unindexed",
-				mailboxId: mailbox.mailboxId,
-				mailboxPath: mailbox.fullPath,
-				accountId: mailbox.accountId,
-				serverMessageCount,
-			},
-			"Server reports messages in this folder but none are indexed",
-		);
+		return departures.held.has(verdict) ? copyId : sightedId;
 	}
 
 	private async saveAddresses(
