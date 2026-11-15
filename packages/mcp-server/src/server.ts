@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
+import { registerDeleteTools } from "./delete-tools.js";
 import type { McpDeps } from "./deps.js";
 import { registerFilterTools } from "./filter-tools.js";
 import { registerFolderTools } from "./folder-tools.js";
@@ -52,6 +53,7 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 		registerFilterTools(server, deps, principal.userId);
 		registerMoveTools(server, deps, principal.userId);
 		registerRescanTools(server, deps, deriveAccountConfigId(principal.userId));
+		registerDeleteTools(server, deps, deriveAccountConfigId(principal.userId));
 	}
 	return server;
 };

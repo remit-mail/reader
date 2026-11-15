@@ -63,4 +63,5 @@ export const NO_FOLDER_ROLES = {
 	junkMailboxId: null,
 	trashMailboxId: null,
 	configJunkRoles: NO_JUNK_ROLES,
+	foldersAreLabels: false,
 };

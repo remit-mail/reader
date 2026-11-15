@@ -23,6 +23,7 @@ import {
 	isValidMessageId,
 	wireMessageId,
 } from "@remit/data-ports/id";
+import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import {
 	AddressRole,
 	MailboxCursorState,
@@ -109,6 +110,11 @@ export interface AccountFolderRoles {
 	 * the next.
 	 */
 	readonly configJunkRoles: JunkRoleMailboxes;
+	/**
+	 * The account files mail by label (Gmail): it has a folder that holds a
+	 * copy of every message, and each label is a folder of its own.
+	 */
+	readonly foldersAreLabels: boolean;
 }
 
 /**
@@ -209,12 +215,11 @@ export interface SyncedMessage {
 interface SaveMessageResult extends SyncedMessage {
 	owned: boolean;
 	/**
-	 * The sighting contested the placement the row holds and no verdict about
-	 * the source folder covered it (#1146): the source could not be asked, or
-	 * the row moved between the probe and this save. The UID holds the watermark
-	 * so the next round serves the sighting again — nothing else ever will, and
-	 * a row left mispointed until a cursor rebuild is the silent never-repair
-	 * this change exists to end.
+	 * The sighting left this folder without a row of its own: no verdict about
+	 * the source folder covered it (#1146), the row moved between the probe and
+	 * this save, or the row's own mutation has not settled. The UID holds the
+	 * watermark so the next round serves the sighting again — nothing else ever
+	 * will, and a message the server holds that no row lists is invisible.
 	 */
 	unresolvedSighting: boolean;
 }
@@ -1260,7 +1265,12 @@ export class MessageSyncService {
 	): Promise<SaveMessageResult | null> {
 		if (!hasEnvelope(msg)) return null;
 
-		const messageId = messageIdForSighting(accountId, mailbox.mailboxId, msg);
+		const messageId = await this.rowIdForSighting(
+			mailbox,
+			messageIdForSighting(accountId, mailbox.mailboxId, msg),
+			roles,
+			departures,
+		);
 
 		const existing = await this.threadMessageService.findByMessageId(
 			accountConfigId,
@@ -1272,6 +1282,7 @@ export class MessageSyncService {
 				accountId,
 				accountConfigId,
 				msg,
+				messageId,
 				roles,
 				departures,
 			);
@@ -1285,6 +1296,7 @@ export class MessageSyncService {
 			accountId,
 			accountConfigId,
 			msg,
+			messageId,
 			roles,
 			departures,
 		);
@@ -1552,15 +1564,17 @@ export class MessageSyncService {
 		accountId: string,
 		accountConfigId: string,
 	): Promise<AccountFolderRoles> {
-		const [junk, trash, configJunkRoles] = await Promise.all([
+		const [junk, trash, configJunkRoles, mailboxes] = await Promise.all([
 			this.mailboxSpecialUseService.findJunkMailbox(accountId),
 			this.mailboxSpecialUseService.findTrashMailbox(accountId),
 			this.mailboxSpecialUseService.resolveJunkRolesForConfig(accountConfigId),
+			this.mailboxService.listAllByAccount(accountId),
 		]);
 		return {
 			junkMailboxId: junk?.mailboxId ?? null,
 			trashMailboxId: trash?.mailboxId ?? null,
 			configJunkRoles,
+			foldersAreLabels: mailboxes.some(isVirtualCopyMailbox),
 		};
 	}
 
@@ -1600,26 +1614,35 @@ export class MessageSyncService {
 		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
-		msg: ImapMessage,
+		msg: ImapMessage & { envelope: ImapEnvelope },
 		roles: AccountFolderRoles,
 		departures: DepartureVerdicts,
 	): Promise<BatchOutcome> {
 		const mailboxId = mailbox.mailboxId;
-		return this.saveMessage(
+		return this.rowIdForSighting(
 			mailbox,
-			accountId,
-			accountConfigId,
-			msg,
+			messageIdForSighting(accountId, mailboxId, msg),
 			roles,
 			departures,
 		)
+			.then((messageId) =>
+				this.saveMessage(
+					mailbox,
+					accountId,
+					accountConfigId,
+					msg,
+					messageId,
+					roles,
+					departures,
+				),
+			)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
 					{
 						mailboxId,
 						uid: msg.uid,
-						messageId: msg.envelope?.messageId,
+						messageId: msg.envelope.messageId,
 						error: error instanceof Error ? error.message : String(error),
 					},
 					"Failed to save message; will retry on next sync",
@@ -1632,19 +1655,14 @@ export class MessageSyncService {
 		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
-		msg: ImapMessage,
+		msg: ImapMessage & { envelope: ImapEnvelope },
+		messageId: string,
 		roles: AccountFolderRoles,
 		departures: DepartureVerdicts,
-	): Promise<SaveMessageResult | null> {
-		if (!hasEnvelope(msg)) return null;
-
+	): Promise<SaveMessageResult> {
 		const mailboxId = mailbox.mailboxId;
 		const sighting = addressSightingIn(mailboxId, roles);
-
-		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
-
-		const messageId = messageIdForSighting(accountId, mailboxId, msg);
 		const envelopeId = deriveEnvelopeId(messageId);
 
 		const internalDateMs = msg.internalDate.getTime();
@@ -1681,13 +1699,6 @@ export class MessageSyncService {
 		const hasAttachment = bodyParts.some(
 			(p) => !p.isMultipart && p.disposition === "attachment",
 		);
-
-		// Ownership of this messageId by the current mailbox: the row was created
-		// by this call, or an existing row already belongs to this mailbox. A
-		// conflict whose stored row points at a different mailbox is foreign-owned
-		// and must not feed this mailbox's watermark / body-sync (#634).
-		let owned = false;
-		let unresolvedSighting = false;
 
 		// Every write below is an idempotent upsert keyed on a derived id, so a
 		// save that fails part-way is repaired by the next round repeating it: the
@@ -1748,18 +1759,15 @@ export class MessageSyncService {
 		// (#1146). A sighting alone does not say that: a Gmail label, a Sieve
 		// `fileinto` beside a `keep` and an echoed Sent copy all put the same
 		// message in a second real folder while the first still holds it, and
-		// following those took the mail out of the Inbox. `confirmDepartures`
+		// following those took the mail out of the Inbox; `rowIdForSighting`
+		// files those as a copy row of this folder instead. `confirmDepartures`
 		// asked the source before this batch was saved, and its verdict names
 		// the placement it was reached for — so a row that has moved since
-		// matches nothing, and `unresolvedSighting` holds this UID back for
-		// the next round rather than repairing the row against a stale answer.
+		// matches nothing, and the UID is held back for the next round rather
+		// than repairing the row against a stale answer.
 		const contested = !created && sightingContestsPlacement(mailbox, item);
 		const verdict = placementKey(messageId, item.mailboxId, item.uid);
-		unresolvedSighting = contested && !departures.settled.has(verdict);
-		const repointable =
-			contested &&
-			departures.departed.has(verdict) &&
-			!(await this.holdsCopyOf(this.messageService, messageId, mailboxId));
+		const repointable = contested && departures.departed.has(verdict);
 		// A user move landing between the read above and this write wins: the
 		// re-point names the placement it read, writes nothing when the row has
 		// moved since, and the UID waits for the next round.
@@ -1771,9 +1779,20 @@ export class MessageSyncService {
 				{ mailboxId, uid: msg.uid, isDeleted: false },
 			));
 
-		if (repointable && !repointed) unresolvedSighting = true;
+		// Ownership of this messageId by the current mailbox: the row was created
+		// by this call, already belongs to this mailbox, or was re-pointed at it.
+		// A row pointing at another mailbox is foreign-owned and must not feed
+		// this mailbox's body-sync (#634).
+		const owned = created || item.mailboxId === mailboxId || repointed;
 
-		owned = created || item.mailboxId === mailboxId || repointed;
+		// A sighting that left this folder without a row of its own is never
+		// stepped over: the watermark is the only thing that serves the UID
+		// again. Two are, by design: a folder that copies every message, whose
+		// mail is listed in the real folder that holds it, and a label on an
+		// account whose folders are labels, which keeps one row per message.
+		const heldElsewhere = contested && departures.held.has(verdict);
+		const unresolvedSighting =
+			!owned && !heldElsewhere && !isVirtualCopyMailbox(mailbox);
 
 		// Withholding reads the pointer, so it is re-derived whenever the
 		// pointer could have changed the answer: a save into Junk, and a
@@ -1815,20 +1834,34 @@ export class MessageSyncService {
 	}
 
 	/**
-	 * Whether this folder already holds a copy the user made of this message
-	 * (#75). A copy is a second row under its own derived id, so the sighting is
-	 * that copy standing where it was put — the original has not moved, and
-	 * following it would take the mail out of the folder the user copied it from.
+	 * The row a sighting lands on. A message that lives in two real folders at
+	 * once — a Sieve `fileinto` beside a `keep`, a second delivery — gets a
+	 * copy row in each folder past the first, keyed the way a user copy is
+	 * (`deriveCopyMessageId`, #75), so it is listed and actionable wherever the
+	 * server holds it. Without one, the second folder lists nothing for mail it
+	 * plainly holds.
+	 *
+	 * An account whose folders are labels (Gmail) keeps one row per message:
+	 * every label is a folder there, so a copy row per label would multiply the
+	 * mail. Elsewhere a copy row already standing in this folder, the user's or
+	 * an earlier sighting's, is where the sighting lands, and otherwise only a
+	 * source folder confirmed to still hold the stored row's UID makes it a copy.
 	 */
-	private async holdsCopyOf(
-		messageService: IMessageRepository,
-		messageId: string,
-		mailboxId: string,
-	): Promise<boolean> {
-		const rows = await messageService.get([
-			deriveCopyMessageId(messageId, mailboxId),
-		]);
-		return rows.length > 0;
+	private async rowIdForSighting(
+		mailbox: MailboxItem,
+		sightedId: string,
+		roles: AccountFolderRoles,
+		departures: DepartureVerdicts,
+	): Promise<string> {
+		if (roles.foldersAreLabels) return sightedId;
+		const copyId = deriveCopyMessageId(sightedId, mailbox.mailboxId);
+		const rows = await this.messageService.get([sightedId, copyId]);
+		if (rows.some((row) => row.messageId === copyId)) return copyId;
+
+		const canonical = rows.find((row) => row.messageId === sightedId);
+		if (!canonical) return sightedId;
+		const verdict = placementKey(sightedId, canonical.mailboxId, canonical.uid);
+		return departures.held.has(verdict) ? copyId : sightedId;
 	}
 
 	private async saveAddresses(

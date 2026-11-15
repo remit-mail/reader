@@ -65,6 +65,11 @@ export interface DepartureVerdicts {
 	 */
 	departed: Set<string>;
 	/**
+	 * Placements the source folder still holds. A sighting elsewhere of one of
+	 * these is the same message living in a second folder, not a move.
+	 */
+	held: Set<string>;
+	/**
 	 * Placements a verdict was reached for at all, departed or still held. A
 	 * contested sighting outside this set was not decided — the source could not
 	 * be asked, or the row has moved since it was — and its uid is held back from
@@ -110,7 +115,9 @@ export interface DepartureProbeDeps {
  * `IImapConnection.search` throws on a failed SEARCH, so an empty answer means
  * the server matched nothing. The SEARCH names the contested uids rather than
  * ALL: the answer needed is about those uids, and a folder's whole uid set is a
- * page of traffic per batch for an account with a large Inbox.
+ * page of traffic per batch for an account with a large Inbox. It asks for
+ * UNDELETED uids only: a client that moves by COPY plus `\Deleted` leaves the
+ * original flagged until an expunge, and that original has already left.
  *
  * One SEARCH per source folder per batch, and no IMAP at all when nothing is
  * contested — which is every round on an account whose folders do not overlap.
@@ -123,6 +130,7 @@ export const confirmDepartures = async (
 ): Promise<DepartureVerdicts> => {
 	const verdicts: DepartureVerdicts = {
 		departed: new Set<string>(),
+		held: new Set<string>(),
 		settled: new Set<string>(),
 		needsSave: new Set<string>(),
 	};
@@ -212,6 +220,7 @@ const readSource = async (
 	}
 
 	const held = await deps.connection.search([
+		"UNDELETED",
 		["UID", rows.map((row) => row.uid).join(",")],
 	]);
 	return { kind: "holds", path: source.fullPath, held: new Set(held) };
@@ -228,7 +237,7 @@ const askSource = async (
 	const settle = (row: MessageItem, departed: boolean): void => {
 		const key = placementKey(row.messageId, row.mailboxId, row.uid);
 		verdicts.settled.add(key);
-		if (departed) verdicts.departed.add(key);
+		(departed ? verdicts.departed : verdicts.held).add(key);
 	};
 
 	// A source folder reader cannot reach decides nothing, and does not fail the

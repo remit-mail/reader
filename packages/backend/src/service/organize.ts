@@ -254,12 +254,15 @@ const FOLDER_SWEEP: RuleNarrowing = { terms: [], operator: "and" };
  * {@link bodyContentRejection}).
  *
  * The terms are a narrowing, not the verdict, so every page is still run
- * through the rule — and paging continues until the cap fills or the store
- * runs out, which is what makes the bound a bound on results rather than on
- * the newest `limit` rows (#459). The row that fills the cap names where a
- * continuing batch starts, so it neither repeats a message this one returned
- * nor skips one this one never read. Deduped by message id: the same mail
- * filed in two folders is one match.
+ * through the rule — and paging
+ * continues until the cap fills or the store runs out, which is what makes the
+ * bound a bound on results rather than on the newest `limit` rows (#459).
+ * The row that fills the cap names where a continuing batch starts, so it
+ * neither repeats a message this one returned nor skips one this one never
+ * read. Deduped by message id, so a row a page repeats is one match. The same
+ * mail filed in two folders is two rows, a copy row per folder past the first
+ * (`deriveCopyMessageId`), except on a Gmail account, which keeps one row per
+ * message; each row is its own match, because each is a placement to act on.
  */
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,

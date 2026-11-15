@@ -32,7 +32,15 @@ const FOLDER_WRITE = {
 
 type Watched = { state: "Present"; folder: MailboxItem } | { state: "Gone" };
 
-const awaitSettled = async (
+export const plural = (count: number, one: string, many: string): string =>
+	`${count} ${count === 1 ? one : many}`;
+
+export const absent = (error: unknown): undefined => {
+	if (isNotFoundError(error)) return undefined;
+	throw error;
+};
+
+export const awaitSettled = async (
 	deps: McpDeps,
 	folders: FolderToolDeps,
 	accountId: string,
@@ -41,12 +49,7 @@ const awaitSettled = async (
 ): Promise<Watched> => {
 	const deadline = Date.now() + folders.settleTimeoutMs;
 	for (;;) {
-		const folder = await deps.mailbox
-			.get(accountId, mailboxId)
-			.catch((error: unknown) => {
-				if (isNotFoundError(error)) return undefined;
-				throw error;
-			});
+		const folder = await deps.mailbox.get(accountId, mailboxId).catch(absent);
 		if (!folder) return { state: "Gone" };
 		if (folder.syncStatus !== inFlight || Date.now() >= deadline) {
 			return { state: "Present", folder };
@@ -209,6 +212,64 @@ const trashPathFor = async (
 	return accept(fullPath);
 };
 
+const deleteDepsOf = (deps: McpDeps) => ({
+	...deps,
+	mailboxQueue: deps.folders.mailboxQueue,
+});
+
+// The refusals checked before a delete changes anything.
+export const folderDeleteRefusal = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	folder: MailboxItem,
+	force: boolean,
+): Promise<CallToolResult | undefined> => {
+	const deletable = await deletableFolder(deleteDepsOf(deps), accountConfigId, {
+		accountId: folder.accountId,
+		mailboxId: folder.mailboxId,
+	});
+	if (!deletable.ok) return refused(deletable.refusal);
+	if (force) {
+		const trash = await trashFolderOf(deps, folder.accountId);
+		if (!trash.ok) return refused(trash.refusal);
+	}
+	const count = folder.messageCount;
+	if (!force && count > 0) {
+		return toolError(
+			`“${folder.fullPath}” still holds ${plural(count, "message", "messages")}. Move them out first, for example with move_folder_messages, and call again once the moves have settled; or pass force: true to move them to Trash first.`,
+		);
+	}
+	return undefined;
+};
+
+// Records the delete for the mail server, which refuses it while the folder
+// still holds mail there. With force, the server moves the folder's mail to
+// Trash before the delete.
+export const deleteFolderOnServer = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	folder: MailboxItem,
+	force: boolean,
+): Promise<CallToolResult | undefined> => {
+	const refusal = await folderDeleteRefusal(
+		deps,
+		accountConfigId,
+		folder,
+		force,
+	);
+	if (refusal) return refusal;
+	const trashed = force ? await trashPathFor(deps, folder) : undefined;
+	if (trashed && !trashed.ok) return refused(trashed.refusal);
+	const deleted = await deleteFolder(deleteDepsOf(deps), accountConfigId, {
+		accountId: folder.accountId,
+		mailboxId: folder.mailboxId,
+		requireEmpty: true,
+		moveMailTo: trashed?.value ?? null,
+	});
+	if (!deleted.ok) return refused(deleted.refusal);
+	return undefined;
+};
+
 export const registerFolderTools = (
 	server: McpServer,
 	deps: McpDeps,
@@ -321,29 +382,15 @@ export const registerFolderTools = (
 			const folder = owned.value;
 
 			if (folder.syncStatus !== MailboxSyncStatus.deleting) {
-				const deleteDeps = { ...deps, mailboxQueue: folders.mailboxQueue };
-				const deletable = await deletableFolder(deleteDeps, accountConfigId, {
-					accountId,
-					mailboxId,
-				});
-				if (!deletable.ok) return refused(deletable.refusal);
 				const kept = await keptFolderReason(deps, accountConfigId, folder);
 				if (kept) return refused(invalid(kept).refusal);
-				const count = folder.messageCount;
-				if (!force && count > 0) {
-					return toolError(
-						`“${folder.fullPath}” still holds ${count} ${count === 1 ? "message" : "messages"}. Move them out first, for example with move_folder_messages, and call delete_folder again once the moves have settled; or pass force: true to move them to Trash and delete the folder.`,
-					);
-				}
-				const trashed = force ? await trashPathFor(deps, folder) : undefined;
-				if (trashed && !trashed.ok) return refused(trashed.refusal);
-				const deleted = await deleteFolder(deleteDeps, accountConfigId, {
-					accountId,
-					mailboxId,
-					requireEmpty: true,
-					moveMailTo: trashed?.value ?? null,
-				});
-				if (!deleted.ok) return refused(deleted.refusal);
+				const stopped = await deleteFolderOnServer(
+					deps,
+					accountConfigId,
+					folder,
+					force === true,
+				);
+				if (stopped) return stopped;
 			}
 
 			return deleteOutcome(
