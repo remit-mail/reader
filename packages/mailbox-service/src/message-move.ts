@@ -775,6 +775,10 @@ export class MessageMoveService {
 			);
 		}
 
+		if (message.movedByRemit) {
+			await this.messageService.update(messageId, { movedByRemit: false });
+		}
+
 		// Update ThreadMessage
 		await this.updateThreadMessageForMove(
 			accountConfigId,

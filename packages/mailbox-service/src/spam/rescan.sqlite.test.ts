@@ -10,6 +10,7 @@ import { deriveAddressId } from "@remit/data-ports/id";
 import {
 	AccountSettingName,
 	MessageKeywordFlag,
+	PlacementAction,
 	RescanFailureCode,
 	SpamAction,
 } from "@remit/domain-enums";
@@ -23,6 +24,7 @@ import { saveClassifierProvider } from "../test-helpers/classifier-stub.js";
 import { eml, FakeImapServer } from "../test-helpers/fake-imap.js";
 import { closedPortBaseUrl } from "../test-helpers/stub-http-server.js";
 import {
+	arriveAt,
 	messageAtUid,
 	openStore,
 	recordingQueue,
@@ -32,6 +34,7 @@ import {
 	seedMailbox,
 	silentLog,
 	spamConfigFor,
+	storeBody,
 	syncFolder,
 } from "../test-helpers/test-store.js";
 import type { SpamConfig } from "./index.js";
@@ -295,5 +298,42 @@ describe("rescan", () => {
 		assert.deepEqual(result.successful[0]?.labels, []);
 		assert.deepEqual(await labelNames(), []);
 		assert.equal((await store.message.get(messageId)).spamCleared, true);
+	});
+});
+
+describe("rescan out of Junk", () => {
+	it("moves a trusted sender's message to the Inbox only when asked to move", async () => {
+		const { store, storage, imap, account, inbox } = world;
+		const junk = await seedMailbox(store, account, "Junk", {
+			specialUse: "Junk",
+		});
+		imap.addFolder(junk.fullPath);
+		const inJunk = async (email: string): Promise<string> => {
+			const raw = from(email, "Your invoice");
+			const messageId = await arriveAt(store, imap, account, junk, raw);
+			await storeBody(store, storage, account, messageId, raw);
+			return messageId;
+		};
+		const rescan = (messageIds: string[], move: boolean) =>
+			rescanServiceFor(store, storage, recordingQueue()).rescan(account, {
+				messageIds,
+				move,
+			});
+		const mailboxOf = async (messageId: string): Promise<string> =>
+			(await store.message.get(messageId)).mailboxId;
+
+		const trusted = await inJunk("billing@supplier.example");
+		const stranger = await inJunk("desk@parcel-notice.example");
+		await neverSpam("billing@supplier.example");
+
+		await rescan([trusted, stranger], false);
+		assert.equal(await mailboxOf(trusted), junk.mailboxId);
+
+		await rescan([trusted, stranger], true);
+		const rescued = await store.message.get(trusted);
+		assert.equal(rescued.mailboxId, inbox.mailboxId);
+		assert.equal(rescued.placementVerdict?.action, PlacementAction.MoveToInbox);
+		assert.equal(rescued.placementVerdict?.fromPlacement, "junk");
+		assert.equal(await mailboxOf(stranger), junk.mailboxId);
 	});
 });

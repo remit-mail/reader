@@ -992,7 +992,10 @@ export class BodySyncService {
 						roles: await lookups.roleMailboxes(),
 						sender: await senderPlacement(),
 						move: !filterDecision.move,
-						leaveJunk: arrival.internalDate <= arrival.folderCreatedAt,
+						junkExit:
+							arrival.internalDate <= arrival.folderCreatedAt
+								? { state: "Rescue", clean: false }
+								: { state: "Arrival" },
 					}
 				: undefined,
 		});

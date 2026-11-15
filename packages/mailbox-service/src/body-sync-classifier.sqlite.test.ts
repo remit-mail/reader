@@ -652,7 +652,7 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		});
 	}
 
-	it("leaves mail that sat in Junk before the first sync undecided and judges the next arrival", async () => {
+	it("leaves an unknown sender's mail that sat in Junk before the first sync there and judges the next arrival", async () => {
 		const backlog = await arrive(
 			JUNK_NEWSLETTER,
 			new Date(world.junk.createdAt - 60_000),
@@ -665,7 +665,6 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		const row = await world.store.message.get(backlog);
 		assert.equal(row.mailboxId, world.junk.mailboxId);
 		assert.equal(row.placementVerdict, undefined);
-		assert.equal(row.placementDecidedAt, undefined);
 		await assertMovedToInbox(arrival);
 	});
 

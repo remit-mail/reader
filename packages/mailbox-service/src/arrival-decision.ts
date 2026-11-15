@@ -21,6 +21,7 @@ import {
 } from "./classify-message.js";
 import type { FilterDecision } from "./filters/pipeline.js";
 import { type FolderRoleMailboxes, placementOf } from "./folder-placement.js";
+import type { JunkExit } from "./heuristics/classifyPlacement.js";
 import {
 	hasDecidedCategory,
 	type MessageCategoryValue,
@@ -75,7 +76,7 @@ export interface ArrivalPlacement {
 	roles: FolderRoleMailboxes;
 	sender: SenderPlacement;
 	move: boolean;
-	leaveJunk: boolean;
+	junkExit: JunkExit;
 }
 
 export interface ArrivalRecordInput {
@@ -95,18 +96,17 @@ const place = async (
 	input: ArrivalRecordInput,
 	placement: ArrivalPlacement,
 ): Promise<PlacementUpdate> => {
-	const folder = placementOf(placement.row.mailboxId, placement.roles);
-	if (folder === "junk" && placement.leaveJunk) return {};
 	const placed = await placeMessage(placement.deps, {
 		account: input.account,
 		message: placement.row,
-		placement: folder,
+		placement: placementOf(placement.row.mailboxId, placement.roles),
 		roles: placement.roles,
 		sender: placement.sender,
 		junk:
 			input.classifierVerdict.kind === "Junk" ||
 			input.spamPlacement.action === "Junk",
 		move: placement.move,
+		junkExit: placement.junkExit,
 		now: Date.now(),
 	});
 	return placed.state === "Decided" ? placed.update : {};
