@@ -42,6 +42,17 @@ describe("spam screening", () => {
 		);
 	});
 
+	it("sends a known sender's mail to the judge when the domain has no DMARC", () => {
+		assert.equal(
+			screen(input({ sender: known, dmarc: AuthResultVerdict.None })),
+			undefined,
+		);
+	});
+
+	it("sends a known sender's mail to the judge when DMARC is missing", () => {
+		assert.equal(screen(input({ sender: known, dmarc: undefined })), undefined);
+	});
+
 	it("lets a mailing list with List-Id but no List-Unsubscribe through", () => {
 		assert.deepEqual(
 			screen(input({ hasListId: true, senderMessagesSeen: 3 })),

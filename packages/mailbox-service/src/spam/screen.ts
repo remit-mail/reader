@@ -33,7 +33,8 @@ const bySender = (rule: SenderRule): Screen => ({ rule });
  * Stage 1 (RFC 041): the rule that lets a message through without a call to
  * the spam service, or `undefined` when the message goes to the service. A
  * newsletter passes only from a sender with earlier mail and with DMARC
- * passing, since a phisher can add List-Unsubscribe too. A Never in Spam
+ * passing, since a phisher can add List-Unsubscribe too. A known sender also
+ * needs DMARC passing, since a forged From of a correspondent is invoice fraud. A Never in Spam
  * sender is screened out only when DMARC did not fail, so a forged From of
  * that sender still reaches the judge.
  */
@@ -54,7 +55,7 @@ export const screen = (input: ScreenInput): Screen | undefined => {
 	if (sender.senderTrust === SenderTrust.Wellknown) {
 		return bySender(SpamSenderScreenRule.WellKnown);
 	}
-	if (sender.knownSender && input.dmarc !== AuthResultVerdict.Fail) {
+	if (sender.knownSender && input.dmarc === AuthResultVerdict.Pass) {
 		return bySender(SpamSenderScreenRule.KnownSender);
 	}
 	const filterId =
