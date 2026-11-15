@@ -11,6 +11,7 @@ import { actionOf, judge } from "./judge.js";
 const request = (
 	overrides: {
 		from?: string;
+		headers?: SpamRequest["message"]["headers"];
 		links?: SpamRequest["message"]["links"];
 		html?: string;
 		context?: Partial<SpamRequest["context"]>;
@@ -20,6 +21,7 @@ const request = (
 		raw: "",
 		headers: [
 			{ name: "From", value: overrides.from ?? "Ann <ann@shop.example>" },
+			...(overrides.headers ?? []),
 		],
 		text: "",
 		html: overrides.html ?? "",
@@ -58,8 +60,9 @@ describe("the inline judge", () => {
 		assert.equal(verdict.action, SpamAction.None);
 	});
 
-	it("flags a passing signature from another domain than the sender's", () => {
+	it("flags a passing signature from another domain where DMARC gave no verdict", () => {
 		const signed = request();
+		signed.authentication.dmarc = "None";
 		signed.authentication.signerDomain = "esp.example";
 		const found = judge(signed, UNSET, tldts).reasons.find(
 			(reason) => reason.name === SpamReasonName.SignerMismatch,
@@ -231,6 +234,133 @@ describe("the inline judge", () => {
 		);
 	});
 
+	const LIST_FROM = "From: Author <author@writer.example>";
+	const LIST_SIGNATURE =
+		"DKIM-Signature: v=1; a=rsa-sha256; d=lists.example.org; s=sel; b=xxx";
+	const AUTHOR_SIGNATURE =
+		"DKIM-Signature: v=1; a=rsa-sha256; d=writer.example; s=sel; b=xxx";
+
+	const relayedMail: Record<string, string[]> = {
+		"a mailing list post whose list signed it": [
+			"Authentication-Results: mx.example.com; dkim=fail header.d=writer.example; dkim=pass header.d=lists.example.org; dmarc=fail",
+			LIST_FROM,
+			"List-Id: Devs <devs.lists.example.org>",
+			"Reply-To: devs@lists.example.org",
+			LIST_SIGNATURE,
+			AUTHOR_SIGNATURE,
+		],
+		"a forward the receiver verified through ARC": [
+			"Authentication-Results: mx.example.com; arc=pass; dkim=fail header.d=writer.example; dmarc=fail",
+			"ARC-Seal: i=1; a=rsa-sha256; d=forwarder.example; s=sel; cv=none; b=xxx",
+			LIST_FROM,
+			AUTHOR_SIGNATURE,
+		],
+	};
+
+	for (const [label, lines] of Object.entries(relayedMail)) {
+		it(`does not read the broken DMARC of ${label} as forgery`, async () => {
+			const found = reasons(await arrived(lines));
+			for (const name of [
+				SpamReasonName.DmarcFail,
+				SpamReasonName.DkimDmarcFail,
+				SpamReasonName.SignerMismatch,
+				SpamReasonName.ReplyToMismatch,
+			]) {
+				assert.ok(!found.includes(name), name);
+			}
+		});
+	}
+
+	const forgedRelay: Record<string, string[]> = {
+		"a List-Id whose list signature fails": [
+			"Authentication-Results: mx.example.com; dkim=fail header.d=lists.example.org; dmarc=fail",
+			FROM,
+			"List-Id: <devs.lists.example.org>",
+			LIST_SIGNATURE,
+		],
+		"a forged ARC pass the receiver contradicts": [
+			"Authentication-Results: mx.example.com; arc=fail; dmarc=fail",
+			"Authentication-Results: whatever; arc=pass",
+			"ARC-Seal: i=1; a=rsa-sha256; d=evil-mimic.example; s=sel; cv=none; b=xxx",
+			FROM,
+			RELAY_SIGNATURE,
+		],
+	};
+
+	for (const [label, lines] of Object.entries(forgedRelay)) {
+		it(`still flags a DMARC fail with ${label}`, async () => {
+			assert.ok(
+				reasons(await arrived(lines)).includes(SpamReasonName.DkimDmarcFail),
+			);
+		});
+	}
+
+	it("finds nothing to impersonation in a first newsletter sent through an ESP", () => {
+		const newsletter = request({
+			from: "Tech Weekly <communityupdates@techweekly.example>",
+			headers: [
+				{ name: "List-Unsubscribe", value: "<https://esp.example/u/1>" },
+				{ name: "Reply-To", value: "redactie@support-desk.example" },
+			],
+			html: "<p>news</p>",
+			links: [
+				{
+					href: "https://click.esp.example/c/1",
+					text: "www.techweekly.example/artikel",
+				},
+				{ href: "https://click.esp.example/c/2", text: "Node.js" },
+				{ href: "https://click.esp.example/c/3", text: "Lees meer" },
+			],
+			context: { senderDomainMessagesSeen: 0 },
+		});
+		newsletter.authentication.signerDomain = "esp.example";
+		const found = reasons(newsletter);
+		for (const name of [
+			SpamReasonName.SignerMismatch,
+			SpamReasonName.ReplyToMismatch,
+			SpamReasonName.LinkTextMismatch,
+			SpamReasonName.LinkDomainDistant,
+			SpamReasonName.SingleOffDomainLink,
+			SpamReasonName.GeneratedName,
+		]) {
+			assert.ok(!found.includes(name), name);
+		}
+	});
+
+	it("does not take a project name in link text for a domain", () => {
+		assert.ok(
+			!reasons(
+				request({
+					links: [{ href: "https://collect.example/x", text: "Next.js" }],
+				}),
+			).includes(SpamReasonName.LinkTextMismatch),
+		);
+	});
+
+	it("does not flag an internationalised domain that imitates no ASCII one", () => {
+		const found = reasons(
+			request({
+				links: [
+					{ href: "https://xn--caf-dma.example/menu", text: "Menu" },
+					{ href: "https://xn--cck2b3b.example/", text: "Shop" },
+				],
+				context: { senderMessagesSeen: 2 },
+			}),
+		);
+		assert.ok(!found.includes(SpamReasonName.PunycodeDomain));
+		assert.ok(!found.includes(SpamReasonName.MixedScriptDomain));
+	});
+
+	it("does not flag a Japanese label mixing Han and kana", () => {
+		assert.ok(
+			!reasons(
+				request({
+					links: [{ href: "https://shop.example", text: "東京ストア.jp" }],
+				}),
+			).includes(SpamReasonName.MixedScriptDomain),
+		);
+	});
+
 	it("flags a domain registered shortly before the mail arrived", () => {
 		assert.ok(
 			reasons(
@@ -253,6 +383,8 @@ describe("domain helpers", () => {
 		assert.equal(looksGenerated("a8f3k2l9x7q1"), true);
 		assert.equal(looksGenerated("notifications"), false);
 		assert.equal(looksGenerated("jan.devries"), false);
+		assert.equal(looksGenerated("communityupdates"), false);
+		assert.equal(looksGenerated("xkqvbzmtplwd"), true);
 	});
 });
 

@@ -33,14 +33,33 @@ export const isPunycode = (domain: string): boolean =>
 		.split(".")
 		.some((label) => label.startsWith("xn--"));
 
+/** A domain whose skeleton is plain ASCII reads as an ASCII domain. */
+export const imitatesAscii = (domain: string): boolean =>
+	/^[\x20-\x7e]*$/.test(skeleton(domain));
+
 const SCRIPTS: readonly [string, RegExp][] = [
 	["Latin", /\p{Script=Latin}/u],
 	["Cyrillic", /\p{Script=Cyrillic}/u],
 	["Greek", /\p{Script=Greek}/u],
 	["Armenian", /\p{Script=Armenian}/u],
 	["Han", /\p{Script=Han}/u],
+	["Hiragana", /\p{Script=Hiragana}/u],
+	["Katakana", /\p{Script=Katakana}/u],
+	["Hangul", /\p{Script=Hangul}/u],
+	["Bopomofo", /\p{Script=Bopomofo}/u],
 	["Arabic", /\p{Script=Arabic}/u],
 	["Hebrew", /\p{Script=Hebrew}/u],
+];
+
+/**
+ * Script sets one writing system uses together, after UTS #39's highly
+ * restrictive level: Japanese, Korean and Chinese mix Han with their own
+ * scripts, and each may carry Latin.
+ */
+const WRITING_SYSTEMS: readonly ReadonlySet<string>[] = [
+	new Set(["Latin", "Han", "Hiragana", "Katakana"]),
+	new Set(["Latin", "Han", "Hangul"]),
+	new Set(["Latin", "Han", "Bopomofo"]),
 ];
 
 const scriptOf = (char: string): string | undefined => {
@@ -48,16 +67,23 @@ const scriptOf = (char: string): string | undefined => {
 	return SCRIPTS.find(([, pattern]) => pattern.test(char))?.[0] ?? "Other";
 };
 
-/** A label whose letters come from more than one script, read in Unicode. */
+const isMixed = (scripts: ReadonlySet<string>): boolean =>
+	scripts.size > 1 &&
+	!WRITING_SYSTEMS.some((system) =>
+		[...scripts].every((script) => system.has(script)),
+	);
+
+/** A label whose letters come from more than one writing system, read in Unicode. */
 export const hasMixedScriptLabel = (domain: string): boolean =>
 	unicodeDomain(domain)
 		.split(".")
-		.some((label) => {
-			const scripts = new Set(
-				[...label].map(scriptOf).filter((script) => script !== undefined),
-			);
-			return scripts.size > 1;
-		});
+		.some((label) =>
+			isMixed(
+				new Set(
+					[...label].map(scriptOf).filter((script) => script !== undefined),
+				),
+			),
+		);
 
 /** Shannon entropy in bits per character. */
 export const entropy = (value: string): number => {
@@ -72,15 +98,19 @@ export const entropy = (value: string): number => {
 };
 
 /**
- * Whether a name reads as machine-made: long and with near-uniform characters,
- * or a short run of letters and digits shuffled together.
+ * Whether a name reads as machine-made: long, with near-uniform characters,
+ * and unpronounceable — digits in it, or too few vowels for words — or a short
+ * run of letters and digits shuffled together. Entropy alone reads any long
+ * run of distinct letters, `communityupdates` among them, as random.
  */
 export const looksGenerated = (name: string): boolean => {
 	const value = name.toLowerCase().replace(/[^a-z0-9]/g, "");
 	if (value.length < 8) return false;
 	const bits = entropy(value);
-	if (value.length >= 12 && bits >= 3.5) return true;
 	const digits = value.replace(/[^0-9]/g, "").length;
+	const vowels = value.replace(/[^aeiouy]/g, "").length;
+	const unpronounceable = digits >= 2 || vowels / value.length < 0.2;
+	if (value.length >= 12 && bits >= 3.5 && unpronounceable) return true;
 	const switches = value
 		.slice(1)
 		.split("")
