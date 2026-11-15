@@ -319,6 +319,12 @@ export interface IImapConnection {
 		uidMap: Map<number, number>;
 	}>;
 	/**
+	 * Move every message in the open mailbox with one `UID MOVE 1:*`, so the
+	 * command stays short however large the folder is.
+	 * Requires mailbox to be open.
+	 */
+	moveAllMessages(destination: string): Promise<void>;
+	/**
 	 * Copy messages to another mailbox.
 	 * Returns mapping of source UIDs to destination UIDs.
 	 * Requires mailbox to be open.

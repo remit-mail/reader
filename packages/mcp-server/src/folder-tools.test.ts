@@ -405,4 +405,23 @@ describe("delete_folder", () => {
 		assert.equal(mine.imap.messages("Receipts").length, 1);
 		assert.deepEqual(mine.imap.commands("DELETE"), []);
 	});
+
+	it("marks the folder failed and keeps it when the server has no Trash to move into", async () => {
+		await mine.folder("Trash", { specialUse: MailboxSpecialUse.Trash });
+		mine.imap.removeFolder("Trash");
+		mine.imap.deliver("Receipts", eml({ "Message-ID": "<unindexed@x>" }));
+
+		assert.match(
+			await refusalOf("delete_folder", {
+				accountId: account.accountId,
+				mailboxId: receipts.mailboxId,
+				force: true,
+			}),
+			/refused to delete “Receipts”: Moving the mail in “Receipts” to “Trash” failed/,
+		);
+		const [kept] = await foldersAt("Receipts");
+		assert.equal(kept?.syncStatus, MailboxSyncStatus.failed);
+		assert.equal(mine.imap.messages("Receipts").length, 1);
+		assert.deepEqual(mine.imap.commands("DELETE"), []);
+	});
 });

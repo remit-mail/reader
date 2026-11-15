@@ -5,10 +5,10 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { recordedByRename } from "./mailbox-intent.js";
 import { isNotFoundError } from "./mailbox-presence.js";
 import {
-	FolderEmptyUpstreamError,
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
+	upstreamFailureReason,
 } from "./mailbox-upstream.js";
 import type { FlatMailboxInfo, IImapConnection } from "./types.js";
 
@@ -745,11 +745,19 @@ export class MailboxManagementService {
 			moveMailTo !== null &&
 			(await connection.getMailboxStatus(path)).messages > 0
 		) {
-			await this.moveAllMail(connection, path, moveMailTo).catch(
-				(error: unknown) => {
-					throw new FolderEmptyUpstreamError(path, moveMailTo, error);
-				},
+			const moveFailure = await this.moveAllMail(
+				connection,
+				path,
+				moveMailTo,
+			).then(
+				() => undefined,
+				(error: unknown) =>
+					`Moving the mail in “${path}” to “${moveMailTo}” failed: ${upstreamFailureReason(error)}`,
 			);
+			if (moveFailure !== undefined) {
+				await this.failDelete(accountId, mailboxId, moveFailure);
+				return { success: false, error: moveFailure };
+			}
 		}
 
 		// DELETE takes whatever the folder holds, including mail Remit never
@@ -786,11 +794,10 @@ export class MailboxManagementService {
 		destination: string,
 	): Promise<void> => {
 		await connection.openBox(path, false);
-		const uids = await connection.search(["ALL"]);
-		await connection.moveMessages(uids, destination);
+		await connection.moveAllMessages(destination);
 		await connection.closeBox(false);
 		this.log.info(
-			{ path, destination, moved: uids.length, intent: "delete" },
+			{ path, destination, intent: "delete" },
 			"Moved the folder's mail out before deleting it",
 		);
 	};

@@ -3,7 +3,6 @@ import type { IMailboxRepository } from "@remit/data-ports";
 import { isNotFoundError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
-	FolderEmptyUpstreamError,
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
@@ -369,7 +368,6 @@ const handleDelete = async (
 	// An event queued before the field existed carries none: the delete it
 	// asked for never checked the server.
 	const requireEmpty = event.requireEmpty === true;
-	const moveMailTo = event.moveMailTo ?? null;
 
 	log.info({ event: event.type, accountId, mailboxId, path }, "Handling event");
 
@@ -401,7 +399,7 @@ const handleDelete = async (
 						path,
 						scope.getConnection,
 						requireEmpty,
-						moveMailTo,
+						event.moveMailTo,
 					)
 					.then((result) => {
 						if (result.success) {
@@ -420,10 +418,7 @@ const handleDelete = async (
 						// The folder is already gone from the server, so the delete has
 						// happened. Its mail still goes with it (D8), which is the whole
 						// point of the settle.
-						if (
-							!(error instanceof FolderEmptyUpstreamError) &&
-							isMailboxAbsentUpstream(error)
-						) {
+						if (isMailboxAbsentUpstream(error)) {
 							log.info(
 								{ accountId, mailboxId, path, intent: "delete" },
 								"Mailbox not found on IMAP, removing the local folder and its mail",
@@ -450,13 +445,7 @@ const handleDelete = async (
 								// Don't rethrow — no retry can make this succeed.
 								return;
 							}
-							if (
-								isMailboxRefusedUpstream(
-									error instanceof FolderEmptyUpstreamError
-										? error.cause
-										: error,
-								)
-							) {
+							if (isMailboxRefusedUpstream(error)) {
 								log.error(
 									{ accountId, mailboxId, path, intent: "delete", error },
 									"Mail server refused the delete",

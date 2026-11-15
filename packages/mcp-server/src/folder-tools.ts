@@ -7,11 +7,13 @@ import { isReservedFolderName } from "@remit/data-ports/folder-role";
 import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
+	accept,
 	changeFolderPath,
 	createFolder,
 	invalid,
 	isRemitRootName,
 	ownedFolder,
+	type Refusable,
 	settledFolder,
 } from "@remit/mailbox-service";
 import { z } from "zod";
@@ -193,45 +195,18 @@ const awaitMovedOut = async (
 	}
 };
 
-type TrashedMail =
-	| { ok: true; trashPath: string }
-	| { ok: false; result: CallToolResult };
-
-// Force never loses mail: the mail Remit indexed moves to Trash first and the
-// delete waits for those moves to settle. The delete itself then moves
-// whatever else the server holds to Trash and deletes the folder only once
-// the server reports it empty (imap-mutations R2: wait).
-const trashFolderMail = async (
+// Force never loses mail: the delete moves everything the server holds in
+// the folder to Trash and deletes the folder only once the server reports it
+// empty. Moves already in flight settle first (imap-mutations R2: wait).
+const trashPathFor = async (
 	deps: McpDeps,
-	accountConfigId: string,
 	folder: MailboxItem,
-): Promise<TrashedMail> => {
+): Promise<Refusable<string>> => {
 	const trash = await trashFolderOf(deps, folder.accountId);
-	if (!trash.ok) return { ok: false, result: refused(trash.refusal) };
-	const { fullPath: trashPath } = await deps.mailbox.get(
-		folder.accountId,
-		trash.value,
-	);
-	const held = await deps.message.listAllByMailbox(folder.mailboxId);
-	if (held.length > 0) {
-		await deps.messageMove.moveMessages(
-			accountConfigId,
-			held.map((row) => row.messageId),
-			trash.value,
-			folder.accountId,
-		);
-	}
-	const pending = await awaitMovedOut(deps, folder.mailboxId);
-	if (pending > 0) {
-		return {
-			ok: false,
-			result: asJson({
-				...folderState(folder),
-				message: `${pending} ${pending === 1 ? "message is" : "messages are"} still moving to Trash. Call delete_folder again with the same arguments to keep waiting; the folder is deleted once they have arrived.`,
-			}),
-		};
-	}
-	return { ok: true, trashPath };
+	if (!trash.ok) return trash;
+	const { fullPath } = await deps.mailbox.get(folder.accountId, trash.value);
+	await awaitMovedOut(deps, folder.mailboxId);
+	return accept(fullPath);
 };
 
 export const registerFolderTools = (
@@ -360,15 +335,13 @@ export const registerFolderTools = (
 						`“${folder.fullPath}” still holds ${count} ${count === 1 ? "message" : "messages"}. Move them out first, for example with move_folder_messages, and call delete_folder again once the moves have settled; or pass force: true to move them to Trash and delete the folder.`,
 					);
 				}
-				const trashed = force
-					? await trashFolderMail(deps, accountConfigId, folder)
-					: undefined;
-				if (trashed && !trashed.ok) return trashed.result;
+				const trashed = force ? await trashPathFor(deps, folder) : undefined;
+				if (trashed && !trashed.ok) return refused(trashed.refusal);
 				const deleted = await deleteFolder(deleteDeps, accountConfigId, {
 					accountId,
 					mailboxId,
 					requireEmpty: true,
-					moveMailTo: trashed?.trashPath ?? null,
+					moveMailTo: trashed?.value ?? null,
 				});
 				if (!deleted.ok) return refused(deleted.refusal);
 			}
