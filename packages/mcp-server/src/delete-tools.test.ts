@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { MailboxItem } from "@remit/data-ports";
@@ -18,8 +19,6 @@ import { MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler } from "./server.js";
 
-const USER_ID = "delete-user";
-
 type MailboxEvent = Parameters<typeof processMailboxManagement>[0];
 
 type ToolResult = {
@@ -27,6 +26,7 @@ type ToolResult = {
 	content: { type: string; text: string }[];
 };
 
+let userId: string;
 let store: Awaited<ReturnType<typeof openStore>>;
 let mine: World;
 let deps: McpDeps;
@@ -39,7 +39,8 @@ before(async () => {
 after(() => store.close());
 
 beforeEach(async () => {
-	mine = await store.world(deriveAccountConfigId(USER_ID));
+	userId = `delete-user-${randomUUID()}`;
+	mine = await store.world(deriveAccountConfigId(userId));
 	inbox = await mine.folder("INBOX");
 	await mine.folder("Trash", { specialUse: MailboxSpecialUse.Trash });
 
@@ -103,10 +104,7 @@ const callTool = async (
 	name: string,
 	args: Record<string, unknown>,
 ): Promise<ToolResult> => {
-	const handler = createMcpHandler(
-		{ userId: USER_ID, scopes: [MCP_RULES_SCOPE] },
-		deps,
-	);
+	const handler = createMcpHandler({ userId, scopes: [MCP_RULES_SCOPE] }, deps);
 	const response = await handler(
 		new Request("http://reader.test/mcp", {
 			method: "POST",

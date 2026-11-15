@@ -249,6 +249,10 @@ export const folderDeleteRefusal = async (
 		mailboxId: folder.mailboxId,
 	});
 	if (!deletable.ok) return refused(deletable.refusal);
+	if (force) {
+		const trash = await trashFolderOf(deps, folder.accountId);
+		if (!trash.ok) return refused(trash.refusal);
+	}
 	const count = folder.messageCount;
 	if (!force && count > 0) {
 		return toolError(
