@@ -756,6 +756,32 @@ describe("a UIDVALIDITY change", () => {
 		assert.equal(rebuilt.highestModseq, imap.highestModseq().toString());
 	});
 
+	it("saves a folder's missing rows one batch per round", async () => {
+		imap.deliver("INBOX", eml({ "Message-ID": "<kept@example.com>" }));
+		await settle(inbox);
+		for (const id of ["a", "b", "c", "d", "e"]) {
+			imap.deliver("INBOX", eml({ "Message-ID": `<${id}@example.com>` }));
+		}
+		await store.mailbox.update(account.accountId, inbox.mailboxId, {
+			cursorState: MailboxCursorState.cursor_invalid,
+		});
+
+		const first = await sync(inbox, 2);
+
+		assert.equal(first.syncedCount, 2);
+		assert.equal(first.hasMore, true);
+		assert.equal((await stored(inbox)).highestModseq, "0");
+
+		await settle(inbox);
+
+		const rows = await store.message.listAllByMailbox(inbox.mailboxId);
+		assert.equal(rows.length, 6);
+		assert.equal(
+			(await stored(inbox)).highestModseq,
+			imap.highestModseq().toString(),
+		);
+	});
+
 	it("withholds the seed and the watermark when the rebuild missed a UID", async () => {
 		for (const id of ["a", "b", "c"]) {
 			imap.deliver("INBOX", eml({ "Message-ID": `<${id}@example.com>` }));
