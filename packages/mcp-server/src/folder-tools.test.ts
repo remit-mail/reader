@@ -11,6 +11,7 @@ import {
 	type World,
 } from "@remit/imap-worker/test-helpers/test-world";
 import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
+import { eml, imapError } from "@remit/mailbox-service/test-helpers/fake-imap";
 import { silentLog } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
@@ -362,5 +363,65 @@ describe("delete_folder", () => {
 		assert.deepEqual(JSON.parse(deleted.content[0].text), { deleted: true });
 		assert.equal(mine.imap.hasFolder("Receipts"), false);
 		assert.equal(mine.imap.messages("Trash").length, 2);
+	});
+
+	it("force moves mail Remit never indexed to Trash, then deletes the folder", async () => {
+		await mine.folder("Trash", { specialUse: MailboxSpecialUse.Trash });
+		await mine.message(receipts);
+		mine.imap.deliver("Receipts", eml({ "Message-ID": "<unindexed-1@x>" }));
+		mine.imap.deliver("Receipts", eml({ "Message-ID": "<unindexed-2@x>" }));
+
+		const deleted = await callTool("delete_folder", {
+			accountId: account.accountId,
+			mailboxId: receipts.mailboxId,
+			force: true,
+		});
+
+		assert.notEqual(deleted.isError, true, deleted.content[0]?.text);
+		assert.deepEqual(JSON.parse(deleted.content[0].text), { deleted: true });
+		assert.equal(mine.imap.hasFolder("Receipts"), false);
+		const trashed = mine.imap
+			.messages("Trash")
+			.map((message) => message.messageIdHeader);
+		assert.equal(trashed.length, 3);
+		assert.ok(trashed.includes("<unindexed-1@x>"));
+		assert.ok(trashed.includes("<unindexed-2@x>"));
+	});
+
+	it("fails the force delete and keeps the folder when the server refuses the move", async () => {
+		await mine.folder("Trash", { specialUse: MailboxSpecialUse.Trash });
+		mine.imap.deliver("Receipts", eml({ "Message-ID": "<unindexed@x>" }));
+		mine.imap.failNext.MOVE = imapError("NOPERM", "Permission denied");
+
+		assert.match(
+			await refusalOf("delete_folder", {
+				accountId: account.accountId,
+				mailboxId: receipts.mailboxId,
+				force: true,
+			}),
+			/refused to delete “Receipts”: Moving the mail in “Receipts” to “Trash” failed: Permission denied/,
+		);
+		assert.equal(mine.imap.hasFolder("Receipts"), true);
+		assert.equal(mine.imap.messages("Receipts").length, 1);
+		assert.deepEqual(mine.imap.commands("DELETE"), []);
+	});
+
+	it("marks the folder failed and keeps it when the server has no Trash to move into", async () => {
+		await mine.folder("Trash", { specialUse: MailboxSpecialUse.Trash });
+		mine.imap.removeFolder("Trash");
+		mine.imap.deliver("Receipts", eml({ "Message-ID": "<unindexed@x>" }));
+
+		assert.match(
+			await refusalOf("delete_folder", {
+				accountId: account.accountId,
+				mailboxId: receipts.mailboxId,
+				force: true,
+			}),
+			/refused to delete “Receipts”: Moving the mail in “Receipts” to “Trash” failed/,
+		);
+		const [kept] = await foldersAt("Receipts");
+		assert.equal(kept?.syncStatus, MailboxSyncStatus.failed);
+		assert.equal(mine.imap.messages("Receipts").length, 1);
+		assert.deepEqual(mine.imap.commands("DELETE"), []);
 	});
 });

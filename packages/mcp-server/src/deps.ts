@@ -59,7 +59,10 @@ export interface McpDeps {
 	>;
 	accountSetting: Pick<IAccountSettingRepository, "get">;
 	mailboxSpecialUse: Pick<IMailboxSpecialUseRepository, "resolveTrashRole">;
-	address: Pick<IAddressRepository, "countCategoryOverridesSince">;
+	address: Pick<
+		IAddressRepository,
+		"countCategoryOverridesSince" | "getAddress"
+	>;
 	label: Pick<
 		ILabelRepository,
 		"create" | "findByNormalizedName" | "get" | "listByAccountConfig"
@@ -77,7 +80,7 @@ export interface McpDeps {
 		| "listByMailbox"
 		| "listStrandedPlacements"
 	>;
-	messageLabel: Pick<IMessageLabelRepository, "apply">;
+	messageLabel: Pick<IMessageLabelRepository, "apply" | "listByMessageIds">;
 	messageMove: Pick<MessageMoveService, "moveMessages">;
 	threadMessage: Pick<
 		IThreadMessageRepository,

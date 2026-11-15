@@ -1,5 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { deriveAutoMoved } from "@remit/backend/auto-moved";
+import { deriveSenderTrust } from "@remit/backend/sender-trust";
 import type {
 	BodyPartItem,
 	EnvelopeAddressItem,
@@ -7,6 +9,7 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { deriveAddressId } from "@remit/data-ports/id";
 import {
 	AddressRole,
 	ContentDisposition,
@@ -99,6 +102,24 @@ const toThreadRow = (
 	auth: authOf(message),
 });
 
+const withMessages = async (deps: McpDeps, rows: ThreadMessageItem[]) => {
+	const messages = new Map(
+		(await deps.message.get(rows.map((row) => row.messageId))).map(
+			(message) => [message.messageId, message],
+		),
+	);
+	const missing = rows
+		.map((row) => row.messageId)
+		.filter((messageId) => !messages.has(messageId));
+	if (missing.length > 0) {
+		throw new NotFoundError(`Message not found: ${missing.join(", ")}`);
+	}
+	return rows.flatMap((row) => {
+		const message = messages.get(row.messageId);
+		return message === undefined ? [] : [{ row, message }];
+	});
+};
+
 const toPage = async (
 	deps: McpDeps,
 	result: {
@@ -106,27 +127,102 @@ const toPage = async (
 		continuationToken?: string;
 	},
 	detail: ScoreDetail,
+) => ({
+	items: (await withMessages(deps, result.items)).map(({ row, message }) =>
+		toThreadRow(row, message, detail),
+	),
+	continuationToken: result.continuationToken,
+});
+
+type Placed = { message: MessageItem; fromEmail: string | undefined };
+
+const labelsOf = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	messageIds: string[],
 ) => {
-	const messages = new Map(
-		(await deps.message.get(result.items.map((row) => row.messageId))).map(
-			(message) => [message.messageId, message],
+	const messageLabels = await deps.messageLabel.listByMessageIds(messageIds);
+	const labels = await Promise.all(
+		[...new Set(messageLabels.map((applied) => applied.labelId))].map(
+			(labelId) =>
+				deps.label.get(accountConfigId, labelId).catch((error: unknown) => {
+					if (error instanceof NotFoundError) return undefined;
+					throw error;
+				}),
 		),
 	);
-	const items = result.items.flatMap((row) => {
-		const message = messages.get(row.messageId);
-		return message === undefined ? [] : [toThreadRow(row, message, detail)];
-	});
-	if (items.length !== result.items.length) {
-		const missing = result.items
-			.map((row) => row.messageId)
-			.filter((messageId) => !messages.has(messageId));
-		throw new NotFoundError(`Message not found: ${missing.join(", ")}`);
-	}
-	return {
-		items,
-		continuationToken: result.continuationToken,
-	};
+	const labelById = new Map(
+		labels.flatMap((label) =>
+			label === undefined ? [] : [[label.labelId, label] as const],
+		),
+	);
+	return (messageId: string) =>
+		messageLabels.flatMap((applied) => {
+			const label = labelById.get(applied.labelId);
+			return applied.messageId !== messageId || label === undefined
+				? []
+				: [{ labelId: label.labelId, name: label.name, color: label.color }];
+		});
 };
+
+const placementOf = async (
+	deps: McpDeps,
+	accountConfigId: string,
+	placed: Placed[],
+) => {
+	const addressIdOf = (fromEmail: string | undefined) =>
+		fromEmail ? deriveAddressId(accountConfigId, fromEmail) : undefined;
+	const addressIds = [
+		...new Set(
+			placed.flatMap(({ fromEmail }) => {
+				const addressId = addressIdOf(fromEmail);
+				return addressId === undefined ? [] : [addressId];
+			}),
+		),
+	];
+	const [addresses, labelsFor] = await Promise.all([
+		addressIds.length === 0
+			? []
+			: deps.address.getAddress(accountConfigId, addressIds),
+		labelsOf(
+			deps,
+			accountConfigId,
+			placed.map(({ message }) => message.messageId),
+		),
+	]);
+	const flagsByAddressId = new Map(
+		addresses.map((address) => [address.addressId, address.flags]),
+	);
+	return placed.map(({ message, fromEmail }) => {
+		const addressId = addressIdOf(fromEmail);
+		const flags =
+			addressId === undefined ? undefined : flagsByAddressId.get(addressId);
+		const verdict = message.placementVerdict;
+		return {
+			spamVerdict: message.spamVerdict,
+			spamCleared: message.spamCleared,
+			placementVerdict:
+				verdict === undefined
+					? undefined
+					: {
+							action: verdict.action,
+							fromPlacement: verdict.fromPlacement,
+							reasons: verdict.reasons,
+						},
+			autoMoved: deriveAutoMoved(message),
+			spamReport: message.spamReport,
+			labels: labelsFor(message.messageId),
+			sender: {
+				trust: deriveSenderTrust(flags),
+				blocked: flags?.blocked?.value === true,
+				neverSpam: flags?.neverSpam?.value === true,
+			},
+		};
+	});
+};
+
+const PLACEMENT_FIELDS =
+	"why it sits where it does: the spam verdict (score, action, reasons, decidedBy, modelOutcome), Remit's placement verdict (action, fromPlacement, reasons) and autoMoved (the move Remit made, with the filterId when a filter made it), a user spam report and whether the user cleared it (spamCleared), labels, and the sender's trust (Vip, Wellknown or Unknown) with its blocked and neverSpam flags";
 
 const addressesByRole = (addresses: EnvelopeAddressItem[], role: string) =>
 	addresses
@@ -310,8 +406,7 @@ export const registerReadTools = (
 	server.registerTool(
 		"get_thread",
 		{
-			description:
-				"Fetch the messages of one conversation, oldest first, at envelope level.",
+			description: `Fetch the messages of one conversation, oldest first, at envelope level, each with ${PLACEMENT_FIELDS}.`,
 			inputSchema: {
 				threadId: z.string().min(1).describe("Thread to fetch"),
 				limit: pageSize,
@@ -319,23 +414,31 @@ export const registerReadTools = (
 			},
 			annotations: READ_ONLY,
 		},
-		async (args) =>
-			asJson(
-				await toPage(
-					deps,
-					await deps.threadMessage.listByThread(
-						args.threadId,
-						accountConfigId,
-						{
-							order: "asc",
-							limit: args.limit ?? DEFAULT_PAGE_SIZE,
-							continuationToken: args.continuationToken,
-							excludeDeleted: true,
-						},
-					),
-					"All",
-				),
-			),
+		async (args) => {
+			const result = await deps.threadMessage.listByThread(
+				args.threadId,
+				accountConfigId,
+				{
+					order: "asc",
+					limit: args.limit ?? DEFAULT_PAGE_SIZE,
+					continuationToken: args.continuationToken,
+					excludeDeleted: true,
+				},
+			);
+			const rows = await withMessages(deps, result.items);
+			const placement = await placementOf(
+				deps,
+				accountConfigId,
+				rows.map(({ row, message }) => ({ message, fromEmail: row.fromEmail })),
+			);
+			return asJson({
+				items: rows.map(({ row, message }, index) => ({
+					...toThreadRow(row, message, "All"),
+					...placement[index],
+				})),
+				continuationToken: result.continuationToken,
+			});
+		},
 	);
 
 	server.registerTool(
@@ -367,7 +470,7 @@ export const registerReadTools = (
 	server.registerTool(
 		"get_message",
 		{
-			description: `Read one message: envelope, flags, attachment metadata and its plain-text body, up to ${MAX_BODY_BYTES / 1024} KB.`,
+			description: `Read one message: envelope, flags, attachment metadata, its plain-text body up to ${MAX_BODY_BYTES / 1024} KB, and ${PLACEMENT_FIELDS}.`,
 			inputSchema: {
 				messageId: z.string().min(1).describe("Message to read"),
 			},
@@ -400,6 +503,12 @@ export const registerReadTools = (
 				Boolean(message.bodyStorageKey) && materialized.ready;
 			const envelope = description.envelope[0];
 			const addresses = description.envelopeAddress;
+			const [placement] = await placementOf(deps, accountConfigId, [
+				{
+					message,
+					fromEmail: addressesByRole(addresses, AddressRole.From)[0]?.email,
+				},
+			]);
 			return asJson({
 				messageId: message.messageId,
 				mailboxId: message.mailboxId,
@@ -421,6 +530,7 @@ export const registerReadTools = (
 						mediaType: `${part.mediaType}/${part.mediaSubtype}`.toLowerCase(),
 						sizeOctets: part.sizeOctets,
 					})),
+				...placement,
 				bodyAvailable,
 				...(bodyAvailable
 					? await readPlainText(

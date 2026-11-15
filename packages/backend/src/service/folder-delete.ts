@@ -36,6 +36,7 @@ export interface FolderRef {
 
 export interface FolderDelete extends FolderRef {
 	requireEmpty: boolean;
+	moveMailTo: string | null;
 }
 
 /**
@@ -96,6 +97,7 @@ export const deleteFolder = async (
 	if (!deletable.ok) return deletable;
 	await deps.mailboxQueue.deleteMailbox(target.mailboxId, target.accountId, {
 		requireEmpty: target.requireEmpty,
+		moveMailTo: target.moveMailTo,
 	});
 	return deletable;
 };

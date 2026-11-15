@@ -399,6 +399,7 @@ const handleDelete = async (
 						path,
 						scope.getConnection,
 						requireEmpty,
+						event.moveMailTo,
 					)
 					.then((result) => {
 						if (result.success) {

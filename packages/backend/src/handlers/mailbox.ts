@@ -328,6 +328,7 @@ export const MailboxDetailOperations = {
 				accountId,
 				mailboxId,
 				requireEmpty: false,
+				moveMailTo: null,
 			}),
 		);
 		return { statusCode: 204 };

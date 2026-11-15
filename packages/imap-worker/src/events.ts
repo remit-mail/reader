@@ -83,6 +83,8 @@ export interface MailboxDeleteEvent extends BaseEvent {
 	path: string;
 	/** Refuse the delete while the mail server still holds mail in the folder. */
 	requireEmpty: boolean;
+	/** Move everything the server holds in the folder here before the delete. */
+	moveMailTo: string | null;
 }
 
 export type MailboxManagementEvent =

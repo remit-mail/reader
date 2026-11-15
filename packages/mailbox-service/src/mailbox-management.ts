@@ -8,6 +8,7 @@ import {
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
+	upstreamFailureReason,
 } from "./mailbox-upstream.js";
 import type { FlatMailboxInfo, IImapConnection } from "./types.js";
 
@@ -732,12 +733,32 @@ export class MailboxManagementService {
 		path: string,
 		getConnection: () => Promise<IImapConnection>,
 		requireEmpty: boolean,
+		moveMailTo: string | null,
 	): Promise<MailboxManagementSyncResult> => {
 		if (!(await this.deleteIntentStanding(accountId, mailboxId))) {
 			return { success: true };
 		}
 
 		const connection = await getConnection();
+
+		if (
+			moveMailTo !== null &&
+			(await connection.getMailboxStatus(path)).messages > 0
+		) {
+			const moveFailure = await this.moveAllMail(
+				connection,
+				path,
+				moveMailTo,
+			).then(
+				() => undefined,
+				(error: unknown) =>
+					`Moving the mail in “${path}” to “${moveMailTo}” failed: ${upstreamFailureReason(error)}`,
+			);
+			if (moveFailure !== undefined) {
+				await this.failDelete(accountId, mailboxId, moveFailure);
+				return { success: false, error: moveFailure };
+			}
+		}
 
 		// DELETE takes whatever the folder holds, including mail Remit never
 		// synced, so a delete that must not lose mail asks the server first.
@@ -760,6 +781,25 @@ export class MailboxManagementService {
 		await this.settleDelete(accountId, mailboxId);
 
 		return { success: true };
+	};
+
+	/**
+	 * Move everything the server holds in the folder, including mail Remit never
+	 * indexed. The rows Remit did index go with the folder in `settleDelete`;
+	 * their messages now live in the destination, whose sync picks them up.
+	 */
+	private moveAllMail = async (
+		connection: IImapConnection,
+		path: string,
+		destination: string,
+	): Promise<void> => {
+		await connection.openBox(path, false);
+		await connection.moveAllMessages(destination);
+		await connection.closeBox(false);
+		this.log.info(
+			{ path, destination, intent: "delete" },
+			"Moved the folder's mail out before deleting it",
+		);
 	};
 
 	/**

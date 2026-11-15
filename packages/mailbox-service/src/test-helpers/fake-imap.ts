@@ -617,12 +617,12 @@ export class FakeImapConnection implements IImapConnection {
 
 	private transfer = (
 		verb: "MOVE" | "COPY",
-		uids: number[],
+		uids: number[] | "1:*",
 		destination: string,
 	) => {
 		this.server.run(
 			verb,
-			`${this.selected} ${this.uidList(uids)} ${destination}`,
+			`${this.selected} ${uids === "1:*" ? uids : this.uidList(uids)} ${destination}`,
 		);
 		if (!this.server.hasFolder(destination)) {
 			throw imapError("TRYCREATE", `Mailbox doesn't exist: ${destination}`);
@@ -633,7 +633,7 @@ export class FakeImapConnection implements IImapConnection {
 			return { destination, uidValidity: target.uidValidity, uidMap };
 		}
 		const source = verb === "MOVE" ? this.writable() : this.open();
-		for (const uid of uids) {
+		for (const uid of uids === "1:*" ? [...source.messages.keys()] : uids) {
 			const stored = source.messages.get(uid);
 			if (!stored) continue;
 			const next = target.uidNext++;
@@ -650,6 +650,10 @@ export class FakeImapConnection implements IImapConnection {
 
 	moveMessages = async (uids: number[], destination: string) =>
 		this.transfer("MOVE", uids, destination);
+
+	moveAllMessages = async (destination: string): Promise<void> => {
+		this.transfer("MOVE", "1:*", destination);
+	};
 
 	copyMessages = async (uids: number[], destination: string) =>
 		this.transfer("COPY", uids, destination);
