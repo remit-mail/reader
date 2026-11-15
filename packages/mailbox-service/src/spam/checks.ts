@@ -10,7 +10,6 @@ import {
 	parseAuthenticationResults,
 	trustedAuthenticationResults,
 } from "../heuristics/authenticationResults.js";
-import { TRUSTED_ARC_SEALERS } from "./arc-sealers.js";
 import {
 	classifyDisplayNameCorrespondence,
 	editDistance,
@@ -28,6 +27,7 @@ import {
 	headerValue,
 	parseAddressHeader,
 } from "./headers.js";
+import { isKnownProvider } from "./known-providers.js";
 
 /** A reason stage 2 finds itself; `BackendSymbol` is only ever a backend's, and `Model*` stage 3's. */
 export type CheckName = Exclude<
@@ -81,7 +81,14 @@ export const toCheckInput = (
 	};
 };
 
-const DKIM_SIGNER = /(?:^|;)\s*d\s*=\s*([^;\s]+)/i;
+const tagValue = (value: string, tag: string): string | undefined =>
+	value
+		.split(";")
+		.map((part) => part.split("="))
+		.find(([key]) => key?.trim().toLowerCase() === tag)
+		?.slice(1)
+		.join("=")
+		.trim();
 
 const aligned = (signer: string, fromDomain: string): boolean =>
 	signer === fromDomain ||
@@ -91,7 +98,7 @@ const aligned = (signer: string, fromDomain: string): boolean =>
 const signers = (input: CheckInput): string[] =>
 	input.request.message.headers.flatMap((header) => {
 		if (header.name.toLowerCase() !== "dkim-signature") return [];
-		const signer = DKIM_SIGNER.exec(header.value)?.[1];
+		const signer = tagValue(header.value, "d");
 		return signer ? [signer.toLowerCase()] : [];
 	});
 
@@ -104,15 +111,6 @@ const signaturesMisaligned = (input: CheckInput): boolean => {
 	);
 };
 
-const tagValue = (value: string, tag: string): string | undefined =>
-	value
-		.split(";")
-		.map((part) => part.split("="))
-		.find(([key]) => key?.trim().toLowerCase() === tag)
-		?.slice(1)
-		.join("=")
-		.trim();
-
 const headerValues = (input: CheckInput, name: string): string[] =>
 	input.request.message.headers
 		.filter((header) => header.name.toLowerCase() === name)
@@ -121,15 +119,16 @@ const headerValues = (input: CheckInput, name: string): string[] =>
 const firstInstance = (input: CheckInput, name: string): string | undefined =>
 	headerValues(input, name).find((value) => tagValue(value, "i") === "1");
 
-const trustedSealer = (sealer: string): boolean =>
-	TRUSTED_ARC_SEALERS.some(
-		(trusted) => sealer === trusted || sealer.endsWith(`.${trusted}`),
-	);
+const receiverResults = (input: CheckInput) =>
+	trustedAuthenticationResults(headerValues(input, "authentication-results"));
+
+const knownReceiver = (input: CheckInput): boolean => {
+	const authservId = receiverResults(input)[0]?.authservId;
+	return authservId !== undefined && isKnownProvider(authservId);
+};
 
 const receiverPassedArc = (input: CheckInput): boolean => {
-	const arc = trustedAuthenticationResults(
-		headerValues(input, "authentication-results"),
-	)
+	const arc = receiverResults(input)
 		.flatMap((header) => header.results)
 		.filter((result) => result.method === "arc");
 	return arc.length > 0 && arc.every((result) => result.result === "pass");
@@ -140,7 +139,7 @@ const firstSealerPassedDmarc = (input: CheckInput): boolean => {
 	const sealer = tagValue(firstInstance(input, "arc-seal") ?? "", "d");
 	const recorded = firstInstance(input, "arc-authentication-results");
 	if (!fromDomain || !sealer || !recorded) return false;
-	if (!trustedSealer(sealer.toLowerCase())) return false;
+	if (!isKnownProvider(sealer.toLowerCase())) return false;
 	const results = parseAuthenticationResults(
 		recorded.slice(recorded.indexOf(";") + 1),
 	)?.results;
@@ -155,16 +154,19 @@ const firstSealerPassedDmarc = (input: CheckInput): boolean => {
 };
 
 /**
- * A forwarder broke the author's DKIM and with it DMARC. Only a chain the
+ * A forwarder broke the author's DKIM and with it DMARC. Only a chain a known
  * receiver verified, first sealed by a known provider that saw DMARC pass for
  * the From domain, says so.
  */
 const relayed = (input: CheckInput): boolean =>
-	receiverPassedArc(input) && firstSealerPassedDmarc(input);
+	knownReceiver(input) &&
+	receiverPassedArc(input) &&
+	firstSealerPassedDmarc(input);
 
 const establishedSender = (input: CheckInput): boolean =>
+	knownReceiver(input) &&
 	input.request.authentication.dmarc === AuthResultVerdict.Pass &&
-	input.request.context.senderDomainMessagesSeen > 0;
+	input.request.context.senderMessagesSeen > 0;
 
 /** Check 1: DMARC failed, or a signature belongs to another domain. */
 export const authenticationFails = (input: CheckInput): Finding[] => {
@@ -198,7 +200,7 @@ export const authenticationFails = (input: CheckInput): Finding[] => {
 
 /** Check 2. */
 export const replyToDiffers = (input: CheckInput): Finding[] => {
-	if (establishedSender(input) || relayed(input)) return [];
+	if (establishedSender(input)) return [];
 	const replyTo = parseAddressHeader(
 		headerValue(input.request.message.headers, "Reply-To"),
 	);
@@ -210,12 +212,12 @@ export const replyToDiffers = (input: CheckInput): Finding[] => {
 
 const DOMAINS_IN_TEXT = new RegExp(DOMAIN_IN_TEXT.source, "giu");
 
-const shownDomainOf = (tldts: Tldts, text: string): string | undefined => {
-	for (const [, host] of text.matchAll(DOMAINS_IN_TEXT)) {
-		if (tldts.parse(host).isIcann === true) return registrable(tldts, host);
-	}
-	return undefined;
-};
+const shownDomainsOf = (tldts: Tldts, text: string): string[] =>
+	[...text.matchAll(DOMAINS_IN_TEXT)].flatMap(([, host]) => {
+		if (tldts.parse(host).isIcann !== true) return [];
+		const domain = registrable(tldts, host);
+		return domain ? [domain] : [];
+	});
 
 /** Check 3: link-gated. */
 export const linkTextDiffers = (input: CheckInput): Finding[] => {
@@ -223,12 +225,11 @@ export const linkTextDiffers = (input: CheckInput): Finding[] => {
 		input.request.authentication.dmarc === AuthResultVerdict.Pass
 			? input.senderDomain
 			: undefined;
-	const found = input.links.flatMap((link) => {
-		const shownDomain = shownDomainOf(input.tldts, link.text);
-		if (!shownDomain || shownDomain === link.hrefDomain) return [];
-		if (shownDomain === ownDomain) return [];
-		return [`${shownDomain} -> ${link.hrefDomain}`];
-	});
+	const found = input.links.flatMap((link) =>
+		shownDomainsOf(input.tldts, link.text)
+			.filter((shown) => shown !== link.hrefDomain && shown !== ownDomain)
+			.map((shown) => `${shown} -> ${link.hrefDomain}`),
+	);
 	return found.length > 0
 		? [{ name: SpamReasonName.LinkTextMismatch, options: unique(found) }]
 		: [];
@@ -277,8 +278,12 @@ const domainsInMessage = (input: CheckInput): string[] => {
 export const confusableDomains = (input: CheckInput): Finding[] => {
 	const hosts = domainsInMessage(input);
 	const findings: Finding[] = [];
+	const ownDomain = establishedSender(input) ? input.senderDomain : undefined;
 	const punycode = hosts.filter(
-		(host) => isPunycode(host) && imitatesAscii(host),
+		(host) =>
+			isPunycode(host) &&
+			imitatesAscii(host) &&
+			registrable(input.tldts, host) !== ownDomain,
 	);
 	if (punycode.length > 0) {
 		findings.push({
@@ -430,14 +435,13 @@ const ALWAYS = [
 	displayNameClaims,
 ];
 
-const TRACKED_LINK_CHECKS = [linksLeaveFar, singleOffDomainLink];
-
-const linkChecksFor = (input: CheckInput) => {
-	if (input.request.context.senderMessagesSeen !== 0) return [];
-	if (establishedSender(input)) return [linkTextDiffers];
-	return [linkTextDiffers, ...TRACKED_LINK_CHECKS];
-};
+const LINK_CHECKS = [linkTextDiffers, linksLeaveFar, singleOffDomainLink];
 
 /** Every check that found something. Link checks count only for a sender with no earlier mail. */
-export const runChecks = (input: CheckInput): Finding[] =>
-	[...ALWAYS, ...linkChecksFor(input)].flatMap((check) => check(input));
+export const runChecks = (input: CheckInput): Finding[] => {
+	const checks =
+		input.request.context.senderMessagesSeen === 0
+			? [...ALWAYS, ...LINK_CHECKS]
+			: ALWAYS;
+	return checks.flatMap((check) => check(input));
+};

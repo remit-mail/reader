@@ -240,7 +240,7 @@ describe("the inline judge", () => {
 	it("does not read the broken DMARC of a forward a trusted sealer verified as forgery", async () => {
 		const found = reasons(
 			await arrived([
-				"Authentication-Results: mx.example.com; arc=pass; dkim=fail header.d=writer.example; dmarc=fail",
+				"Authentication-Results: mx.google.com; arc=pass; dkim=fail header.d=writer.example; dmarc=fail",
 				TRUSTED_SEAL,
 				TRUSTED_SEALER_RESULTS,
 				LIST_FROM,
@@ -265,7 +265,7 @@ describe("the inline judge", () => {
 			LIST_SIGNATURE,
 		],
 		"a forged ARC chain the receiver is silent about": [
-			"Authentication-Results: mx.example.com; dkim=fail header.d=writer.example; dmarc=fail",
+			"Authentication-Results: mx.google.com; dkim=fail header.d=writer.example; dmarc=fail",
 			"Authentication-Results: forger.example; arc=pass",
 			TRUSTED_SEAL,
 			TRUSTED_SEALER_RESULTS,
@@ -290,36 +290,61 @@ describe("the inline judge", () => {
 		});
 	}
 
-	it("finds nothing to impersonation in a newsletter from a known domain sent through an ESP", () => {
+	const GMAIL_PASS = {
+		name: "Authentication-Results",
+		value: "mx.google.com; dkim=pass header.d=esp.example; dmarc=pass",
+	};
+
+	it("finds nothing to impersonation in a newsletter from a sender with earlier mail", () => {
 		const newsletter = request({
 			from: "Tech Weekly <communityupdates@techweekly.example>",
 			headers: [
+				GMAIL_PASS,
 				{ name: "List-Unsubscribe", value: "<https://esp.example/u/1>" },
 				{ name: "Reply-To", value: "redactie@support-desk.example" },
 			],
-			html: "<p>news</p>",
-			links: [
-				{
-					href: "https://click.esp.example/c/1",
-					text: "www.techweekly.example/artikel",
-				},
-				{ href: "https://click.esp.example/c/2", text: "Node.js" },
-				{ href: "https://click.esp.example/c/3", text: "Lees meer" },
-			],
-			context: { senderDomainMessagesSeen: 1 },
+			context: { senderMessagesSeen: 1 },
 		});
 		newsletter.authentication.signerDomain = "esp.example";
 		const found = reasons(newsletter);
 		for (const name of [
 			SpamReasonName.SignerMismatch,
 			SpamReasonName.ReplyToMismatch,
-			SpamReasonName.LinkTextMismatch,
-			SpamReasonName.LinkDomainDistant,
-			SpamReasonName.SingleOffDomainLink,
 			SpamReasonName.GeneratedName,
 		]) {
 			assert.ok(!found.includes(name), name);
 		}
+	});
+
+	it("flags a Reply-To on another domain from a first-time sender at a shared provider", () => {
+		assert.ok(
+			reasons(
+				request({
+					from: "Ann <ann.first@gmail.com>",
+					headers: [
+						GMAIL_PASS,
+						{ name: "Reply-To", value: "payments@billing.example" },
+					],
+					context: { senderMessagesSeen: 0, senderDomainMessagesSeen: 500 },
+				}),
+			).includes(SpamReasonName.ReplyToMismatch),
+		);
+	});
+
+	it("flags every domain in link text that differs from the link", () => {
+		const found = judge(
+			request({
+				links: [
+					{
+						href: "https://secure-login.xyz/verify",
+						text: "secure-login.xyz | paypal.com",
+					},
+				],
+			}),
+			UNSET,
+			tldts,
+		).reasons.find((reason) => reason.name === SpamReasonName.LinkTextMismatch);
+		assert.deepEqual(found?.options, ["paypal.com -> secure-login.xyz"]);
 	});
 
 	it("does not take a project name in link text for a domain", () => {
