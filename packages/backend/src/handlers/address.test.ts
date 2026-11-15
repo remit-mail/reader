@@ -82,6 +82,7 @@ const address = (over: Partial<AddressItem>): AddressItem =>
 interface Listing {
 	accountConfigId: string;
 	search?: string;
+	flag?: string;
 	limit?: number;
 }
 
@@ -112,7 +113,12 @@ describe("AddressOperations_searchAddresses", () => {
 		);
 
 		assert.deepEqual(seen, [
-			{ accountConfigId: ACCOUNT_CONFIG_ID, search: "po", limit: 8 },
+			{
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				search: "po",
+				flag: undefined,
+				limit: 8,
+			},
 		]);
 		assert.deepEqual(
 			response.items.map((item) => item.normalizedEmail),
