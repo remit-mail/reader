@@ -299,6 +299,27 @@ describe("rescan", () => {
 		assert.deepEqual(await labelNames(), []);
 		assert.equal((await store.message.get(messageId)).spamCleared, true);
 	});
+
+	it("takes a stale Spam label back when the rescan no longer warns", async () => {
+		const { store, storage, account } = world;
+		const messageId = await arriveAndSync(
+			from("desk@parcel-notice.example", "Your parcel"),
+			{ ...spamConfigFor(store), spamPipeline: WARN_ALL },
+		);
+		assert.equal(
+			(await store.messageLabel.listByMessageId(messageId)).length,
+			1,
+		);
+
+		const result = await rescanServiceFor(
+			store,
+			storage,
+			recordingQueue(),
+		).rescan(account, { messageIds: [messageId], move: false });
+
+		assert.deepEqual(result.successful[0]?.labels, []);
+		assert.deepEqual(await store.messageLabel.listByMessageId(messageId), []);
+	});
 });
 
 describe("rescan out of Junk", () => {

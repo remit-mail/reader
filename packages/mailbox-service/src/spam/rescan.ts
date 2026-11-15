@@ -18,6 +18,7 @@ import {
 	MessageKeywordFlag,
 	RescanFailureCode,
 	SenderOverride,
+	SpamKind,
 	SpamModelOutcome,
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
@@ -59,7 +60,10 @@ export const RESCAN_LIMIT = 10;
 export interface RescanDeps {
 	message: Pick<IMessageRepository, "get" | "update">;
 	messageFlag: Pick<IMessageFlagRepository, "hasFlag">;
-	messageLabel: Pick<IMessageLabelRepository, "apply" | "listByMessageId">;
+	messageLabel: Pick<
+		IMessageLabelRepository,
+		"apply" | "listByMessageId" | "remove"
+	>;
 	mailbox: Pick<IMailboxRepository, "get">;
 	address: Pick<IAddressRepository, "getAddress" | "countInboundForDomain">;
 	threadMessage: MessageCategoryDenormalizeDeps["threadMessageService"];
@@ -297,8 +301,35 @@ export class RescanService {
 				{ category: update.category },
 			);
 		}
+		await this.dropStaleSpamLabels(accountConfigId, messageId, labels);
 		await deps.message.update(messageId, update);
 		return { ok: true, success: { messageId, verdict, labels } };
+	}
+
+	/**
+	 * A rescan replaces the verdict, so a Spam or Phishing label the new verdict
+	 * does not carry goes with the old one. Labels are Remit-local rows, never
+	 * pushed to the mail server.
+	 */
+	private async dropStaleSpamLabels(
+		accountConfigId: string,
+		messageId: string,
+		kept: readonly string[],
+	): Promise<void> {
+		const { messageLabel, spam } = this.deps;
+		const applied = new Set(
+			(await messageLabel.listByMessageId(messageId)).map((row) => row.labelId),
+		);
+		for (const kind of Object.values(SpamKind)) {
+			if (kept.includes(kind)) continue;
+			const label = await spam.labelService.findByNormalizedName(
+				accountConfigId,
+				kind.toLowerCase(),
+			);
+			if (label && applied.has(label.labelId)) {
+				await messageLabel.remove(messageId, label.labelId);
+			}
+		}
 	}
 
 	private async filterDecisionOf(
