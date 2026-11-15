@@ -16,6 +16,7 @@ import {
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import { BodySyncService } from "../body-sync.js";
+import { ensureLabel } from "../classification-labels.js";
 import { FlagPushService } from "../flag-push.js";
 import { MessageMoveService } from "../message-move.js";
 import { SpamReportService } from "../spam-report.js";
@@ -298,6 +299,82 @@ describe("rescan", () => {
 		assert.deepEqual(result.successful[0]?.labels, []);
 		assert.deepEqual(await labelNames(), []);
 		assert.equal((await store.message.get(messageId)).spamCleared, true);
+	});
+
+	it("takes a stale Spam label back when the rescan no longer warns", async () => {
+		const { store, storage, account } = world;
+		const messageId = await arriveAndSync(
+			from("desk@parcel-notice.example", "Your parcel"),
+			{ ...spamConfigFor(store), spamPipeline: WARN_ALL },
+		);
+		assert.equal(
+			(await store.messageLabel.listByMessageId(messageId)).length,
+			1,
+		);
+
+		const result = await rescanServiceFor(
+			store,
+			storage,
+			recordingQueue(),
+		).rescan(account, { messageIds: [messageId], move: false });
+
+		assert.deepEqual(result.successful[0]?.labels, []);
+		assert.deepEqual(await store.messageLabel.listByMessageId(messageId), []);
+	});
+
+	it("keeps a Spam label the owner applied by hand on a clean rescan", async () => {
+		const { store, storage, account } = world;
+		const messageId = await arriveAndSync(
+			from("desk@parcel-notice.example", "Your parcel"),
+		);
+		assert.deepEqual(await store.messageLabel.listByMessageId(messageId), []);
+		const spamLabel = await ensureLabel(
+			store.label,
+			account.accountConfigId,
+			"Spam",
+		);
+		await store.messageLabel.apply({
+			messageId,
+			labelId: spamLabel.labelId,
+			accountConfigId: account.accountConfigId,
+		});
+
+		const result = await rescanServiceFor(
+			store,
+			storage,
+			recordingQueue(),
+		).rescan(account, { messageIds: [messageId], move: false });
+
+		assert.deepEqual(result.successful[0]?.labels, []);
+		assert.deepEqual(
+			(await store.messageLabel.listByMessageId(messageId)).map(
+				(row) => row.labelId,
+			),
+			[spamLabel.labelId],
+		);
+	});
+
+	it("keeps the Spam label of a reported message on a clean rescan", async () => {
+		const { store, storage, account } = world;
+		const messageId = await arriveAndSync(
+			from("desk@parcel-notice.example", "Your parcel"),
+			{ ...spamConfigFor(store), spamPipeline: WARN_ALL },
+		);
+		await store.message.update(messageId, {
+			spamReport: { reportedAt: 1 },
+		});
+
+		const result = await rescanServiceFor(
+			store,
+			storage,
+			recordingQueue(),
+		).rescan(account, { messageIds: [messageId], move: false });
+
+		assert.deepEqual(result.successful[0]?.labels, []);
+		assert.equal(
+			(await store.messageLabel.listByMessageId(messageId)).length,
+			1,
+		);
 	});
 });
 

@@ -51,6 +51,7 @@ import {
 	type SpamConfig,
 	spamPlacementOf,
 } from "./index.js";
+import { removeSpamLabels } from "./spam-labels.js";
 
 type FailureCode = (typeof RescanFailureCode)[keyof typeof RescanFailureCode];
 
@@ -59,7 +60,10 @@ export const RESCAN_LIMIT = 10;
 export interface RescanDeps {
 	message: Pick<IMessageRepository, "get" | "update">;
 	messageFlag: Pick<IMessageFlagRepository, "hasFlag">;
-	messageLabel: Pick<IMessageLabelRepository, "apply" | "listByMessageId">;
+	messageLabel: Pick<
+		IMessageLabelRepository,
+		"apply" | "listByMessageId" | "remove"
+	>;
 	mailbox: Pick<IMailboxRepository, "get">;
 	address: Pick<IAddressRepository, "getAddress" | "countInboundForDomain">;
 	threadMessage: MessageCategoryDenormalizeDeps["threadMessageService"];
@@ -248,6 +252,7 @@ export class RescanService {
 		const spamCode = spamFailure(verdict);
 		if (spamCode) return failed(messageId, spamCode);
 
+		const settings = await readResolvedSpamSettings(deps.spam, accountConfigId);
 		const markedNotSpam =
 			message.spamCleared ||
 			(await deps.messageFlag.hasFlag(messageId, MessageKeywordFlag.NotJunk));
@@ -267,10 +272,7 @@ export class RescanService {
 			spamVerdict: verdict,
 			spamPlacement: cleared
 				? { action: "None" }
-				: spamPlacementOf(
-						verdict,
-						await readResolvedSpamSettings(deps.spam, accountConfigId),
-					),
+				: spamPlacementOf(verdict, settings),
 			placement:
 				move && !markedNotSpam
 					? {
@@ -297,8 +299,36 @@ export class RescanService {
 				{ category: update.category },
 			);
 		}
+		await this.dropStaleSpamLabel(accountConfigId, message, settings, labels);
 		await deps.message.update(messageId, update);
 		return { ok: true, success: { messageId, verdict, labels } };
+	}
+
+	/**
+	 * A rescan replaces the verdict, so the label the previous verdict placed
+	 * goes with it unless the new verdict carries it too. A reported or
+	 * Junk-flagged message keeps its label: the owner put it there.
+	 */
+	private async dropStaleSpamLabel(
+		accountConfigId: string,
+		message: Pick<MessageItem, "messageId" | "spamVerdict" | "spamReport">,
+		settings: Parameters<typeof spamPlacementOf>[1],
+		kept: readonly string[],
+	): Promise<void> {
+		const { messageFlag, messageLabel, spam } = this.deps;
+		if (message.spamReport) return;
+		if (await messageFlag.hasFlag(message.messageId, MessageKeywordFlag.Junk)) {
+			return;
+		}
+		const previous = spamPlacementOf(message.spamVerdict, settings);
+		if (previous.action === "None") return;
+		await removeSpamLabels(
+			{ label: spam.labelService, messageLabel },
+			accountConfigId,
+			message.messageId,
+			[previous.label],
+			kept,
+		);
 	}
 
 	private async filterDecisionOf(
