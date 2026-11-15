@@ -1152,6 +1152,21 @@ export class ImapFlowConnection {
 		};
 	};
 
+	moveAllMessages = async (destination: string): Promise<void> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		await client.messageMove("1:*", destination, { uid: true });
+	};
+
 	/**
 	 * Copy messages to another mailbox.
 	 * Uses ImapFlow's messageCopy which wraps UID COPY command.

@@ -7,11 +7,13 @@ import { isReservedFolderName } from "@remit/data-ports/folder-role";
 import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
+	accept,
 	changeFolderPath,
 	createFolder,
 	invalid,
 	isRemitRootName,
 	ownedFolder,
+	type Refusable,
 	settledFolder,
 } from "@remit/mailbox-service";
 import { z } from "zod";
@@ -28,9 +30,7 @@ const FOLDER_WRITE = {
 	openWorldHint: false,
 } as const;
 
-export type Watched =
-	| { state: "Present"; folder: MailboxItem }
-	| { state: "Gone" };
+type Watched = { state: "Present"; folder: MailboxItem } | { state: "Gone" };
 
 export const plural = (count: number, one: string, many: string): string =>
 	`${count} ${count === 1 ? one : many}`;
@@ -58,7 +58,7 @@ export const awaitSettled = async (
 	}
 };
 
-export const folderState = (folder: MailboxItem) => ({
+const folderState = (folder: MailboxItem) => ({
 	accountId: folder.accountId,
 	mailboxId: folder.mailboxId,
 	fullPath: folder.fullPath,
@@ -198,38 +198,18 @@ const awaitMovedOut = async (
 	}
 };
 
-// Force never loses mail: it moves what the folder holds to Trash and waits
-// for the server to confirm, and only then does the delete go ahead.
-const trashFolderMail = async (
+// Force never loses mail: the delete moves everything the server holds in
+// the folder to Trash and deletes the folder only once the server reports it
+// empty. Moves already in flight settle first (imap-mutations R2: wait).
+const trashPathFor = async (
 	deps: McpDeps,
-	accountConfigId: string,
 	folder: MailboxItem,
-): Promise<CallToolResult | undefined> => {
+): Promise<Refusable<string>> => {
 	const trash = await trashFolderOf(deps, folder.accountId);
-	if (!trash.ok) return refused(trash.refusal);
-	const held = await deps.message.listAllByMailbox(folder.mailboxId);
-	if (held.length > 0) {
-		await deps.messageMove.moveMessages(
-			accountConfigId,
-			held.map((row) => row.messageId),
-			trash.value,
-			folder.accountId,
-		);
-	}
-	const pending = await awaitMovedOut(deps, folder.mailboxId);
-	if (pending > 0) {
-		return asJson({
-			...folderState(folder),
-			message: `${plural(pending, "message is", "messages are")} still moving to Trash. Call this tool again with the same arguments to keep waiting; the folder is deleted once they have arrived.`,
-		});
-	}
-	const left = await deps.message.listByMailbox(folder.mailboxId, { limit: 1 });
-	if (left.items.length > 0) {
-		return toolError(
-			`Not all mail in “${folder.fullPath}” could be moved to Trash, so the folder was kept. Call this tool again to retry.`,
-		);
-	}
-	return undefined;
+	if (!trash.ok) return trash;
+	const { fullPath } = await deps.mailbox.get(folder.accountId, trash.value);
+	await awaitMovedOut(deps, folder.mailboxId);
+	return accept(fullPath);
 };
 
 const deleteDepsOf = (deps: McpDeps) => ({
@@ -263,7 +243,8 @@ export const folderDeleteRefusal = async (
 };
 
 // Records the delete for the mail server, which refuses it while the folder
-// still holds mail there. With force, the folder's mail first moves to Trash.
+// still holds mail there. With force, the server moves the folder's mail to
+// Trash before the delete.
 export const deleteFolderOnServer = async (
 	deps: McpDeps,
 	accountConfigId: string,
@@ -277,14 +258,13 @@ export const deleteFolderOnServer = async (
 		force,
 	);
 	if (refusal) return refusal;
-	if (force) {
-		const notYet = await trashFolderMail(deps, accountConfigId, folder);
-		if (notYet) return notYet;
-	}
+	const trashed = force ? await trashPathFor(deps, folder) : undefined;
+	if (trashed && !trashed.ok) return refused(trashed.refusal);
 	const deleted = await deleteFolder(deleteDepsOf(deps), accountConfigId, {
 		accountId: folder.accountId,
 		mailboxId: folder.mailboxId,
 		requireEmpty: true,
+		moveMailTo: trashed?.value ?? null,
 	});
 	if (!deleted.ok) return refused(deleted.refusal);
 	return undefined;
