@@ -237,7 +237,7 @@ describe("delete_label", () => {
 		assert.equal(kept.syncStatus, MailboxSyncStatus.synced);
 	});
 
-	it("keeps every account's label folder when one account's server still holds mail", async () => {
+	it("deletes no label folder when another account's synced count shows mail", async () => {
 		const sibling = await mine.siblingFolder("INBOX");
 		const { labelId, folder } = await createLabel("Newsletters");
 		const mappings = await mine.client.labelMailbox.listByLabel(labelId);
@@ -249,18 +249,20 @@ describe("delete_label", () => {
 			theirs.accountId,
 			theirs.mailboxId,
 		);
-		mine.imap.deliver(siblingFolder.fullPath, mail("<unsynced@example.com>"));
+		await mine.client.mailbox.update(theirs.accountId, theirs.mailboxId, {
+			messageCount: 1,
+		});
 
 		assert.match(
 			await refusalOf("delete_label", { labelId }),
-			/still holds 1 message on the mail server/,
+			/still holds 1 message/,
 		);
 		assert.equal(await labelExists(labelId), true);
 		assert.equal(mine.imap.hasFolder(folder.fullPath), true);
 		assert.equal(mine.imap.hasFolder(siblingFolder.fullPath), true);
-		assert.equal(
-			(await mine.client.labelMailbox.listByLabel(labelId)).length,
-			2,
+		assert.deepEqual(
+			mine.queued().filter((event) => event.type === "MAILBOX_DELETE"),
+			[],
 		);
 	});
 

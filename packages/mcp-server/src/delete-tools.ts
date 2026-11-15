@@ -4,9 +4,9 @@ import {
 	deleteLabelWithCascade,
 	findFiltersForLabel,
 } from "@remit/backend/label-delete";
-import type { FilterItem, LabelItem, MailboxItem } from "@remit/data-ports";
+import type { FilterItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { accept, createLabelWithFolders } from "@remit/mailbox-service";
+import { accept } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
 import {
@@ -51,30 +51,10 @@ const textOf = (result: CallToolResult): string =>
 		.map((part) => (part.type === "text" ? part.text : ""))
 		.join("");
 
-// A label keeps a folder in every account. When one account's server keeps
-// its folder, the folders already deleted are recreated empty, so the kept
-// label is whole again; nothing is lost, as each was empty when deleted.
-const restoreFolders = async (
-	deps: McpDeps,
-	accountConfigId: string,
-	label: LabelItem,
-	deleted: readonly MailboxItem[],
-): Promise<string> => {
-	if (deleted.length === 0) return "";
-	await createLabelWithFolders(
-		{
-			account: deps.account,
-			mailbox: deps.mailbox,
-			label: deps.label,
-			labelMailbox: deps.labelMailbox,
-			mailboxQueue: deps.folders.mailboxQueue,
-			log: deps.logger,
-		},
-		accountConfigId,
-		{ name: label.name, color: label.color },
-	);
-	return ` Already deleted and recreated empty: ${plural(deleted.length, "folder", "folders")}, ${quoted(deleted.map((folder) => folder.fullPath))}.`;
-};
+const alreadyDeleted = (deleted: readonly MailboxItem[]): string =>
+	deleted.length === 0
+		? " No label folder was deleted."
+		: ` Already deleted: ${plural(deleted.length, "label folder", "label folders")}, ${quoted(deleted.map((folder) => folder.fullPath))}.`;
 
 const settledFolder = async (
 	deps: McpDeps,
@@ -120,7 +100,7 @@ export const registerDeleteTools = (
 		"delete_label",
 		{
 			description:
-				"Delete a label and its folder in each mail account, one account at a time, waiting until each mail server confirms. Refuses while a filter still applies the label, or while any label folder holds mail on its mail server, unless force is true; when one account's server keeps its folder, the label is kept and the folders already deleted in other accounts are recreated empty. With force, each folder's mail first moves to that account's Trash, the filters that apply the label are deleted and listed in the result, and the label goes once every server confirms. Calling again with the same arguments resumes the wait.",
+				"Delete a label and its folder in each mail account, one account at a time, waiting until each mail server confirms. Refuses while a filter still applies the label, or while any label folder holds mail, unless force is true. If one account's server still refuses its folder, the label is kept, the error names the folders already deleted, and calling again deletes the rest. With force, each folder's mail first moves to that account's Trash, the filters that apply the label are deleted and listed in the result, and the label goes once every server confirms. Calling again with the same arguments resumes the wait.",
 			inputSchema: {
 				labelId: z.string().min(1).describe("Label from list_labels"),
 				force: z
@@ -173,13 +153,9 @@ export const registerDeleteTools = (
 						forced,
 					);
 					if (stopped?.isError) {
-						const restored = await restoreFolders(
-							deps,
-							accountConfigId,
-							label,
-							deleted,
+						return toolError(
+							`${textOf(stopped)} The label “${label.name}” was kept.${alreadyDeleted(deleted)}`,
 						);
-						return toolError(`${textOf(stopped)}${restored}`);
 					}
 					if (stopped) return stopped;
 				}
@@ -205,14 +181,8 @@ export const registerDeleteTools = (
 						left.accountId,
 					);
 				}
-				const restored = await restoreFolders(
-					deps,
-					accountConfigId,
-					label,
-					deleted,
-				);
 				return toolError(
-					`The mail server kept “${left.fullPath}”: ${left.syncFailureReason || "the delete was dropped"}. The label “${label.name}” was kept.${restored} ${retry}`,
+					`The mail server refused to delete the label folder “${left.fullPath}”: ${left.syncFailureReason || "the delete was dropped"}. The label “${label.name}” was kept.${alreadyDeleted(deleted)} ${retry} Calling delete_label again deletes the folders that are left.`,
 				);
 			}
 
