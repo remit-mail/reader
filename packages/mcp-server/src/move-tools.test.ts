@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { processOrganizeJob } from "@remit/account-worker/organize-job";
 import type { MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSpecialUse, MessageStatus } from "@remit/domain-enums";
@@ -9,6 +10,7 @@ import {
 	openStore,
 	type World,
 } from "@remit/imap-worker/test-helpers/test-world";
+import { noopLogger } from "@remit/logger";
 import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import { silentLog } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_RULES_SCOPE } from "./auth/scopes.js";
@@ -90,6 +92,7 @@ beforeEach(async () => {
 			organizeQueue: client.queues.accountFanout,
 			logger: silentLog,
 		},
+		moves: { budgetMs: 100, pollIntervalMs: 10, sleep },
 	};
 });
 
@@ -237,5 +240,136 @@ describe("rescan_messages", () => {
 		assert.deepEqual(result.failed, [
 			{ messageId: missing, code: "NotFound", retryable: false },
 		]);
+	});
+});
+
+describe("move_folder_messages", () => {
+	const BATCH = 2;
+	const MESSAGES = 7;
+
+	interface SelectionReport {
+		organizeJobId: string;
+		state: string;
+		batches: number;
+		appliedCount: number;
+		remainingCount?: number;
+		cursor?: string;
+	}
+
+	interface MoveReport {
+		jobs: SelectionReport[];
+		continue?: string;
+	}
+
+	let processing: Promise<void>[];
+	let archive: MailboxItem;
+
+	const runOrganizeJobs = (delayMs: number): void => {
+		mine.queue.answer(async () => {
+			const last = mine.queued().at(-1);
+			if (last?.type !== "OrganizeJob") return {};
+			const run = () =>
+				processOrganizeJob(
+					last as unknown as Parameters<typeof processOrganizeJob>[0],
+					noopLogger,
+					{ client: mine.client, matchLimit: BATCH },
+				);
+			if (delayMs === 0) await run();
+			else processing.push(sleep(delayMs).then(run));
+			return {};
+		});
+	};
+
+	const inFolder = async (mailbox: MailboxItem): Promise<number> =>
+		(
+			await mine.client.threadMessage.listByMailbox(
+				deriveAccountConfigId(USER_ID),
+				mailbox.mailboxId,
+				{ excludeDeleted: true },
+			)
+		).items.length;
+
+	beforeEach(async () => {
+		processing = [];
+		archive = await mine.folder("Archive");
+		for (let seeded = 0; seeded < MESSAGES; seeded += 1) {
+			await mine.message(receipts);
+		}
+	});
+
+	const moveReceipts = async (): Promise<MoveReport> =>
+		(await callToolJson("move_folder_messages", {
+			accountId: mine.account.accountId,
+			sourceMailboxId: receipts.mailboxId,
+			mailboxId: archive.mailboxId,
+		})) as unknown as MoveReport;
+
+	it("runs capped batches back to back until nothing is left", async () => {
+		runOrganizeJobs(0);
+		deps.moves = { budgetMs: 10_000, pollIntervalMs: 10, sleep };
+
+		const report = await moveReceipts();
+
+		assert.deepEqual(
+			report.jobs.map(({ organizeJobId: _, ...job }) => job),
+			[
+				{
+					accountId: mine.account.accountId,
+					sourceMailboxId: receipts.mailboxId,
+					state: "Complete",
+					batches: 4,
+					appliedCount: MESSAGES,
+					failedCount: 0,
+					remainingCount: 0,
+					cursor: "",
+				},
+			],
+		);
+		assert.equal(report.continue, undefined);
+		assert.equal(await inFolder(receipts), 0);
+		assert.equal(await inFolder(archive), MESSAGES);
+	});
+
+	it("returns within its budget and continues from the cursor", async () => {
+		const budgetMs = 250;
+		runOrganizeJobs(100);
+		deps.moves = { budgetMs, pollIntervalMs: 10, sleep };
+
+		const started = Date.now();
+		const first = await moveReceipts();
+		const elapsed = Date.now() - started;
+
+		assert.ok(elapsed < budgetMs + 100, `returned after ${elapsed}ms`);
+		assert.ok(first.continue, "four batches cannot fit in the budget");
+		let applied = first.jobs[0].appliedCount;
+		let job = first.jobs[0];
+		for (let calls = 1; calls < MESSAGES; calls += 1) {
+			await Promise.all(processing);
+			const finished = (await callToolJson("get_organize_job", {
+				organizeJobId: job.organizeJobId,
+			})) as unknown as SelectionReport;
+			if (job.state !== finished.state) applied += finished.appliedCount;
+			assert.equal(finished.remainingCount, await inFolder(receipts));
+			if (!finished.cursor) break;
+			const next = (await callToolJson("move_folder_messages", {
+				cursor: finished.cursor,
+			})) as unknown as MoveReport;
+			job = next.jobs[0];
+			applied += job.appliedCount;
+		}
+
+		assert.equal(applied, MESSAGES, "every message moved exactly once");
+		assert.equal(await inFolder(receipts), 0);
+		assert.equal(await inFolder(archive), MESSAGES);
+	});
+
+	it("refuses a cursor sent with a selection", async () => {
+		const result = await callTool("move_folder_messages", {
+			cursor: "anything",
+			trash: true,
+		});
+
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /Send cursor alone/);
 	});
 });

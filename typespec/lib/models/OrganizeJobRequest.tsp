@@ -17,6 +17,9 @@ namespace RemitImap;
   rule.
   """)
 model OrganizeInput {
+  @doc("Continue the selection of the job that returned this cursor, from where that job stopped, with its predicate and action. Every other field of this body is ignored when it is set.")
+  cursor?: string;
+
   @doc("Back-apply this standing filter instead of the predicate in this body. The server reads the filter's persisted predicate and action, runs the pass over the inbox, and skips a move another active filter outranks, as index time does. The predicate and action fields of this body are ignored when it is set.")
   filterId?: UUID;
 
@@ -120,6 +123,18 @@ model OrganizeJobRequest {
   @visibility(Lifecycle.Read)
   appliedCount: int32 = 0;
 
+  @doc("Where in the selection this job starts: the store position the job it continues stopped at, or empty to start at the newest message.")
+  @visibility(Lifecycle.Read)
+  startPosition: string = "";
+
+  @doc("Where in the selection the next job continues, or empty when no message after this batch still matches.")
+  @visibility(Lifecycle.Read)
+  nextPosition: string = "";
+
+  @doc("Number of messages after this batch that still match the selection, set when the pass completes. A job is capped, so a selection larger than the cap continues in a new job started with this job's cursor.")
+  @visibility(Lifecycle.Read)
+  remainingCount: int32 = 0;
+
   @doc("Number of matches whose action apply failed")
   @visibility(Lifecycle.Read)
   failedCount: int32 = 0;
@@ -159,24 +174,30 @@ model CreateOrganizeJobResponse {
 }
 
 @doc("Job item returned by GET /accounts/{accountId}/organize/{organizeJobId}. `ttl` is internal bookkeeping and not surfaced.")
-model OrganizeJobResponse is PickProperties<
-  OrganizeJobRequest,
-  | "organizeJobId"
-  | "accountConfigId"
-  | "userId"
-  | "state"
-  | "filterId"
-  | "matchOperator"
-  | "literalClauses"
-  | "actionLabelId"
-  | "actionMailboxId"
-  | "matchedCount"
-  | "appliedCount"
-  | "failedCount"
-  | "errorMessage"
-  | "createdAt"
-  | "updatedAt"
->;
+model OrganizeJobResponse {
+  ...PickProperties<
+    OrganizeJobRequest,
+    | "organizeJobId"
+    | "accountConfigId"
+    | "userId"
+    | "state"
+    | "filterId"
+    | "matchOperator"
+    | "literalClauses"
+    | "actionLabelId"
+    | "actionMailboxId"
+    | "matchedCount"
+    | "appliedCount"
+    | "failedCount"
+    | "remainingCount"
+    | "errorMessage"
+    | "createdAt"
+    | "updatedAt"
+  >;
+
+  @doc("Send as OrganizeInput.cursor to continue this selection where this job stopped. Empty while the job runs and when nothing remains.")
+  cursor: string;
+}
 
 @doc("Response body for POST /accounts/{accountId}/organize/preview — the messages the same matcher would apply the action to, without applying it. Bounded server-side.")
 model OrganizePreviewResponse {

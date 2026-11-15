@@ -28,6 +28,8 @@ import type { StorageService } from "@remit/storage-service";
 
 export const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
 export const FOLDER_POLL_INTERVAL_MS = 500;
+// Well inside the 60-second tool timeout MCP clients commonly apply.
+export const MOVE_BATCH_BUDGET_MS = 20_000;
 
 export interface FolderToolDeps {
 	mailboxQueue: Pick<
@@ -35,6 +37,12 @@ export interface FolderToolDeps {
 		"createMailbox" | "renameMailbox" | "dismissMailboxIntent" | "deleteMailbox"
 	>;
 	settleTimeoutMs: number;
+	pollIntervalMs: number;
+	sleep: (ms: number) => Promise<void>;
+}
+
+export interface MoveToolDeps {
+	budgetMs: number;
 	pollIntervalMs: number;
 	sleep: (ms: number) => Promise<void>;
 }
@@ -98,6 +106,7 @@ export interface McpDeps {
 	logger: MaterializeLogger;
 	folders: FolderToolDeps;
 	filters: FilterToolDeps;
+	moves: MoveToolDeps;
 }
 
 export interface McpDepsExtras {
@@ -129,4 +138,9 @@ export const mcpDepsOf = (
 	logger,
 	folders: { mailboxQueue: client.mailboxQueue, ...settle },
 	filters: { organizeQueue: client.queues.accountFanout, logger },
+	moves: {
+		budgetMs: MOVE_BATCH_BUDGET_MS,
+		pollIntervalMs: settle.pollIntervalMs,
+		sleep: settle.sleep,
+	},
 });

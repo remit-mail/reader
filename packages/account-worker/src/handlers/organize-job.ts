@@ -5,6 +5,7 @@ import {
 	backApplyFilter,
 	buildOrganizeMatchDeps,
 	buildOrganizeMoveService,
+	countOrganizeMatches,
 	isFilterJob,
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
@@ -20,6 +21,7 @@ export interface ProcessOrganizeJobDeps {
 	client: RemitClient<"messageManagement">;
 	matchDeps?: OrganizeMatchDeps;
 	moveService?: ApplyOrganizeDeps["moveService"];
+	matchLimit?: number;
 }
 
 interface OrganizeOutcome {
@@ -28,6 +30,8 @@ interface OrganizeOutcome {
 	applied: number;
 	failed: number;
 	failures: string[];
+	nextPosition: string;
+	remainingCount: number;
 }
 
 const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
@@ -36,25 +40,32 @@ const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
 	applied: 0,
 	failed: 0,
 	failures: [],
+	nextPosition: "",
+	remainingCount: 0,
 });
 
 /**
  * The "all like these" pass: the predicate snapshotted on the row, over its
  * source folder or every folder, every requested move applied (reader #497).
+ * It starts where the job it continues stopped, and counts what still
+ * matches past its own cap so a client knows whether to continue.
  */
 const runSnapshot = async (
 	client: RemitClient<"messageManagement">,
 	matchDeps: OrganizeMatchDeps,
 	moveService: ApplyOrganizeDeps["moveService"],
 	job: Awaited<ReturnType<RemitClient["organizeJobRequest"]["get"]>>,
+	matchLimit: number,
 ): Promise<OrganizeOutcome> => {
 	const predicate = predicateFromJob(job);
+	const scope = scopeFromJob(job);
 	const match = await matchOrganize(
 		matchDeps,
 		job.accountConfigId,
 		predicate,
-		ORGANIZE_MATCH_LIMIT,
-		scopeFromJob(job),
+		matchLimit,
+		scope,
+		job.startPosition,
 	);
 	if (match.rejected) return rejectedOutcome(match.rejected);
 	const { applied, failed, failures } = await applyOrganize(
@@ -63,12 +74,21 @@ const runSnapshot = async (
 		match.messageIds,
 		predicate,
 	);
+	const remainingCount = await countOrganizeMatches(
+		matchDeps,
+		job.accountConfigId,
+		predicate,
+		scope,
+		match.nextPosition,
+	);
 	return {
 		rejected: null,
 		matched: match.messageIds.length,
 		applied,
 		failed,
 		failures,
+		nextPosition: remainingCount > 0 ? match.nextPosition : "",
+		remainingCount,
 	};
 };
 
@@ -117,10 +137,17 @@ export const processOrganizeJob = async (
 					{ client, matchDeps, moveService },
 					accountConfigId,
 					job.filterId,
+					job.startPosition,
 				).then((result) =>
 					result.rejected ? rejectedOutcome(result.rejected) : result,
 				)
-			: await runSnapshot(client, matchDeps, moveService, job);
+			: await runSnapshot(
+					client,
+					matchDeps,
+					moveService,
+					job,
+					deps.matchLimit ?? ORGANIZE_MATCH_LIMIT,
+				);
 
 		if (outcome.rejected) {
 			await client.organizeJobRequest.update(organizeJobId, {
@@ -128,6 +155,8 @@ export const processOrganizeJob = async (
 				matchedCount: 0,
 				appliedCount: 0,
 				failedCount: 0,
+				remainingCount: 0,
+				nextPosition: "",
 				errorMessage: outcome.rejected.message,
 			});
 			log.warn(
@@ -137,12 +166,14 @@ export const processOrganizeJob = async (
 			return;
 		}
 
-		const { matched, applied, failed, failures } = outcome;
+		const { matched, applied, failed, failures, remainingCount } = outcome;
 		await client.organizeJobRequest.update(organizeJobId, {
 			state: "Complete",
 			matchedCount: matched,
 			appliedCount: applied,
 			failedCount: failed,
+			remainingCount,
+			nextPosition: outcome.nextPosition,
 			errorMessage: failures[0] ?? "",
 		});
 		log.info(
@@ -153,6 +184,7 @@ export const processOrganizeJob = async (
 				matched,
 				applied,
 				failed,
+				remainingCount,
 			},
 			"Organize back-apply complete",
 		);

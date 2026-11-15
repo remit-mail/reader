@@ -42,6 +42,7 @@
     "@types/react-dom": "^19"
   },
   "devDependencies": {
+    "@remit/account-worker": "*",
     "@remit/imap-worker": "*",
     "@tailwindcss/vite": "^4",
     "tailwindcss": "^4",

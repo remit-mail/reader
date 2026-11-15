@@ -400,7 +400,7 @@ namespace RemitApi {
 
   @route("/accounts/{accountId}/organize")
   namespace OrganizeOperations {
-    @doc("Start a one-time \"all like these\" back-apply: match the corpus against the given predicate and apply the action to every match, in one pass. Returns immediately with an organizeJobId; poll GET /accounts/{accountId}/organize/{organizeJobId} for state and counts. Never creates a Filter row (RFC 034 recap).")
+    @doc("Start a one-time \"all like these\" back-apply: match the corpus against the given predicate and apply the action to every match, in one pass of at most 500 messages. Returns immediately with an organizeJobId; poll GET /accounts/{accountId}/organize/{organizeJobId} for state, counts, remainingCount and the cursor that continues the selection. Never creates a Filter row (RFC 034 recap).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createOrganizeJob(@path accountId: UUID, @body input: OrganizeInput):
@@ -423,7 +423,7 @@ namespace RemitApi {
 
   @route("/accounts/{accountId}/organize/{organizeJobId}")
   namespace OrganizeJobDetailOperations {
-    @doc("Get the status of a back-apply job, including matched/applied/failed counts. Terminal states are Complete and Failed.")
+    @doc("Get the status of a back-apply job, including matched/applied/failed counts, how many messages still match after this batch, and the cursor that continues the selection. Terminal states are Complete and Failed.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     op getOrganizeJob(@path accountId: UUID, @path organizeJobId: UUID):

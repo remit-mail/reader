@@ -162,10 +162,14 @@ export interface OrganizeRejection {
 	message: string;
 }
 
-/** The matched ids. */
+/**
+ * The matched ids, and the store position right after the last row the pass
+ * read: empty when the store holds no further row of the selection.
+ */
 export interface OrganizeMatched {
 	rejected: null;
 	messageIds: string[];
+	nextPosition: string;
 }
 
 /** The predicate was refused: nothing matched, and nothing may be applied. */
@@ -224,55 +228,113 @@ const FOLDER_SWEEP: RuleNarrowing = { terms: [], operator: "and" };
 
 /**
  * The store selects on the clause terms, this refines what it returned and
- * stops at `limit` MATCHES. Serves `From`/`Subject` clauses at
- * full fidelity from the core thread rows; body-content (`HasWords`) clauses are
- * refused before this runs (see {@link bodyContentRejection}).
+ * stops at `limit` MATCHES, starting at `startPosition`. Serves
+ * `From`/`Subject` clauses at full fidelity from the core thread rows;
+ * body-content (`HasWords`) clauses are refused before this runs (see
+ * {@link bodyContentRejection}).
  *
  * The terms are a narrowing, not the verdict, so every page is still run
- * through the rule — and paging
- * continues until the cap fills or the store runs out, which is what makes the
- * bound a bound on results rather than on the newest `limit` rows (#459).
- * Deduped by message id: the same mail filed in two folders is one match.
+ * through the rule — and paging continues until the cap fills or the store
+ * runs out, which is what makes the bound a bound on results rather than on
+ * the newest `limit` rows (#459). When the cap fills mid-page, that page is
+ * read again cut at the row that filled it, so its cursor is exactly where a
+ * continuing batch starts: it neither repeats a message this one returned nor
+ * skips one this one never read. Deduped by message id: the same mail filed in two folders is one match.
  */
+interface LiteralPass {
+	readPage: (
+		limit: number,
+		continuationToken: string | undefined,
+	) => Promise<OrganizeCandidatePage>;
+	matches: (items: OrganizeCandidate[]) => string[];
+}
+
+const literalPass = async (
+	deps: OrganizeMatchDeps,
+	accountConfigId: string,
+	predicate: OrganizePredicate,
+	scope: OrganizeMatchScope,
+): Promise<LiteralPass | null> => {
+	const { getDomain } = await import("tldts");
+	const sweep = isFolderSweep(predicate.rule, scope);
+	const narrowing = sweep
+		? FOLDER_SWEEP
+		: ruleNarrowing(predicate.rule, getDomain);
+	if (!narrowing) return null;
+	const seen = new Set<string>();
+	return {
+		readPage: (limit, continuationToken) =>
+			deps.listAccountFilterMessages(accountConfigId, {
+				...narrowing,
+				readsClassifierScores: filterRuleTestsClassification(predicate.rule),
+				limit,
+				continuationToken,
+				mailboxIds: scopeMailboxIds(scope),
+				sentAfter: predicate.sentAfter,
+				sentBefore: predicate.sentBefore,
+			}),
+		matches: (items) =>
+			items.flatMap(({ messageId, message }) => {
+				if (seen.has(messageId)) return [];
+				seen.add(messageId);
+				if (!sweep && !evaluateRule(predicate.rule, message, getDomain)) {
+					return [];
+				}
+				return [messageId];
+			}),
+	};
+};
+
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number,
 	scope: OrganizeMatchScope,
-): Promise<string[]> => {
-	const { getDomain } = await import("tldts");
-	const sweep = isFolderSweep(predicate.rule, scope);
-	const narrowing = sweep
-		? FOLDER_SWEEP
-		: ruleNarrowing(predicate.rule, getDomain);
-	if (!narrowing) return [];
-
+	startPosition: string,
+): Promise<Omit<OrganizeMatched, "rejected">> => {
+	const pass = await literalPass(deps, accountConfigId, predicate, scope);
+	if (!pass) return { messageIds: [], nextPosition: "" };
 	const matched: string[] = [];
-	const seen = new Set<string>();
-	let continuationToken: string | undefined;
-	do {
-		const page = await deps.listAccountFilterMessages(accountConfigId, {
-			...narrowing,
-			readsClassifierScores: filterRuleTestsClassification(predicate.rule),
-			limit,
-			continuationToken,
-			mailboxIds: scopeMailboxIds(scope),
-			sentAfter: predicate.sentAfter,
-			sentBefore: predicate.sentBefore,
-		});
-		for (const { messageId, message } of page.items) {
-			if (seen.has(messageId)) continue;
-			seen.add(messageId);
-			if (!sweep && !evaluateRule(predicate.rule, message, getDomain)) {
-				continue;
-			}
-			matched.push(messageId);
-			if (matched.length >= limit) return matched;
+	let continuationToken: string | undefined = startPosition || undefined;
+	for (;;) {
+		const page = await pass.readPage(limit, continuationToken);
+		for (const [index, item] of page.items.entries()) {
+			matched.push(...pass.matches([item]));
+			if (matched.length < limit) continue;
+			const cut =
+				index === page.items.length - 1
+					? page
+					: await pass.readPage(index + 1, continuationToken);
+			return { messageIds: matched, nextPosition: cut.continuationToken ?? "" };
 		}
 		continuationToken = page.continuationToken;
+		if (!continuationToken) return { messageIds: matched, nextPosition: "" };
+	}
+};
+
+/**
+ * How many messages from `fromPosition` on still match: the rest of a
+ * selection a capped batch stopped short of. Read-only, it applies nothing.
+ */
+export const countOrganizeMatches = async (
+	deps: OrganizeMatchDeps,
+	accountConfigId: string,
+	predicate: OrganizePredicate,
+	scope: OrganizeMatchScope,
+	fromPosition: string,
+): Promise<number> => {
+	if (!fromPosition) return 0;
+	const pass = await literalPass(deps, accountConfigId, predicate, scope);
+	if (!pass) return 0;
+	let count = 0;
+	let continuationToken: string | undefined = fromPosition;
+	do {
+		const page = await pass.readPage(ORGANIZE_MATCH_LIMIT, continuationToken);
+		count += pass.matches(page.items).length;
+		continuationToken = page.continuationToken;
 	} while (continuationToken);
-	return matched;
+	return count;
 };
 
 /**
@@ -292,18 +354,20 @@ export const matchOrganize = async (
 	predicate: OrganizePredicate,
 	limit: number = ORGANIZE_MATCH_LIMIT,
 	scope: OrganizeMatchScope = WHOLE_CORPUS,
+	startPosition = "",
 ): Promise<OrganizeMatchResult> => {
 	const rejection =
 		scope.kind === "Filter" ? null : organizePredicateRejection(predicate);
 	if (rejection) return { rejected: rejection };
-	const messageIds = await matchLiteral(
+	const batch = await matchLiteral(
 		deps,
 		accountConfigId,
 		predicate,
 		limit,
 		scope,
+		startPosition,
 	);
-	return { rejected: null, messageIds };
+	return { rejected: null, ...batch };
 };
 
 /**
@@ -589,6 +653,8 @@ export interface FilterBackApplyResult {
 	applied: number;
 	failed: number;
 	failures: string[];
+	nextPosition: string;
+	remainingCount: number;
 }
 
 export interface FilterBackApplyDeps {
@@ -611,6 +677,7 @@ export const backApplyFilter = async (
 	deps: FilterBackApplyDeps,
 	accountConfigId: string,
 	filterId: string,
+	startPosition = "",
 ): Promise<FilterBackApplyResult | OrganizeMatchRejected> => {
 	const { client, matchDeps, moveService } = deps;
 	const loaded = await loadFilter(client, accountConfigId, filterId);
@@ -631,15 +698,19 @@ export const backApplyFilter = async (
 		applied: 0,
 		failed: 0,
 		failures: [],
+		nextPosition: "",
+		remainingCount: 0,
 	};
 	if (mailboxIds.length === 0) return nothing;
 
+	const scope: OrganizeMatchScope = { kind: "Filter", filterId, mailboxIds };
 	const match = await matchOrganize(
 		matchDeps,
 		accountConfigId,
 		loaded.predicate,
 		ORGANIZE_MATCH_LIMIT,
-		{ kind: "Filter", filterId, mailboxIds },
+		scope,
+		startPosition,
 	);
 	if (match.rejected) return match;
 
@@ -655,9 +726,18 @@ export const backApplyFilter = async (
 		});
 		return rejectFilter("FolderMissing", FOLDER_MISSING_MESSAGE);
 	}
+	const remainingCount = await countOrganizeMatches(
+		matchDeps,
+		accountConfigId,
+		loaded.predicate,
+		scope,
+		match.nextPosition,
+	);
 	const result: FilterBackApplyResult = {
 		...nothing,
 		matched: match.messageIds.length,
+		nextPosition: remainingCount > 0 ? match.nextPosition : "",
+		remainingCount,
 	};
 	const active = await client.filter.listByAccountAndState(
 		accountConfigId,

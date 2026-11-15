@@ -10,17 +10,20 @@ import {
 	FilterRuleV1Schema,
 	filterRuleFromClauses,
 	filterRuleLimitRefusal,
+	type OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import {
 	accept,
+	continuedJob,
 	folderInAccount,
 	invalid,
 	labelFoldersFor,
 	type MoveDestination,
 	type MoveTarget,
 	moveMessagesTo,
+	organizeJobCursor,
 	ownedAccount,
 	ownedMessagesByAccount,
 	queueOrganizeJob,
@@ -103,6 +106,38 @@ const oneBulkTarget = (args: {
 	}
 	return accept({ trash: true });
 };
+
+interface Selection {
+	accountId: string;
+	sourceMailboxId: string;
+	job: OrganizeJobRequestItem;
+	batches: number;
+	appliedCount: number;
+	failedCount: number;
+}
+
+const isTerminal = (job: OrganizeJobRequestItem): boolean =>
+	job.state === "Complete" || job.state === "Failed";
+
+const continues = (job: OrganizeJobRequestItem): boolean =>
+	job.state === "Complete" && organizeJobCursor(job) !== "";
+
+const selectionReport = ({ job, ...selection }: Selection) => ({
+	accountId: selection.accountId,
+	sourceMailboxId: selection.sourceMailboxId,
+	organizeJobId: job.organizeJobId,
+	state: job.state,
+	batches: selection.batches,
+	appliedCount: selection.appliedCount,
+	failedCount: selection.failedCount,
+	...(isTerminal(job)
+		? { remainingCount: job.remainingCount, cursor: organizeJobCursor(job) }
+		: {}),
+	...(job.state === "Failed" ? { errorMessage: job.errorMessage } : {}),
+});
+
+const CONTINUE_MESSAGE =
+	"Not every message is moved yet. Call move_folder_messages with a cursor to continue; a job still running reports its cursor through get_organize_job once it finishes.";
 
 const jobAction = (destination: MoveDestination): JobAction => ({
 	actionMailboxId: destination.mailboxId,
@@ -311,10 +346,50 @@ export const registerMoveTools = (
 		},
 	);
 
+	const queueContinuation = (job: OrganizeJobRequestItem) =>
+		queueOrganizeJob(organizeDeps, {
+			accountConfigId,
+			userId,
+			continues: job,
+		});
+
+	const driveBatches = async (selections: Selection[]): Promise<void> => {
+		const { budgetMs, pollIntervalMs, sleep } = deps.moves;
+		const deadline = Date.now() + budgetMs;
+		for (;;) {
+			for (const selection of selections) {
+				if (isTerminal(selection.job)) continue;
+				selection.job = await deps.organizeJobRequest.get(
+					selection.job.organizeJobId,
+				);
+				if (!isTerminal(selection.job)) continue;
+				selection.appliedCount += selection.job.appliedCount;
+				selection.failedCount += selection.job.failedCount;
+				if (!continues(selection.job) || Date.now() >= deadline) continue;
+				selection.job = await queueContinuation(selection.job);
+				selection.batches += 1;
+			}
+			if (selections.every(({ job }) => isTerminal(job))) return;
+			const left = deadline - Date.now();
+			if (left <= 0) return;
+			await sleep(Math.min(pollIntervalMs, left));
+		}
+	};
+
+	const report = (selections: Selection[]) => {
+		const unfinished = selections.some(
+			({ job }) => !isTerminal(job) || continues(job),
+		);
+		return {
+			jobs: selections.map(selectionReport),
+			...(unfinished ? { continue: CONTINUE_MESSAGE } : {}),
+		};
+	};
+
 	server.registerTool(
 		"move_folder_messages",
 		{
-			description: `Move every message in a folder, or in a label's folders, or only those matching a filter's rule or a given rule, and optionally only those dated within before/after, into another folder, a label's folder, or Trash. Runs as organize jobs, one per account: returns their organizeJobIds, which get_organize_job reports on. One job moves at most ${ORGANIZE_MATCH_LIMIT} messages; call again while a finished job reports appliedCount above 0.`,
+			description: `Move every message in a folder, or in a label's folders, or only those matching a filter's rule or a given rule, and optionally only those dated within before/after, into another folder, a label's folder, or Trash. Runs as organize jobs, one per account, each moving at most ${ORGANIZE_MATCH_LIMIT} messages. The tool runs jobs back to back for up to ${Math.round(deps.moves.budgetMs / 1000)} seconds, then reports per account the messages moved, how many still match (remainingCount) and a cursor. While a cursor is not empty, call again with only that cursor to continue the same selection. A job still running when the time is up comes back without a cursor; get_organize_job reports its remainingCount and cursor once it finishes.`,
 			inputSchema: {
 				accountId: z
 					.string()
@@ -367,6 +442,13 @@ export const registerMoveTools = (
 				rule: FilterRuleV1Schema.optional().describe(
 					"Only move messages this rule matches, in the shape create_filter takes. Send this or filterId, or neither to move everything.",
 				),
+				cursor: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Continue a move where it stopped: a cursor from move_folder_messages or get_organize_job. Send it alone; it carries the source, target and rule.",
+					),
 			},
 			annotations: { ...MOVE_WRITE, idempotentHint: false },
 		},
@@ -379,8 +461,48 @@ export const registerMoveTools = (
 			trash,
 			before,
 			after,
+			cursor,
 			...match
 		}): Promise<CallToolResult> => {
+			if (cursor) {
+				const selectionArgs = [
+					accountId,
+					sourceMailboxId,
+					sourceLabelId,
+					mailboxId,
+					labelId,
+					trash,
+					before,
+					after,
+					match.filterId,
+					match.rule,
+				];
+				if (selectionArgs.some((arg) => arg !== undefined)) {
+					return refused(
+						invalid(
+							"Send cursor alone: it already carries the source, target and rule.",
+						).refusal,
+					);
+				}
+				const previous = await continuedJob(
+					deps.organizeJobRequest,
+					accountConfigId,
+					cursor,
+				);
+				if (!previous.ok) return refused(previous.refusal);
+				const { sourceMailboxId: source } = previous.value;
+				const selection: Selection = {
+					accountId:
+						(await deps.mailbox.resolveAccountId(source)) ?? FILTER_NO_ACTION,
+					sourceMailboxId: source,
+					job: await queueContinuation(previous.value),
+					batches: 1,
+					appliedCount: 0,
+					failedCount: 0,
+				};
+				await driveBatches([selection]);
+				return asJson(report([selection]));
+			}
 			const target = oneBulkTarget({ mailboxId, labelId, trash });
 			if (!target.ok) return refused(target.refusal);
 			const sent = sentDateRange({ before, after });
@@ -411,7 +533,7 @@ export const registerMoveTools = (
 				});
 				if (rejection) return refused(invalid(rejection.message).refusal);
 			}
-			const jobs = [];
+			const selections: Selection[] = [];
 			for (const { source, action } of planned) {
 				const job = await queueOrganizeJob(organizeDeps, {
 					accountConfigId,
@@ -424,16 +546,19 @@ export const registerMoveTools = (
 						...action,
 					},
 				});
-				jobs.push({
+				selections.push({
 					accountId: source.accountId,
 					sourceMailboxId: source.mailboxId,
-					organizeJobId: job.organizeJobId,
-					state: job.state,
+					job,
+					batches: 1,
+					appliedCount: 0,
+					failedCount: 0,
 				});
 			}
+			await driveBatches(selections);
 			const { skipped } = sources.value;
 			return asJson({
-				jobs,
+				...report(selections),
 				...(skipped.length > 0
 					? {
 							skipped,

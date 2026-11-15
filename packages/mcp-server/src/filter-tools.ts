@@ -20,6 +20,7 @@ import {
 	accept,
 	createFilter,
 	listAccountFilters,
+	organizeJobCursor,
 	ownedAccount,
 	queueOrganizeJob,
 	updateFilter,
@@ -60,6 +61,8 @@ const toOrganizeJob = (job: OrganizeJobRequestItem) => ({
 	matchedCount: job.matchedCount,
 	appliedCount: job.appliedCount,
 	failedCount: job.failedCount,
+	remainingCount: job.remainingCount,
+	cursor: organizeJobCursor(job),
 	errorMessage: job.errorMessage,
 	createdAt: job.createdAt,
 	updatedAt: job.updatedAt,
@@ -244,7 +247,7 @@ export const registerFilterTools = (
 		"get_organize_job",
 		{
 			description:
-				"Read an organize job that applies a filter to existing mail or moves a folder's messages: its state (Pending, Running, Complete, Failed), how many messages it matched, applied and failed, and the error when it failed.",
+				"Read an organize job that applies a filter to existing mail or moves a folder's messages: its state (Pending, Running, Complete, Failed), how many messages it matched, applied and failed, how many still match after it (remainingCount), the cursor that continues the selection in move_folder_messages, and the error when it failed.",
 			inputSchema: {
 				organizeJobId: z
 					.string()

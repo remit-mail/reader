@@ -24,6 +24,10 @@
 			"types": "./src/handlers/account-finalize.ts",
 			"default": "./src/handlers/account-finalize.ts"
 		},
+		"./organize-job": {
+			"types": "./src/handlers/organize-job.ts",
+			"default": "./src/handlers/organize-job.ts"
+		},
 		"./process": {
 			"types": "./src/process.ts",
 			"default": "./src/process.ts"

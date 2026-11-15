@@ -768,7 +768,11 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 		});
 
 		assert.equal(messageIds.length, ORGANIZE_MATCH_LIMIT);
-		assert.equal(deps.pagesRead(), 2);
+		assert.equal(
+			deps.pagesRead(),
+			3,
+			"two pages, then the second cut at the cap",
+		);
 	});
 
 	it("never queries for clauses nothing can satisfy", async () => {

@@ -327,12 +327,20 @@ export type CreateOrganizeJobRequestInput = Omit<
 	| "appliedCount"
 	| "failedCount"
 	| "errorMessage"
+	| "nextPosition"
+	| "remainingCount"
 > & { state?: OrganizeJobRequestItem["state"] };
 
 export type UpdateOrganizeJobRequestInput = Partial<
 	Pick<
 		OrganizeJobRequestItem,
-		"state" | "matchedCount" | "appliedCount" | "failedCount" | "errorMessage"
+		| "state"
+		| "matchedCount"
+		| "appliedCount"
+		| "failedCount"
+		| "errorMessage"
+		| "nextPosition"
+		| "remainingCount"
 	>
 >;
 

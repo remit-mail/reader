@@ -8,7 +8,9 @@ import { FILTER_NO_ACTION, filterRuleFromClauses } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger";
 import {
+	continuedJob,
 	type OrganizeJobRequest,
+	organizeJobCursor,
 	ownedAccount,
 	queueOrganizeJob,
 } from "@remit/mailbox-service";
@@ -70,6 +72,8 @@ const toOrganizeJobResponse = (
 	matchedCount: job.matchedCount,
 	appliedCount: job.appliedCount,
 	failedCount: job.failedCount,
+	remainingCount: job.remainingCount,
+	cursor: organizeJobCursor(job),
 	errorMessage: job.errorMessage,
 	createdAt: job.createdAt,
 	updatedAt: job.updatedAt,
@@ -86,6 +90,16 @@ const requestedJob = async (
 	owner: { accountConfigId: string; userId: string },
 	input: OrganizeInput,
 ): Promise<OrganizeJobRequest> => {
+	if (input.cursor) {
+		const continues = unwrap(
+			await continuedJob(
+				client.organizeJobRequest,
+				owner.accountConfigId,
+				input.cursor,
+			),
+		);
+		return { ...owner, continues };
+	}
 	if (input.filterId) {
 		await client.filter.get(owner.accountConfigId, input.filterId);
 		return { ...owner, filterId: input.filterId };
