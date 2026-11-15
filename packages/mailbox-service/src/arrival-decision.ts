@@ -106,11 +106,7 @@ const place = async (
 		sender: placement.sender,
 		junk:
 			(input.classifierVerdict.kind === "Junk" &&
-				classifierMayJunk(
-					input.spamVerdict,
-					placement.sender,
-					spam.spamPipeline,
-				)) ||
+				classifierMayJunk(input.spamVerdict, spam.spamPipeline)) ||
 			input.spamPlacement.action === "Junk",
 		move: placement.move,
 		junkExit: placement.junkExit,

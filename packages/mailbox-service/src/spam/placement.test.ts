@@ -31,29 +31,20 @@ const checked: MessageSpamVerdict = {
 	decidedBy: SpamJudgeName.Inline,
 };
 
-const stranger = { knownSender: false };
-
 describe("the classifier's own junk move", () => {
 	it("yields to a screened-out newsletter", () => {
 		const screened: MessageSpamVerdict = {
 			state: "ScreenedOut",
 			screen: { rule: SpamSenderScreenRule.Newsletter },
 		};
-		assert.equal(classifierMayJunk(screened, stranger, UNSET), false);
-	});
-
-	it("yields to a sender the owner has written to", () => {
-		assert.equal(
-			classifierMayJunk(checked, { knownSender: true }, UNSET),
-			false,
-		);
+		assert.equal(classifierMayJunk(screened, UNSET), false);
 	});
 
 	it("yields to a calibrated judge's verdict", () => {
-		assert.equal(classifierMayJunk(checked, stranger, CALIBRATED), false);
+		assert.equal(classifierMayJunk(checked, CALIBRATED), false);
 	});
 
-	it("still moves a stranger's mail while the judge is uncalibrated", () => {
-		assert.equal(classifierMayJunk(checked, stranger, UNSET), true);
+	it("still moves mail while the judge is uncalibrated", () => {
+		assert.equal(classifierMayJunk(checked, UNSET), true);
 	});
 });
