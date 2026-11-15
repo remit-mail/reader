@@ -318,6 +318,17 @@ describe("decidePlacement rescuing Junk mail", () => {
 		assert.equal(decision.destination, undefined);
 	});
 
+	it("leaves a trusted sender's message in Junk when its From failed DMARC", () => {
+		const decision = rescue(
+			baseMessage({ authResult: { dmarc: "Fail" } } as Partial<MessageItem>),
+			SenderTrust.Vip,
+			SenderOverride.NeverSpam,
+			RESCUE,
+		);
+		assert.equal(decision.verdict.action, "leave");
+		assert.equal(decision.destination, undefined);
+	});
+
 	it("leaves a blocked sender's message in Junk", () => {
 		const decision = rescue(
 			baseMessage(),

@@ -1,5 +1,6 @@
 import type { MessageItem, UpdateMessageInput } from "@remit/data-ports";
 import {
+	AuthResultVerdict,
 	PlacementAction as PlacementActionValue,
 	PlacementConfidence,
 	SenderOverride,
@@ -157,22 +158,25 @@ export type PlacementDestination = "inbox" | "archive" | "junk";
 /**
  * How a message may leave Junk. `Arrival`: new mail, where the provider's
  * Junk folder is no verdict. `Rescue`: mail that sat in Junk before Remit
- * judged it (pre-existing mail, a rescan), which leaves only for a trusted
- * sender or, when `clean`, a spam verdict a judge called clean.
+ * judged it (mail older than the folder's first sync, a rescan), which leaves
+ * only for a trusted sender whose From passed DMARC or did not report it, or,
+ * when `clean`, a spam verdict a judge called clean.
  */
 export type JunkExit =
 	| { state: "Arrival" }
 	| { state: "Rescue"; clean: boolean };
 
 const rescueReason = (
+	message: MessageItem,
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
 	clean: boolean,
 ): string | undefined => {
+	if (clean) return "spam=clean";
+	if (message.authResult?.dmarc === AuthResultVerdict.Fail) return undefined;
 	if (senderOverride === SenderOverride.NeverSpam) return "sender=never-spam";
 	if (senderTrust === SenderTrust.Vip) return "sender=vip";
 	if (senderTrust === SenderTrust.Wellknown) return "sender=wellknown";
-	if (clean) return "spam=clean";
 	return undefined;
 };
 
@@ -269,7 +273,12 @@ export const decidePlacement = (
 		return { verdict: asInbox, destination: undefined };
 	}
 	if (junkExit.state === "Rescue") {
-		const reason = rescueReason(senderTrust, senderOverride, junkExit.clean);
+		const reason = rescueReason(
+			message,
+			senderTrust,
+			senderOverride,
+			junkExit.clean,
+		);
 		if (!reason) {
 			return {
 				verdict: {

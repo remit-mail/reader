@@ -11,6 +11,7 @@ import {
 	SpamLabelPlacement,
 	SpamSenderScreenRule,
 } from "@remit/domain-enums";
+import { byThresholds } from "./judge.js";
 
 type Kind = (typeof SpamKind)[keyof typeof SpamKind];
 
@@ -34,9 +35,8 @@ export const isConfidentlyClean = (
 	const { decidedBy, score } = verdict;
 	const judge = pipeline.find((config) => config.name === decidedBy);
 	if (!judge || judge.name === SpamJudgeName.Rspamd) return false;
-	return (
-		judge.thresholds.state === "Set" && score < judge.thresholds.cleanBelow
-	);
+	const { action, decided } = byThresholds(score, judge.thresholds);
+	return decided && action === SpamAction.None;
 };
 
 const NONE: SpamPlacement = { action: "None" };

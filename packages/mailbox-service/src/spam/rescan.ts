@@ -13,6 +13,7 @@ import type {
 import { readResolvedSpamSettings } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import {
+	AuthResultVerdict,
 	ClassificationFailureKind,
 	MessageKeywordFlag,
 	RescanFailureCode,
@@ -251,7 +252,9 @@ export class RescanService {
 			message.spamCleared ||
 			(await deps.messageFlag.hasFlag(messageId, MessageKeywordFlag.NotJunk));
 		const cleared =
-			sender.senderOverride === SenderOverride.NeverSpam || markedNotSpam;
+			(sender.senderOverride === SenderOverride.NeverSpam &&
+				classification.authResult?.dmarc !== AuthResultVerdict.Fail) ||
+			markedNotSpam;
 		const { update, labels } = await recordArrival(deps.spam, {
 			account,
 			messageId,
@@ -272,7 +275,7 @@ export class RescanService {
 				move && !markedNotSpam
 					? {
 							deps: deps.placement,
-							row: message,
+							row: { ...message, ...classification },
 							roles: await resolveFolderRoleMailboxes(
 								deps.placement.mailboxSpecialUseService,
 								account.accountId,
