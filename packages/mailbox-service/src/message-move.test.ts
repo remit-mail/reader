@@ -11,8 +11,11 @@ import { deriveAddressId, deriveCopyMessageId } from "@remit/data-ports/id";
 import {
 	CanonicalMailboxRole,
 	MessageClassificationState,
+	SenderOverride,
+	SenderTrust,
 } from "@remit/domain-enums";
 import { BodySyncService } from "./body-sync.js";
+import { decidePlacement } from "./heuristics/classifyPlacement.js";
 import {
 	MessageMoveService,
 	NoTrashMailboxError,
@@ -758,5 +761,40 @@ describe("emptying the Trash", () => {
 		assert.equal(first.deletedCount, 2);
 		assert.equal(second.deletedCount, 2);
 		assert.equal(queue.length, 2);
+	});
+});
+
+describe("a user move after Remit filed a message in Junk", () => {
+	it("keeps the message in Junk when the user moves it out and back", async () => {
+		await world();
+		const messageId = await rowIn(junk, 7, { movedByRemit: true });
+		await service().moveMessage(
+			account.accountConfigId,
+			messageId,
+			inbox.mailboxId,
+			account.accountId,
+			junk.mailboxId,
+		);
+		await store.message.updateUid(messageId, 8, inbox.mailboxId);
+		await service().moveMessage(
+			account.accountConfigId,
+			messageId,
+			junk.mailboxId,
+			account.accountId,
+			inbox.mailboxId,
+		);
+
+		const row = await store.message.get(messageId);
+		assert.equal(row.movedByRemit, false);
+		const decision = decidePlacement(
+			row,
+			"junk",
+			SenderTrust.Vip,
+			SenderOverride.None,
+			false,
+			false,
+			{ state: "Rescue", clean: true },
+		);
+		assert.equal(decision.destination, undefined);
 	});
 });
