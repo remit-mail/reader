@@ -51,6 +51,14 @@
       "types": "./src/service/never-spam.ts",
       "default": "./src/service/never-spam.ts"
     },
+    "./auto-moved": {
+      "types": "./src/derive/autoMoved.ts",
+      "default": "./src/derive/autoMoved.ts"
+    },
+    "./sender-trust": {
+      "types": "./src/derive/senderTrust.ts",
+      "default": "./src/derive/senderTrust.ts"
+    },
     "./folder-delete": {
       "types": "./src/service/folder-delete.ts",
       "default": "./src/service/folder-delete.ts"
@@ -135,6 +143,14 @@
       "./never-spam": {
         "types": "./dist/src/service/never-spam.d.ts",
         "default": "./dist/src/service/never-spam.js"
+      },
+      "./auto-moved": {
+        "types": "./dist/src/derive/autoMoved.d.ts",
+        "default": "./dist/src/derive/autoMoved.js"
+      },
+      "./sender-trust": {
+        "types": "./dist/src/derive/senderTrust.d.ts",
+        "default": "./dist/src/derive/senderTrust.js"
       },
       "./folder-delete": {
         "types": "./dist/src/service/folder-delete.d.ts",
