@@ -14,6 +14,9 @@ enum SpamSenderScreenRule {
   @doc("The sender is well known: the owner replied, or enough non-bulk mail arrived recently.")
   WellKnown: "WellKnown",
 
-  @doc("A newsletter from a sender with earlier mail: it carries List-Unsubscribe and passes DMARC.")
+  @doc("The owner has written to or replied to this sender, and DMARC passes.")
+  KnownSender: "KnownSender",
+
+  @doc("A newsletter or mailing list from a sender with earlier mail: it carries List-Unsubscribe or List-Id and passes DMARC.")
   Newsletter: "Newsletter",
 }

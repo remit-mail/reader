@@ -67,6 +67,7 @@ export const spamArrivalOf = (input: {
 	classifierScores: input.classifierScores,
 	model: spamModelAccessOf(input.classifier, input.gate, input.account),
 	hasListUnsubscribe: input.classification.hasListUnsubscribe ?? false,
+	hasListId: input.parsed.headers.has("list-id"),
 	dmarc: input.classification.authResult?.dmarc,
 });
 

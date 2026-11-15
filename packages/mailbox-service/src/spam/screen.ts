@@ -13,9 +13,13 @@ type Screen = ScreenedOut["screen"];
 type AuthVerdict = (typeof AuthResultVerdict)[keyof typeof AuthResultVerdict];
 
 export interface ScreenInput {
-	sender: Pick<SenderPlacement, "senderTrust" | "senderOverride">;
+	sender: Pick<
+		SenderPlacement,
+		"senderTrust" | "senderOverride" | "knownSender"
+	>;
 	filterDecision: FilterDecision;
 	hasListUnsubscribe: boolean;
+	hasListId: boolean;
 	dmarc: AuthVerdict | undefined;
 	senderMessagesSeen: number;
 }
@@ -29,7 +33,8 @@ const bySender = (rule: SenderRule): Screen => ({ rule });
  * Stage 1 (RFC 041): the rule that lets a message through without a call to
  * the spam service, or `undefined` when the message goes to the service. A
  * newsletter passes only from a sender with earlier mail and with DMARC
- * passing, since a phisher can add List-Unsubscribe too. A Never in Spam
+ * passing, since a phisher can add List-Unsubscribe too. A known sender also
+ * needs DMARC passing, since a forged From of a correspondent is invoice fraud. A Never in Spam
  * sender is screened out only when DMARC did not fail, so a forged From of
  * that sender still reaches the judge.
  */
@@ -50,11 +55,14 @@ export const screen = (input: ScreenInput): Screen | undefined => {
 	if (sender.senderTrust === SenderTrust.Wellknown) {
 		return bySender(SpamSenderScreenRule.WellKnown);
 	}
+	if (sender.knownSender && input.dmarc === AuthResultVerdict.Pass) {
+		return bySender(SpamSenderScreenRule.KnownSender);
+	}
 	const filterId =
 		filterDecision.move?.filterId ?? filterDecision.labels[0]?.filterId;
 	if (filterId !== undefined) return { rule: "Filter", filterId };
 	if (
-		input.hasListUnsubscribe &&
+		(input.hasListUnsubscribe || input.hasListId) &&
 		input.dmarc === AuthResultVerdict.Pass &&
 		input.senderMessagesSeen > 0
 	) {

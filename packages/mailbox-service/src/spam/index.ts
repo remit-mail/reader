@@ -93,6 +93,7 @@ export interface SpamArrival {
 	classifierScores: ClassifierScoreItem[];
 	model: SpamModelAccess;
 	hasListUnsubscribe: boolean;
+	hasListId: boolean;
 	dmarc: (typeof AuthResultVerdict)[keyof typeof AuthResultVerdict] | undefined;
 }
 
@@ -111,6 +112,7 @@ export const decideSpamVerdict = async (
 		sender,
 		filterDecision: arrival.filterDecision,
 		hasListUnsubscribe: arrival.hasListUnsubscribe,
+		hasListId: arrival.hasListId,
 		dmarc: arrival.dmarc,
 		senderMessagesSeen: sender.inboundCount,
 	});
