@@ -13,9 +13,13 @@ type Screen = ScreenedOut["screen"];
 type AuthVerdict = (typeof AuthResultVerdict)[keyof typeof AuthResultVerdict];
 
 export interface ScreenInput {
-	sender: Pick<SenderPlacement, "senderTrust" | "senderOverride">;
+	sender: Pick<
+		SenderPlacement,
+		"senderTrust" | "senderOverride" | "knownSender"
+	>;
 	filterDecision: FilterDecision;
 	hasListUnsubscribe: boolean;
+	hasListId: boolean;
 	dmarc: AuthVerdict | undefined;
 	senderMessagesSeen: number;
 }
@@ -50,11 +54,14 @@ export const screen = (input: ScreenInput): Screen | undefined => {
 	if (sender.senderTrust === SenderTrust.Wellknown) {
 		return bySender(SpamSenderScreenRule.WellKnown);
 	}
+	if (sender.knownSender && input.dmarc !== AuthResultVerdict.Fail) {
+		return bySender(SpamSenderScreenRule.KnownSender);
+	}
 	const filterId =
 		filterDecision.move?.filterId ?? filterDecision.labels[0]?.filterId;
 	if (filterId !== undefined) return { rule: "Filter", filterId };
 	if (
-		input.hasListUnsubscribe &&
+		(input.hasListUnsubscribe || input.hasListId) &&
 		input.dmarc === AuthResultVerdict.Pass &&
 		input.senderMessagesSeen > 0
 	) {
