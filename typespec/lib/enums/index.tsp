@@ -1,6 +1,7 @@
 // RFC 2822 Header Enums
 import "./AddressRole.tsp";
 import "./AddressFlagKey.tsp";
+import "./AddressTrustFlag.tsp";
 import "./ReferenceType.tsp";
 
 // IMAP Enums

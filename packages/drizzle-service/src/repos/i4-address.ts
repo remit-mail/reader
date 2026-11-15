@@ -38,6 +38,7 @@ import { addressTable } from "../schema/i4-address.js";
 import { envelopeAddressTable } from "../schema/message-data.js";
 import {
 	addressCorrespondence,
+	addressFlagSet,
 	addressListable,
 	addressMatchRank,
 	addressPreference,
@@ -701,13 +702,10 @@ export class AddressRepo implements IAddressRepository {
 		return candidates.slice(0, limit);
 	}
 
-	async listByAccountConfig(input: {
-		accountConfigId: string;
-		search?: string;
-		cursor?: string;
-		limit?: number;
-	}): Promise<ResultList<AddressItem>> {
-		const { accountConfigId, search, cursor, limit = 100 } = input;
+	async listByAccountConfig(
+		input: Parameters<IAddressRepository["listByAccountConfig"]>[0],
+	): Promise<ResultList<AddressItem>> {
+		const { accountConfigId, search, flag, cursor, limit = 100 } = input;
 		const order = searchOrder(search);
 		const position = cursor ? decodeAddressCursor(cursor, order) : undefined;
 
@@ -724,6 +722,7 @@ export class AddressRepo implements IAddressRepository {
 				and(
 					eq(addressTable.accountConfigId, accountConfigId),
 					search ? addressSearchMatch(search) : undefined,
+					flag ? addressFlagSet(flag) : undefined,
 					addressListable(search),
 					position ? after(order, position) : undefined,
 				),
