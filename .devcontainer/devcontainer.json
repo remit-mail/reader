@@ -1,0 +1,4 @@
+{
+	"name": "reader",
+	"onCreateCommand": "npm ci && make && npm run build"
+}
