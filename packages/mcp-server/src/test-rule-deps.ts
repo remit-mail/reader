@@ -32,7 +32,7 @@ export const ruleDeps = (
 		organizeQueue: queue,
 		logger: silentLog,
 	},
-	moves: { budgetMs: 100, pollIntervalMs: 10, sleep },
+	moves: { budgetMs: 100, pollIntervalMs: 10, sleep, now: Date.now },
 	messageMove: new MessageMoveService({
 		messageService: store.message,
 		mailboxService: store.mailbox,

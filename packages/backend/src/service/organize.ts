@@ -87,6 +87,8 @@ export const scopeFromJob = (
 export interface OrganizeCandidate {
 	messageId: string;
 	message: FilterMessage;
+	/** Where the listing resumes right after this row. */
+	position: string;
 }
 
 /**
@@ -104,6 +106,12 @@ export interface OrganizeCandidateQuery extends RuleNarrowing, SentDateRange {
 	readsClassifierScores: boolean;
 	limit: number;
 	continuationToken?: string;
+	mailboxIds?: readonly string[];
+}
+
+/** What to count, from which position on. */
+export interface OrganizeCountQuery extends RuleNarrowing, SentDateRange {
+	position: string;
 	mailboxIds?: readonly string[];
 }
 
@@ -144,6 +152,15 @@ export interface OrganizeMatchDeps {
 		accountConfigId: string,
 		query: OrganizeCandidateQuery,
 	) => Promise<OrganizeCandidatePage>;
+	/**
+	 * How many rows the same listing holds after a position, counted by the
+	 * store: exact for a folder sweep, an upper bound for a rule the rows are
+	 * still refined by.
+	 */
+	countAccountFilterMessages: (
+		accountConfigId: string,
+		query: OrganizeCountQuery,
+	) => Promise<number>;
 }
 
 /**
@@ -163,13 +180,16 @@ export interface OrganizeRejection {
 }
 
 /**
- * The matched ids, and the store position right after the last row the pass
- * read: empty when the store holds no further row of the selection.
+ * The matched ids, the store position right after the row that filled the
+ * cap, and how many rows of the selection the store holds past it: exact for
+ * a folder sweep, an upper bound for a rule. Both are empty when the pass
+ * reached the end of the selection.
  */
 export interface OrganizeMatched {
 	rejected: null;
 	messageIds: string[];
 	nextPosition: string;
+	remainingCount: number;
 }
 
 /** The predicate was refused: nothing matched, and nothing may be applied. */
@@ -236,55 +256,11 @@ const FOLDER_SWEEP: RuleNarrowing = { terms: [], operator: "and" };
  * The terms are a narrowing, not the verdict, so every page is still run
  * through the rule — and paging continues until the cap fills or the store
  * runs out, which is what makes the bound a bound on results rather than on
- * the newest `limit` rows (#459). When the cap fills mid-page, that page is
- * read again cut at the row that filled it, so its cursor is exactly where a
- * continuing batch starts: it neither repeats a message this one returned nor
- * skips one this one never read. Deduped by message id: the same mail filed in two folders is one match.
+ * the newest `limit` rows (#459). The row that fills the cap names where a
+ * continuing batch starts, so it neither repeats a message this one returned
+ * nor skips one this one never read. Deduped by message id: the same mail
+ * filed in two folders is one match.
  */
-interface LiteralPass {
-	readPage: (
-		limit: number,
-		continuationToken: string | undefined,
-	) => Promise<OrganizeCandidatePage>;
-	matches: (items: OrganizeCandidate[]) => string[];
-}
-
-const literalPass = async (
-	deps: OrganizeMatchDeps,
-	accountConfigId: string,
-	predicate: OrganizePredicate,
-	scope: OrganizeMatchScope,
-): Promise<LiteralPass | null> => {
-	const { getDomain } = await import("tldts");
-	const sweep = isFolderSweep(predicate.rule, scope);
-	const narrowing = sweep
-		? FOLDER_SWEEP
-		: ruleNarrowing(predicate.rule, getDomain);
-	if (!narrowing) return null;
-	const seen = new Set<string>();
-	return {
-		readPage: (limit, continuationToken) =>
-			deps.listAccountFilterMessages(accountConfigId, {
-				...narrowing,
-				readsClassifierScores: filterRuleTestsClassification(predicate.rule),
-				limit,
-				continuationToken,
-				mailboxIds: scopeMailboxIds(scope),
-				sentAfter: predicate.sentAfter,
-				sentBefore: predicate.sentBefore,
-			}),
-		matches: (items) =>
-			items.flatMap(({ messageId, message }) => {
-				if (seen.has(messageId)) return [];
-				seen.add(messageId);
-				if (!sweep && !evaluateRule(predicate.rule, message, getDomain)) {
-					return [];
-				}
-				return [messageId];
-			}),
-	};
-};
-
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,
 	accountConfigId: string,
@@ -293,48 +269,51 @@ const matchLiteral = async (
 	scope: OrganizeMatchScope,
 	startPosition: string,
 ): Promise<Omit<OrganizeMatched, "rejected">> => {
-	const pass = await literalPass(deps, accountConfigId, predicate, scope);
-	if (!pass) return { messageIds: [], nextPosition: "" };
+	const finished = { nextPosition: "", remainingCount: 0 };
+	const { getDomain } = await import("tldts");
+	const sweep = isFolderSweep(predicate.rule, scope);
+	const narrowing = sweep
+		? FOLDER_SWEEP
+		: ruleNarrowing(predicate.rule, getDomain);
+	if (!narrowing) return { messageIds: [], ...finished };
+	const selection = {
+		...narrowing,
+		mailboxIds: scopeMailboxIds(scope),
+		sentAfter: predicate.sentAfter,
+		sentBefore: predicate.sentBefore,
+	};
+
 	const matched: string[] = [];
+	const seen = new Set<string>();
 	let continuationToken: string | undefined = startPosition || undefined;
-	for (;;) {
-		const page = await pass.readPage(limit, continuationToken);
-		for (const [index, item] of page.items.entries()) {
-			matched.push(...pass.matches([item]));
+	do {
+		const page = await deps.listAccountFilterMessages(accountConfigId, {
+			...selection,
+			readsClassifierScores: filterRuleTestsClassification(predicate.rule),
+			limit,
+			continuationToken,
+		});
+		for (const { messageId, message, position } of page.items) {
+			if (seen.has(messageId)) continue;
+			seen.add(messageId);
+			if (!sweep && !evaluateRule(predicate.rule, message, getDomain)) {
+				continue;
+			}
+			matched.push(messageId);
 			if (matched.length < limit) continue;
-			const cut =
-				index === page.items.length - 1
-					? page
-					: await pass.readPage(index + 1, continuationToken);
-			return { messageIds: matched, nextPosition: cut.continuationToken ?? "" };
+			const remainingCount = await deps.countAccountFilterMessages(
+				accountConfigId,
+				{ ...selection, position },
+			);
+			return {
+				messageIds: matched,
+				nextPosition: remainingCount > 0 ? position : "",
+				remainingCount,
+			};
 		}
 		continuationToken = page.continuationToken;
-		if (!continuationToken) return { messageIds: matched, nextPosition: "" };
-	}
-};
-
-/**
- * How many messages from `fromPosition` on still match: the rest of a
- * selection a capped batch stopped short of. Read-only, it applies nothing.
- */
-export const countOrganizeMatches = async (
-	deps: OrganizeMatchDeps,
-	accountConfigId: string,
-	predicate: OrganizePredicate,
-	scope: OrganizeMatchScope,
-	fromPosition: string,
-): Promise<number> => {
-	if (!fromPosition) return 0;
-	const pass = await literalPass(deps, accountConfigId, predicate, scope);
-	if (!pass) return 0;
-	let count = 0;
-	let continuationToken: string | undefined = fromPosition;
-	do {
-		const page = await pass.readPage(ORGANIZE_MATCH_LIMIT, continuationToken);
-		count += pass.matches(page.items).length;
-		continuationToken = page.continuationToken;
 	} while (continuationToken);
-	return count;
+	return { messageIds: matched, ...finished };
 };
 
 /**
@@ -411,6 +390,7 @@ const listAccountFilterMessagesFromClient =
 		return {
 			items: page.items.map((row) => ({
 				messageId: row.messageId,
+				position: row.position,
 				message: {
 					from: row.fromEmail ?? "",
 					fromName: row.fromName ?? "",
@@ -429,6 +409,15 @@ export const buildOrganizeMatchDeps = (
 	client: RemitClient<never>,
 ): OrganizeMatchDeps => ({
 	listAccountFilterMessages: listAccountFilterMessagesFromClient(client),
+	countAccountFilterMessages: (accountConfigId, query) =>
+		client.threadMessage.countByFieldTerms(accountConfigId, query.terms, {
+			operator: query.operator,
+			excludeDeleted: true,
+			mailboxIds: query.mailboxIds,
+			sentAfter: query.sentAfter,
+			sentBefore: query.sentBefore,
+			position: query.position,
+		}),
 });
 
 /**
@@ -726,18 +715,11 @@ export const backApplyFilter = async (
 		});
 		return rejectFilter("FolderMissing", FOLDER_MISSING_MESSAGE);
 	}
-	const remainingCount = await countOrganizeMatches(
-		matchDeps,
-		accountConfigId,
-		loaded.predicate,
-		scope,
-		match.nextPosition,
-	);
 	const result: FilterBackApplyResult = {
 		...nothing,
 		matched: match.messageIds.length,
-		nextPosition: remainingCount > 0 ? match.nextPosition : "",
-		remainingCount,
+		nextPosition: match.nextPosition,
+		remainingCount: match.remainingCount,
 	};
 	const active = await client.filter.listByAccountAndState(
 		accountConfigId,

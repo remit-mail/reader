@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
 import {
 	buildOrganizeMatchDeps,
@@ -25,6 +25,13 @@ import {
 	sharedDatabases,
 } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
+import {
+	openStore,
+	type Store,
+	seedAccount,
+	seedMailbox,
+	seedMessage,
+} from "@remit/mailbox-service/test-helpers/test-store";
 import type { OrganizeJobEvent } from "../events.js";
 import {
 	type ProcessOrganizeJobDeps,
@@ -78,6 +85,7 @@ const explodingMatchDeps = (): OrganizeMatchDeps =>
 		listAccountFilterMessages: async () => {
 			throw new Error("SQLITE_BUSY");
 		},
+		countAccountFilterMessages: async () => 0,
 	}) as OrganizeMatchDeps;
 
 describe("processOrganizeJob (reader #463)", () => {
@@ -572,130 +580,64 @@ describe("processOrganizeJob for a source-folder job", () => {
 });
 
 describe("processOrganizeJob across capped batches", () => {
-	let close: (() => void) | undefined;
-	afterEach(() => close?.());
-
 	const BATCH = 2;
 	const MESSAGES = 5;
+	let store: Store;
 
-	const sourceFolderOf = async () => {
-		const store = createShippedSqliteDb();
-		close = store.close;
-		const repos = createSqliteRepositories(
-			sharedDatabases(store),
-			NODE_SQLITE_LIMITS,
-			messageObjectsInMemory(),
-		);
-		const { accountConfigId } = await repos.accountConfig.create({
-			userId: "user-1",
-			name: "Me",
-		});
-		const account = await repos.account.create({
-			accountConfigId,
-			username: "me@example.com",
-			email: "me@example.com",
-			authType: "password",
-			passwordHash: '{"ciphertext":"x"}',
-			imapHost: "imap.example.com",
-			imapPort: 993,
-			imapTls: true,
-			imapStartTls: false,
-			isActive: true,
-			connectionState: "authenticated",
-		});
-		const folder = async (fullPath: string): Promise<string> => {
-			const created = await repos.mailbox.create({
-				accountId: account.accountId,
-				namespacePrefix: "",
-				hierarchyDelimiter: "/",
-				fullPath,
-				uidValidity: 7,
-				uidNext: 1,
-				highestModseq: "0",
-				messageCount: 0,
-				unseenCount: 0,
-				deletedCount: 0,
-				totalSize: 0,
-				lastSyncUid: 0,
-				highWaterMarkUid: 0,
-				lastMessageSyncAt: 0,
-			});
-			assert.equal(created.outcome, "Created");
-			return created.mailbox.mailboxId;
-		};
-		const source = await folder("Promoties");
-		const target = await folder("remit/Promotions");
+	beforeEach(async () => {
+		store = await openStore();
+	});
+	afterEach(() => store.close());
+
+	const promotionsFolder = async () => {
+		const account = await seedAccount(store);
+		const source = await seedMailbox(store, account, "Promoties");
+		const target = await seedMailbox(store, account, "remit/Promotions");
 		const messageIds: string[] = [];
 		for (let uid = 1; uid <= MESSAGES; uid += 1) {
-			const message = await repos.message.create({
-				messageId: randomUUID(),
-				mailboxId: source,
-				uid,
-				sequenceNumber: uid,
-				rfc822Size: 100,
-				internalDate: uid,
-				status: "active",
-				syncStatus: "synced",
-			});
-			await repos.threadMessage.create({
-				accountConfigId,
-				threadId: message.messageId,
-				messageId: message.messageId,
-				mailboxId: source,
-				uid,
-				referenceOrder: 0,
-				internalDate: uid,
-				sentDate: uid * 1000,
-				subject: `Offer ${uid}`,
-				isRead: false,
-				isDeleted: false,
-				hasAttachment: false,
-				hasStars: false,
-			});
+			const { message } = await seedMessage(store, account, source, uid);
 			messageIds.push(message.messageId);
 		}
-		const client = {
-			...repos,
-			queues: { messageManagement: recordingQueue() },
-		} as unknown as RemitClient<"messageManagement">;
 		const inSource = async () =>
 			(
-				await repos.threadMessage.listByMailbox(accountConfigId, source, {
-					excludeDeleted: true,
-				})
+				await store.threadMessage.listByMailbox(
+					account.accountConfigId,
+					source.mailboxId,
+					{ excludeDeleted: true },
+				)
 			).items.length;
-		return {
-			repos,
-			client,
-			accountConfigId,
-			source,
-			target,
-			messageIds,
-			inSource,
-		};
+		return { account, source, target, messageIds, inSource };
 	};
 
 	const runChain = async (
-		world: Awaited<ReturnType<typeof sourceFolderOf>>,
+		folder: Awaited<ReturnType<typeof promotionsFolder>>,
 		moveService?: ProcessOrganizeJobDeps["moveService"],
 	) => {
-		const { repos, client, accountConfigId, source, target } = world;
-		const first = await repos.organizeJobRequest.create({
+		const { accountConfigId } = folder.account;
+		const client = {
+			...store,
+			queues: { messageManagement: recordingQueue() },
+		} as unknown as RemitClient<"messageManagement">;
+		const selection: CreateOrganizeJobRequestInput = {
 			accountConfigId,
 			userId: "user-1",
 			filterId: "None",
 			rule: filterRuleFromClauses({ matchOperator: "And", literalClauses: [] }),
 			actionLabelId: "None",
-			actionMailboxId: target,
-			sourceMailboxId: source,
+			actionMailboxId: folder.target.mailboxId,
+			sourceMailboxId: folder.source.mailboxId,
 			sentAfter: "None",
 			sentBefore: "None",
 			startPosition: "",
 			ttl: 0,
-		});
+		};
 		const done = [];
-		let job = first;
-		for (;;) {
+		let startPosition = "";
+		do {
+			const job = await store.organizeJobRequest.create({
+				...selection,
+				startPosition,
+			});
 			await processOrganizeJob(
 				{
 					type: "OrganizeJob",
@@ -705,22 +647,19 @@ describe("processOrganizeJob across capped batches", () => {
 				noopLogger,
 				{ client, moveService, matchLimit: BATCH },
 			);
-			const finished = await repos.organizeJobRequest.get(job.organizeJobId);
+			const finished = await store.organizeJobRequest.get(job.organizeJobId);
 			done.push(finished);
-			if (finished.remainingCount === 0) return done;
+			startPosition = finished.nextPosition;
 			assert.ok(done.length <= MESSAGES, "the chain never ends");
-			job = await repos.organizeJobRequest.create({
-				...first,
-				startPosition: finished.nextPosition,
-			});
-		}
+		} while (startPosition);
+		return done;
 	};
 
 	it("continues where a batch stopped when its messages stay in the folder", async () => {
-		const world = await sourceFolderOf();
+		const folder = await promotionsFolder();
 		const moves: Move[] = [];
 
-		const done = await runChain(world, recordingMoves(moves));
+		const done = await runChain(folder, recordingMoves(moves));
 
 		assert.deepEqual(
 			done.map((job) => [job.appliedCount, job.remainingCount]),
@@ -732,16 +671,15 @@ describe("processOrganizeJob across capped batches", () => {
 		);
 		assert.deepEqual(
 			moves.map((move) => move.messageId),
-			[...world.messageIds].reverse(),
+			[...folder.messageIds].reverse(),
 			"every message once, newest first: nothing repeated, nothing skipped",
 		);
-		assert.equal(done.at(-1)?.nextPosition, "");
 	});
 
 	it("moves the whole folder in capped batches that report what is left", async () => {
-		const world = await sourceFolderOf();
+		const folder = await promotionsFolder();
 
-		const done = await runChain(world);
+		const done = await runChain(folder);
 
 		assert.deepEqual(
 			done.map((job) => [job.appliedCount, job.remainingCount]),
@@ -751,6 +689,6 @@ describe("processOrganizeJob across capped batches", () => {
 				[1, 0],
 			],
 		);
-		assert.equal(await world.inSource(), 0);
+		assert.equal(await folder.inSource(), 0);
 	});
 });

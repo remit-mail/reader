@@ -45,6 +45,7 @@ export interface MoveToolDeps {
 	budgetMs: number;
 	pollIntervalMs: number;
 	sleep: (ms: number) => Promise<void>;
+	now: () => number;
 }
 
 export interface FilterToolDeps {
@@ -142,5 +143,6 @@ export const mcpDepsOf = (
 		budgetMs: MOVE_BATCH_BUDGET_MS,
 		pollIntervalMs: settle.pollIntervalMs,
 		sleep: settle.sleep,
+		now: Date.now,
 	},
 });

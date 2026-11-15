@@ -265,4 +265,32 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		assert.deepEqual(createdRows, []);
 		assert.deepEqual(fanout.sent, []);
 	});
+
+	it("starts a continued filter job at the position the request names", async () => {
+		withFilter(standing("Active"));
+
+		const response = await postOrganize(
+			input({ filterId: "flt-1", startPosition: "position-500" }),
+		);
+
+		assert.equal(response.statusCode, 202);
+		assert.equal(createdRows[0]?.startPosition, "position-500");
+	});
+
+	it("refuses a predicate sent beside a filter's start position", async () => {
+		withFilter(standing("Active"));
+
+		const response = await postOrganize(
+			input({
+				filterId: "flt-1",
+				startPosition: "position-500",
+				actionMailboxId: "mbx-elsewhere",
+			}),
+		);
+
+		assert.equal(response.statusCode, 400);
+		assert.match(JSON.parse(response.body).message, /startPosition/);
+		assert.deepEqual(createdRows, []);
+		assert.deepEqual(fanout.sent, []);
+	});
 });

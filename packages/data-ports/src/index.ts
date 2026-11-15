@@ -20,6 +20,7 @@ export {
 	MAX_FILTER_RULE_DEPTH,
 	MAX_FILTER_RULE_LEAVES,
 	narrowFromDomainRule,
+	OrganizeJobRuleSchema,
 	readStoredFilterRule,
 } from "./filter-rule.js";
 export { deriveFilterTtl } from "./filter-ttl.js";
@@ -224,6 +225,7 @@ export type {
 	OutboxSchedulingPartItem,
 	PlacementPredicate,
 	PlacementTransitionInput,
+	PositionedThreadMessage,
 	PutCalendarFeedTokenInput,
 	PutCalendarObjectInput,
 	PutCalendarSuggestionInput,

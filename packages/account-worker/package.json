@@ -60,6 +60,7 @@
 	},
 	"devDependencies": {
 		"@aws-sdk/core": "*",
+		"@remit/mailbox-service": "*",
 		"esbuild": "^0.28.1"
 	},
 	"license": "MIT",

@@ -245,6 +245,12 @@ const NoClauseRuleSchema = z.object({
 	]),
 });
 
+/** A rule an organize job runs: a filter's rule, or none for a folder sweep. */
+export const OrganizeJobRuleSchema = z.union([
+	FilterRuleV1Schema,
+	NoClauseRuleSchema,
+]);
+
 const StoredFilterRuleSchema = z.union([
 	FilterRuleV0Schema,
 	FilterRuleV1Schema,

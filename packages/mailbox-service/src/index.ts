@@ -296,14 +296,11 @@ export {
 	type NeverSpamBackApplyResult,
 } from "./never-spam-back-apply.js";
 export {
-	CURSOR_REFUSAL,
-	continuedJob,
 	type OrganizeJobDeps,
 	type OrganizeJobLogger,
 	type OrganizeJobOwner,
 	type OrganizeJobPredicate,
 	type OrganizeJobRequest,
-	organizeJobCursor,
 	queueOrganizeJob,
 } from "./organize-job.js";
 export {

@@ -5,7 +5,6 @@ import {
 	backApplyFilter,
 	buildOrganizeMatchDeps,
 	buildOrganizeMoveService,
-	countOrganizeMatches,
 	isFilterJob,
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
@@ -47,8 +46,8 @@ const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
 /**
  * The "all like these" pass: the predicate snapshotted on the row, over its
  * source folder or every folder, every requested move applied (reader #497).
- * It starts where the job it continues stopped, and counts what still
- * matches past its own cap so a client knows whether to continue.
+ * It starts at the position the request named and reports where the
+ * selection continues past its own cap.
  */
 const runSnapshot = async (
 	client: RemitClient<"messageManagement">,
@@ -74,21 +73,14 @@ const runSnapshot = async (
 		match.messageIds,
 		predicate,
 	);
-	const remainingCount = await countOrganizeMatches(
-		matchDeps,
-		job.accountConfigId,
-		predicate,
-		scope,
-		match.nextPosition,
-	);
 	return {
 		rejected: null,
 		matched: match.messageIds.length,
 		applied,
 		failed,
 		failures,
-		nextPosition: remainingCount > 0 ? match.nextPosition : "",
-		remainingCount,
+		nextPosition: match.nextPosition,
+		remainingCount: match.remainingCount,
 	};
 };
 

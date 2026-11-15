@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { processOrganizeJob } from "@remit/account-worker/organize-job";
-import type { MailboxItem } from "@remit/data-ports";
+import { filterRuleFromClauses, type MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSpecialUse, MessageStatus } from "@remit/domain-enums";
 import { processMailboxManagement } from "@remit/imap-worker/mailbox-management";
@@ -15,6 +15,7 @@ import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import { silentLog } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
+import { encodeMoveCursor } from "./move-cursor.js";
 import { createMcpHandler } from "./server.js";
 
 const USER_ID = "move-user";
@@ -92,7 +93,7 @@ beforeEach(async () => {
 			organizeQueue: client.queues.accountFanout,
 			logger: silentLog,
 		},
-		moves: { budgetMs: 100, pollIntervalMs: 10, sleep },
+		moves: { budgetMs: 100, pollIntervalMs: 10, sleep, now: Date.now },
 	};
 });
 
@@ -246,6 +247,7 @@ describe("rescan_messages", () => {
 describe("move_folder_messages", () => {
 	const BATCH = 2;
 	const MESSAGES = 7;
+	const BATCH_DELAY_MS = 100;
 
 	interface SelectionReport {
 		organizeJobId: string;
@@ -261,21 +263,44 @@ describe("move_folder_messages", () => {
 		continue?: string;
 	}
 
-	let processing: Promise<void>[];
 	let archive: MailboxItem;
+	let time: number;
+	let due: Array<{ at: number; run: () => Promise<void> }>;
+
+	const runDue = async (): Promise<void> => {
+		for (;;) {
+			const next = due.find(({ at }) => at <= time);
+			if (!next) return;
+			due.splice(due.indexOf(next), 1);
+			await next.run();
+		}
+	};
+
+	const clock = {
+		now: () => time,
+		sleep: async (ms: number) => {
+			time += ms;
+			await runDue();
+		},
+		finishAll: async () => {
+			time = Math.max(time, ...due.map(({ at }) => at));
+			await runDue();
+		},
+	};
 
 	const runOrganizeJobs = (delayMs: number): void => {
 		mine.queue.answer(async () => {
 			const last = mine.queued().at(-1);
 			if (last?.type !== "OrganizeJob") return {};
-			const run = () =>
-				processOrganizeJob(
+			const run = async () => {
+				await processOrganizeJob(
 					last as unknown as Parameters<typeof processOrganizeJob>[0],
 					noopLogger,
 					{ client: mine.client, matchLimit: BATCH },
 				);
+			};
 			if (delayMs === 0) await run();
-			else processing.push(sleep(delayMs).then(run));
+			else due.push({ at: time + delayMs, run });
 			return {};
 		});
 	};
@@ -290,7 +315,14 @@ describe("move_folder_messages", () => {
 		).items.length;
 
 	beforeEach(async () => {
-		processing = [];
+		time = 0;
+		due = [];
+		deps.moves = {
+			budgetMs: 250,
+			pollIntervalMs: 10,
+			sleep: clock.sleep,
+			now: clock.now,
+		};
 		archive = await mine.folder("Archive");
 		for (let seeded = 0; seeded < MESSAGES; seeded += 1) {
 			await mine.message(receipts);
@@ -304,61 +336,70 @@ describe("move_folder_messages", () => {
 			mailboxId: archive.mailboxId,
 		})) as unknown as MoveReport;
 
+	const job = (report: MoveReport): Omit<SelectionReport, "organizeJobId"> => {
+		const { organizeJobId: _, ...rest } = report.jobs[0];
+		return rest;
+	};
+
 	it("runs capped batches back to back until nothing is left", async () => {
 		runOrganizeJobs(0);
-		deps.moves = { budgetMs: 10_000, pollIntervalMs: 10, sleep };
 
 		const report = await moveReceipts();
 
-		assert.deepEqual(
-			report.jobs.map(({ organizeJobId: _, ...job }) => job),
-			[
-				{
-					accountId: mine.account.accountId,
-					sourceMailboxId: receipts.mailboxId,
-					state: "Complete",
-					batches: 4,
-					appliedCount: MESSAGES,
-					failedCount: 0,
-					remainingCount: 0,
-					cursor: "",
-				},
-			],
-		);
+		assert.deepEqual(job(report), {
+			accountId: mine.account.accountId,
+			sourceMailboxId: receipts.mailboxId,
+			state: "Complete",
+			batches: 4,
+			appliedCount: MESSAGES,
+			failedCount: 0,
+			remainingCount: 0,
+			cursor: "",
+		});
 		assert.equal(report.continue, undefined);
 		assert.equal(await inFolder(receipts), 0);
 		assert.equal(await inFolder(archive), MESSAGES);
 	});
 
-	it("returns within its budget and continues from the cursor", async () => {
-		const budgetMs = 250;
-		runOrganizeJobs(100);
-		deps.moves = { budgetMs, pollIntervalMs: 10, sleep };
+	it("returns at its budget and continues from the cursor", async () => {
+		runOrganizeJobs(BATCH_DELAY_MS);
 
-		const started = Date.now();
 		const first = await moveReceipts();
-		const elapsed = Date.now() - started;
 
-		assert.ok(elapsed < budgetMs + 100, `returned after ${elapsed}ms`);
-		assert.ok(first.continue, "four batches cannot fit in the budget");
-		let applied = first.jobs[0].appliedCount;
-		let job = first.jobs[0];
-		for (let calls = 1; calls < MESSAGES; calls += 1) {
-			await Promise.all(processing);
-			const finished = (await callToolJson("get_organize_job", {
-				organizeJobId: job.organizeJobId,
-			})) as unknown as SelectionReport;
-			if (job.state !== finished.state) applied += finished.appliedCount;
-			assert.equal(finished.remainingCount, await inFolder(receipts));
-			if (!finished.cursor) break;
-			const next = (await callToolJson("move_folder_messages", {
-				cursor: finished.cursor,
-			})) as unknown as MoveReport;
-			job = next.jobs[0];
-			applied += job.appliedCount;
-		}
+		assert.equal(time, 250, "returns when the budget is spent");
+		assert.deepEqual(job(first), {
+			accountId: mine.account.accountId,
+			sourceMailboxId: receipts.mailboxId,
+			state: "Pending",
+			batches: 3,
+			appliedCount: 4,
+			failedCount: 0,
+		});
+		assert.ok(first.continue);
 
-		assert.equal(applied, MESSAGES, "every message moved exactly once");
+		await clock.finishAll();
+		const third = (await callToolJson("get_organize_job", {
+			organizeJobId: first.jobs[0].organizeJobId,
+		})) as unknown as SelectionReport;
+		assert.equal(third.appliedCount, 2);
+		assert.equal(third.remainingCount, 1);
+		assert.equal(await inFolder(receipts), 1);
+		assert.ok(third.cursor);
+
+		const last = (await callToolJson("move_folder_messages", {
+			cursor: third.cursor,
+		})) as unknown as MoveReport;
+
+		assert.deepEqual(job(last), {
+			accountId: mine.account.accountId,
+			sourceMailboxId: receipts.mailboxId,
+			state: "Complete",
+			batches: 1,
+			appliedCount: 1,
+			failedCount: 0,
+			remainingCount: 0,
+			cursor: "",
+		});
 		assert.equal(await inFolder(receipts), 0);
 		assert.equal(await inFolder(archive), MESSAGES);
 	});
@@ -371,5 +412,41 @@ describe("move_folder_messages", () => {
 
 		assert.equal(result.isError, true);
 		assert.match(result.content[0].text, /Send cursor alone/);
+	});
+
+	it("refuses a cursor it never handed out", async () => {
+		const result = await callTool("move_folder_messages", {
+			cursor: "not-a-cursor",
+		});
+
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /not one move_folder_messages/);
+	});
+
+	it("refuses a cursor naming another user's folders and moves nothing", async () => {
+		const theirs = await store.world(deriveAccountConfigId("someone-else"));
+		const theirInbox = await theirs.folder("INBOX");
+		const theirArchive = await theirs.folder("Archive");
+		const forged = encodeMoveCursor({
+			accountId: theirs.account.accountId,
+			sourceMailboxId: theirInbox.mailboxId,
+			actionMailboxId: theirArchive.mailboxId,
+			actionLabelId: "None",
+			rule: filterRuleFromClauses({
+				matchOperator: "And",
+				literalClauses: [],
+			}),
+			sentAfter: "None",
+			sentBefore: "None",
+			startPosition: "position",
+		});
+
+		const result = await callTool("move_folder_messages", { cursor: forged });
+
+		assert.equal(result.isError, true);
+		assert.deepEqual(
+			mine.queued().filter((event) => event.type === "OrganizeJob"),
+			[],
+		);
 	});
 });

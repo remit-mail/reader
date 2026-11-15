@@ -73,6 +73,8 @@ export type AccountItem = z.infer<typeof AccountSchema>;
 export type AccountConfigItem = z.infer<typeof AccountConfigSchema>;
 export type MailboxItem = z.infer<typeof MailboxSchema>;
 export type ThreadMessageItem = z.infer<typeof ThreadMessageSchema>;
+/** A listed row with the store position right after it, to resume from. */
+export type PositionedThreadMessage = ThreadMessageItem & { position: string };
 export type OutboxMessageItem = z.infer<typeof OutboxMessageSchema>;
 export type OutboxAttachmentItem = z.infer<typeof OutboxAttachmentSchema>;
 export type OutboxSchedulingPartItem = z.infer<

@@ -12,6 +12,7 @@ import {
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
+import type { RuleNarrowing } from "@remit/mailbox-service";
 import type { RemitClient } from "./data-client.js";
 import {
 	applyOrganize,
@@ -207,6 +208,7 @@ const candidate = (
 	over: Partial<OrganizeCandidate["message"]> = {},
 ): OrganizeCandidate => ({
 	messageId,
+	position: messageId,
 	message: {
 		from: "",
 		fromName: "",
@@ -224,6 +226,7 @@ const reservation = (messageId: string): OrganizeCandidate =>
 /** Deps that serve the given corpus as one page. */
 const corpusDeps = (corpus: OrganizeCandidate[]): OrganizeMatchDeps => ({
 	listAccountFilterMessages: async () => ({ items: corpus }),
+	countAccountFilterMessages: async () => 0,
 });
 
 describe("matchOrganize", () => {
@@ -245,6 +248,7 @@ describe("matchOrganize", () => {
 					queried.push(query.mailboxIds);
 					return { items: [reservation("msg-1"), candidate("msg-2")] };
 				},
+				countAccountFilterMessages: async () => 0,
 			},
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -303,6 +307,7 @@ describe("matchOrganize", () => {
 						listAccountFilterMessages: async () => {
 							throw new Error("SQLITE_BUSY");
 						},
+						countAccountFilterMessages: async () => 0,
 					},
 					ACCOUNT_CONFIG_ID,
 					reservations(),
@@ -631,26 +636,35 @@ const storeBackedDeps = (
 			.toLowerCase()
 			.includes(needle);
 	};
+	const narrowedBy = (query: RuleNarrowing) =>
+		rows.filter((row) =>
+			query.terms.length === 0
+				? true
+				: query.operator === "or"
+					? query.terms.some((term) => termMatches(term, row))
+					: query.terms.every((term) => termMatches(term, row)),
+		);
 	return {
 		listAccountFilterMessages: async (_accountConfigId, query) => {
 			pagesRead += 1;
-			const narrowed = rows.filter((row) =>
-				query.terms.length === 0
-					? true
-					: query.operator === "or"
-						? query.terms.some((term) => termMatches(term, row))
-						: query.terms.every((term) => termMatches(term, row)),
-			);
+			const narrowed = narrowedBy(query);
 			const offset = query.continuationToken
 				? Number(query.continuationToken)
 				: 0;
-			const items = narrowed.slice(offset, offset + query.limit);
+			const items = narrowed
+				.slice(offset, offset + query.limit)
+				.map((row, index) => ({
+					...row,
+					position: String(offset + index + 1),
+				}));
 			const next = offset + items.length;
 			return {
 				items,
 				continuationToken: next < narrowed.length ? String(next) : undefined,
 			};
 		},
+		countAccountFilterMessages: async (_accountConfigId, query) =>
+			narrowedBy(query).length - Number(query.position),
 		pagesRead: () => pagesRead,
 	};
 };
@@ -720,7 +734,7 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 		);
 		const deps = storeBackedDeps(matching);
 
-		const { messageIds } = await matchAccepted(
+		const { messageIds, nextPosition, remainingCount } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate({
@@ -729,6 +743,8 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 		);
 
 		assert.equal(messageIds.length, ORGANIZE_MATCH_LIMIT);
+		assert.equal(nextPosition, String(ORGANIZE_MATCH_LIMIT));
+		assert.equal(remainingCount, ORGANIZE_MATCH_LIMIT);
 	});
 
 	it("pages a nested rule it cannot narrow until the match cap fills", async () => {
@@ -768,11 +784,7 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 		});
 
 		assert.equal(messageIds.length, ORGANIZE_MATCH_LIMIT);
-		assert.equal(
-			deps.pagesRead(),
-			3,
-			"two pages, then the second cut at the cap",
-		);
+		assert.equal(deps.pagesRead(), 2);
 	});
 
 	it("never queries for clauses nothing can satisfy", async () => {

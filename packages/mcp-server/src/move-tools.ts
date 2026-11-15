@@ -9,6 +9,7 @@ import {
 	type FilterRuleV1Item,
 	FilterRuleV1Schema,
 	filterRuleFromClauses,
+	filterRuleLeaves,
 	filterRuleLimitRefusal,
 	type OrganizeJobRequestItem,
 } from "@remit/data-ports";
@@ -16,14 +17,12 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import {
 	accept,
-	continuedJob,
 	folderInAccount,
 	invalid,
 	labelFoldersFor,
 	type MoveDestination,
 	type MoveTarget,
 	moveMessagesTo,
-	organizeJobCursor,
 	ownedAccount,
 	ownedMessagesByAccount,
 	queueOrganizeJob,
@@ -33,6 +32,11 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
+import {
+	decodeMoveCursor,
+	type MoveCursor,
+	moveCursorOf,
+} from "./move-cursor.js";
 import { asJson, notFoundRefusal, refused } from "./tool-result.js";
 import { trashFolderOf } from "./trash.js";
 
@@ -120,7 +124,7 @@ const isTerminal = (job: OrganizeJobRequestItem): boolean =>
 	job.state === "Complete" || job.state === "Failed";
 
 const continues = (job: OrganizeJobRequestItem): boolean =>
-	job.state === "Complete" && organizeJobCursor(job) !== "";
+	job.state === "Complete" && job.remainingCount > 0 && job.nextPosition !== "";
 
 const selectionReport = ({ job, ...selection }: Selection) => ({
 	accountId: selection.accountId,
@@ -131,7 +135,10 @@ const selectionReport = ({ job, ...selection }: Selection) => ({
 	appliedCount: selection.appliedCount,
 	failedCount: selection.failedCount,
 	...(isTerminal(job)
-		? { remainingCount: job.remainingCount, cursor: organizeJobCursor(job) }
+		? {
+				remainingCount: job.remainingCount,
+				cursor: moveCursorOf(selection.accountId, job),
+			}
 		: {}),
 	...(job.state === "Failed" ? { errorMessage: job.errorMessage } : {}),
 });
@@ -350,12 +357,55 @@ export const registerMoveTools = (
 		queueOrganizeJob(organizeDeps, {
 			accountConfigId,
 			userId,
-			continues: job,
+			predicate: {
+				rule: job.rule,
+				sourceMailboxId: job.sourceMailboxId,
+				sentAfter: job.sentAfter,
+				sentBefore: job.sentBefore,
+				actionMailboxId: job.actionMailboxId,
+				actionLabelId: job.actionLabelId,
+				startPosition: job.nextPosition,
+			},
 		});
 
+	const CURSOR_REFUSAL =
+		"This cursor is not one move_folder_messages or get_organize_job returned.";
+
+	const checkedCursor = async (
+		encoded: string,
+	): Promise<Refusable<MoveCursor>> => {
+		const cursor = decodeMoveCursor(encoded);
+		if (!cursor) return invalid(CURSOR_REFUSAL);
+		const owned = await deps.account
+			.get(cursor.accountId)
+			.then((account) => ownedAccount(account, accountConfigId, "act"));
+		if (!owned.ok) return owned;
+		for (const mailboxId of [cursor.sourceMailboxId, cursor.actionMailboxId]) {
+			const folder = folderInAccount(
+				await deps.mailbox.get(cursor.accountId, mailboxId),
+				cursor.accountId,
+				"act",
+			);
+			if (!folder.ok) return folder;
+		}
+		if (cursor.actionLabelId !== FILTER_NO_ACTION) {
+			await deps.label.get(accountConfigId, cursor.actionLabelId);
+		}
+		const tooBig =
+			filterRuleLeaves(cursor.rule).length > 0 &&
+			filterRuleLimitRefusal(cursor.rule);
+		if (tooBig) return invalid(tooBig);
+		const rejection = organizePredicateRejection({
+			rule: cursor.rule,
+			actionLabelId: cursor.actionLabelId,
+			actionMailboxId: cursor.actionMailboxId,
+		});
+		return rejection ? invalid(rejection.message) : accept(cursor);
+	};
+
 	const driveBatches = async (selections: Selection[]): Promise<void> => {
-		const { budgetMs, pollIntervalMs, sleep } = deps.moves;
-		const deadline = Date.now() + budgetMs;
+		const { budgetMs, pollIntervalMs, sleep, now } = deps.moves;
+		const deadline = now() + budgetMs;
 		for (;;) {
 			for (const selection of selections) {
 				if (isTerminal(selection.job)) continue;
@@ -365,12 +415,12 @@ export const registerMoveTools = (
 				if (!isTerminal(selection.job)) continue;
 				selection.appliedCount += selection.job.appliedCount;
 				selection.failedCount += selection.job.failedCount;
-				if (!continues(selection.job) || Date.now() >= deadline) continue;
+				if (!continues(selection.job) || now() >= deadline) continue;
 				selection.job = await queueContinuation(selection.job);
 				selection.batches += 1;
 			}
 			if (selections.every(({ job }) => isTerminal(job))) return;
-			const left = deadline - Date.now();
+			const left = deadline - now();
 			if (left <= 0) return;
 			await sleep(Math.min(pollIntervalMs, left));
 		}
@@ -484,18 +534,17 @@ export const registerMoveTools = (
 						).refusal,
 					);
 				}
-				const previous = await continuedJob(
-					deps.organizeJobRequest,
-					accountConfigId,
-					cursor,
-				);
-				if (!previous.ok) return refused(previous.refusal);
-				const { sourceMailboxId: source } = previous.value;
+				const checked = await checkedCursor(cursor).catch(notFound);
+				if (!checked.ok) return refused(checked.refusal);
+				const { accountId: cursorAccountId, ...predicate } = checked.value;
 				const selection: Selection = {
-					accountId:
-						(await deps.mailbox.resolveAccountId(source)) ?? FILTER_NO_ACTION,
-					sourceMailboxId: source,
-					job: await queueContinuation(previous.value),
+					accountId: cursorAccountId,
+					sourceMailboxId: predicate.sourceMailboxId,
+					job: await queueOrganizeJob(organizeDeps, {
+						accountConfigId,
+						userId,
+						predicate,
+					}),
 					batches: 1,
 					appliedCount: 0,
 					failedCount: 0,
@@ -543,6 +592,7 @@ export const registerMoveTools = (
 						sourceMailboxId: source.mailboxId,
 						sentAfter: after ?? FILTER_NO_ACTION,
 						sentBefore: before ?? FILTER_NO_ACTION,
+						startPosition: "",
 						...action,
 					},
 				});
