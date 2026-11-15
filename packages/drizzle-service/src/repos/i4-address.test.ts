@@ -223,6 +223,49 @@ describe("AddressRepo", () => {
 		assert.equal(results.length, 0);
 	});
 
+	test("listByAccountConfig with a flag returns only addresses whose flag is set", async () => {
+		const accountConfigId = randomId();
+		const now = Date.now();
+		const rescued = await repo.createAddress(
+			makeAddressInput(accountConfigId, "rescued@x.com"),
+		);
+		const revoked = await repo.createAddress(
+			makeAddressInput(accountConfigId, "revoked@x.com"),
+		);
+		const vip = await repo.createAddress(
+			makeAddressInput(accountConfigId, "vip@x.com"),
+		);
+		await repo.createAddress(makeAddressInput(accountConfigId, "plain@x.com"));
+		await repo.mergeFlags(accountConfigId, rescued.addressId, {
+			neverSpam: { value: true, setAt: now },
+		});
+		await repo.mergeFlags(accountConfigId, revoked.addressId, {
+			neverSpam: { value: false, setAt: now },
+		});
+		await repo.mergeFlags(accountConfigId, vip.addressId, {
+			vip: { value: true, setAt: now },
+		});
+
+		const neverSpam = await repo.listByAccountConfig({
+			accountConfigId,
+			flag: "neverSpam",
+		});
+		assert.deepEqual(
+			neverSpam.items.map((a) => a.addressId),
+			[rescued.addressId],
+		);
+
+		const vips = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "x.com",
+			flag: "vip",
+		});
+		assert.deepEqual(
+			vips.items.map((a) => a.addressId),
+			[vip.addressId],
+		);
+	});
+
 	test("listByAccountConfig paginates without dupes, gaps, or non-termination", async () => {
 		const accountConfigId = randomId();
 		const created: string[] = [];

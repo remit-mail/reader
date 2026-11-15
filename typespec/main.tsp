@@ -1308,6 +1308,10 @@ namespace RemitApi {
     op searchAddresses(
       @query(#{ explode: true }) q: string,
       @query(#{ explode: true }) limit?: int32,
+
+      @doc("Only addresses whose flag of this name is set to `value: true`")
+      @query(#{ explode: true })
+      flag?: AddressTrustFlag,
     ): ResultList<AddressResponse> | UnauthorizedError;
   }
 

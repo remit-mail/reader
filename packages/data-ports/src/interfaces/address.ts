@@ -1,3 +1,4 @@
+import type { AddressTrustFlag } from "@remit/domain-enums";
 import type { JunkRoleMailboxes } from "../folder-role.js";
 import type {
 	AddressItem,
@@ -92,6 +93,8 @@ export interface IAddressRepository {
 		 * ASCII (`Öz` for `Özcan Bakker`) resolves through the folded compound.
 		 */
 		search?: string;
+		/** Only addresses whose flag of this name is set to `value: true`. */
+		flag?: (typeof AddressTrustFlag)[keyof typeof AddressTrustFlag];
 		cursor?: string;
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;

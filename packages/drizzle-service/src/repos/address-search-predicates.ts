@@ -121,6 +121,9 @@ const rankOneTerm = (term: string): SQL<number> => {
 const flagValue = (name: string): SQL<number> =>
 	sql<number>`coalesce(json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), ${`$.${name}.value`}), 0)`;
 
+export const addressFlagSet = (name: string): SQL =>
+	sql`${flagValue(name)} = 1`;
+
 /** The account's own standing for the sender: a VIP first, then one it trusts. */
 export const addressPreference = (): SQL<number> =>
 	sql<number>`(2 * ${flagValue("vip")} + ${flagValue("trusted")})`;

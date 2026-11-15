@@ -1,5 +1,6 @@
 import type {
 	AddressResponse,
+	AddressTrustFlag,
 	UpdateAddressInput,
 } from "@remit/api-openapi-types";
 import type {
@@ -106,9 +107,10 @@ export const AddressOperations = {
 		ctx: HandlerContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const { q, limit } = context.request.query as {
+		const { q, limit, flag } = context.request.query as {
 			q: string;
 			limit?: number;
+			flag?: AddressTrustFlag;
 		};
 
 		const client = ctx.client;
@@ -116,6 +118,7 @@ export const AddressOperations = {
 		const result = await client.address.listByAccountConfig({
 			accountConfigId,
 			search: q.toLowerCase(),
+			flag,
 			limit: limit ?? 10,
 		});
 
