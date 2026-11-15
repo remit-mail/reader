@@ -84,7 +84,7 @@ export interface McpDeps {
 	messageMove: Pick<MessageMoveService, "moveMessages">;
 	threadMessage: Pick<
 		IThreadMessageRepository,
-		"listByThread" | "searchByDate" | "getByMessageId"
+		"listByThread" | "searchByDate"
 	>;
 	filter: Pick<
 		IFilterRepository,

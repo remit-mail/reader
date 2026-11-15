@@ -58,6 +58,8 @@ let account: AccountItem;
 let inbox: MailboxItem;
 let archive: MailboxItem;
 let junk: MailboxItem;
+let receiptsMessageId: string;
+const FILTER_ID = "filter0000000000000000001";
 const scored = new Set<string>();
 
 const callToolJson = async (
@@ -143,6 +145,20 @@ before(async () => {
 		},
 		threadMessage: { threadId: JUNKED_THREAD_ID },
 	});
+	const receipts = await seedMailbox(store, account, "Receipts");
+	const filtered = await seedMessage(store, account, receipts, PAGE + 2, {
+		message: {
+			movedByRemit: true,
+			filterMove: {
+				filterId: FILTER_ID,
+				sourceMailboxId: inbox.mailboxId,
+				destinationMailboxId: receipts.mailboxId,
+				decidedAt: 1_700_000_000_000,
+			},
+		},
+		threadMessage: { threadId: "thread-moved-by-filter" },
+	});
+	receiptsMessageId = filtered.message.messageId;
 
 	for (let uid = 1; uid <= PAGE; uid += 1) {
 		const withMetadata = uid % 2 === 0;
@@ -257,5 +273,22 @@ describe("placement on get_thread", () => {
 			modelOutcome: "NotConfigured",
 			decidedBy: "Inline",
 		});
+	});
+});
+
+describe("placement on get_message", () => {
+	it("names the filter that moved a message", async () => {
+		const message = (await callToolJson("get_message", {
+			messageId: receiptsMessageId,
+		})) as unknown as Row & { spamCleared: boolean; labels: unknown[] };
+
+		assert.deepEqual(message.autoMoved, {
+			fromMailboxId: inbox.mailboxId,
+			destinationMailboxId: message.mailboxId,
+			filterId: FILTER_ID,
+		});
+		assert.deepEqual(message.spamVerdict, { state: "NotChecked" });
+		assert.equal(message.spamCleared, false);
+		assert.deepEqual(message.labels, []);
 	});
 });
