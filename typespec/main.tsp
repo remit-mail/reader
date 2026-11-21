@@ -166,12 +166,13 @@ namespace RemitApi {
 
   @route("/people")
   namespace PeopleOperations {
-    @doc("List everyone who signs in to this instance, ordered by email. Self-host only, and absent (404) while self sign-up is open.")
+    @doc("List everyone who signs in to this instance, ordered by email. Operator-only on a hosted instance, and absent (404) while self sign-up is open.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     op listPeople():
       | PeopleListResponse
       | UnauthorizedError
+      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
@@ -220,28 +221,30 @@ namespace RemitApi {
       | NotFoundError
       | StepUpLockedError;
 
-    @doc("Sign the person out of every browser session and MCP connection. Needs a `SignOut` step-up for this person. A JWT already minted works until it expires, at most 15 minutes.")
+    @doc("Sign the person out of every browser session and MCP connection. Self-host browser sessions need a `SignOut` step-up for this person; a hosted operator grant does not. A JWT already minted works until it expires, at most 15 minutes.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/{userId}/sign-out")
     op signOutPerson(@path userId: string, @body body: SignOutPersonInput):
       | Person
       | UnauthorizedError
+      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
-    @doc("Disable or enable the person. Needs a `Disable` or `Enable` step-up for this person. Refused with 409 `cannot_disable_self` when the caller disables themselves.")
+    @doc("Disable or enable the person. Self-host browser sessions need a `Disable` or `Enable` step-up for this person; a hosted operator grant does not. Refused with 409 `cannot_disable_self` when the caller disables themselves.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: false })
     @route("/{userId}")
     op updatePerson(@path userId: string, @body body: UpdatePersonInput):
       | Person
       | UnauthorizedError
+      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError
       | CannotDisableSelfError;
 
-    @doc("Issue a single-use password reset link for the person, valid 24 hours. Needs a `ResetPassword` step-up for this person. The person's old password stops working and their sessions are revoked.")
+    @doc("Issue a single-use password reset link for the person, valid 24 hours. Self-host browser sessions need a `ResetPassword` step-up for this person; a hosted operator grant does not. The person's old password stops working and their sessions are revoked.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/{userId}/password-reset")
@@ -251,6 +254,7 @@ namespace RemitApi {
     ):
       | PasswordResetResponse
       | UnauthorizedError
+      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
