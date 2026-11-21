@@ -4,14 +4,12 @@ import type {
 	BulkUpdateFlagsInput,
 	EnvelopeAddressResponse,
 	EnvelopeResponse,
-	RawMessageResponse,
 	UpdateFlagsInput,
 	UpdateMessageLabelsInput,
 } from "@remit/api-openapi-types";
 import type { MailboxItem } from "@remit/data-ports";
 import {
 	ForbiddenError,
-	MessagePlacementUnsettledError,
 	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
 import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
@@ -20,7 +18,6 @@ import {
 	MediaType,
 	MessageCategory,
 	SenderTrust,
-	type StarColor,
 } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import {
@@ -30,8 +27,6 @@ import {
 	MailboxCursorPausedError,
 	materializeBodyParts,
 	moveMessagesTo,
-	type NeverSpamGrant,
-	NoJunkMailboxError,
 	ownedMessages,
 	resolveFolderPlacement,
 	settledFolder,
@@ -48,8 +43,14 @@ import {
 } from "../derive/contentSignature.js";
 import { buildContentUrl } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
-import type { RemitClient } from "../service/data-client.js";
-import { requestNeverSpamBackApply } from "../service/never-spam.js";
+import {
+	getRawMessageFor,
+	notSpamFor,
+	reportSpamFor,
+	updateFlagsFor,
+	updateMessageFlagsFor,
+	updateMessageLabelsFor,
+} from "../service/mail-action-operations.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -59,7 +60,10 @@ import type {
 	OperationHandler,
 } from "../types.js";
 
-type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
+export {
+	GENERIC_FAILURE_REASON,
+	settleSpamReportBulk,
+} from "../service/mail-action-operations.js";
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
@@ -188,302 +192,6 @@ export const buildBodyPartResponses = (
 			sign: context.sign,
 		}),
 	}));
-};
-
-export interface SpamReportBulkFailure {
-	messageId: string;
-	reason: string;
-}
-
-export interface SpamReportBulkOutcome {
-	successCount: number;
-	failureCount: number;
-	failures?: SpamReportBulkFailure[];
-}
-
-/**
- * The fallback for a failure nobody designed copy for — an AWS SDK message
- * naming a queue URL, an `ECONNREFUSED host:port`, a programmer error.
- * Everything reaching it is flattened, same policy as `error.ts`'s "Internal
- * server error" flattening, because `SpamReportBulkResult.reason` is shown to
- * the user as-is. It says "try again" because retrying is the only thing left
- * to say about a cause we cannot name; an outcome the service DOES understand
- * carries its own text through `DESIGNED_FAILURES` instead of landing here.
- */
-export const GENERIC_FAILURE_REASON =
-	"This message could not be processed. Please try again. If it keeps failing, report it.";
-
-/**
- * The designed, user-facing outcomes whose own message is returned verbatim:
- * each names what happened and what the user can do about it, which the
- * generic text cannot.
- */
-const DESIGNED_FAILURES = [NoJunkMailboxError, MessagePlacementUnsettledError];
-
-const isDesignedFailure = (reason: unknown): reason is Error =>
-	DESIGNED_FAILURES.some((designed) => reason instanceof designed);
-
-/**
- * The placement refusal is the one designed outcome whose own message is not
- * the text to ship: it names a uuid and no remedy. One remedy answers it, and
- * only one refusal reaches it — a mutation still in flight, which settles on
- * its own (imap-mutations R3). Worded here, the way the delete path words the
- * same refusal for the client.
- */
-const placementRefusalReason = (
-	_error: MessagePlacementUnsettledError,
-): string =>
-	"This message is still being moved on the mail server. Try again in a moment.";
-
-const failureReason = (reason: unknown): string => {
-	if (!isDesignedFailure(reason)) return GENERIC_FAILURE_REASON;
-	if (reason instanceof MessagePlacementUnsettledError)
-		return placementRefusalReason(reason);
-	return reason.message;
-};
-
-/**
- * Drive one report-spam/not-spam operation per message, concurrently. Each
- * message's own wait for its move to settle (SpamReportService's R2 wait) is
- * bounded on its own, but running the batch sequentially would let those
- * waits accumulate across the whole request — 50 messages could each wait
- * seconds, serializing into minutes and dying at the proxy. Running them
- * concurrently instead bounds the whole request by a single message's wait,
- * regardless of batch size.
- */
-export const settleSpamReportBulk = async (
-	messageIds: string[],
-	run: (messageId: string) => Promise<void>,
-): Promise<SpamReportBulkOutcome> => {
-	const results = await Promise.allSettled(
-		messageIds.map((messageId) => run(messageId)),
-	);
-
-	let successCount = 0;
-	const failures: SpamReportBulkFailure[] = [];
-	results.forEach((result, index) => {
-		if (result.status === "fulfilled") {
-			successCount += 1;
-			return;
-		}
-		const messageId = messageIds[index];
-		failures.push({ messageId, reason: failureReason(result.reason) });
-		logger.error(
-			{ messageId, error: result.reason },
-			"spam-report bulk operation failed for one message",
-		);
-	});
-
-	return {
-		successCount,
-		failureCount: failures.length,
-		...(failures.length > 0 ? { failures } : {}),
-	};
-};
-
-export const getRawMessageFor = async (
-	client: RemitClient<"sync" | "messageManagement">,
-	accountConfigId: string,
-	messageId: string,
-): Promise<RawMessageResponse> => {
-	const accountId = unwrap(
-		await ownedMessages(client, [messageId], accountConfigId, "read"),
-	);
-	const message = await client.message.get(messageId);
-
-	if (!message.bodyStorageKey) {
-		const mailbox = await client.mailbox.get(accountId, message.mailboxId);
-		if (isCursorRebuildNeeded(mailbox.cursorState)) {
-			logger.debug(
-				{
-					accountId,
-					mailboxId: mailbox.mailboxId,
-					messageId,
-					cursorState: mailbox.cursorState,
-				},
-				"Mailbox cursor not normal; skipping IMAP body backfill for this request",
-			);
-		} else {
-			const folder = {
-				mailboxId: mailbox.mailboxId,
-				fullPath: mailbox.fullPath,
-				initialSyncCompletedAt: mailbox.initialSyncCompletedAt,
-				createdAt: mailbox.createdAt,
-				placement: await resolveFolderPlacement(
-					client.mailboxSpecialUse,
-					accountId,
-					mailbox.mailboxId,
-				),
-			};
-			const scope = await client.createConnectionScope(accountId);
-			const connection = guardConnectionCursor(
-				await scope.getConnection(),
-				{ mailboxService: client.mailbox },
-				accountId,
-				mailbox,
-			);
-			await client.bodySync
-				.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
-					Promise.resolve(connection),
-				)
-				.catch((error: unknown) => {
-					if (error instanceof MailboxCursorPausedError) {
-						logger.debug(
-							{
-								accountId,
-								mailboxId: mailbox.mailboxId,
-								messageId,
-								cursorState: error.state,
-							},
-							"Mailbox cursor not normal; skipping IMAP body backfill for this request",
-						);
-						return;
-					}
-					throw error;
-				})
-				.finally(() => scope.disconnect());
-		}
-	}
-
-	const stored = await client.message.get(messageId);
-	if (!stored.bodyStorageKey) {
-		throw new Error(
-			`Raw source unavailable for message ${messageId}: no bodyStorageKey after backfill`,
-		);
-	}
-
-	return {
-		raw: decodeRawEml(await client.storage.retrieve(stored.bodyStorageKey)),
-	};
-};
-
-export const updateMessageFlagsFor = async (
-	client: RemitClient<"sync">,
-	accountConfigId: string,
-	messageId: string,
-	input: UpdateFlagsInput,
-) => {
-	const accountId = unwrap(
-		await ownedMessages(client, [messageId], accountConfigId, "act"),
-	);
-	const result = await client.flagQueue.updateFlags(
-		accountConfigId,
-		messageId,
-		accountId,
-		{
-			isRead: input.isRead,
-			isStarred: input.isStarred,
-			starColor: input.starColor as StarColorValue | undefined,
-		},
-	);
-	return {
-		messageId: result.messageId,
-		isRead: result.isRead,
-		isStarred: result.isStarred,
-	};
-};
-
-export const updateFlagsFor = async (
-	client: RemitClient<"sync">,
-	accountConfigId: string,
-	input: BulkUpdateFlagsInput,
-) => {
-	const { messageIds } = input;
-	if (messageIds.length === 0) return { successCount: 0, failureCount: 0 };
-	const accountId = unwrap(
-		await ownedMessages(client, messageIds, accountConfigId, "act"),
-	);
-	for (const messageId of messageIds) {
-		await client.flagQueue.updateFlags(accountConfigId, messageId, accountId, {
-			isRead: input.isRead,
-			isStarred: input.isStarred,
-			starColor: input.starColor as StarColorValue | undefined,
-		});
-	}
-	return { successCount: messageIds.length, failureCount: 0 };
-};
-
-export const updateMessageLabelsFor = async (
-	client: RemitClient<never>,
-	accountConfigId: string,
-	input: UpdateMessageLabelsInput,
-) => {
-	const { messageIds, labelId, action } = input;
-	if (messageIds.length === 0) return { successCount: 0, failureCount: 0 };
-	unwrap(await ownedMessages(client, messageIds, accountConfigId, "act"));
-	await client.label.get(accountConfigId, labelId);
-	for (const messageId of messageIds) {
-		if (action === "Apply") {
-			await client.messageLabel.apply({ accountConfigId, messageId, labelId });
-		} else {
-			await client.messageLabel.remove(messageId, labelId);
-		}
-	}
-	return { successCount: messageIds.length, failureCount: 0 };
-};
-
-export const reportSpamFor = async (
-	client: RemitClient<"sync">,
-	accountConfigId: string,
-	setBy: string,
-	input: BulkMessageInput,
-) => {
-	const messageIds = [...new Set(input.messageIds)];
-	if (messageIds.length === 0) return { successCount: 0, failureCount: 0 };
-	const accountId = unwrap(
-		await ownedMessages(client, messageIds, accountConfigId, "act"),
-	);
-	return settleSpamReportBulk(messageIds, (messageId) =>
-		client.spamReport.reportSpam({
-			accountConfigId,
-			accountId,
-			messageId,
-			setBy,
-		}),
-	);
-};
-
-export const notSpamFor = async (
-	client: RemitClient<"sync" | "accountFanout">,
-	accountConfigId: string,
-	setBy: string,
-	input: BulkMessageInput,
-) => {
-	const messageIds = [...new Set(input.messageIds)];
-	if (messageIds.length === 0) return { successCount: 0, failureCount: 0 };
-	const accountId = unwrap(
-		await ownedMessages(client, messageIds, accountConfigId, "act"),
-	);
-	const grants = new Map<string, NeverSpamGrant>();
-	const outcome = await settleSpamReportBulk(messageIds, async (messageId) => {
-		const grant = await client.spamReport.notSpam({
-			accountConfigId,
-			accountId,
-			messageId,
-			setBy,
-		});
-		if (grant) grants.set(grant.addressId, grant);
-	});
-	const unstarted: { grant: NeverSpamGrant; cause: unknown }[] = [];
-	await Promise.all(
-		[...grants.values()].map((grant) =>
-			requestNeverSpamBackApply(client.queues.accountFanout, grant).catch(
-				(cause: unknown) => {
-					unstarted.push({ grant, cause });
-				},
-			),
-		),
-	);
-	if (unstarted.length > 0) {
-		const senders = unstarted
-			.map(({ grant }) => grant.normalizedEmail)
-			.join(", ");
-		throw new Error(
-			`Never spam is saved for ${senders}, but their other mail in Spam did not move. Press Not spam again, or turn never spam on from the sender's settings, to retry.`,
-			{ cause: unstarted.map(({ cause }) => cause) },
-		);
-	}
-	return outcome;
 };
 
 export const MessageOperations = {

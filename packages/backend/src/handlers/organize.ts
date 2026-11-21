@@ -4,11 +4,7 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
-import {
-	FILTER_NO_ACTION,
-	filterRuleFromClauses,
-	isListPosition,
-} from "@remit/data-ports";
+import { FILTER_NO_ACTION, isListPosition } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger";
 import {
@@ -19,12 +15,10 @@ import {
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
 import {
-	buildOrganizeMatchDeps,
-	matchOrganize,
-	ORGANIZE_MATCH_LIMIT,
-	type OrganizePredicate,
-	organizePredicateRejection,
-} from "../service/organize.js";
+	predicateFromInput,
+	previewOrganizeFor,
+} from "../service/mail-action-operations.js";
+import { organizePredicateRejection } from "../service/organize.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -34,20 +28,7 @@ import type {
 	OrganizeOperationIds,
 } from "../types.js";
 
-/**
- * Normalize the request body into the flattened predicate the job row and the
- * matcher share.
- */
-export const predicateFromInput = (
-	input: OrganizeInput,
-): OrganizePredicate => ({
-	rule: filterRuleFromClauses({
-		matchOperator: input.matchOperator,
-		literalClauses: input.literalClauses,
-	}),
-	actionLabelId: input.actionLabelId,
-	actionMailboxId: input.actionMailboxId,
-});
+export { predicateFromInput } from "../service/mail-action-operations.js";
 
 const assertAccount = async (
 	client: RemitClient<never>,
@@ -57,33 +38,6 @@ const assertAccount = async (
 ): Promise<void> => {
 	const account = await client.account.get(accountId);
 	unwrap(ownedAccount(account, accountConfigId, mode));
-};
-
-export const previewOrganizeFor = async (
-	client: RemitClient<never>,
-	accountConfigId: string,
-	accountId: string,
-	input: OrganizeInput,
-): Promise<OrganizePreviewResponse> => {
-	await assertAccount(client, accountId, accountConfigId, "read");
-
-	if (input.filterId) {
-		throw new BadRequestError(
-			"Preview takes a rule, not a saved filter. Run the filter to apply it.",
-		);
-	}
-	const result = await matchOrganize(
-		buildOrganizeMatchDeps(client),
-		accountConfigId,
-		predicateFromInput(input),
-		ORGANIZE_MATCH_LIMIT,
-	);
-	if (result.rejected) throw new BadRequestError(result.rejected.message);
-
-	return {
-		matchedCount: result.messageIds.length,
-		messageIds: result.messageIds,
-	};
 };
 
 const toOrganizeJobResponse = (

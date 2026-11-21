@@ -21,6 +21,7 @@ import {
 } from "../derive/pendingMoveCounts.js";
 import type { RemitClient } from "../service/data-client.js";
 import { deleteFolder } from "../service/folder-delete.js";
+import { emptyTrashFor } from "../service/mail-action-operations.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -338,16 +339,6 @@ export const MailboxDetailOperations = {
 	MailboxDetailOperationIds,
 	OperationHandler<MailboxDetailOperationIds, QueueName>
 >;
-
-export const emptyTrashFor = async (
-	client: RemitClient<"sync">,
-	accountConfigId: string,
-	accountId: string,
-) => {
-	const account = await client.account.get(accountId);
-	unwrap(ownedAccount(account, accountConfigId, "act"));
-	return client.messageMove.emptyTrash(accountConfigId, accountId);
-};
 
 export const TrashOperations = {
 	TrashOperations_emptyTrash: async (context, ctx: HandlerContext<"sync">) => {

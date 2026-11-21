@@ -37,6 +37,7 @@ const messageId = BulkMessageInputSchema.shape.messageIds.element;
 const addressId = AddressResponseSchema.shape.addressId;
 const labelId = LabelResponseSchema.shape.labelId;
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
+const READ_EXTERNAL = { readOnlyHint: true, openWorldHint: true } as const;
 const WRITE = {
 	readOnlyHint: false,
 	destructiveHint: false,
@@ -54,7 +55,7 @@ export const registerMailActionReadTools = (
 		"get_raw_message",
 		{
 			description: "Get the raw RFC822/MIME source of a message.",
-			annotations: READ_ONLY,
+			annotations: READ_EXTERNAL,
 			inputSchema: { messageId },
 		},
 		async ({ messageId }) =>
