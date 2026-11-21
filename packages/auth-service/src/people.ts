@@ -1,13 +1,15 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type {
+	PeopleAuditEvent,
 	Person,
+	PersonInviteResponse,
 	PersonStatus,
 	StepUpAction,
 } from "@remit/api-openapi-types";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import { calendarFeedTokens } from "@remit/drizzle-sqlite-schema";
-import { and, asc, count, eq, gt, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, lte, sql } from "drizzle-orm";
 import type { Auth } from "./auth.js";
 import {
 	applySignInSwitch,
@@ -26,7 +28,13 @@ import {
 	identity_step_up,
 } from "./schema/auth-schema-sqlite.js";
 
-export type { Person, PersonStatus, StepUpAction };
+export type {
+	PeopleAuditEvent,
+	Person,
+	PersonInviteResponse,
+	PersonStatus,
+	StepUpAction,
+};
 
 export interface StepUpGrant {
 	stepUpToken: string;
@@ -56,9 +64,16 @@ export interface PeopleRequest {
 	clientIp: string;
 }
 
-export interface TargetedRequest extends PeopleRequest {
+export interface PersonRequest extends PeopleRequest {
 	targetId: string;
-	stepUpToken: string;
+}
+
+export interface TargetedRequest extends PersonRequest {
+	stepUpToken: string | null;
+}
+
+export interface InviteRequest extends PeopleRequest {
+	email: string;
 }
 
 export interface StepUpRequest extends PeopleRequest {
@@ -71,6 +86,14 @@ export type GuardRefusal = "RefusedSignInOff" | "RefusedForeignOrigin";
 
 export interface PeopleDirectory {
 	listPeople(request: PeopleRequest): Promise<PeopleOutcome<Person[]>>;
+	listAudit(request: PeopleRequest): Promise<PeopleOutcome<PeopleAuditEvent[]>>;
+	invitePerson(
+		request: InviteRequest,
+	): Promise<PeopleOutcome<PersonInviteResponse>>;
+	revokeInvite(
+		request: InviteRequest,
+	): Promise<PeopleOutcome<PersonInviteResponse>>;
+	resetPersonFactors(request: PersonRequest): Promise<PeopleOutcome<Person>>;
 	createStepUp(request: StepUpRequest): Promise<PeopleOutcome<StepUpGrant>>;
 	signOutPerson(request: TargetedRequest): Promise<PeopleOutcome<Person>>;
 	updatePerson(
@@ -196,19 +219,22 @@ const stepUpRefusal = (
 	request: TargetedRequest,
 	action: StepUpAction,
 ): Refused | undefined => {
-	const spent = store.db
-		.delete(identity_step_up)
-		.where(
-			and(
-				eq(identity_step_up.digest, digestOf(request.stepUpToken)),
-				eq(identity_step_up.callerUserId, request.callerId),
-				eq(identity_step_up.action, action),
-				eq(identity_step_up.targetUserId, request.targetId),
-				gt(identity_step_up.expiresAt, new Date()),
-			),
-		)
-		.returning({ digest: identity_step_up.digest })
-		.all();
+	const spent =
+		request.stepUpToken === null
+			? []
+			: store.db
+					.delete(identity_step_up)
+					.where(
+						and(
+							eq(identity_step_up.digest, digestOf(request.stepUpToken)),
+							eq(identity_step_up.callerUserId, request.callerId),
+							eq(identity_step_up.action, action),
+							eq(identity_step_up.targetUserId, request.targetId),
+							gt(identity_step_up.expiresAt, new Date()),
+						),
+					)
+					.returning({ digest: identity_step_up.digest })
+					.all();
 	if (spent.length === 1) return undefined;
 	store.audit({
 		actor: request.callerId,
@@ -394,6 +420,29 @@ export const createPeopleDirectory = async (
 					users.map((user) => toPerson(user, request.callerId, sessions)),
 				);
 			}),
+
+		listAudit: async (request) =>
+			store.immediate(() => {
+				const callerRefused = callerRefusal(store, request, "all");
+				if (callerRefused) return callerRefused;
+				return ok(
+					store.db
+						.select()
+						.from(identity_audit_event)
+						.orderBy(desc(identity_audit_event.occurredAt))
+						.all()
+						.map((event) => ({
+							...event,
+							occurredAt: event.occurredAt.getTime(),
+						})),
+				);
+			}),
+
+		invitePerson: async () => refused("not_found"),
+
+		revokeInvite: async () => refused("not_found"),
+
+		resetPersonFactors: async () => refused("not_found"),
 
 		createStepUp: async (request) => {
 			const attempt = reserveAttempt(request);

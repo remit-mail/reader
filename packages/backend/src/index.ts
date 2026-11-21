@@ -28,6 +28,7 @@ export const handleApiEvent = createApiEventHandler(
 		config: configFromEnv(process.env),
 		localIdentity: localIdentityFromEnv(process.env),
 		client: getClient,
+		peopleDirectory: async () => null,
 	},
 );
 

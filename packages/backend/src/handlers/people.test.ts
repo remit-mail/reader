@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { requestValidators } from "@remit/api-openapi-spec/request-validators";
 import {
 	type Auth,
 	createAuth,
 	createPeopleDirectory,
 	openIdentityStore,
 	type PeopleAdmin,
+	type PeopleDirectory,
 } from "@remit/auth-service";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { SqliteValue } from "@remit/drizzle-service/sqlite";
@@ -18,7 +20,6 @@ import type { Context } from "openapi-backend";
 import type { ApiConfig } from "../config/api-config.js";
 import { testApiConfig, testSelfHostAuth } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
-import { setPeopleDirectory } from "../service/people-directory.js";
 import type { HandlerContext } from "../types.js";
 import { PeopleOperations } from "./people.js";
 
@@ -40,6 +41,8 @@ const closedConfig: ApiConfig = testApiConfig({
 	auth: testSelfHostAuth({ selfSignUp: "Disabled" }),
 	corsAllowedOrigins: [ORIGIN],
 });
+
+const hostedConfig = testApiConfig({ corsAllowedOrigins: [ORIGIN] });
 
 const openApp = () => openSqlite({ filename, mode: "open" });
 
@@ -65,9 +68,16 @@ const signUp = async (email: string): Promise<string> => {
 	return ((await response.json()) as { user: { id: string } }).user.id;
 };
 
-const callerOf = (sub: string, config = closedConfig): HandlerContext => ({
+const callerOf = (
+	sub: string,
+	config = closedConfig,
+	operator = true,
+	directory: PeopleDirectory = people,
+): HandlerContext => ({
 	client: {} as RemitClient,
 	config,
+	operator,
+	peopleDirectory: directory,
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(sub),
@@ -80,12 +90,19 @@ const contextOf = (
 	params: Record<string, string>,
 	requestBody: unknown,
 	origin = ORIGIN,
+	stepUpToken?: string,
 ): Context =>
 	({
 		request: {
 			params,
 			requestBody,
-			headers: { origin, "x-remit-client-ip": PEER },
+			headers: {
+				origin,
+				"x-remit-client-ip": PEER,
+				...(stepUpToken === undefined
+					? {}
+					: { "x-remit-step-up": stepUpToken }),
+			},
 		},
 	}) as unknown as Context;
 
@@ -107,6 +124,30 @@ const listPeople = (caller: string, config = closedConfig) =>
 	PeopleOperations.PeopleOperations_listPeople(
 		contextOf({}, undefined),
 		callerOf(caller, config),
+	);
+
+const listAudit = (caller: string, operator = true, config = closedConfig) =>
+	PeopleOperations.PeopleOperations_listAudit(
+		contextOf({}, undefined),
+		callerOf(caller, config, operator),
+	);
+
+const invite = (caller: string, email: string, operator = true) =>
+	PeopleOperations.PeopleOperations_invitePerson(
+		contextOf({}, { email }),
+		callerOf(caller, closedConfig, operator),
+	);
+
+const revokeInvite = (caller: string, email: string, operator = true) =>
+	PeopleOperations.PeopleOperations_revokeInvite(
+		contextOf({ email }, undefined),
+		callerOf(caller, closedConfig, operator),
+	);
+
+const resetFactors = (caller: string, userId: string, operator = true) =>
+	PeopleOperations.PeopleOperations_resetPersonFactors(
+		contextOf({ userId }, undefined),
+		callerOf(caller, closedConfig, operator),
 	);
 
 const createStepUp = (
@@ -139,7 +180,7 @@ const signOut = (
 	origin = ORIGIN,
 ) =>
 	PeopleOperations.PeopleOperations_signOutPerson(
-		contextOf({ userId }, { stepUpToken: token }, origin),
+		contextOf({ userId }, undefined, origin, token),
 		callerOf(caller, config),
 	);
 
@@ -151,7 +192,7 @@ const update = (
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_updatePerson(
-		contextOf({ userId }, { status, stepUpToken: token }),
+		contextOf({ userId }, { status }, ORIGIN, token),
 		callerOf(caller, config),
 	);
 
@@ -162,7 +203,7 @@ const reset = (
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_createPasswordReset(
-		contextOf({ userId }, { stepUpToken: token }),
+		contextOf({ userId }, undefined, ORIGIN, token),
 		callerOf(caller, config),
 	);
 
@@ -205,11 +246,9 @@ before(async () => {
 		store,
 		baseURL: ORIGIN,
 	});
-	setPeopleDirectory(people);
 });
 
 after(() => {
-	setPeopleDirectory(null);
 	people.close();
 	rmSync(dir, { recursive: true, force: true });
 });
@@ -232,6 +271,7 @@ describe("the People operations", () => {
 		});
 		const answers = [
 			await listPeople(alice, open),
+			await listAudit(alice, true, open),
 			await createStepUp(alice, bob, "SignOut", PASSWORD, open),
 			await signOut(alice, bob, "token", open),
 			await update(alice, bob, "Disabled", "token", open),
@@ -239,6 +279,96 @@ describe("the People operations", () => {
 		];
 		for (const answer of answers) {
 			assert.deepEqual(refusalOf(answer), [404, "not_found"]);
+		}
+	});
+
+	it("expose each new action only to operators and only where supported", async () => {
+		const actions = [
+			() => listAudit(alice),
+			() => invite(alice, "invitee@remit.test"),
+			() => revokeInvite(alice, "invitee@remit.test"),
+			() => resetFactors(alice, carol),
+		];
+		const [audit, ...unsupported] = await Promise.all(
+			actions.map((action) => action()),
+		);
+		assert.ok(
+			Array.isArray((audit as { events: unknown[] }).events),
+			JSON.stringify(audit),
+		);
+		for (const answer of unsupported) {
+			assert.deepEqual(refusalOf(answer), [404, "not_found"]);
+		}
+		for (const action of [
+			() => listAudit(alice, false),
+			() => invite(alice, "invitee@remit.test", false),
+			() => revokeInvite(alice, "invitee@remit.test", false),
+			() => resetFactors(alice, carol, false),
+		]) {
+			await assert.rejects(action, /Operator access required/);
+		}
+	});
+
+	it("let a hosted operator act without a step-up", async () => {
+		for (const [operation, body] of [
+			["PeopleOperations_signOutPerson", undefined],
+			["PeopleOperations_updatePerson", { status: "Disabled" }],
+			["PeopleOperations_createPasswordReset", undefined],
+		] as const) {
+			const validate = requestValidators[operation]?.[0];
+			assert.ok(validate);
+			assert.equal(
+				validate({
+					path: { userId: carol },
+					header: {},
+					...(body === undefined ? {} : { requestBody: body }),
+				}),
+				true,
+				JSON.stringify(validate.errors),
+			);
+		}
+		const person = {
+			userId: carol,
+			email: "carol@remit.test",
+			createdAt: 0,
+			lastSignInAt: 0,
+			sessionCount: 0,
+			status: "Active" as const,
+			isCaller: false,
+		};
+		const withoutStepUp = (stepUpToken: string | null) => {
+			assert.equal(stepUpToken, null);
+			return { ok: true as const, value: person };
+		};
+		const hostedDirectory: PeopleDirectory = {
+			...people,
+			signOutPerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
+			updatePerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
+			createPasswordReset: async ({ stepUpToken }) => ({
+				ok: true,
+				value: {
+					person: withoutStepUp(stepUpToken).value,
+					resetUrl: "https://login.remit.test/reset",
+					expiresAt: 1,
+				},
+			}),
+		};
+		const caller = callerOf(alice, hostedConfig, true, hostedDirectory);
+		for (const answer of [
+			await PeopleOperations.PeopleOperations_signOutPerson(
+				contextOf({ userId: carol }, undefined),
+				caller,
+			),
+			await PeopleOperations.PeopleOperations_updatePerson(
+				contextOf({ userId: carol }, { status: "Disabled" }),
+				caller,
+			),
+			await PeopleOperations.PeopleOperations_createPasswordReset(
+				contextOf({ userId: carol }, undefined),
+				caller,
+			),
+		]) {
+			assert.equal(refusalOf(answer), undefined);
 		}
 	});
 

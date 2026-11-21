@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { PeopleDirectory } from "@remit/auth-service/people";
 import { logger } from "@remit/logger";
 import {
 	metricsContentType,
@@ -7,7 +8,7 @@ import {
 	renderMetrics,
 	setAccountSyncAges,
 } from "@remit/logger-lambda/metrics";
-import { installNodeLogger } from "@remit/logger-lambda/node";
+import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import {
 	isStorageNotFoundError,
 	UPLOAD_ROUTE_PREFIX,
@@ -19,10 +20,14 @@ import express, {
 	type Request,
 	type Response,
 } from "express";
-import { handler, OpenAPISpec } from "../src/index.js";
+import { OpenAPISpec } from "../src/api.js";
+import { localIdentityFromEnv } from "../src/auth.js";
+import { configFromEnv } from "../src/config/from-env.js";
+import { handlers, publicHandlers } from "../src/handlers/index.js";
 import { safeJsonParse } from "../src/json.js";
+import { createApiEventHandler } from "../src/lambda.js";
+import { serveApi } from "../src/serve.js";
 import { getClient } from "../src/service/data-client.js";
-import { setPeopleDirectory } from "../src/service/people-directory.js";
 import { authorizeContentRequest } from "./content-auth.js";
 import { serveContent } from "./content-handler.js";
 import { resolveContentPath } from "./content-path.js";
@@ -35,6 +40,15 @@ import { receiveUpload } from "./upload-handler.js";
 installNodeLogger();
 
 const app = express();
+let peopleDirectory: PeopleDirectory | null = null;
+const handler = withTelemetry(
+	createApiEventHandler(serveApi({ handlers, publicHandlers }), {
+		config: configFromEnv(process.env),
+		localIdentity: localIdentityFromEnv(process.env),
+		client: getClient,
+		peopleDirectory: async () => peopleDirectory,
+	}),
+);
 
 // The self-host relational backend runs better-auth and the APISIX edge; the
 // AWS-local (DynamoDB) dev path runs neither. Everything gated on "not the
@@ -120,7 +134,7 @@ if (isSelfHostBackend) {
 		baseURL: authConfig.baseURL,
 	});
 	people.applySignInSwitch(authConfig.signInEnabled);
-	setPeopleDirectory(people);
+	peopleDirectory = people;
 	app.all(/^\/api\/auth\//, toNodeHandler(withRateLimitLogging(auth)));
 }
 
@@ -142,7 +156,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 	);
 	res.header(
 		"Access-Control-Allow-Headers",
-		"Origin, X-Requested-With, Content-Type, Accept, Authorization",
+		"Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Remit-Step-Up",
 	);
 
 	if (req.method === "OPTIONS") {

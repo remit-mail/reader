@@ -106,7 +106,7 @@ export function openTestSqlite(logger?: Logger): SqliteHandle {
 		filename: ":memory:",
 		mode: "create",
 		synchronous: "OFF",
-		logger,
+		...(logger && { logger }),
 	});
 }
 

@@ -310,3 +310,24 @@ describe("a password reset link", () => {
 		assert.equal((await redeem(newerToken)).status, 200);
 	});
 });
+
+describe("the remaining People administration capabilities", () => {
+	it("lists retained audit events and leaves unsupported capabilities absent", async () => {
+		const request = { callerId: operatorId, clientIp: PEER };
+		const audit = await people.listAudit(request);
+		assert.ok(audit.ok, JSON.stringify(audit));
+		assert.ok(audit.value.length > 0);
+		const newest = audit.value[0];
+		const oldest = audit.value.at(-1);
+		assert.ok(newest && oldest);
+		assert.ok(newest.occurredAt >= oldest.occurredAt);
+
+		for (const outcome of [
+			await people.invitePerson({ ...request, email: "invitee@remit.test" }),
+			await people.revokeInvite({ ...request, email: "invitee@remit.test" }),
+			await people.resetPersonFactors({ ...request, targetId: operatorId }),
+		]) {
+			assert.deepEqual(outcome, { ok: false, refusal: "not_found" });
+		}
+	});
+});

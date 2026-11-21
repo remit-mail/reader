@@ -11,7 +11,7 @@ enum PersonStatus {
   Disabled,
 }
 
-@doc("One person who signs in to this self-hosted instance.")
+@doc("One person who signs in to this instance.")
 model Person {
   @doc("The person's user id.")
   userId: string;
@@ -67,20 +67,9 @@ model StepUpResponse {
   expiresAt: int64;
 }
 
-@doc("Sign the person out of every browser session and MCP connection.")
-model SignOutPersonInput {
-  stepUpToken: string;
-}
-
 @doc("Disable or enable the person. Disabling also revokes their sessions, MCP grants and calendar feeds.")
 model UpdatePersonInput {
   status: PersonStatus;
-  stepUpToken: string;
-}
-
-@doc("Issue a password reset link for the person. Their old password stops working and their sessions are revoked.")
-model CreatePasswordResetInput {
-  stepUpToken: string;
 }
 
 @doc("The person, and the reset link to hand them. The link is shown once and works once.")
@@ -94,6 +83,32 @@ model PasswordResetResponse {
   expiresAt: int64;
 }
 
+@doc("Invite one email address to create an account.")
+model InvitePersonInput {
+  email: string;
+}
+
+@doc("The email address whose invite was issued or revoked.")
+model PersonInviteResponse {
+  email: string;
+}
+
+@doc("One retained People audit event.")
+model PeopleAuditEvent {
+  auditEventId: string;
+  occurredAt: int64;
+  actor: string;
+  target: string;
+  action: string;
+  outcome: string;
+  clientIp: string;
+}
+
+@doc("Retained People audit events, newest first.")
+model PeopleAuditResponse {
+  events: PeopleAuditEvent[];
+}
+
 @doc("The People operation is refused for the caller.")
 model PeopleForbiddenError {
   @statusCode statusCode: 403;
@@ -103,7 +118,8 @@ model PeopleForbiddenError {
     | PeopleErrorCode.CallerDisabled
     | PeopleErrorCode.ForeignOrigin
     | PeopleErrorCode.StepUpRequired
-    | PeopleErrorCode.WrongPassword;
+    | PeopleErrorCode.WrongPassword
+    | "forbidden";
 }
 
 @doc("Too many wrong step-up passwords.")

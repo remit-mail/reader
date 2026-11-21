@@ -1,3 +1,4 @@
+import type { PeopleDirectory } from "@remit/auth-service/people";
 import { redactCalendarFeedPath } from "@remit/calendar-service";
 import { logger, withLogContext } from "@remit/logger";
 import type { APIGatewayProxyResult } from "aws-lambda";
@@ -38,6 +39,7 @@ export interface RequestHost<K extends QueueName> {
 	client: () => Promise<RemitClient<K>>;
 	identity: () => Promise<HandlerIdentity>;
 	operator: () => Promise<boolean>;
+	peopleDirectory: () => Promise<PeopleDirectory | null>;
 }
 
 /**
@@ -95,6 +97,7 @@ export const serveApi = <K extends QueueName>(
 						client: await host.client(),
 						identity,
 						operator: await host.operator(),
+						peopleDirectory: await host.peopleDirectory(),
 						config: host.config,
 					});
 				},

@@ -1,9 +1,10 @@
 import type {
-	CreatePasswordResetInput,
+	InvitePersonInput,
 	PasswordResetResponse,
+	PeopleAuditResponse,
 	PeopleListResponse,
 	Person,
-	SignOutPersonInput,
+	PersonInviteResponse,
 	StepUpInput,
 	StepUpResponse,
 	UpdatePersonInput,
@@ -13,10 +14,11 @@ import type {
 	PeopleDirectory,
 	PeopleOutcome,
 	PeopleRefusal,
+	TargetedRequest,
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
-import { getPeopleDirectory } from "../service/people-directory.js";
+import { requireOperator } from "../auth.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -84,15 +86,13 @@ const guard = (
 	targetId: string,
 	unsafe: boolean,
 ): Guarded | Refusal => {
-	const directory = getPeopleDirectory();
+	const directory = ctx.peopleDirectory;
 	const { auth } = ctx.config;
-	if (
-		auth.mode !== "BetterAuthJwt" ||
-		auth.selfSignUp === "Enabled" ||
-		!directory
-	) {
+	if (!directory) {
 		return refusalOf("not_found");
 	}
+	if (auth.mode === "GatewayAuthorizer") requireOperator(ctx);
+	else if (auth.selfSignUp === "Enabled") return refusalOf("not_found");
 	const request = {
 		directory,
 		callerId: ctx.identity.sub,
@@ -105,7 +105,7 @@ const guard = (
 		directory.recordRefusal({ ...request, targetId, outcome });
 		return refusalOf(code);
 	};
-	if (auth.signIn === "Disabled") {
+	if (auth.mode === "BetterAuthJwt" && auth.signIn === "Disabled") {
 		return refuseAudited("RefusedSignInOff", PeopleErrorCode.SignInDisabled);
 	}
 	const origin = headerOf(context, "origin");
@@ -128,6 +128,17 @@ const answer = <T>(outcome: PeopleOutcome<T>): T | Refusal =>
 const targetOf = (context: Context): string =>
 	(context.request.params as { userId: string }).userId;
 
+const targetedRequest = (
+	guarded: Guarded,
+	targetId: string,
+	stepUpToken: string | null,
+): TargetedRequest => ({
+	callerId: guarded.callerId,
+	clientIp: guarded.clientIp,
+	targetId,
+	stepUpToken,
+});
+
 export const PeopleOperations: Record<
 	PeopleOperationIds,
 	OperationHandler<PeopleOperationIds>
@@ -142,10 +153,56 @@ export const PeopleOperations: Record<
 		return Array.isArray(listed) ? { people: listed } : listed;
 	},
 
+	PeopleOperations_listAudit: async (
+		context: Context,
+		ctx: HandlerContext,
+	): Promise<PeopleAuditResponse | Refusal> => {
+		requireOperator(ctx);
+		const guarded = guard(context, ctx, "all", false);
+		if (!isGuarded(guarded)) return guarded;
+		const listed = answer(await guarded.directory.listAudit(guarded));
+		return Array.isArray(listed) ? { events: listed } : listed;
+	},
+
+	PeopleOperations_invitePerson: async (
+		context: Context,
+		ctx: HandlerContext,
+	): Promise<PersonInviteResponse | Refusal> => {
+		requireOperator(ctx);
+		const { email } = context.request.requestBody as InvitePersonInput;
+		const guarded = guard(context, ctx, email, true);
+		if (!isGuarded(guarded)) return guarded;
+		return answer(
+			await guarded.directory.invitePerson({
+				callerId: guarded.callerId,
+				clientIp: guarded.clientIp,
+				email,
+			}),
+		);
+	},
+
+	PeopleOperations_revokeInvite: async (
+		context: Context,
+		ctx: HandlerContext,
+	): Promise<PersonInviteResponse | Refusal> => {
+		requireOperator(ctx);
+		const { email } = context.request.params as { email: string };
+		const guarded = guard(context, ctx, email, true);
+		if (!isGuarded(guarded)) return guarded;
+		return answer(
+			await guarded.directory.revokeInvite({
+				callerId: guarded.callerId,
+				clientIp: guarded.clientIp,
+				email,
+			}),
+		);
+	},
+
 	PeopleOperations_createStepUp: async (
 		context: Context,
 		ctx: HandlerContext,
 	): Promise<StepUpResponse | Refusal> => {
+		if (ctx.config.auth.mode !== "BetterAuthJwt") return refusalOf("not_found");
 		const body = context.request.requestBody as StepUpInput;
 		const guarded = guard(context, ctx, body.userId, true);
 		if (!isGuarded(guarded)) return guarded;
@@ -166,13 +223,11 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const { stepUpToken } = context.request.requestBody as SignOutPersonInput;
+		const stepUpToken = headerOf(context, "x-remit-step-up") ?? null;
 		return answer(
-			await guarded.directory.signOutPerson({
-				...guarded,
-				targetId,
-				stepUpToken,
-			}),
+			await guarded.directory.signOutPerson(
+				targetedRequest(guarded, targetId, stepUpToken),
+			),
 		);
 	},
 
@@ -183,13 +238,11 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const { status, stepUpToken } = context.request
-			.requestBody as UpdatePersonInput;
+		const { status } = context.request.requestBody as UpdatePersonInput;
+		const stepUpToken = headerOf(context, "x-remit-step-up") ?? null;
 		return answer(
 			await guarded.directory.updatePerson({
-				...guarded,
-				targetId,
-				stepUpToken,
+				...targetedRequest(guarded, targetId, stepUpToken),
 				status,
 			}),
 		);
@@ -202,13 +255,27 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const { stepUpToken } = context.request
-			.requestBody as CreatePasswordResetInput;
+		const stepUpToken = headerOf(context, "x-remit-step-up") ?? null;
 		return answer(
-			await guarded.directory.createPasswordReset({
-				...guarded,
+			await guarded.directory.createPasswordReset(
+				targetedRequest(guarded, targetId, stepUpToken),
+			),
+		);
+	},
+
+	PeopleOperations_resetPersonFactors: async (
+		context: Context,
+		ctx: HandlerContext,
+	): Promise<Person | Refusal> => {
+		requireOperator(ctx);
+		const targetId = targetOf(context);
+		const guarded = guard(context, ctx, targetId, true);
+		if (!isGuarded(guarded)) return guarded;
+		return answer(
+			await guarded.directory.resetPersonFactors({
+				callerId: guarded.callerId,
+				clientIp: guarded.clientIp,
 				targetId,
-				stepUpToken,
 			}),
 		);
 	},
