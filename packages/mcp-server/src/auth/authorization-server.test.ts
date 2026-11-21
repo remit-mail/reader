@@ -430,6 +430,7 @@ describe("the MCP authorization server", () => {
 			scopes_supported: [
 				"mail:read",
 				"mail:rules",
+				"mail:actions",
 				"mail:send",
 				"account",
 				"calendar",
@@ -897,7 +898,7 @@ describe("device authorization (RFC 8628)", () => {
 		assert.ok([claims.aud].flat().includes(RESOURCE));
 		assert.equal(
 			claims.scope,
-			"mail:read mail:rules mail:send account calendar",
+			"mail:read mail:rules mail:actions mail:send account calendar",
 		);
 		assert.equal(claims.exp - claims.iat, DEVICE_TOKEN_TTL_SECONDS);
 

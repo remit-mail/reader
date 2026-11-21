@@ -1,6 +1,5 @@
 import type {
 	CreateLabelInput as CreateLabelRequestBody,
-	LabelResponse,
 	UpdateLabelInput as UpdateLabelRequestBody,
 } from "@remit/api-openapi-types";
 import type {
@@ -9,17 +8,16 @@ import type {
 	LabelItem,
 	UpdateLabelInput,
 } from "@remit/data-ports";
-import {
-	type LabelFolder,
-	type LabelFolderDeps,
-	labelFoldersFor,
-	ownedAccount,
-} from "@remit/mailbox-service";
+import { labelFoldersFor, ownedAccount } from "@remit/mailbox-service";
 import {
 	deleteLabelWithCascade,
 	findFiltersForLabel,
 } from "../service/label-delete.js";
-import { updateLabelFor } from "../service/label-operations.js";
+import {
+	foldersOf,
+	toLabelResponse,
+	updateLabelFor,
+} from "../service/label-operations.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,
@@ -55,34 +53,6 @@ export interface LabelCrudDeps {
 		removeAllByLabelId(accountConfigId: string, labelId: string): Promise<void>;
 	};
 }
-
-const foldersOf = async (
-	deps: LabelFolderDeps,
-	accountConfigId: string,
-	label: LabelItem,
-): Promise<LabelFolder[]> =>
-	(await labelFoldersFor(deps, accountConfigId, [label])).flatMap(
-		({ folders }) => folders,
-	);
-
-/**
- * `filterCount` and `folders` are computed here, not stored (issue #26) —
- * every other field comes straight off the `LabelItem` row.
- */
-const toLabelResponse = (
-	item: LabelItem,
-	filterCount: number,
-	folders: LabelFolder[],
-): LabelResponse => ({
-	labelId: item.labelId,
-	accountConfigId: item.accountConfigId,
-	name: item.name,
-	color: item.color,
-	filterCount,
-	folders,
-	createdAt: item.createdAt,
-	updatedAt: item.updatedAt,
-});
 
 export const LabelOperations: Record<
 	LabelOperationIds,

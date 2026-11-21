@@ -69,15 +69,6 @@ export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
 
 /**
- * Decode the raw `.eml` bytes into a string for inspection. RFC822/MIME
- * sources are 7-bit/8-bit ASCII-compatible (non-ASCII bytes are encoded via
- * quoted-printable / base64 inside the body), so `latin1` round-trips every
- * byte 1:1 without loss or replacement characters — unlike `utf8`, which would
- * mangle raw 8-bit bytes. Headers and structure stay byte-accurate.
- */
-export const decodeRawEml = (body: Buffer): string => body.toString("latin1");
-
-/**
  * Extract the accountConfigId + accountId segments from a bodyStorageKey URI
  * such as
  * `s3://bucket/accounts/{accountConfigId}/{accountId}/messages/{messageId}/body.eml`.

@@ -47,6 +47,7 @@ export {
 export {
 	describeScopes,
 	MCP_ACCOUNT_SCOPE,
+	MCP_ACTIONS_SCOPE,
 	MCP_CALENDAR_SCOPE,
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,

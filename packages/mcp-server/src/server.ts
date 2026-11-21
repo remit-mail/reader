@@ -8,6 +8,7 @@ import {
 } from "./account-tools.js";
 import {
 	MCP_ACCOUNT_SCOPE,
+	MCP_ACTIONS_SCOPE,
 	MCP_CALENDAR_SCOPE,
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,
@@ -111,6 +112,8 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 		registerMoveTools(server, deps, principal.userId);
 		registerRescanTools(server, deps, deriveAccountConfigId(principal.userId));
 		registerDeleteTools(server, deps, deriveAccountConfigId(principal.userId));
+	}
+	if (principal.scopes.includes(MCP_ACTIONS_SCOPE)) {
 		registerMailActionWriteTools(
 			server,
 			deps,
