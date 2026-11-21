@@ -24,6 +24,10 @@
 		"./json-schema": {
 			"types": "./src/json-schema.ts",
 			"default": "./src/json-schema.ts"
+		},
+		"./version": {
+			"types": "./src/version.ts",
+			"default": "./src/version.ts"
 		}
 	},
 	"scripts": {

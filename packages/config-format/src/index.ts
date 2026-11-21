@@ -1,6 +1,7 @@
 export * from "./document.js";
 export * from "./envelope.js";
 export * from "./errors.js";
+export * from "./fixtures.js";
 export * from "./json-schema.js";
 export * from "./migrations.js";
 export * from "./read.js";

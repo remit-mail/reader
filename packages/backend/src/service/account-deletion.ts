@@ -1,4 +1,4 @@
-import { readConfigDocument } from "@remit/config-format";
+import { readConfigDocument } from "@remit/config-format/read";
 import type {
 	AccountDataPurgeEvent,
 	AccountItem,

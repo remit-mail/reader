@@ -1,15 +1,17 @@
 import {
-	CONFIG_KIND,
 	type ConfigAccount,
 	type ConfigAddressFlags,
 	type ConfigAddressFlagsEntry,
 	type ConfigFilter,
 	type ConfigLabel,
-	CURRENT_SCHEMA_VERSION,
 	type ReaderConfigDocument,
 	ReaderConfigDocumentSchema,
-} from "@remit/config-format";
+} from "@remit/config-format/document";
 import { formatPath } from "@remit/config-format/errors";
+import {
+	CONFIG_KIND,
+	CURRENT_SCHEMA_VERSION,
+} from "@remit/config-format/version";
 import type {
 	AccountItem,
 	AddressFlags,

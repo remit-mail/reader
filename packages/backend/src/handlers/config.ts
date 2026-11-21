@@ -4,7 +4,7 @@ import type {
 	ConfigImportReport,
 	ImportConfigInput,
 } from "@remit/api-openapi-types";
-import type { ReaderConfigDocument } from "@remit/config-format";
+import type { ReaderConfigDocument } from "@remit/config-format/document";
 import {
 	type ConfigExportIdentity,
 	importConfig,
