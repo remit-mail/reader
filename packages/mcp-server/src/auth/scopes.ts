@@ -13,7 +13,8 @@ export const MCP_SCOPES = [
 
 const SCOPE_DESCRIPTIONS: Readonly<Record<string, string>> = {
 	[MCP_READ_SCOPE]: "Read your mail",
-	[MCP_RULES_SCOPE]: "Create and change folders and filters, and move mail",
+	[MCP_RULES_SCOPE]:
+		"Change folders, filters, flags, labels, spam and sender settings, move mail, and permanently empty Trash",
 	[MCP_ACCOUNT_SCOPE]: "Manage your settings, accounts, and configuration",
 	[OFFLINE_ACCESS_SCOPE]: "Stay connected until you disconnect it",
 };

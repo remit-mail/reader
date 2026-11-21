@@ -1,5 +1,7 @@
 import type {
 	AccountResponse,
+	AppointFolderRoleInput,
+	CanonicalMailboxRole,
 	CreateAccountInput,
 	DeleteAccountResponse,
 	TestConnectionInput,
@@ -24,8 +26,10 @@ import {
 	RefreshTokenError,
 } from "@remit/mail-oauth-service";
 import {
+	folderInAccount,
 	ownedAccount,
 	resolveConnectionCredentials,
+	settledFolder,
 	testImapConnection,
 } from "@remit/mailbox-service";
 import {
@@ -52,7 +56,10 @@ import {
 	loadSignatureForAccount,
 	upsertAccountSignature,
 } from "../handlers/account-signature.js";
-import { resolveAccountFolderAppointments } from "../handlers/folder-role-appointments.js";
+import {
+	resolveAccountFolderAppointments,
+	writeFolderRoleAppointment,
+} from "../handlers/folder-role-appointments.js";
 import { deleteAccount } from "./account-deletion.js";
 import type { MailTransports } from "./create-remit-client.js";
 import type { RemitClient } from "./data-client.js";
@@ -61,6 +68,43 @@ import { unwrap } from "./refusal.js";
 import { triggerAccountSync } from "./trigger-sync.js";
 
 export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
+
+export const appointFolderRoleFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	accountId: string,
+	role: CanonicalMailboxRole,
+	input: AppointFolderRoleInput,
+) => {
+	const { account, accountSetting, mailbox } = client;
+	const existing = await account.get(accountId);
+	unwrap(ownedAccount(existing, accountConfigId, "act"));
+	let lastKnownPath: string | undefined;
+	if (input.mailboxId) {
+		const target = await mailbox.get(accountId, input.mailboxId);
+		unwrap(folderInAccount(target, accountId, "act"));
+		unwrap(settledFolder(target));
+		lastKnownPath = target.fullPath;
+	}
+	await writeFolderRoleAppointment(
+		accountSetting,
+		accountConfigId,
+		accountId,
+		role,
+		input.mailboxId ?? null,
+		lastKnownPath,
+	);
+	const [signature, overrides, folderAppointments] = await Promise.all([
+		loadSignatureForAccount(accountSetting, accountConfigId, accountId),
+		loadAccountOverrides(accountSetting, accountConfigId, accountId),
+		resolveAccountFolderAppointments(
+			{ mailbox, accountSetting },
+			accountConfigId,
+			accountId,
+		),
+	]);
+	return toAccountResponse(existing, signature, overrides, folderAppointments);
+};
 
 export const triggerAccountSyncSafe = async (
 	client: RemitClient<"sync">,

@@ -50,7 +50,7 @@ import {
 	updateFlagsFor,
 	updateMessageFlagsFor,
 	updateMessageLabelsFor,
-} from "../service/mail-action-operations.js";
+} from "../service/message-action-operations.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -63,7 +63,7 @@ import type {
 export {
 	GENERIC_FAILURE_REASON,
 	settleSpamReportBulk,
-} from "../service/mail-action-operations.js";
+} from "../service/message-action-operations.js";
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);

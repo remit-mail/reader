@@ -14,20 +14,22 @@ import {
 	UpdateLabelInputSchema,
 	UpdateMessageLabelsInputSchema,
 } from "@remit/api-zod-schemas";
+import { appointFolderRoleFor } from "@remit/backend/account-operations";
 import {
-	appointFolderRoleFor,
+	searchAddressesFor,
+	updateAddressFor,
+} from "@remit/backend/address-operations";
+import { updateLabelFor } from "@remit/backend/label-operations";
+import {
 	emptyTrashFor,
 	getRawMessageFor,
 	notSpamFor,
-	previewOrganizeFor,
 	reportSpamFor,
-	searchAddressesFor,
-	updateAddressFor,
 	updateFlagsFor,
-	updateLabelFor,
 	updateMessageFlagsFor,
 	updateMessageLabelsFor,
-} from "@remit/backend/mail-action-operations";
+} from "@remit/backend/message-action-operations";
+import { previewOrganizeFor } from "@remit/backend/organize";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
 import { asJson } from "./tool-result.js";
@@ -44,6 +46,7 @@ const WRITE = {
 	idempotentHint: true,
 	openWorldHint: false,
 } as const;
+const ACTION_WRITE = { ...WRITE, idempotentHint: false } as const;
 const DESTRUCTIVE = {
 	readOnlyHint: false,
 	destructiveHint: true,
@@ -148,7 +151,7 @@ export const registerMailActionWriteTools = (
 		{
 			description:
 				"Report messages as spam, block their senders, and move them to Junk.",
-			annotations: WRITE,
+			annotations: ACTION_WRITE,
 			inputSchema: BulkMessageInputSchema.shape,
 		},
 		async (input) =>
@@ -158,7 +161,7 @@ export const registerMailActionWriteTools = (
 		"not_spam",
 		{
 			description: "Undo spam reports and move messages out of Junk.",
-			annotations: WRITE,
+			annotations: ACTION_WRITE,
 			inputSchema: BulkMessageInputSchema.shape,
 		},
 		async (input) =>
@@ -224,7 +227,7 @@ export const registerMailActionWriteTools = (
 		"update_address",
 		{
 			description: "Set or clear saved flags for an address.",
-			annotations: WRITE,
+			annotations: ACTION_WRITE,
 			inputSchema: { addressId, ...UpdateAddressInputSchema.shape },
 		},
 		async ({ addressId, ...input }) =>

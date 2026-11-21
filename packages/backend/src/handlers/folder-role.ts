@@ -2,7 +2,7 @@ import type {
 	AppointFolderRoleInput,
 	CanonicalMailboxRole,
 } from "@remit/api-openapi-types";
-import { appointFolderRoleFor } from "../service/mail-action-operations.js";
+import { appointFolderRoleFor } from "../service/account-operations.js";
 import type {
 	FolderRoleOperationIds,
 	HandlerContext,
