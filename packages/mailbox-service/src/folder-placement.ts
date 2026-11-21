@@ -1,4 +1,5 @@
 import type { IMailboxSpecialUseRepository } from "@remit/data-ports";
+import { FromPlacement } from "@remit/domain-enums";
 import type { FolderPlacement } from "./heuristics/classifyPlacement.js";
 
 export type FolderPlacementLookup = Pick<
@@ -27,9 +28,9 @@ export const placementOf = (
 	mailboxId: string,
 	{ junkMailbox, inboxMailbox }: FolderRoleMailboxes,
 ): FolderPlacement => {
-	if (junkMailbox?.mailboxId === mailboxId) return "junk";
-	if (inboxMailbox?.mailboxId === mailboxId) return "inbox";
-	return "other";
+	if (junkMailbox?.mailboxId === mailboxId) return FromPlacement.Junk;
+	if (inboxMailbox?.mailboxId === mailboxId) return FromPlacement.Inbox;
+	return FromPlacement.Other;
 };
 
 export const resolveFolderPlacement = async (
