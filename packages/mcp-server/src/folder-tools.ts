@@ -276,11 +276,7 @@ export const registerFolderTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(
-		server,
-		["MailboxOperations_createMailbox"],
-		"create_folder",
-	).registerTool(
+	operationTool(server, ["MailboxOperations_createMailbox"]).registerTool(
 		"create_folder",
 		{
 			description:
@@ -320,11 +316,7 @@ export const registerFolderTools = (
 		},
 	);
 
-	operationTool(
-		server,
-		["MailboxDetailOperations_renameMailbox"],
-		"rename_folder",
-	).registerTool(
+	operationTool(server, ["MailboxDetailOperations_renameMailbox"]).registerTool(
 		"rename_folder",
 		{
 			description:
@@ -362,11 +354,7 @@ export const registerFolderTools = (
 		},
 	);
 
-	operationTool(
-		server,
-		["MailboxDetailOperations_deleteMailbox"],
-		"delete_folder",
-	).registerTool(
+	operationTool(server, ["MailboxDetailOperations_deleteMailbox"]).registerTool(
 		"delete_folder",
 		{
 			description:

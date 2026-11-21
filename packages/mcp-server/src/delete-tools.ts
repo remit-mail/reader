@@ -76,11 +76,7 @@ export const registerDeleteTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(
-		server,
-		["FilterDetailOperations_deleteFilter"],
-		"delete_filter",
-	).registerTool(
+	operationTool(server, ["FilterDetailOperations_deleteFilter"]).registerTool(
 		"delete_filter",
 		{
 			description:
@@ -101,11 +97,7 @@ export const registerDeleteTools = (
 		},
 	);
 
-	operationTool(
-		server,
-		["LabelDetailOperations_deleteLabel"],
-		"delete_label",
-	).registerTool(
+	operationTool(server, ["LabelDetailOperations_deleteLabel"]).registerTool(
 		"delete_label",
 		{
 			description:

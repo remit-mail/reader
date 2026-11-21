@@ -19,11 +19,9 @@ export const registerRescanTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(
-		server,
-		["AccountMessageOperations_rescanMessages"],
-		"rescan_messages",
-	).registerTool(
+	operationTool(server, [
+		"AccountMessageOperations_rescanMessages",
+	]).registerTool(
 		"rescan_messages",
 		{
 			description: `Check up to ${RESCAN_LIMIT} messages of one account again with the category classifier and the spam check, and return each verdict. Sets a category only on uncategorized mail and never labels a message the owner marked Not spam. Moves nothing unless move is true. Each message lands in successful or failed; retry only the failed ids marked retryable. To rescan a folder, page through list_threads or search_threads and send ${RESCAN_LIMIT} ids per call.`,

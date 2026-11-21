@@ -42,6 +42,13 @@ const operationConfig = {
 } as OperationConfig;
 
 const accountIdSchema = TestConnectionInputSchema.shape.accountId.unwrap();
+const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
+const WRITE = {
+	readOnlyHint: false,
+	destructiveHint: false,
+	openWorldHint: false,
+} as const;
+const DESTRUCTIVE = { ...WRITE, destructiveHint: true } as const;
 
 const operationError = (
 	value: unknown,
@@ -137,21 +144,20 @@ export const registerAccountTools = (
 		description: string,
 		operationId: OperationId,
 	) =>
-		operationTool(server, [operationId], name).registerTool(
+		operationTool(server, [operationId]).registerTool(
 			name,
-			{ description },
+			{ description, annotations: READ_ONLY },
 			async () => asJson(await callOperation(deps.client, userId, operationId)),
 		);
 
-	operationTool(
-		server,
-		["UserSettingsOperations_getUserSettings"],
-		"get_user_settings",
-	).registerTool(
+	operationTool(server, [
+		"UserSettingsOperations_getUserSettings",
+	]).registerTool(
 		"get_user_settings",
 		{
 			description:
 				"Read your settings, including classification and spam settings.",
+			annotations: READ_ONLY,
 		},
 		async () =>
 			asJson(
@@ -161,14 +167,13 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(
-		server,
-		["UserSettingsOperations_updateUserSettings"],
-		"update_user_settings",
-	).registerTool(
+	operationTool(server, [
+		"UserSettingsOperations_updateUserSettings",
+	]).registerTool(
 		"update_user_settings",
 		{
 			description: "Change your settings and return their current values.",
+			annotations: WRITE,
 			inputSchema: UpdateUserSettingsInputSchema.shape,
 		},
 		async (input) => {
@@ -181,15 +186,14 @@ export const registerAccountTools = (
 			return asJson(result.value);
 		},
 	);
-	operationTool(
-		server,
-		["UserSettingsOperations_clearClassificationProvider"],
-		"clear_classification_provider",
-	).registerTool(
+	operationTool(server, [
+		"UserSettingsOperations_clearClassificationProvider",
+	]).registerTool(
 		"clear_classification_provider",
 		{
 			description:
 				"Delete the saved classification provider, key, and classification settings.",
+			annotations: DESTRUCTIVE,
 		},
 		async () =>
 			asJson(
@@ -199,15 +203,14 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(
-		server,
-		["UserSettingsOperations_testClassificationProvider"],
-		"test_classification_provider",
-	).registerTool(
+	operationTool(server, [
+		"UserSettingsOperations_testClassificationProvider",
+	]).registerTool(
 		"test_classification_provider",
 		{
 			description:
 				"Test classification settings against a built-in sample message without saving them.",
+			annotations: READ_ONLY,
 			inputSchema: ClassificationTestInputSchema.shape,
 		},
 		async (input) => {
@@ -231,14 +234,11 @@ export const registerAccountTools = (
 		"Export your configuration without credentials.",
 		"ConfigOperations_exportConfig",
 	);
-	operationTool(
-		server,
-		["ConfigOperations_importConfig"],
-		"import_config",
-	).registerTool(
+	operationTool(server, ["ConfigOperations_importConfig"]).registerTool(
 		"import_config",
 		{
 			description: "Validate or apply an exported configuration document.",
+			annotations: WRITE,
 			inputSchema: ImportConfigInputSchema.shape,
 		},
 		async (input) =>
@@ -252,14 +252,11 @@ export const registerAccountTools = (
 			),
 	);
 
-	operationTool(
-		server,
-		["AccountOperations_createAccount"],
-		"create_account",
-	).registerTool(
+	operationTool(server, ["AccountOperations_createAccount"]).registerTool(
 		"create_account",
 		{
 			description: "Create an email account.",
+			annotations: WRITE,
 			inputSchema: CreateAccountInputSchema.shape,
 		},
 		async (input) =>
@@ -272,28 +269,22 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(
-		server,
-		["AccountOperations_testConnection"],
-		"test_connection",
-	).registerTool(
+	operationTool(server, ["AccountOperations_testConnection"]).registerTool(
 		"test_connection",
 		{
 			description:
 				"Test an IMAP and optional SMTP connection without saving it.",
+			annotations: READ_ONLY,
 			inputSchema: TestConnectionInputSchema.shape,
 		},
 		async (input) => asJson(await testConnection(deps.client, userId, input)),
 	);
-	operationTool(
-		server,
-		["AccountDetailOperations_updateAccount"],
-		"update_account",
-	).registerTool(
+	operationTool(server, ["AccountDetailOperations_updateAccount"]).registerTool(
 		"update_account",
 		{
 			description:
 				"Change an email account and return its current configuration.",
+			annotations: WRITE,
 			inputSchema: {
 				accountId: accountIdSchema,
 				...UpdateAccountInputSchema.shape,
@@ -315,9 +306,13 @@ export const registerAccountTools = (
 		description: string,
 		operationId: OperationId,
 	) =>
-		operationTool(server, [operationId], name).registerTool(
+		operationTool(server, [operationId]).registerTool(
 			name,
-			{ description, inputSchema: { accountId: accountIdSchema } },
+			{
+				description,
+				annotations: DESTRUCTIVE,
+				inputSchema: { accountId: accountIdSchema },
+			},
 			async ({ accountId }) =>
 				asJson(
 					await callOperation(deps.client, userId, operationId, undefined, {
@@ -330,14 +325,11 @@ export const registerAccountTools = (
 		"Delete an email account and its associated data.",
 		"AccountDetailOperations_deleteAccount",
 	);
-	operationTool(
-		server,
-		["SyncOperations_triggerSync"],
-		"trigger_sync",
-	).registerTool(
+	operationTool(server, ["SyncOperations_triggerSync"]).registerTool(
 		"trigger_sync",
 		{
 			description: "Request an immediate sync for an account.",
+			annotations: WRITE,
 			inputSchema: { accountId: accountIdSchema },
 		},
 		async ({ accountId }) =>
@@ -349,14 +341,11 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(
-		server,
-		["SyncOperations_getSyncStatus"],
-		"get_sync_status",
-	).registerTool(
+	operationTool(server, ["SyncOperations_getSyncStatus"]).registerTool(
 		"get_sync_status",
 		{
 			description: "Get account and mailbox sync progress.",
+			annotations: READ_ONLY,
 			inputSchema: { accountId: accountIdSchema },
 		},
 		async ({ accountId }) =>
@@ -369,25 +358,23 @@ export const registerAccountTools = (
 			),
 	);
 
-	operationTool(
-		server,
-		["MeOperations_listVipSuggestions"],
+	operationTool(server, ["MeOperations_listVipSuggestions"]).registerTool(
 		"list_vip_suggestions",
-	).registerTool(
-		"list_vip_suggestions",
-		{ description: "List frequent correspondents that are not yet VIPs." },
+		{
+			description: "List frequent correspondents that are not yet VIPs.",
+			annotations: READ_ONLY,
+		},
 		async () =>
 			asJson(
 				await listVipSuggestionsFor(deps.client, deriveAccountConfigId(userId)),
 			),
 	);
-	operationTool(
-		server,
-		["MeOperations_createExport"],
+	operationTool(server, ["MeOperations_createExport"]).registerTool(
 		"create_export",
-	).registerTool(
-		"create_export",
-		{ description: "Request an export of all account data." },
+		{
+			description: "Request an export of all account data.",
+			annotations: WRITE,
+		},
 		async () =>
 			asJson(
 				await createExportFor(
@@ -397,15 +384,12 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(
-		server,
-		["MeOperations_listQuarantine"],
-		"list_quarantine",
-	).registerTool(
+	operationTool(server, ["MeOperations_listQuarantine"]).registerTool(
 		"list_quarantine",
 		{
 			description:
 				"List messages and warnings the sync path could not process.",
+			annotations: READ_ONLY,
 		},
 		async () =>
 			asJson(

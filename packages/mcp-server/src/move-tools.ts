@@ -182,11 +182,7 @@ export const registerMoveTools = (
 		return tooBig ? invalid(tooBig) : accept(args.rule);
 	};
 
-	operationTool(
-		server,
-		["MessageBulkOperations_moveMessages"],
-		"move_messages",
-	).registerTool(
+	operationTool(server, ["MessageBulkOperations_moveMessages"]).registerTool(
 		"move_messages",
 		{
 			description:
@@ -293,11 +289,7 @@ export const registerMoveTools = (
 		return accept(jobAction(destination.value));
 	};
 
-	operationTool(
-		server,
-		["MessageBulkOperations_deleteMessages"],
-		"trash_messages",
-	).registerTool(
+	operationTool(server, ["MessageBulkOperations_deleteMessages"]).registerTool(
 		"trash_messages",
 		{
 			description:
@@ -448,11 +440,7 @@ export const registerMoveTools = (
 		};
 	};
 
-	operationTool(
-		server,
-		["MessageBulkOperations_moveMessages"],
-		"move_folder_messages",
-	).registerTool(
+	operationTool(server, ["MessageBulkOperations_moveMessages"]).registerTool(
 		"move_folder_messages",
 		{
 			description: `Move every message in a folder, or in a label's folders, or only those matching a filter's rule or a given rule, and optionally only those dated within before/after, into another folder, a label's folder, or Trash. Runs as organize jobs, one per account, each moving at most ${ORGANIZE_MATCH_LIMIT} messages. The tool runs jobs back to back for up to ${Math.round(deps.moves.budgetMs / 1000)} seconds, then reports per account the messages moved, how many still match (remainingCount) and a cursor. While a cursor is not empty, call again with only that cursor to continue the same selection. A job still running when the time is up comes back without a cursor; get_organize_job reports its remainingCount and cursor once it finishes.`,

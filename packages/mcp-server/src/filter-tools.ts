@@ -143,11 +143,10 @@ export const registerFilterTools = (
 		logger: deps.filters.logger,
 	};
 
-	operationTool(
-		server,
-		["FilterOperations_listFilters", "FilterDetailOperations_getFilter"],
-		"list_filters",
-	).registerTool(
+	operationTool(server, [
+		"FilterOperations_listFilters",
+		"FilterDetailOperations_getFilter",
+	]).registerTool(
 		"list_filters",
 		{
 			description:
@@ -166,11 +165,7 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(
-		server,
-		["FilterOperations_createFilter"],
-		"create_filter",
-	).registerTool(
+	operationTool(server, ["FilterOperations_createFilter"]).registerTool(
 		"create_filter",
 		{
 			description:
@@ -204,11 +199,7 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(
-		server,
-		["FilterDetailOperations_updateFilter"],
-		"update_filter",
-	).registerTool(
+	operationTool(server, ["FilterDetailOperations_updateFilter"]).registerTool(
 		"update_filter",
 		{
 			description:
@@ -256,11 +247,9 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(
-		server,
-		["OrganizeJobDetailOperations_getOrganizeJob"],
-		"get_organize_job",
-	).registerTool(
+	operationTool(server, [
+		"OrganizeJobDetailOperations_getOrganizeJob",
+	]).registerTool(
 		"get_organize_job",
 		{
 			description:
@@ -295,11 +284,7 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(
-		server,
-		["OrganizeOperations_createOrganizeJob"],
-		"apply_filter",
-	).registerTool(
+	operationTool(server, ["OrganizeOperations_createOrganizeJob"]).registerTool(
 		"apply_filter",
 		{
 			description:

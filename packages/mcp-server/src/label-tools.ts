@@ -31,11 +31,10 @@ export const registerLabelReadTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(
-		server,
-		["LabelOperations_listLabels", "LabelDetailOperations_getLabel"],
-		"list_labels",
-	).registerTool(
+	operationTool(server, [
+		"LabelOperations_listLabels",
+		"LabelDetailOperations_getLabel",
+	]).registerTool(
 		"list_labels",
 		{
 			description:
@@ -55,11 +54,7 @@ export const registerLabelWriteTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(
-		server,
-		["LabelOperations_createLabel"],
-		"create_label",
-	).registerTool(
+	operationTool(server, ["LabelOperations_createLabel"]).registerTool(
 		"create_label",
 		{
 			description:
