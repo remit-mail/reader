@@ -115,6 +115,10 @@
       "types": "./src/service/me-operations.ts",
       "default": "./src/service/me-operations.ts"
     },
+    "./outbox-operations": {
+      "types": "./src/service/outbox-operations.ts",
+      "default": "./src/service/outbox-operations.ts"
+    },
     "./config-from-env": {
       "types": "./src/config/from-env.ts",
       "default": "./src/config/from-env.ts"
@@ -235,6 +239,10 @@
       "./me-operations": {
         "types": "./dist/src/service/me-operations.d.ts",
         "default": "./dist/src/service/me-operations.js"
+      },
+      "./outbox-operations": {
+        "types": "./dist/src/service/outbox-operations.d.ts",
+        "default": "./dist/src/service/outbox-operations.js"
       },
       "./config-from-env": {
         "types": "./dist/src/config/from-env.d.ts",

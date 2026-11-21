@@ -427,7 +427,13 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(await response.json(), {
 			resource: RESOURCE,
 			authorization_servers: [MCP_ORIGIN],
-			scopes_supported: ["mail:read", "mail:rules", "account", "calendar"],
+			scopes_supported: [
+				"mail:read",
+				"mail:rules",
+				"mail:send",
+				"account",
+				"calendar",
+			],
 			bearer_methods_supported: ["header"],
 		});
 	});
@@ -886,7 +892,10 @@ describe("device authorization (RFC 8628)", () => {
 		);
 		const claims = claimsOf(result.accessToken);
 		assert.ok([claims.aud].flat().includes(RESOURCE));
-		assert.equal(claims.scope, "mail:read mail:rules account calendar");
+		assert.equal(
+			claims.scope,
+			"mail:read mail:rules mail:send account calendar",
+		);
 		assert.equal(claims.exp - claims.iat, DEVICE_TOKEN_TTL_SECONDS);
 
 		const response = await listTools(result.accessToken);
