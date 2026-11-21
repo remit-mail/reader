@@ -55,13 +55,17 @@ import { SyncOperations } from "./sync.js";
 import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
 import { UnifiedThreadOperations } from "./unified-threads.js";
-import { UserSettingsOperations } from "./user-settings.js";
+import {
+	PersonSettingsOperations,
+	UserSettingsOperations,
+} from "./user-settings.js";
 
 export const handlers = {
 	...MeOperations,
 	...ConfigOperations,
 	...SystemOperations,
 	...ClassificationDefaultOperations,
+	...PersonSettingsOperations,
 	...PeopleOperations,
 	...AccountOperations,
 	...AccountDetailOperations,

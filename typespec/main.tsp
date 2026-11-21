@@ -160,6 +160,41 @@ namespace RemitApi {
       | ConflictError;
   }
 
+  @route("/people/{userId}/settings")
+  namespace PersonSettingsOperations {
+    @doc("Read a person's settings. Operator-only. The classification provider key is never returned.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getPersonSettings(@path userId: string):
+      | UserSettingsResponse
+      | UnauthorizedError
+      | ForbiddenError
+      | NotFoundError;
+
+    @doc("Change a person's settings. Operator-only. Answers with every setting as it now stands; the classification provider key is never returned.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updatePersonSettings(
+      @path userId: string,
+      @body input: UpdateUserSettingsInput,
+    ):
+      | UserSettingsResponse
+      | ValidationError
+      | UnauthorizedError
+      | ForbiddenError
+      | NotFoundError;
+
+    @doc("Delete the person's saved classification provider, its key and every classification setting. Classification is then off. Operator-only. Answers with every setting as it now stands.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    @route("/classification-provider")
+    op clearPersonClassificationProvider(@path userId: string):
+      | UserSettingsResponse
+      | UnauthorizedError
+      | ForbiddenError
+      | NotFoundError;
+  }
+
   // ============================================
   // Self-host People Operations (#1519)
   // ============================================

@@ -22,6 +22,11 @@ export type ClassificationDefaultOperationIds = MatchPrefix<
 	OperationIds
 >;
 
+export type PersonSettingsOperationIds = MatchPrefix<
+	"PersonSettingsOperations_",
+	OperationIds
+>;
+
 export type PeopleOperationIds = MatchPrefix<"PeopleOperations_", OperationIds>;
 
 export type AccountOperationIds = MatchPrefix<

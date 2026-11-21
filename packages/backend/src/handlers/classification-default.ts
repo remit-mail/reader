@@ -6,8 +6,9 @@ import {
 	type ClassificationDeploymentDefault,
 	DEFAULT_CLASSIFICATION_DAILY_LIMIT,
 } from "@remit/data-ports/classification-presets";
-import { BadRequestError, ForbiddenError } from "@remit/data-ports/errors";
+import { BadRequestError } from "@remit/data-ports/errors";
 import type { Context } from "openapi-backend";
+import { requireOperator } from "../auth.js";
 import { parseClassificationDefault } from "../config/classification-default.js";
 import type {
 	ClassificationDefaultOperationIds,
@@ -38,10 +39,6 @@ const responseOf = (
 				hasKey: false,
 				source,
 			};
-
-const requireOperator = (ctx: HandlerContext): void => {
-	if (!ctx.operator) throw new ForbiddenError("Operator access required.");
-};
 
 const read = async (
 	ctx: HandlerContext,
