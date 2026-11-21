@@ -11,7 +11,7 @@ enum PersonStatus {
   Disabled,
 }
 
-@doc("One person who signs in to this self-hosted instance.")
+@doc("One person who signs in to this instance.")
 model Person {
   @doc("The person's user id.")
   userId: string;
