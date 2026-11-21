@@ -42,10 +42,6 @@ const WRITE = {
 } as const;
 const DELETE = { ...WRITE, destructiveHint: true } as const;
 
-const attachmentError = (
-	result: Awaited<ReturnType<typeof mintOutboxAttachmentFor>>,
-) => ("body" in result ? toolError(result.body.message) : asJson(result));
-
 export const registerMailTools = (
 	server: McpServer,
 	deps: McpDeps,
@@ -180,7 +176,7 @@ export const registerMailTools = (
 				outboxMessageId,
 				{ filename, contentType, sizeBytes: content.byteLength },
 			);
-			if ("body" in minted) return attachmentError(minted);
+			if ("body" in minted) return toolError(minted.body.message);
 			const uploaded = await fetch(minted.uploadUrl, {
 				method: "PUT",
 				body: content,
