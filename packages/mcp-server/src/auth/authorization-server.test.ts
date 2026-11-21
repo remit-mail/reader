@@ -463,12 +463,15 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(rpc.result.tools.map((tool) => tool.name).sort(), [
 			"classifier_stats",
 			"get_message",
+			"get_raw_message",
 			"get_thread",
 			"list_labels",
 			"list_mailboxes",
 			"list_quarantine",
 			"list_threads",
 			"list_vip_suggestions",
+			"preview_organize",
+			"search_addresses",
 			"search_threads",
 		]);
 		assert.deepEqual(sharedRows(), shared);
