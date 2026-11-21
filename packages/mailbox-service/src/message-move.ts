@@ -24,7 +24,13 @@ import {
 	UNCONFIRMED_TRASH_FOLDER_REASON,
 } from "@remit/data-ports/folder-role";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
-import { PATHLESS_MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
+import {
+	type EmptyTrashEventV3 as EmptyTrashEvent,
+	type MessageCopyEventV3 as MessageCopyEvent,
+	type MessageDeleteEventV3 as MessageDeleteEvent,
+	type MessageMoveEventV3 as MessageMoveEvent,
+	PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
+} from "@remit/data-ports/mutation-events";
 import {
 	CanonicalMailboxRole,
 	MessageMutation,
@@ -47,59 +53,6 @@ import { restoreSourcePlacement } from "./restore-source-placement.js";
  */
 export interface DeleteMessagesOutcome {
 	refusedMessageIds: string[];
-}
-
-/**
- * Event types for message move/delete operations.
- * These match the worker event types in remit-imap-worker/events.ts.
- */
-export interface MessageDeleteEvent {
-	type: "MESSAGE_DELETE";
-	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	messageId: string;
-	mailboxId: string;
-	uid: number;
-	operation: "move_to_trash" | "permanent_delete";
-	destinationMailboxId?: string;
-}
-
-export interface MessageMoveEvent {
-	type: "MESSAGE_MOVE";
-	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	messageId: string;
-	sourceMailboxId: string;
-	destinationMailboxId: string;
-	uid: number;
-}
-
-export interface EmptyTrashEvent {
-	type: "EMPTY_TRASH";
-	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	trashMailboxId: string;
-	/** The folder's UIDVALIDITY at consent time; the worker re-checks it. */
-	trashUidValidity: number;
-}
-
-export interface MessageCopyEvent {
-	type: "MESSAGE_COPY";
-	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	sourceMessageId: string;
-	newMessageId: string;
-	sourceMailboxId: string;
-	destinationMailboxId: string;
-	uid: number;
 }
 
 /** An event, and the undo of the local write it was enqueued for. */

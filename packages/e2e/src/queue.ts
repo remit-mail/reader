@@ -14,6 +14,7 @@
  * here and would not make it safe against a real endpoint.
  */
 import { randomUUID } from "node:crypto";
+import { PATHLESS_MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import { waitFor } from "./api.js";
 import { queueApi } from "./env.js";
 
@@ -124,15 +125,7 @@ export const enqueueBodySync = async (
  * `uid` is the SOURCE folder's uid, which is what the API records at the moment
  * it enqueues — the whole point of a redelivery being dangerous is that the uid
  * no longer names anything once the move has landed.
- *
- * `schemaVersion` is restated with the rest of the envelope. This suite depends
- * on nothing in `packages/` — it installs from the public registry alone — so
- * importing the constant would resolve for a monorepo checkout and for nothing
- * else. A version the worker does not recognise abandons the delete and alerts,
- * which the spec's own assertions would fail on rather than pass quietly.
  */
-const MUTATION_EVENT_SCHEMA_VERSION = 3;
-
 export interface MessageDeleteEnvelope {
 	accountId: string;
 	messageId: string;
@@ -151,7 +144,7 @@ export const enqueueMessageDelete = async (
 		MessageDeduplicationId: eventId,
 		MessageBody: JSON.stringify({
 			type: "MESSAGE_DELETE",
-			schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
+			schemaVersion: PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
 			eventId,
 			timestamp: Date.now(),
 			operation: "move_to_trash",
