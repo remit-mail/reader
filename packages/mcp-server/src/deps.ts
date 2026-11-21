@@ -4,6 +4,7 @@ import type {
 	MaterializeLogger,
 	OrganizeJobLogger,
 } from "@remit/mailbox-service";
+import type { CalendarClient } from "./calendar-tools.js";
 
 export const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
 export const FOLDER_POLL_INTERVAL_MS = 500;
@@ -24,6 +25,7 @@ export interface MoveToolDeps {
 }
 
 export interface McpDeps {
+	calendarClient: (userId: string) => CalendarClient;
 	client: RemitClient;
 	apiConfig: Pick<ApiConfig, "commit" | "msOAuth" | "publicOrigin">;
 	logger: MaterializeLogger & OrganizeJobLogger;
@@ -33,14 +35,16 @@ export interface McpDeps {
 
 export interface McpDepsExtras {
 	apiConfig: McpDeps["apiConfig"];
+	calendarClient: (userId: string) => CalendarClient;
 	logger: MaterializeLogger & OrganizeJobLogger;
 	settle: FolderToolDeps;
 }
 
 export const mcpDepsOf = (
 	client: RemitClient,
-	{ apiConfig, logger, settle }: McpDepsExtras,
+	{ apiConfig, calendarClient, logger, settle }: McpDepsExtras,
 ): McpDeps => ({
+	calendarClient,
 	client,
 	apiConfig,
 	logger,
