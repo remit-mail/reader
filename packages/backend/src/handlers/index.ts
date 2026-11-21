@@ -30,6 +30,7 @@ import {
 	CalendarTaskDetailOperations,
 	CalendarTaskOperations,
 } from "./calendar-task.js";
+import { ClassificationDefaultOperations } from "./classification-default.js";
 import { ClassificationStatsOperations } from "./classification-stats.js";
 import { ConfigOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
@@ -60,6 +61,7 @@ export const handlers = {
 	...MeOperations,
 	...ConfigOperations,
 	...SystemOperations,
+	...ClassificationDefaultOperations,
 	...PeopleOperations,
 	...AccountOperations,
 	...AccountDetailOperations,

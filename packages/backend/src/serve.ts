@@ -37,6 +37,7 @@ export interface RequestHost<K extends QueueName> {
 	config: ApiConfig;
 	client: () => Promise<RemitClient<K>>;
 	identity: () => Promise<HandlerIdentity>;
+	operator: () => Promise<boolean>;
 }
 
 /**
@@ -93,6 +94,7 @@ export const serveApi = <K extends QueueName>(
 					return handler(c, {
 						client: await host.client(),
 						identity,
+						operator: await host.operator(),
 						config: host.config,
 					});
 				},

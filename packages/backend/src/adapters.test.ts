@@ -100,6 +100,7 @@ const throughFetch = async (request: Sent): Promise<Answer> => {
 		config: request.config ?? testApiConfig(),
 		client: async () => client,
 		identity: async () => (request.signedIn ? USER : { kind: "anonymous" }),
+		operator: async () => true,
 	};
 	const response = await served.handleFetch(
 		new Request(url, {

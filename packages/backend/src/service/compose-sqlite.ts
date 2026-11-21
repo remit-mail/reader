@@ -1,5 +1,4 @@
 import type { SpamPipeline } from "@remit/data-ports";
-import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import {
 	createSqliteRepositories,
 	NODE_SQLITE_LIMITS,
@@ -7,6 +6,7 @@ import {
 	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
 import {
+	type ClassificationDefaultStore,
 	createRemitClient,
 	type RemitClient,
 	type RemitClientSharedDeps,
@@ -32,13 +32,13 @@ export const composeSqliteClient = async (
 };
 
 export const buildSqliteClient = (
-	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>,
+	classificationDefault: ClassificationDefaultStore,
 	spamPipeline: SpamPipeline,
 ): Promise<RemitClient> =>
 	composeSqliteClient(
 		buildSharedDeps(
 			sqsQueues(sqsQueueUrlsFromEnv()),
-			getClassificationDefault,
+			classificationDefault,
 			spamPipeline,
 		),
 	);

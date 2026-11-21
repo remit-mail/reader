@@ -17,6 +17,11 @@ export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
 
 export type SystemOperationIds = MatchPrefix<"SystemOperations_", OperationIds>;
 
+export type ClassificationDefaultOperationIds = MatchPrefix<
+	"ClassificationDefaultOperations_",
+	OperationIds
+>;
+
 export type PeopleOperationIds = MatchPrefix<"PeopleOperations_", OperationIds>;
 
 export type AccountOperationIds = MatchPrefix<
@@ -221,6 +226,7 @@ export type HandlerIdentity = { kind: "anonymous" } | UserIdentity;
 export interface HandlerContext<K extends QueueName = never> {
 	client: RemitClient<K>;
 	identity: UserIdentity;
+	operator?: boolean;
 	config: ApiConfig;
 }
 

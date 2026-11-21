@@ -1,5 +1,4 @@
 import type { SpamPipeline } from "@remit/data-ports";
-import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { nodeTransport } from "@remit/mailbox-service/node-transport";
 import {
 	createCachedDataKeyProvider,
@@ -17,6 +16,7 @@ import {
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import {
+	type ClassificationDefaultStore,
 	passwordConnectionScope,
 	type RemitClientSharedDeps,
 } from "./create-remit-client.js";
@@ -44,7 +44,7 @@ export const sqsQueues = (urls: SqsQueueUrls): RemitClientQueues => ({
 
 export const buildSharedDeps = (
 	queues: RemitClientQueues,
-	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>,
+	classificationDefault: ClassificationDefaultStore,
 	spamPipeline: SpamPipeline,
 ): RemitClientSharedDeps => {
 	const imapTransport = nodeTransport();
@@ -58,7 +58,7 @@ export const buildSharedDeps = (
 		connectionScope: passwordConnectionScope(imapTransport),
 		mailTransports: { imap: () => imapTransport, smtp: directSmtpSocket },
 		queues,
-		getClassificationDefault,
+		classificationDefault,
 		spamPipeline,
 	};
 };

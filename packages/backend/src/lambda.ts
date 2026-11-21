@@ -76,6 +76,7 @@ export const createApiEventHandler =
 					config.auth.mode === "BetterAuthJwt"
 						? identityFromSelfHostRequest(event, localIdentity)
 						: getIdentityFromEvent(event, localIdentity),
+				operator: async () => true,
 			},
 			context.awsRequestId,
 		);
