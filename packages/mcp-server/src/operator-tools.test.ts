@@ -11,7 +11,6 @@ import {
 	createPeopleDirectory,
 	openIdentityStore,
 	type PeopleAdmin,
-	type PeopleDirectory,
 } from "@remit/auth-service";
 import type {
 	ClassificationDefaultStore,
@@ -31,6 +30,7 @@ import {
 	sharedDatabases,
 } from "@remit/drizzle-service/test-sqlite";
 import { createSecretsService } from "@remit/secrets-service";
+import { createClient } from "../../../build/remit-client/client/index.js";
 import { MCP_OPERATOR_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createOperatorClient } from "./operator-client.js";
@@ -43,7 +43,12 @@ const MIGRATIONS = fileURLToPath(
 );
 
 const config: ApiConfig = {
-	auth: { mode: "GatewayAuthorizer" },
+	auth: {
+		mode: "BetterAuthJwt",
+		contentSigningSecret: "operator-tool-content-secret",
+		signIn: "Enabled",
+		selfSignUp: "Disabled",
+	},
 	corsAllowedOrigins: [],
 	publicOrigin: ORIGIN,
 	contentDeliveryDomain: ORIGIN,
@@ -62,11 +67,12 @@ let caller: UserIdentity;
 let target: Person;
 let handler: ReturnType<typeof createMcpHandler>;
 
-const rpc = async (
+const rpcWith = async (
+	mcpHandler: ReturnType<typeof createMcpHandler>,
 	name: string,
 	args: Record<string, unknown> = {},
 ): Promise<unknown> => {
-	const response = await handler(
+	const response = await mcpHandler(
 		new Request("https://mcp.remit.test/mcp", {
 			method: "POST",
 			headers: {
@@ -89,6 +95,9 @@ const rpc = async (
 	assert.notEqual(body.result.isError, true, body.result.content[0]?.text);
 	return JSON.parse(body.result.content[0]?.text ?? "null");
 };
+
+const rpc = (name: string, args: Record<string, unknown> = {}) =>
+	rpcWith(handler, name, args);
 
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "mcp-operator-tools-"));
@@ -183,23 +192,12 @@ before(async () => {
 			spamPipeline: [{ name: "Inline", thresholds: { state: "Unset" } }],
 		},
 	} as unknown as RemitClient;
-	const hostedDirectory: PeopleDirectory = {
-		...directory,
-		invitePerson: async ({ email }) => ({ ok: true, value: { email } }),
-		revokeInvite: async ({ email }) => ({ ok: true, value: { email } }),
-		resetPersonFactors: async () => ({ ok: true, value: target }),
-		signOutPerson: async () => ({ ok: true, value: target }),
-		updatePerson: async ({ status }) => ({
-			ok: true,
-			value: { ...target, status },
-		}),
-	};
 	const operatorClient = createOperatorClient(
 		ORIGIN,
 		{
 			config,
 			client: async () => client,
-			peopleDirectory: async () => hostedDirectory,
+			peopleDirectory: async () => directory,
 		},
 		caller.sub,
 	);
@@ -249,12 +247,77 @@ describe("the operator tools over sqlite dependencies", () => {
 			people.people.find((person) => person.userId === caller.sub)?.isCaller,
 			true,
 		);
-		await rpc("invite_person", { email: "invitee@example.test" });
-		await rpc("revoke_invite", { email: "invitee@example.test" });
 		await rpc("disable_person", { userId: target.userId });
 		await rpc("enable_person", { userId: target.userId });
 		await rpc("sign_out_person", { userId: target.userId });
-		await rpc("reset_person_factors", { userId: target.userId });
 		await rpc("list_audit");
+	});
+
+	it("maps every tool to its generated API request", async () => {
+		const requests: { method: string; path: string; body: unknown }[] = [];
+		const client = createClient({
+			baseUrl: ORIGIN,
+			fetch: async (request, init) => {
+				const sent =
+					request instanceof Request ? request : new Request(request, init);
+				requests.push({
+					method: sent.method,
+					path: new URL(sent.url).pathname,
+					body: sent.body ? await sent.clone().json() : undefined,
+				});
+				return Response.json({});
+			},
+		});
+		const mapped = createMcpHandler(
+			{ userId: caller.sub, scopes: [MCP_OPERATOR_SCOPE] },
+			{ operatorClient: () => client } as unknown as McpDeps,
+			true,
+		);
+		const call = (name: string, args: Record<string, unknown> = {}) =>
+			rpcWith(mapped, name, args);
+		const userId = target.userId;
+		await call("get_classification_default");
+		await call("set_classification_default", {
+			presetId: ClassificationPresetId.Local,
+			model: "model",
+			baseUrl: "http://localhost:11434/v1",
+			apiKey: "key",
+			enabled: true,
+			dailyLimit: 1,
+		});
+		await call("clear_classification_default");
+		await call("get_tenant_settings", { userId });
+		await call("update_tenant_settings", { userId });
+		await call("clear_tenant_classification", { userId });
+		await call("list_people");
+		await call("invite_person", { email: "invitee@example.test" });
+		await call("revoke_invite", { email: "invitee@example.test" });
+		await call("disable_person", { userId });
+		await call("enable_person", { userId });
+		await call("sign_out_person", { userId });
+		await call("reset_person_factors", { userId });
+		await call("list_audit");
+
+		assert.deepEqual(
+			requests.map(({ method, path }) => `${method} ${path}`),
+			[
+				"GET /system/classification-default",
+				"PUT /system/classification-default",
+				"DELETE /system/classification-default",
+				`GET /people/${userId}/settings`,
+				`PATCH /people/${userId}/settings`,
+				`DELETE /people/${userId}/settings/classification-provider`,
+				"GET /people",
+				"POST /people/invites",
+				"DELETE /people/invites/invitee%40example.test",
+				`PATCH /people/${userId}`,
+				`PATCH /people/${userId}`,
+				`POST /people/${userId}/sign-out`,
+				`POST /people/${userId}/factors/reset`,
+				"GET /people/audit",
+			],
+		);
+		assert.deepEqual(requests[9]?.body, { status: "Disabled" });
+		assert.deepEqual(requests[10]?.body, { status: "Active" });
 	});
 });

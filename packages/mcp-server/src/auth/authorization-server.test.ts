@@ -1113,6 +1113,7 @@ describe("the People operations reach the connector (#1519)", () => {
 		const signedOut = await people.signOutPerson({
 			callerId: ownerId,
 			clientIp: PEER,
+			operatorGrant: false,
 			targetId: ownerId,
 			stepUpToken: await stepUp(ownerId, "SignOut"),
 		});
@@ -1132,6 +1133,7 @@ describe("the People operations reach the connector (#1519)", () => {
 		const disabled = await people.updatePerson({
 			callerId: userIdOf(EMAIL),
 			clientIp: PEER,
+			operatorGrant: false,
 			targetId: userIdOf(email),
 			status: "Disabled",
 			stepUpToken: await stepUp(userIdOf(email), "Disable"),

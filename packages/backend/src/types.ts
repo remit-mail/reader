@@ -232,7 +232,7 @@ export type HandlerIdentity = { kind: "anonymous" } | UserIdentity;
 export interface HandlerContext<K extends QueueName = never> {
 	client: RemitClient<K>;
 	identity: UserIdentity;
-	operator?: boolean;
+	operator?: boolean | "grant";
 	peopleDirectory?: PeopleDirectory | null;
 	config: ApiConfig;
 }

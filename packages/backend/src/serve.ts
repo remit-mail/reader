@@ -38,7 +38,7 @@ export interface RequestHost<K extends QueueName> {
 	config: ApiConfig;
 	client: () => Promise<RemitClient<K>>;
 	identity: () => Promise<HandlerIdentity>;
-	operator: () => Promise<boolean>;
+	operator: () => Promise<boolean | "grant">;
 	peopleDirectory: () => Promise<PeopleDirectory | null>;
 }
 

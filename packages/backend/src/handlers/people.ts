@@ -71,6 +71,7 @@ interface Guarded {
 	directory: PeopleDirectory;
 	callerId: string;
 	clientIp: string;
+	operatorGrant: boolean;
 }
 
 /**
@@ -97,6 +98,7 @@ const guard = (
 		directory,
 		callerId: ctx.identity.sub,
 		clientIp: headerOf(context, CLIENT_IP_HEADER) ?? "unknown",
+		operatorGrant: ctx.operator === "grant",
 	};
 	const refuseAudited = (
 		outcome: GuardRefusal,
@@ -135,6 +137,7 @@ const targetedRequest = (
 ): TargetedRequest => ({
 	callerId: guarded.callerId,
 	clientIp: guarded.clientIp,
+	operatorGrant: guarded.operatorGrant,
 	targetId,
 	stepUpToken,
 });
