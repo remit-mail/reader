@@ -21,6 +21,7 @@ export const createSqliteMcpAuth = (
 		}),
 		{
 			isDisabled: async (userId) => isUserDisabled(db, userId),
+			isOperator: async () => true,
 			audit: async (record) => writeAudit(db, record),
 			browser: {
 				signIn: (email, password) => checkRemitPassword(db, email, password),

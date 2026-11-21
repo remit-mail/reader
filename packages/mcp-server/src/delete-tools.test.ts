@@ -62,6 +62,7 @@ beforeEach(async () => {
 		apiConfig: undefined as never,
 		client,
 		logger: silentLog,
+		operatorClient: () => undefined as never,
 		folders: {
 			settleTimeoutMs: 100,
 			pollIntervalMs: 10,
@@ -75,7 +76,11 @@ const callTool = async (
 	name: string,
 	args: Record<string, unknown>,
 ): Promise<ToolResult> => {
-	const handler = createMcpHandler({ userId, scopes: [MCP_RULES_SCOPE] }, deps);
+	const handler = createMcpHandler(
+		{ userId, scopes: [MCP_RULES_SCOPE] },
+		deps,
+		false,
+	);
 	const response = await handler(
 		new Request("http://reader.test/mcp", {
 			method: "POST",

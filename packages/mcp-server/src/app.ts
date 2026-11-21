@@ -10,7 +10,7 @@ import {
 	type McpBrowserRoutes,
 	mcpResource,
 } from "./auth/authorization-server.js";
-import { MCP_SCOPES } from "./auth/scopes.js";
+import { MCP_OPERATOR_SCOPE, MCP_SCOPES } from "./auth/scopes.js";
 import type { TokenVerifier } from "./auth/token-verifier.js";
 import type { McpDeps } from "./deps.js";
 import { errorPage, pageError } from "./pages/render.js";
@@ -65,7 +65,7 @@ export const protectedResourceMetadata = ({
 	Response.json({
 		resource: mcpResource(origin),
 		authorization_servers: [origin],
-		scopes_supported: [...MCP_SCOPES],
+		scopes_supported: [...MCP_SCOPES, MCP_OPERATOR_SCOPE],
 		bearer_methods_supported: ["header"],
 	});
 
@@ -104,6 +104,15 @@ const failureOf = async (response: Response): Promise<string> => {
 const formString = (form: FormData, name: string): string => {
 	const value = form.get(name);
 	return typeof value === "string" ? value : "";
+};
+
+const consentScopes = (query: string, granted: boolean): string => {
+	const params = new URLSearchParams(query);
+	const scopes = (params.get("scope") ?? "")
+		.split(" ")
+		.filter((scope) => scope.length > 0 && scope !== MCP_OPERATOR_SCOPE);
+	if (granted) scopes.push(MCP_OPERATOR_SCOPE);
+	return scopes.join(" ");
 };
 
 const redirectWithCookies = (location: string, from: Response): Response => {
@@ -240,13 +249,22 @@ export const createMcpPages = ({
 					400,
 				);
 			}
-			return consentView(url.search.slice(1), clientName, scopes);
+			return consentView(
+				url.search.slice(1),
+				clientName,
+				scopes.filter((scope) => scope !== MCP_OPERATOR_SCOPE),
+				await authRoutes.operatorOf(request.headers),
+			);
 		}
 		const form = await request.formData();
+		const grantOperator =
+			formString(form, "operator") === "true" &&
+			(await authRoutes.operatorOf(request.headers));
 		return continueFrom(
 			await authRoutes.consent(request.headers, {
 				accept: formString(form, "accept") === "true",
 				oauth_query: formString(form, "oauth_query"),
+				scope: consentScopes(formString(form, "oauth_query"), grantOperator),
 			}),
 		);
 	};
@@ -393,7 +411,11 @@ export const createMcpApp = (config: McpAppConfig): McpRequestHandler => {
 		if (!bearer) return challenge(config, "unauthorized");
 		const verification = await config.verifier.verify(bearer);
 		if (!verification.ok) return challenge(config, "invalid_token");
-		return createMcpHandler(verification.principal, config.deps)(request);
+		return createMcpHandler(
+			verification.principal,
+			config.deps,
+			await config.authRoutes.isOperator(verification.principal.userId),
+		)(request);
 	};
 	return (request) => {
 		if (new URL(request.url).pathname === MCP_PATH) return serveMcp(request);

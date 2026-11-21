@@ -81,6 +81,7 @@ beforeEach(async () => {
 		apiConfig: undefined as never,
 		client,
 		logger: silentLog,
+		operatorClient: () => undefined as never,
 		folders: {
 			settleTimeoutMs: 100,
 			pollIntervalMs: 10,
@@ -129,7 +130,7 @@ const rpc = async (
 };
 
 const organizer = (scopes: string[] = [MCP_RULES_SCOPE]) =>
-	createMcpHandler({ userId: USER_ID, scopes }, deps);
+	createMcpHandler({ userId: USER_ID, scopes }, deps, false);
 
 const callTool = async (
 	name: string,

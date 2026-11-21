@@ -4,6 +4,7 @@ import type {
 	MaterializeLogger,
 	OrganizeJobLogger,
 } from "@remit/mailbox-service";
+import type { OperatorClient } from "./operator-tools.js";
 
 export const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
 export const FOLDER_POLL_INTERVAL_MS = 500;
@@ -25,6 +26,7 @@ export interface MoveToolDeps {
 
 export interface McpDeps {
 	client: RemitClient;
+	operatorClient: (userId: string) => OperatorClient;
 	apiConfig: Pick<ApiConfig, "commit" | "msOAuth" | "publicOrigin">;
 	logger: MaterializeLogger & OrganizeJobLogger;
 	folders: FolderToolDeps;
@@ -34,14 +36,16 @@ export interface McpDeps {
 export interface McpDepsExtras {
 	apiConfig: McpDeps["apiConfig"];
 	logger: MaterializeLogger & OrganizeJobLogger;
+	operatorClient: (userId: string) => OperatorClient;
 	settle: FolderToolDeps;
 }
 
 export const mcpDepsOf = (
 	client: RemitClient,
-	{ apiConfig, logger, settle }: McpDepsExtras,
+	{ apiConfig, logger, operatorClient, settle }: McpDepsExtras,
 ): McpDeps => ({
 	client,
+	operatorClient,
 	apiConfig,
 	logger,
 	folders: settle,

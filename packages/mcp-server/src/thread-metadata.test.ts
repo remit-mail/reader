@@ -70,6 +70,7 @@ const callToolJson = async (
 	const handler = createMcpHandler(
 		{ userId: USER_ID, scopes: [MCP_READ_SCOPE] },
 		deps,
+		false,
 	);
 	const response = await handler(
 		new Request("http://reader.test/mcp", {
@@ -112,6 +113,7 @@ before(async () => {
 	deps = {
 		apiConfig: undefined as never,
 		logger: silentLog,
+		operatorClient: () => undefined as never,
 		...ruleDeps(client),
 	};
 	account = await seedAccount(store, {

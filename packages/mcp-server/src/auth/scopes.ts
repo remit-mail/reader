@@ -3,6 +3,7 @@ import type { McpPermission } from "@remit/ui/mcp-pages";
 export const MCP_READ_SCOPE = "mail:read";
 export const MCP_RULES_SCOPE = "mail:rules";
 export const MCP_ACCOUNT_SCOPE = "account";
+export const MCP_OPERATOR_SCOPE = "operator";
 export const OFFLINE_ACCESS_SCOPE = "offline_access";
 
 export const MCP_SCOPES = [
@@ -15,6 +16,7 @@ const SCOPE_DESCRIPTIONS: Readonly<Record<string, string>> = {
 	[MCP_READ_SCOPE]: "Read your mail",
 	[MCP_RULES_SCOPE]: "Create and change folders and filters, and move mail",
 	[MCP_ACCOUNT_SCOPE]: "Manage your settings, accounts, and configuration",
+	[MCP_OPERATOR_SCOPE]: "Administer this remit server",
 	[OFFLINE_ACCESS_SCOPE]: "Stay connected until you disconnect it",
 };
 
