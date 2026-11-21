@@ -247,7 +247,7 @@ export const PersonSettingsOperations: Record<
 	PersonSettingsOperations_getPersonSettings: async (context, ctx) => {
 		requireOperator(ctx);
 		return readUserSettings(
-			depsOf(ctx),
+			userSettingsDepsOf(ctx.client),
 			deriveAccountConfigId(context.request.params.userId),
 		);
 	},
@@ -255,7 +255,7 @@ export const PersonSettingsOperations: Record<
 	PersonSettingsOperations_updatePersonSettings: async (context, ctx) => {
 		requireOperator(ctx);
 		const updated = await updateUserSettingsFor(
-			depsOf(ctx),
+			userSettingsDepsOf(ctx.client),
 			deriveAccountConfigId(context.request.params.userId),
 			context.request.requestBody as UpdateUserSettingsInput,
 		);
@@ -268,11 +268,9 @@ export const PersonSettingsOperations: Record<
 		ctx,
 	) => {
 		requireOperator(ctx);
-		const deps = depsOf(ctx);
-		const accountConfigId = deriveAccountConfigId(
-			context.request.params.userId,
+		return clearClassificationProviderFor(
+			userSettingsDepsOf(ctx.client),
+			deriveAccountConfigId(context.request.params.userId),
 		);
-		await clearClassification(deps.accountSetting, accountConfigId);
-		return readUserSettings(deps, accountConfigId);
 	},
 };
