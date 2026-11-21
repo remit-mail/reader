@@ -175,6 +175,40 @@ namespace RemitApi {
       | PeopleForbiddenError
       | NotFoundError;
 
+    @doc("List retained identity audit events, newest first. Operator-only.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/audit")
+    op listAudit():
+      | PeopleAuditResponse
+      | UnauthorizedError
+      | ForbiddenError
+      | PeopleForbiddenError
+      | NotFoundError;
+
+    @doc("Invite an email address to create an account. Operator-only; absent (404) when the host does not support invites.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/invites")
+    op invitePerson(@body body: InvitePersonInput):
+      | PersonInviteResponse
+      | UnauthorizedError
+      | ForbiddenError
+      | PeopleForbiddenError
+      | NotFoundError
+      | ConflictError;
+
+    @doc("Revoke the open invite for an email address. Operator-only; absent (404) when the host does not support invites.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    @route("/invites/{email}")
+    op revokeInvite(@path email: string):
+      | PersonInviteResponse
+      | UnauthorizedError
+      | ForbiddenError
+      | PeopleForbiddenError
+      | NotFoundError;
+
     @doc("Trade the caller's current password for a single-use token that allows one action on one person for five minutes. Five wrong passwords in 15 minutes refuse further step-ups with 429. Absent (404) while self sign-up is open, or when the person does not exist.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
@@ -217,6 +251,17 @@ namespace RemitApi {
     ):
       | PasswordResetResponse
       | UnauthorizedError
+      | PeopleForbiddenError
+      | NotFoundError;
+
+    @doc("Remove every sign-in factor from the person and revoke their sessions. Operator-only; absent (404) when the host does not support factors.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/{userId}/factors/reset")
+    op resetPersonFactors(@path userId: string):
+      | Person
+      | UnauthorizedError
+      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
   }

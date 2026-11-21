@@ -1079,6 +1079,7 @@ describe("the People operations reach the connector (#1519)", () => {
 			callerId: ownerId,
 			clientIp: PEER,
 			targetId: ownerId,
+			operator: false,
 			stepUpToken: await stepUp(ownerId, "SignOut"),
 		});
 		assert.ok(signedOut.ok);
@@ -1099,6 +1100,7 @@ describe("the People operations reach the connector (#1519)", () => {
 			clientIp: PEER,
 			targetId: userIdOf(email),
 			status: "Disabled",
+			operator: false,
 			stepUpToken: await stepUp(userIdOf(email), "Disable"),
 		});
 		assert.ok(disabled.ok);

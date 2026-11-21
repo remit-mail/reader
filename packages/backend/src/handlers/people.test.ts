@@ -41,6 +41,8 @@ const closedConfig: ApiConfig = testApiConfig({
 	corsAllowedOrigins: [ORIGIN],
 });
 
+const hostedConfig = testApiConfig({ corsAllowedOrigins: [ORIGIN] });
+
 const openApp = () => openSqlite({ filename, mode: "open" });
 
 const rows = (statement: string, ...params: SqliteValue[]): unknown[] => {
@@ -65,9 +67,14 @@ const signUp = async (email: string): Promise<string> => {
 	return ((await response.json()) as { user: { id: string } }).user.id;
 };
 
-const callerOf = (sub: string, config = closedConfig): HandlerContext => ({
+const callerOf = (
+	sub: string,
+	config = closedConfig,
+	operator = true,
+): HandlerContext => ({
 	client: {} as RemitClient,
 	config,
+	operator,
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(sub),
@@ -107,6 +114,30 @@ const listPeople = (caller: string, config = closedConfig) =>
 	PeopleOperations.PeopleOperations_listPeople(
 		contextOf({}, undefined),
 		callerOf(caller, config),
+	);
+
+const listAudit = (caller: string, operator = true, config = closedConfig) =>
+	PeopleOperations.PeopleOperations_listAudit(
+		contextOf({}, undefined),
+		callerOf(caller, config, operator),
+	);
+
+const invite = (caller: string, email: string, operator = true) =>
+	PeopleOperations.PeopleOperations_invitePerson(
+		contextOf({}, { email }),
+		callerOf(caller, closedConfig, operator),
+	);
+
+const revokeInvite = (caller: string, email: string, operator = true) =>
+	PeopleOperations.PeopleOperations_revokeInvite(
+		contextOf({ email }, undefined),
+		callerOf(caller, closedConfig, operator),
+	);
+
+const resetFactors = (caller: string, userId: string, operator = true) =>
+	PeopleOperations.PeopleOperations_resetPersonFactors(
+		contextOf({ userId }, undefined),
+		callerOf(caller, closedConfig, operator),
 	);
 
 const createStepUp = (
@@ -232,6 +263,7 @@ describe("the People operations", () => {
 		});
 		const answers = [
 			await listPeople(alice, open),
+			await listAudit(alice, true, open),
 			await createStepUp(alice, bob, "SignOut", PASSWORD, open),
 			await signOut(alice, bob, "token", open),
 			await update(alice, bob, "Disabled", "token", open),
@@ -240,6 +272,52 @@ describe("the People operations", () => {
 		for (const answer of answers) {
 			assert.deepEqual(refusalOf(answer), [404, "not_found"]);
 		}
+	});
+
+	it("expose each new action only to operators and only where supported", async () => {
+		const actions = [
+			() => listAudit(alice),
+			() => invite(alice, "invitee@remit.test"),
+			() => revokeInvite(alice, "invitee@remit.test"),
+			() => resetFactors(alice, carol),
+		];
+		const [audit, ...unsupported] = await Promise.all(
+			actions.map((action) => action()),
+		);
+		assert.ok(
+			Array.isArray((audit as { events: unknown[] }).events),
+			JSON.stringify(audit),
+		);
+		for (const answer of unsupported) {
+			assert.deepEqual(refusalOf(answer), [404, "not_found"]);
+		}
+		for (const action of [
+			() => listAudit(alice, false),
+			() => invite(alice, "invitee@remit.test", false),
+			() => revokeInvite(alice, "invitee@remit.test", false),
+			() => resetFactors(alice, carol, false),
+		]) {
+			await assert.rejects(action, /Operator access required/);
+		}
+	});
+
+	it("let a hosted operator act without a step-up", async () => {
+		assert.equal(
+			refusalOf(await signOut(alice, carol, "", hostedConfig)),
+			undefined,
+		);
+		assert.equal(
+			refusalOf(await reset(alice, carol, "", hostedConfig)),
+			undefined,
+		);
+		assert.equal(
+			refusalOf(await update(alice, carol, "Disabled", "", hostedConfig)),
+			undefined,
+		);
+		assert.equal(
+			refusalOf(await update(alice, carol, "Active", "", hostedConfig)),
+			undefined,
+		);
 	});
 
 	it("refuse every sensitive operation without a matching, unspent, unexpired step-up", async () => {

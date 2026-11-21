@@ -94,6 +94,32 @@ model PasswordResetResponse {
   expiresAt: int64;
 }
 
+@doc("Invite one email address to create an account.")
+model InvitePersonInput {
+  email: string;
+}
+
+@doc("The email address whose invite was issued or revoked.")
+model PersonInviteResponse {
+  email: string;
+}
+
+@doc("One retained People audit event.")
+model PeopleAuditEvent {
+  auditEventId: string;
+  occurredAt: int64;
+  actor: string;
+  target: string;
+  action: string;
+  outcome: string;
+  clientIp: string;
+}
+
+@doc("Retained People audit events, newest first.")
+model PeopleAuditResponse {
+  events: PeopleAuditEvent[];
+}
+
 @doc("The People operation is refused for the caller.")
 model PeopleForbiddenError {
   @statusCode statusCode: 403;
