@@ -1,3 +1,4 @@
+import type { PeopleDirectory } from "@remit/auth-service/people";
 import type {
 	APIGatewayProxyEvent,
 	APIGatewayProxyResult,
@@ -17,6 +18,7 @@ export interface ApiEventHandlerOptions<K extends QueueName> {
 	config: ApiConfig;
 	localIdentity: HandlerIdentity;
 	client: () => Promise<RemitClient<K>>;
+	peopleDirectory: () => Promise<PeopleDirectory | null>;
 }
 
 export type ApiEventHandler = (
@@ -64,7 +66,12 @@ const normalizeApiGatewayEvent = (
 export const createApiEventHandler =
 	<K extends QueueName>(
 		served: ServedApi<K>,
-		{ config, localIdentity, client }: ApiEventHandlerOptions<NoInfer<K>>,
+		{
+			config,
+			localIdentity,
+			client,
+			peopleDirectory,
+		}: ApiEventHandlerOptions<NoInfer<K>>,
 	): ApiEventHandler =>
 	(event, context) =>
 		served.dispatch(
@@ -77,6 +84,7 @@ export const createApiEventHandler =
 						? identityFromSelfHostRequest(event, localIdentity)
 						: getIdentityFromEvent(event, localIdentity),
 				operator: async () => true,
+				peopleDirectory,
 			},
 			context.awsRequestId,
 		);

@@ -1,12 +1,10 @@
 import type {
-	CreatePasswordResetInput,
 	InvitePersonInput,
 	PasswordResetResponse,
 	PeopleAuditResponse,
 	PeopleListResponse,
 	Person,
 	PersonInviteResponse,
-	SignOutPersonInput,
 	StepUpInput,
 	StepUpResponse,
 	UpdatePersonInput,
@@ -20,13 +18,12 @@ import type {
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
-import { getPeopleDirectory } from "../service/people-directory.js";
 import type {
 	HandlerContext,
 	OperationHandler,
 	PeopleOperationIds,
 } from "../types.js";
-import { requireOperator } from "./classification-default.js";
+import { requireOperator } from "./operator.js";
 
 const CLIENT_IP_HEADER = "x-remit-client-ip";
 
@@ -90,7 +87,7 @@ const guard = (
 	targetId: string,
 	unsafe: boolean,
 ): Guarded | Refusal => {
-	const directory = getPeopleDirectory();
+	const directory = ctx.peopleDirectory;
 	const { auth } = ctx.config;
 	if (!directory) {
 		return refusalOf("not_found");
@@ -232,7 +229,7 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const { stepUpToken } = context.request.requestBody as SignOutPersonInput;
+		const stepUpToken = headerOf(context, "x-remit-step-up") ?? "";
 		return answer(
 			await guarded.directory.signOutPerson(
 				targetedRequest(guarded, targetId, stepUpToken),
@@ -247,8 +244,8 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const { status, stepUpToken } = context.request
-			.requestBody as UpdatePersonInput;
+		const { status } = context.request.requestBody as UpdatePersonInput;
+		const stepUpToken = headerOf(context, "x-remit-step-up") ?? "";
 		return answer(
 			await guarded.directory.updatePerson({
 				...targetedRequest(guarded, targetId, stepUpToken),
@@ -264,8 +261,7 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const { stepUpToken } = context.request
-			.requestBody as CreatePasswordResetInput;
+		const stepUpToken = headerOf(context, "x-remit-step-up") ?? "";
 		return answer(
 			await guarded.directory.createPasswordReset(
 				targetedRequest(guarded, targetId, stepUpToken),
