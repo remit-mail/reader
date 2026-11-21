@@ -1,6 +1,10 @@
 import { spamPipelineFromEnv } from "@remit/data-ports";
+import { ConflictError } from "@remit/data-ports/errors";
 import { classificationDefaultFromEnv } from "../config/classification-default.js";
-import type { RemitClient } from "./create-remit-client.js";
+import type {
+	ClassificationDefaultStore,
+	RemitClient,
+} from "./create-remit-client.js";
 
 export type {
 	ConnectionScope,
@@ -10,6 +14,19 @@ export type {
 let clientPromise: Promise<RemitClient> | null = null;
 let injected: RemitClient | null = null;
 const classificationDefault = classificationDefaultFromEnv(process.env);
+const classificationDefaultStore: ClassificationDefaultStore = {
+	get: async () => ({ value: classificationDefault, source: "Config" }),
+	put: async () => {
+		throw new ConflictError(
+			"The classification default is configured in remit.env.",
+		);
+	},
+	delete: async () => {
+		throw new ConflictError(
+			"The classification default is configured in remit.env.",
+		);
+	},
+};
 const spamPipeline = spamPipelineFromEnv(process.env);
 
 /**
@@ -43,7 +60,7 @@ const buildRelationalClient = async (): Promise<RemitClient> => {
 	}
 	const composition = await import("./compose-sqlite.js");
 	return composition.buildSqliteClient(
-		async () => classificationDefault,
+		classificationDefaultStore,
 		spamPipeline,
 	);
 };

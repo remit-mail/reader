@@ -54,6 +54,9 @@ import "./OrganizeJobRequest.tsp";
 // Standalone self-update (RFC 037)
 import "./SystemUpdate.tsp";
 
+// Operator deployment classification default (#1676)
+import "./ClassificationDefault.tsp";
+
 // Self-host People operations (#1519)
 import "./Person.tsp";
 

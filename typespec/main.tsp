@@ -127,6 +127,40 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Operator Deployment Classification Default
+  // ============================================
+
+  @route("/system/classification-default")
+  namespace ClassificationDefaultOperations {
+    @doc("Read the deployment classification default. Operator-only. The provider key is never returned.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getClassificationDefault():
+      | ClassificationDefaultResponse
+      | UnauthorizedError
+      | ForbiddenError;
+
+    @doc("Replace the operator deployment classification default. An empty API key keeps the existing key. Operator-only.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @put
+    op putClassificationDefault(@body body: PutClassificationDefaultInput):
+      | ClassificationDefaultResponse
+      | ValidationError
+      | UnauthorizedError
+      | ForbiddenError
+      | ConflictError;
+
+    @doc("Remove the operator value and fall back to deployment configuration. Operator-only.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteClassificationDefault():
+      | ClassificationDefaultResponse
+      | UnauthorizedError
+      | ForbiddenError
+      | ConflictError;
+  }
+
+  // ============================================
   // Self-host People Operations (#1519)
   // ============================================
 
