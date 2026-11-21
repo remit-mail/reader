@@ -54,6 +54,7 @@ export interface FilterToolDeps {
 }
 
 export interface McpDeps {
+	client: RemitClient;
 	account: Pick<
 		IAccountRepository,
 		"get" | "listAllByAccountConfig" | "listMailSourcesByAccountConfig"
@@ -127,6 +128,7 @@ export const mcpDepsOf = (
 	client: RemitClient,
 	{ logger, settle }: McpDepsExtras,
 ): McpDeps => ({
+	client,
 	account: client.account,
 	mailbox: client.mailbox,
 	accountSetting: client.accountSetting,

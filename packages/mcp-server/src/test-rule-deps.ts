@@ -17,8 +17,9 @@ export const ruleDeps = (
 	queue: RecordingQueue,
 ): Pick<
 	McpDeps,
-	"folders" | "filters" | "moves" | "messageMove" | "rescan"
+	"client" | "folders" | "filters" | "moves" | "messageMove" | "rescan"
 > => ({
+	client: undefined as never,
 	folders: {
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: store.mailbox,

@@ -46,6 +46,7 @@ export {
 } from "./auth/mcp-database.js";
 export {
 	describeScopes,
+	MCP_ACCOUNT_SCOPE,
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,
 	MCP_SCOPES,

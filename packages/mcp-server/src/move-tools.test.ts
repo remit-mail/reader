@@ -56,6 +56,7 @@ beforeEach(async () => {
 
 	const { client } = mine;
 	deps = {
+		client,
 		account: client.account,
 		address: client.address,
 		label: client.label,
