@@ -296,6 +296,7 @@ export const testConnectionFor = async (
 	msOAuth: MsOAuthConfig,
 ): Promise<TestConnectionResponse> => {
 	const { account, secrets, mailTransports } = client;
+	let connection = input;
 
 	// Resolve password - use provided password or decrypt stored password
 	let imapPassword = input.password;
@@ -322,6 +323,21 @@ export const testConnectionFor = async (
 			);
 			imapPassword = await secrets.decrypt(payload);
 		}
+		connection = {
+			...input,
+			username: existingAccount.username,
+			imapHost: existingAccount.imapHost,
+			imapPort: existingAccount.imapPort,
+			imapTls: existingAccount.imapTls,
+			imapStartTls: existingAccount.imapStartTls,
+			smtpHost: existingAccount.smtpEnabled
+				? existingAccount.smtpHost
+				: undefined,
+			smtpPort: existingAccount.smtpPort,
+			smtpTls: existingAccount.smtpTls,
+			smtpStartTls: existingAccount.smtpStartTls,
+			smtpUsername: existingAccount.smtpUsername,
+		};
 
 		// Also get SMTP password if needed and available
 		if (!smtpPassword && existingAccount.smtpPasswordHash) {
@@ -348,13 +364,13 @@ export const testConnectionFor = async (
 	// Test IMAP connection
 	const imapResult = await testImapConnection(
 		{
-			host: input.imapHost,
-			port: input.imapPort,
-			secure: input.imapTls,
-			user: input.username,
+			host: connection.imapHost,
+			port: connection.imapPort,
+			secure: connection.imapTls,
+			user: connection.username,
 			credentials: { kind: "password", password: imapPassword },
 		},
-		mailTransports.imap(input.imapHost, input.imapTls),
+		mailTransports.imap(connection.imapHost, connection.imapTls),
 	);
 
 	result.imapSuccess = imapResult.success;
@@ -363,12 +379,12 @@ export const testConnectionFor = async (
 	}
 
 	// Test SMTP connection if configured
-	if (input.smtpHost) {
+	if (connection.smtpHost) {
 		const smtpResult = await verifySmtpConnection({
-			host: input.smtpHost,
-			port: input.smtpPort ?? 587,
-			secure: input.smtpTls ?? false,
-			user: input.smtpUsername ?? input.username,
+			host: connection.smtpHost,
+			port: connection.smtpPort ?? 587,
+			secure: connection.smtpTls ?? false,
+			user: connection.smtpUsername ?? connection.username,
 			credentials: {
 				kind: "password",
 				password: smtpPassword ?? imapPassword,

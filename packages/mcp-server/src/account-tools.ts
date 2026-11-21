@@ -125,7 +125,7 @@ export const registerAccountTools = (
 			const result = await testClassificationProviderFor(
 				deps.client,
 				deriveAccountConfigId(userId),
-				input,
+				input.apiKey === "" ? { ...input, baseUrl: "" } : input,
 			);
 			if (!result.ok) throw new Error(result.error.message);
 			return asJson(result.value);
