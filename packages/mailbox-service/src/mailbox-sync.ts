@@ -437,18 +437,16 @@ export class MailboxSyncService {
 		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
 		// This gets us message counts including unseen without opening the mailbox
 		const read = await connection.readMailboxStatus(mailboxInfo.fullPath);
-		// A refused folder still gets its row, so the user sees it and why it
-		// holds no mail. It has no UIDVALIDITY yet; 0 is never a valid one.
-		const status =
-			read.outcome === "Read"
-				? read.status
-				: {
-						messages: 0,
-						unseen: 0,
-						deletedCount: 0,
-						uidNext: 0,
-						uidValidity: 0,
-					};
+		// A folder refused on first sight has no UIDVALIDITY to store, so it
+		// gets no row until a STATUS answers.
+		if (read.outcome === "Refused") {
+			this.log.debug(
+				{ accountId, fullPath: mailboxInfo.fullPath },
+				"Skipped a new folder whose STATUS the server refused",
+			);
+			return null;
+		}
+		const { status } = read;
 
 		// Parse special-use attributes (RFC 6154) up front so the row stores a
 		// denormalized copy. Frontends list mailboxes by account; threading a join
@@ -482,7 +480,7 @@ export class MailboxSyncService {
 			// defaults to this, so the row is right either way; the field is total
 			// now (D1) and the insert says what it means.
 			syncStatus: MailboxSyncStatus.synced,
-			statusRefused: read.outcome === "Refused",
+			statusRefused: false,
 			// parentMailboxId would need to be resolved from parentPath
 		};
 
@@ -515,11 +513,7 @@ export class MailboxSyncService {
 			);
 		} else {
 			this.log.info(
-				{
-					mailboxId: mailbox.mailboxId,
-					fullPath: mailboxInfo.fullPath,
-					statusRefused: mailbox.statusRefused,
-				},
+				{ mailboxId: mailbox.mailboxId, fullPath: mailboxInfo.fullPath },
 				"Created mailbox",
 			);
 		}
@@ -570,11 +564,7 @@ export class MailboxSyncService {
 		// message-sync/flag-push/move/body-fetch paths pause outbound IMAP until
 		// the rebuild resolves it, instead of silently overwriting the old value
 		// and erasing the only evidence a bump happened.
-		//
-		// A row created while its STATUS was refused holds uidValidity 0, which
-		// no server sends: its first read is not a change.
-		const uidValidityChanged =
-			existing.uidValidity !== 0 && existing.uidValidity !== status.uidValidity;
+		const uidValidityChanged = existing.uidValidity !== status.uidValidity;
 		const cursorTrip =
 			uidValidityChanged && !isCursorRebuildNeeded(existing.cursorState)
 				? { cursorState: MailboxCursorState.cursor_invalid }

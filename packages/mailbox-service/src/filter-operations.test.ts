@@ -89,6 +89,7 @@ const pendingFolder = async (fullPath: string): Promise<MailboxItem> => {
 		lastSyncUid: 0,
 		highWaterMarkUid: 0,
 		lastMessageSyncAt: 0,
+		statusRefused: false,
 		syncStatus: MailboxSyncStatus.pending,
 	});
 	if (created.outcome !== "Created") throw new Error(`${fullPath} exists`);

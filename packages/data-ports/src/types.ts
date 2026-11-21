@@ -465,7 +465,6 @@ export type CreateMailboxInput = Omit<
 	| "syncStatus"
 	| "pendingPath"
 	| "syncFailureReason"
-	| "statusRefused"
 > & {
 	namespaceType?: MailboxItem["namespaceType"];
 	parentMailboxId?: MailboxItem["parentMailboxId"];
@@ -473,8 +472,6 @@ export type CreateMailboxInput = Omit<
 	cursorState?: MailboxItem["cursorState"];
 	/** Total per D1 (defaults to `synced`) — the insert paths that record an intent say so; the sweep's discovery insert does not have to. */
 	syncStatus?: MailboxItem["syncStatus"];
-	/** Total (defaults to false) — only the sweep that met a refused STATUS sets it on insert. */
-	statusRefused?: MailboxItem["statusRefused"];
 };
 
 export type CreateMailboxResult =

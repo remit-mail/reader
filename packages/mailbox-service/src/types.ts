@@ -122,9 +122,8 @@ export interface ImapMailboxStatus {
 }
 
 /**
- * What a STATUS read came back with. imapflow answers a server NO and a
- * transient failure alike, so `Refused` covers both: a refusal that was
- * transient clears at the next mailbox sync.
+ * What a STATUS read came back with. `Refused` is a server NO on a connection
+ * that is still usable; a lost connection throws instead.
  */
 export type MailboxStatusRead =
 	| { outcome: "Read"; status: ImapMailboxStatus }

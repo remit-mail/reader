@@ -57,6 +57,7 @@ const requestCreate = async (
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
+			statusRefused: false,
 		},
 		w.account.accountId,
 		subscribe,

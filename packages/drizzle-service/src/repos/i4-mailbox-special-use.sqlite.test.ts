@@ -42,6 +42,7 @@ const makeMailboxInput = (
 	lastSyncUid: 0,
 	highWaterMarkUid: 0,
 	lastMessageSyncAt: Date.now(),
+	statusRefused: false,
 });
 
 describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {

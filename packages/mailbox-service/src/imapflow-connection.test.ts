@@ -7,7 +7,7 @@ import {
 	toIsoDateString,
 } from "./imapflow-connection.js";
 import { nodeTransport } from "./node-transport.js";
-import type { ImapMessage } from "./types.js";
+import { type ImapMessage, MailConnectionError } from "./types.js";
 
 describe("toIsoDateString", () => {
 	it("converts a Date to an ISO string", () => {
@@ -507,6 +507,7 @@ describe("ImapFlowConnection.getMailboxStatus", () => {
 	it("throws when STATUS gives no result instead of reporting an empty mailbox", async () => {
 		let searched = false;
 		const connection = buildConnectionWithClient({
+			usable: true,
 			status: async () => false,
 			search: async () => {
 				searched = true;
@@ -519,6 +520,26 @@ describe("ImapFlowConnection.getMailboxStatus", () => {
 			/STATUS returned no result for Shared\/Team/,
 		);
 		assert.equal(searched, false);
+	});
+
+	it("reports a refusal only while the connection is still usable", async () => {
+		const refused = buildConnectionWithClient({
+			usable: true,
+			status: async () => false,
+		});
+		assert.deepEqual(await refused.readMailboxStatus("Shared/Team"), {
+			outcome: "Refused",
+		});
+
+		const dropped = buildConnectionWithClient({
+			usable: false,
+			status: async () => false,
+		});
+		await assert.rejects(
+			dropped.readMailboxStatus("Shared/Team"),
+			(error: unknown) =>
+				error instanceof MailConnectionError && error.kind === "network",
+		);
 	});
 });
 

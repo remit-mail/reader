@@ -182,7 +182,7 @@ export class MailboxRepo implements IMailboxRepository {
 				// about is confirmed.
 				syncStatus: input.syncStatus ?? "synced",
 				cursorState: input.cursorState ?? MailboxCursorState.normal,
-				statusRefused: input.statusRefused ?? false,
+				statusRefused: input.statusRefused,
 				specialUse: input.specialUse ?? null,
 				createdAt: now,
 				updatedAt: now,

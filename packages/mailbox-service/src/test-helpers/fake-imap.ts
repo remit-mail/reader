@@ -1,4 +1,5 @@
 import { simpleParser } from "mailparser";
+import { statusOrThrow } from "../mailbox-status.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
@@ -671,13 +672,8 @@ export class FakeImapConnection implements IImapConnection {
 		return deleted;
 	};
 
-	getMailboxStatus = async (path: string): Promise<ImapMailboxStatus> => {
-		const read = await this.readMailboxStatus(path);
-		if (read.outcome === "Refused") {
-			throw new Error(`IMAP STATUS returned no result for ${path}`);
-		}
-		return read.status;
-	};
+	getMailboxStatus = async (path: string): Promise<ImapMailboxStatus> =>
+		statusOrThrow(await this.readMailboxStatus(path), path);
 
 	readMailboxStatus = async (path: string): Promise<MailboxStatusRead> => {
 		this.server.run("STATUS", path);

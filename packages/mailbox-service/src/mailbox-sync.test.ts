@@ -286,7 +286,7 @@ describe("a folder leaving mid-sweep", () => {
 });
 
 describe("a folder whose STATUS the server refuses", () => {
-	it("records the refusal and keeps syncing the other folders", async () => {
+	it("gets no row on first sight while the other folders sync", async () => {
 		imap.addFolder("INBOX");
 		imap.addFolder("Shared/Team");
 		imap.refusesStatus.add("Shared/Team");
@@ -294,11 +294,8 @@ describe("a folder whose STATUS the server refuses", () => {
 
 		await sweep();
 
-		const shared = await byPath("Shared/Team");
-		const inbox = await byPath("INBOX");
-		assert.equal(shared.statusRefused, true);
-		assert.equal(inbox.statusRefused, false);
-		assert.equal(inbox.messageCount, 1);
+		assert.deepEqual(await paths(), ["INBOX"]);
+		assert.equal((await byPath("INBOX")).messageCount, 1);
 	});
 
 	it("marks a folder that was readable before and keeps its stored status", async () => {
@@ -316,9 +313,10 @@ describe("a folder whose STATUS the server refuses", () => {
 		assert.equal(after.cursorState, MailboxCursorState.normal);
 	});
 
-	it("clears the refusal without tripping the cursor once STATUS answers", async () => {
+	it("clears the refusal once STATUS answers again", async () => {
 		imap.addFolder("INBOX");
 		imap.addFolder("Shared/Team");
+		await sweep();
 		imap.refusesStatus.add("Shared/Team");
 		await sweep();
 		imap.refusesStatus.delete("Shared/Team");
@@ -327,7 +325,6 @@ describe("a folder whose STATUS the server refuses", () => {
 
 		const after = await byPath("Shared/Team");
 		assert.equal(after.statusRefused, false);
-		assert.equal(after.uidValidity, imap.uidValidityOf("Shared/Team"));
 		assert.equal(after.cursorState, MailboxCursorState.normal);
 	});
 });

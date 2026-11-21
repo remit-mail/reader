@@ -20,8 +20,8 @@ interface TriggerAccountSyncInput {
 	 *
 	 * Everything else triggers a sync as a side effect of doing something else
 	 * (config load, OAuth connect, account create, the scheduled tick), leaves
-	 * this unset, and takes the freshness gate — see `mailboxNeedsSync` in
-	 * imap-worker's sync-mailboxes handler.
+	 * this unset, and takes the freshness gate in imap-worker's sync-mailboxes
+	 * handler.
 	 *
 	 * How often a timer may do that is bounded on the client, by the poll's own
 	 * floor (`MIN_POLL_INTERVAL_MS` in the client hook, 30s) rather than by the
@@ -37,7 +37,7 @@ interface TriggerAccountSyncInput {
 	 * time-bucketed id instead turned SQS's 5-minute window into a rate limiter
 	 * and silently discarded a sync the user asked for whenever one had run
 	 * recently (issue #37). What a trigger costs is bounded in the worker's
-	 * fan-out (`mailboxNeedsSync`), by skipping mailboxes not worth
+	 * fan-out, by skipping mailboxes not worth
 	 * re-enumerating — never by dropping the trigger.
 	 *
 	 * The scheduled-sync tick (#1247) passes `buildScheduledSyncDedupId()`,

@@ -152,6 +152,7 @@ export const seedMailbox = async (
 		lastSyncUid: 0,
 		highWaterMarkUid: 0,
 		lastMessageSyncAt: 0,
+		statusRefused: false,
 		...(options.specialUse ? { specialUse: [options.specialUse] } : {}),
 		...options.overrides,
 	});

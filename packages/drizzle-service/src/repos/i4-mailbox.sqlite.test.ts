@@ -34,6 +34,7 @@ function makeMailboxInput(accountId: string, fullPath = "INBOX") {
 		lastSyncUid: 0,
 		highWaterMarkUid: 0,
 		lastMessageSyncAt: Date.now(),
+		statusRefused: false,
 	};
 }
 

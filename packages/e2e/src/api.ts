@@ -38,6 +38,8 @@ export interface Mailbox {
 	 */
 	pendingPath?: string;
 	syncFailureReason?: string;
+	/** The mail server refused STATUS on this folder at the last mailbox sync. */
+	statusRefused?: boolean;
 }
 
 /**

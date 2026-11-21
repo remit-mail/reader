@@ -136,6 +136,7 @@ const queueFolder = async (
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
+			statusRefused: false,
 		},
 		template.accountId,
 		true,

@@ -6,6 +6,7 @@
  */
 
 import type { ImapFlow } from "imapflow";
+import { statusOrThrow } from "./mailbox-status.js";
 import type {
 	FlatMailboxInfo,
 	ImapAddress,
@@ -1263,15 +1264,8 @@ export class ImapFlowConnection {
 	 * @param mailboxPath - Full path to the mailbox
 	 * @returns Mailbox status including unseen and deleted counts
 	 */
-	getMailboxStatus = async (
-		mailboxPath: string,
-	): Promise<ImapMailboxStatus> => {
-		const read = await this.readMailboxStatus(mailboxPath);
-		if (read.outcome === "Refused") {
-			throw new Error(`IMAP STATUS returned no result for ${mailboxPath}`);
-		}
-		return read.status;
-	};
+	getMailboxStatus = async (mailboxPath: string): Promise<ImapMailboxStatus> =>
+		statusOrThrow(await this.readMailboxStatus(mailboxPath), mailboxPath);
 
 	readMailboxStatus = async (
 		mailboxPath: string,
@@ -1291,7 +1285,17 @@ export class ImapFlowConnection {
 			uidValidity: true,
 			highestModseq: true,
 		});
-		if (status === false) return { outcome: "Refused" };
+		if (status === false) {
+			// imapflow answers a server NO and a lost socket alike. Only a
+			// connection still usable afterwards heard a refusal.
+			if (!client.usable) {
+				throw new MailConnectionError(
+					"network",
+					`IMAP connection lost during STATUS of ${mailboxPath}`,
+				);
+			}
+			return { outcome: "Refused" };
+		}
 
 		const deletedCount = await this.countDeleted(mailboxPath);
 
