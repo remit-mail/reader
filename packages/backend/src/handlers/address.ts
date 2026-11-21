@@ -11,6 +11,7 @@ import type {
 import { ForbiddenError } from "@remit/data-ports/errors";
 import { AddressFlagKey } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
+import type { RemitClient } from "../service/data-client.js";
 import { requestNeverSpamBackApply } from "../service/never-spam.js";
 import type { QueueName } from "../service/queues.js";
 import type {
@@ -101,6 +102,79 @@ export const backApplyCategoryFlag = (
 	return flag;
 };
 
+export const searchAddressesFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	query: { q: string; limit?: number; flag?: AddressTrustFlag },
+) => {
+	const result = await client.address.listByAccountConfig({
+		accountConfigId,
+		search: query.q.toLowerCase(),
+		flag: query.flag,
+		limit: query.limit ?? 10,
+	});
+
+	return {
+		items: result.items.map(toAddressResponse),
+		continuationToken: result.continuationToken,
+	};
+};
+
+export const updateAddressFor = async (
+	client: RemitClient<"accountFanout">,
+	accountConfigId: string,
+	addressId: string,
+	input: UpdateAddressInput,
+): Promise<AddressResponse> => {
+	const existing = await client.address.getAddress(accountConfigId, addressId);
+	if (existing.accountConfigId !== accountConfigId) {
+		throw new ForbiddenError(`Address ${addressId} not in account config`);
+	}
+
+	const patch = buildFlagsPatch(input);
+	if (Object.keys(patch).length === 0) return toAddressResponse(existing);
+
+	const updated = await client.address.mergeFlags(
+		accountConfigId,
+		addressId,
+		patch,
+	);
+
+	const flag = backApplyCategoryFlag(patch);
+	if (flag) {
+		await client.queues.accountFanout
+			.send({
+				body: {
+					type: "SenderCategoryBackApply",
+					accountConfigId,
+					addressId,
+					normalizedEmail: updated.normalizedEmail,
+					category: flag.value,
+					categorySetAt: flag.setAt,
+				},
+			})
+			.catch((cause: unknown) => {
+				throw new Error(
+					`The ${flag.value} override is saved and applies to this sender's next message, but the pass over their existing mail could not be started. Setting the same category again retries it.`,
+					{ cause },
+				);
+			});
+	}
+
+	if (
+		patch.neverSpam?.value === true &&
+		updated.flags?.neverSpam?.value === true
+	) {
+		await requestNeverSpamBackApply(client.queues.accountFanout, {
+			accountConfigId,
+			addressId,
+			normalizedEmail: updated.normalizedEmail,
+		});
+	}
+
+	return toAddressResponse(updated);
+};
+
 export const AddressOperations = {
 	AddressOperations_searchAddresses: async (
 		context: Context,
@@ -113,19 +187,7 @@ export const AddressOperations = {
 			flag?: AddressTrustFlag;
 		};
 
-		const client = ctx.client;
-
-		const result = await client.address.listByAccountConfig({
-			accountConfigId,
-			search: q.toLowerCase(),
-			flag,
-			limit: limit ?? 10,
-		});
-
-		return {
-			items: result.items.map(toAddressResponse),
-			continuationToken: result.continuationToken,
-		};
+		return searchAddressesFor(ctx.client, accountConfigId, { q, limit, flag });
 	},
 } satisfies Record<
 	AddressOperationIds,
@@ -140,65 +202,7 @@ export const AddressDetailOperations = {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { addressId } = context.request.params as { addressId: string };
 		const body = (context.request.requestBody ?? {}) as UpdateAddressInput;
-
-		const client = ctx.client;
-
-		// Authorize: address must belong to the caller's accountConfig
-		const existing = await client.address.getAddress(
-			accountConfigId,
-			addressId,
-		);
-		if (existing.accountConfigId !== accountConfigId) {
-			throw new ForbiddenError(`Address ${addressId} not in account config`);
-		}
-
-		const patch = buildFlagsPatch(body);
-		if (Object.keys(patch).length === 0) {
-			return toAddressResponse(existing);
-		}
-
-		const updated = await client.address.mergeFlags(
-			accountConfigId,
-			addressId,
-			patch,
-		);
-
-		const flag = backApplyCategoryFlag(patch);
-		if (flag) {
-			// The flag itself is already durable. A queue failure here costs the
-			// user the retroactive pass and nothing else, so the 500 says so and
-			// names the retry — re-sending the same category enqueues a fresh job.
-			await client.queues.accountFanout
-				.send({
-					body: {
-						type: "SenderCategoryBackApply",
-						accountConfigId,
-						addressId,
-						normalizedEmail: updated.normalizedEmail,
-						category: flag.value,
-						categorySetAt: flag.setAt,
-					},
-				})
-				.catch((cause: unknown) => {
-					throw new Error(
-						`The ${flag.value} override is saved and applies to this sender's next message, but the pass over their existing mail could not be started. Setting the same category again retries it.`,
-						{ cause },
-					);
-				});
-		}
-
-		if (
-			patch.neverSpam?.value === true &&
-			updated.flags?.neverSpam?.value === true
-		) {
-			await requestNeverSpamBackApply(client.queues.accountFanout, {
-				accountConfigId,
-				addressId,
-				normalizedEmail: updated.normalizedEmail,
-			});
-		}
-
-		return toAddressResponse(updated);
+		return updateAddressFor(ctx.client, accountConfigId, addressId, body);
 	},
 } satisfies Record<
 	AddressDetailOperationIds,
