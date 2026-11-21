@@ -7,7 +7,6 @@ import type {
 	UserSettingsResponse,
 } from "@remit/api-openapi-types";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
-import { ConflictError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { ClassificationPresetId } from "@remit/domain-enums";
 import {
@@ -21,6 +20,7 @@ import {
 } from "@remit/drizzle-service/test-sqlite";
 import { createSecretsService } from "@remit/secrets-service";
 import type { Context } from "openapi-backend";
+import { classificationDefaultStoreFromEnv } from "../config/classification-default.js";
 import { testApiConfig } from "../config/test-config.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
@@ -159,7 +159,7 @@ describe("the operator classification default", () => {
 			assert.equal(savedOperator.apiKey, OPERATOR_KEY);
 
 			await UserSettingsOperations.UserSettingsOperations_updateUserSettings(
-				context({ classificationModel: "tenant-model" }),
+				context({ classificationPresetId: ClassificationPresetId.Local }),
 				caller(true),
 			);
 			const settings =
@@ -170,10 +170,12 @@ describe("the operator classification default", () => {
 			assert.equal(settings.classification.state, "Configured");
 			const classification =
 				settings.classification as ClassificationConfigured;
-			assert.equal(classification.model, "tenant-model");
-			assert.equal(classification.sources.model, "Saved");
-			assert.equal(classification.baseUrl, "https://operator.example/v1");
-			assert.equal(classification.sources.baseUrl, "Deployment");
+			assert.equal(classification.presetId, ClassificationPresetId.Local);
+			assert.equal(classification.sources.presetId, "Saved");
+			assert.equal(classification.model, "clef-flash");
+			assert.equal(classification.sources.model, "Default");
+			assert.equal(classification.enabled, true);
+			assert.equal(classification.sources.enabled, "Deployment");
 
 			responses.push(
 				await ClassificationDefaultOperations.ClassificationDefaultOperations_deleteClassificationDefault(
@@ -186,19 +188,7 @@ describe("the operator classification default", () => {
 				"Config",
 			);
 
-			const immutable: ClassificationDefaultStore = {
-				get: store.get,
-				put: async () => {
-					throw new ConflictError(
-						"The classification default is configured in remit.env.",
-					);
-				},
-				delete: async () => {
-					throw new ConflictError(
-						"The classification default is configured in remit.env.",
-					);
-				},
-			};
+			const immutable = classificationDefaultStoreFromEnv({});
 			const selfHosted = await respond(() =>
 				ClassificationDefaultOperations.ClassificationDefaultOperations_putClassificationDefault(
 					context({

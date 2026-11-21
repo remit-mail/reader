@@ -4,6 +4,8 @@ import {
 	DEFAULT_CLASSIFICATION_DAILY_LIMIT,
 	isClassificationPresetId,
 } from "@remit/data-ports/classification-presets";
+import { ConflictError } from "@remit/data-ports/errors";
+import type { ClassificationDefaultStore } from "../service/create-remit-client.js";
 
 const PRESET = "CLASSIFICATION_DEFAULT_PRESET";
 const MODEL = "CLASSIFICATION_DEFAULT_MODEL";
@@ -141,4 +143,20 @@ export const classificationDefaultFromEnv = (
 	);
 	if (!parsed.ok) return refuse(parsed.message);
 	return parsed.value;
+};
+
+export const classificationDefaultStoreFromEnv = (
+	env: NodeJS.ProcessEnv,
+): ClassificationDefaultStore => {
+	const value = classificationDefaultFromEnv(env);
+	const immutable = async (): Promise<never> => {
+		throw new ConflictError(
+			"The classification default is configured in remit.env.",
+		);
+	};
+	return {
+		get: async () => ({ value, source: "Config" }),
+		put: immutable,
+		delete: immutable,
+	};
 };
