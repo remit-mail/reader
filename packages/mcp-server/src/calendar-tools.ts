@@ -540,8 +540,9 @@ export const registerCalendarTools = (
 	server.registerTool(
 		"reopen_calendar_suggestion",
 		{
-			description: "Return an answered or dismissed suggestion to pending.",
-			annotations: WRITE,
+			description:
+				"Return an answered or dismissed suggestion to pending, deleting the calendar event written by an accept when no other answer still uses it.",
+			annotations: DESTRUCTIVE,
 			inputSchema: { suggestionId },
 		},
 		async ({ suggestionId }) =>
