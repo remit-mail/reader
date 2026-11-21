@@ -155,6 +155,7 @@ describe("a disabled account", () => {
 		const disabled = await people.updatePerson({
 			callerId: operatorId,
 			clientIp: PEER,
+			operatorGrant: false,
 			targetId: userId,
 			status: "Disabled",
 			stepUpToken: await stepUp(userId, "Disable"),
@@ -227,6 +228,7 @@ describe("a password reset link", () => {
 		const issued = await people.createPasswordReset({
 			callerId: operatorId,
 			clientIp: PEER,
+			operatorGrant: false,
 			targetId: userId,
 			stepUpToken: await stepUp(userId, "ResetPassword"),
 		});

@@ -29,6 +29,7 @@ export const createCalendarClient = (
 						email: `${userId}@subject.invalid`,
 					}),
 					operator: async () => false,
+					operatorGrant: async () => false,
 					peopleDirectory: async () => null,
 				},
 				"mcp-calendar",

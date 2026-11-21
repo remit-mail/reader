@@ -10,6 +10,7 @@ import {
 	MCP_ACCOUNT_SCOPE,
 	MCP_ACTIONS_SCOPE,
 	MCP_CALENDAR_SCOPE,
+	MCP_OPERATOR_SCOPE,
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,
 	MCP_SEND_SCOPE,
@@ -29,6 +30,7 @@ import {
 } from "./mail-action-tools.js";
 import { MCP_ATTACHMENT_MAX_BYTES, registerMailTools } from "./mail-tools.js";
 import { registerMoveTools } from "./move-tools.js";
+import { registerOperatorTools } from "./operator-tools.js";
 import { registerReadTools } from "./read-tools.js";
 import { registerRescanTools } from "./rescan-tools.js";
 
@@ -78,7 +80,11 @@ const boundedRequest = async (request: Request): Promise<Request | null> => {
 	return new Request(request, { body });
 };
 
-const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
+const buildServer = (
+	principal: McpPrincipal,
+	deps: McpDeps,
+	isOperator: boolean,
+): McpServer => {
 	const server = new McpServer(
 		{ name: "remit-reader", version: "1.0.0" },
 		{ jsonSchemaValidator: unusedJsonSchemaValidator },
@@ -130,15 +136,22 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	if (principal.scopes.includes(MCP_SEND_SCOPE)) {
 		registerMailTools(server, deps, deriveAccountConfigId(principal.userId));
 	}
+	if (principal.scopes.includes(MCP_OPERATOR_SCOPE) && isOperator) {
+		registerOperatorTools(server, deps.operatorClient(principal.userId));
+	}
 	return server;
 };
 
 export const createMcpHandler =
-	(principal: McpPrincipal, deps: McpDeps): McpRequestHandler =>
+	(
+		principal: McpPrincipal,
+		deps: McpDeps,
+		isOperator: boolean,
+	): McpRequestHandler =>
 	async (request) => {
 		const bounded = await boundedRequest(request);
 		if (!bounded) return new Response(null, { status: 413 });
-		const server = buildServer(principal, deps);
+		const server = buildServer(principal, deps, isOperator);
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			sessionIdGenerator: undefined,
 			enableJsonResponse: true,

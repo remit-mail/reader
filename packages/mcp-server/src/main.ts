@@ -1,5 +1,11 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { serve } from "@hono/node-server";
+import {
+	createAuth,
+	createPeopleDirectory,
+	openIdentityStore,
+	resolveAuthConfig,
+} from "@remit/auth-service";
 import { resolveSignInEnabled } from "@remit/auth-service/verifier";
 import { getClient } from "@remit/backend/client";
 import { configFromEnv } from "@remit/backend/config-from-env";
@@ -16,6 +22,7 @@ import {
 	mcpDepsOf,
 } from "./deps.js";
 import { createCalendarClient } from "./local-api-client.js";
+import { createOperatorClient } from "./operator-client.js";
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
 import { loadPageAssets } from "./pages/load-assets.js";
 
@@ -25,11 +32,25 @@ const config = resolveMcpServerConfig();
 
 const client = await getClient();
 const apiConfig = configFromEnv(process.env);
+const identityStore = await openIdentityStore(config.databases.app);
+const authConfig = resolveAuthConfig();
+const peopleDirectory = await createPeopleDirectory({
+	auth: await createAuth(authConfig, identityStore),
+	store: identityStore,
+	baseURL: authConfig.baseURL,
+});
+const operatorHost = {
+	config: apiConfig,
+	client: async () => client,
+	peopleDirectory: async () => peopleDirectory,
+};
 const deps = mcpDepsOf(client, {
 	apiConfig,
 	calendarClient: (userId) =>
 		createCalendarClient(config.origin, apiConfig, client, userId),
 	logger,
+	operatorClient: (userId) =>
+		createOperatorClient(config.origin, operatorHost, userId),
 	settle: {
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
 		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,

@@ -6,6 +6,7 @@ export const MCP_ACTIONS_SCOPE = "mail:actions";
 export const MCP_SEND_SCOPE = "mail:send";
 export const MCP_ACCOUNT_SCOPE = "account";
 export const MCP_CALENDAR_SCOPE = "calendar";
+export const MCP_OPERATOR_SCOPE = "operator";
 export const OFFLINE_ACCESS_SCOPE = "offline_access";
 
 export const MCP_SCOPES = [
@@ -25,6 +26,7 @@ const SCOPE_DESCRIPTIONS: Readonly<Record<string, string>> = {
 	[MCP_SEND_SCOPE]: "Compose and send mail",
 	[MCP_ACCOUNT_SCOPE]: "Manage your settings, accounts, and configuration",
 	[MCP_CALENDAR_SCOPE]: "Manage your calendars, events, tasks, and invitations",
+	[MCP_OPERATOR_SCOPE]: "Administer this remit server",
 	[OFFLINE_ACCESS_SCOPE]: "Stay connected until you disconnect it",
 };
 

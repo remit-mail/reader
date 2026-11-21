@@ -179,6 +179,7 @@ before(async () => {
 	deps = {
 		apiConfig: undefined as never,
 		logger: silentLog,
+		operatorClient: () => undefined as never,
 		...ruleDeps(client),
 	};
 	({ auth, handler } = buildApp());
@@ -434,6 +435,7 @@ describe("the MCP authorization server", () => {
 				"mail:send",
 				"account",
 				"calendar",
+				"operator",
 			],
 			bearer_methods_supported: ["header"],
 		});
@@ -718,7 +720,7 @@ describe("the MCP authorization server", () => {
 
 describe("a host that authenticates the browser itself", () => {
 	const SUBJECT_HEADER = "x-test-subject";
-	const hosted = (disabled = false) => {
+	const hosted = (disabled = false, operator = false) => {
 		const audits: AuditRecord[] = [];
 		const server = createMcpAuth(
 			MCP_CONFIG,
@@ -728,6 +730,7 @@ describe("a host that authenticates the browser itself", () => {
 			}),
 			{
 				isDisabled: async () => disabled,
+				isOperator: async () => operator,
 				audit: async (record) => {
 					audits.push(record);
 				},
@@ -748,6 +751,16 @@ describe("a host that authenticates the browser itself", () => {
 		assert.equal(response.status, 404);
 	});
 
+	it("does not expose the provider consent endpoint", async () => {
+		const response = await hosted().handle(
+			new Request(`${MCP_ORIGIN}/auth/mcp/oauth2/consent`, {
+				method: "POST",
+				headers: asSubject("host-user"),
+			}),
+		);
+		assert.equal(response.status, 404);
+	});
+
 	it("provisions the subject the host names and opens its session", async () => {
 		const { handle } = hosted();
 		const signedIn = await handle(
@@ -760,6 +773,25 @@ describe("a host that authenticates the browser itself", () => {
 		assert.deepEqual(row, { email: "host-user@subject.invalid" });
 		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
 		assert.equal(anonymous.status, 401);
+	});
+
+	it("offers the operator grant only to an operator", async () => {
+		const hostedClientId = await registerClient();
+		const query = new URLSearchParams({
+			client_id: hostedClientId,
+			scope: "mail:read",
+		});
+		const page = (operator: boolean) =>
+			hosted(false, operator).handle(
+				new Request(`${MCP_ORIGIN}/consent?${query}`, {
+					headers: asSubject("host-user"),
+				}),
+			);
+		assert.match(await (await page(true)).text(), /Grant operator access/);
+		assert.doesNotMatch(
+			await (await page(false)).text(),
+			/Grant operator access/,
+		);
 	});
 
 	it("never hands one subject another subject's session", async () => {
@@ -822,11 +854,18 @@ describe("device authorization (RFC 8628)", () => {
 		let round = 0;
 		return {
 			lines,
-			fetch: (input, init) =>
-				app(
-					new Request(input instanceof Request ? input : String(input), init),
-					peer,
-				),
+			fetch: async (input, init) => {
+				const request = new Request(
+					input instanceof Request ? input : String(input),
+					init,
+				);
+				if (new URL(request.url).pathname !== "/auth/device/code") {
+					return app(request, peer);
+				}
+				const body = new URLSearchParams(await request.text());
+				body.set("scope", `${body.get("scope") ?? ""} operator`.trim());
+				return app(new Request(request, { body }), peer);
+			},
 			print: (line) => lines.push(line),
 			sleep: async (ms) => {
 				const userCode = /enter the code (\S+)$/.exec(lines[0] ?? "")?.[1];
@@ -1098,6 +1137,7 @@ describe("the People operations reach the connector (#1519)", () => {
 		const signedOut = await people.signOutPerson({
 			callerId: ownerId,
 			clientIp: PEER,
+			operatorGrant: false,
 			targetId: ownerId,
 			stepUpToken: await stepUp(ownerId, "SignOut"),
 		});
@@ -1117,6 +1157,7 @@ describe("the People operations reach the connector (#1519)", () => {
 		const disabled = await people.updatePerson({
 			callerId: userIdOf(EMAIL),
 			clientIp: PEER,
+			operatorGrant: false,
 			targetId: userIdOf(email),
 			status: "Disabled",
 			stepUpToken: await stepUp(userIdOf(email), "Disable"),

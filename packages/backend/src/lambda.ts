@@ -84,6 +84,7 @@ export const createApiEventHandler =
 						? identityFromSelfHostRequest(event, localIdentity)
 						: getIdentityFromEvent(event, localIdentity),
 				operator: async () => true,
+				operatorGrant: async () => false,
 				peopleDirectory,
 			},
 			context.awsRequestId,

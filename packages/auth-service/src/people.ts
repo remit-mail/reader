@@ -69,6 +69,7 @@ export interface PersonRequest extends PeopleRequest {
 }
 
 export interface TargetedRequest extends PersonRequest {
+	operatorGrant: boolean;
 	stepUpToken: string | null;
 }
 
@@ -219,6 +220,7 @@ const stepUpRefusal = (
 	request: TargetedRequest,
 	action: StepUpAction,
 ): Refused | undefined => {
+	if (request.operatorGrant) return undefined;
 	const spent =
 		request.stepUpToken === null
 			? []

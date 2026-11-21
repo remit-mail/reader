@@ -71,6 +71,7 @@ beforeEach(async () => {
 	deps = {
 		apiConfig: undefined as never,
 		logger: silentLog,
+		operatorClient: () => undefined as never,
 		...ruleDeps(client),
 	};
 	account = await seedAccount(store, {
@@ -168,7 +169,7 @@ const rpc = async (
 };
 
 const organizer = (scopes: string[] = [MCP_RULES_SCOPE]) =>
-	createMcpHandler({ userId: USER_ID, scopes }, deps);
+	createMcpHandler({ userId: USER_ID, scopes }, deps, false);
 
 const callTool = async (
 	name: string,

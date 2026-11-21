@@ -233,6 +233,7 @@ export interface HandlerContext<K extends QueueName = never> {
 	client: RemitClient<K>;
 	identity: UserIdentity;
 	operator?: boolean;
+	operatorGrant?: boolean;
 	peopleDirectory?: PeopleDirectory | null;
 	config: ApiConfig;
 }
