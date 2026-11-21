@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
 	CreateOutboxMessageInputSchema,
 	InlineOutboxAttachmentInputSchema,
+	OutboxMessageListResponseSchema,
 	UpdateOutboxMessageInputSchema,
 } from "@remit/api-zod-schemas";
 import {
@@ -26,6 +27,13 @@ const outboxAttachmentId =
 	CreateOutboxMessageInputSchema.shape.accountId.describe(
 		"Outbox attachment identifier",
 	);
+const createOutboxMessageInput = CreateOutboxMessageInputSchema.omit({
+	sendImmediately: true,
+});
+const continuationToken =
+	OutboxMessageListResponseSchema.shape.continuationToken
+		.unwrap()
+		.describe("Continuation token from the prior page, or an empty string");
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
 const WRITE = {
 	readOnlyHint: false,
@@ -46,8 +54,8 @@ export const registerMailTools = (
 	server.registerTool(
 		"create_outbox_message",
 		{
-			description: "Create a draft, or create and send a message immediately.",
-			inputSchema: CreateOutboxMessageInputSchema.shape,
+			description: "Create a draft message.",
+			inputSchema: createOutboxMessageInput.shape,
 			annotations: WRITE,
 		},
 		async (input) =>
@@ -64,14 +72,16 @@ export const registerMailTools = (
 		"list_outbox_messages",
 		{
 			description: "List draft, queued, sent, and failed outgoing messages.",
+			inputSchema: { continuationToken },
 			annotations: READ_ONLY,
 		},
-		async () =>
+		async ({ continuationToken }) =>
 			asJson(
 				await listOutboxMessagesFor(
 					deps.client,
 					deps.apiConfig,
 					accountConfigId,
+					continuationToken || undefined,
 				),
 			),
 	);
@@ -134,7 +144,7 @@ export const registerMailTools = (
 		{
 			description: "Queue a draft message for sending.",
 			inputSchema: { outboxMessageId },
-			annotations: WRITE,
+			annotations: { ...WRITE, openWorldHint: true },
 		},
 		async ({ outboxMessageId }) =>
 			asJson(
