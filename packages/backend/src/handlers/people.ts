@@ -18,12 +18,12 @@ import type {
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
+import { requireOperator } from "../auth.js";
 import type {
 	HandlerContext,
 	OperationHandler,
 	PeopleOperationIds,
 } from "../types.js";
-import { requireOperator } from "./operator.js";
 
 const CLIENT_IP_HEADER = "x-remit-client-ip";
 

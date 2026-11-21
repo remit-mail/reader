@@ -207,7 +207,6 @@ namespace RemitApi {
     op listPeople():
       | PeopleListResponse
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
@@ -218,7 +217,6 @@ namespace RemitApi {
     op listAudit():
       | PeopleAuditResponse
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
@@ -229,7 +227,6 @@ namespace RemitApi {
     op invitePerson(@body body: InvitePersonInput):
       | PersonInviteResponse
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError
       | ConflictError;
@@ -241,7 +238,6 @@ namespace RemitApi {
     op revokeInvite(@path email: string):
       | PersonInviteResponse
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
@@ -266,7 +262,6 @@ namespace RemitApi {
     ):
       | Person
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
@@ -281,7 +276,6 @@ namespace RemitApi {
     ):
       | Person
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError
       | CannotDisableSelfError;
@@ -296,7 +290,6 @@ namespace RemitApi {
     ):
       | PasswordResetResponse
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
 
@@ -307,7 +300,6 @@ namespace RemitApi {
     op resetPersonFactors(@path userId: string):
       | Person
       | UnauthorizedError
-      | ForbiddenError
       | PeopleForbiddenError
       | NotFoundError;
   }

@@ -118,7 +118,8 @@ model PeopleForbiddenError {
     | PeopleErrorCode.CallerDisabled
     | PeopleErrorCode.ForeignOrigin
     | PeopleErrorCode.StepUpRequired
-    | PeopleErrorCode.WrongPassword;
+    | PeopleErrorCode.WrongPassword
+    | "forbidden";
 }
 
 @doc("Too many wrong step-up passwords.")

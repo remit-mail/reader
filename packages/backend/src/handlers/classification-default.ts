@@ -15,7 +15,6 @@ import type {
 	HandlerContext,
 	OperationHandler,
 } from "../types.js";
-import { requireOperator } from "./operator.js";
 
 const responseOf = (
 	value: ClassificationDeploymentDefault,
