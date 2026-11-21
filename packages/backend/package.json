@@ -95,6 +95,10 @@
       "types": "./src/config/classification-default.ts",
       "default": "./src/config/classification-default.ts"
     },
+    "./config-from-env": {
+      "types": "./src/config/from-env.ts",
+      "default": "./src/config/from-env.ts"
+    },
     "./content-handler": {
       "types": "./dev-server/content-handler.ts",
       "default": "./dev-server/content-handler.ts"
@@ -191,6 +195,10 @@
       "./classification-default": {
         "types": "./dist/src/config/classification-default.d.ts",
         "default": "./dist/src/config/classification-default.js"
+      },
+      "./config-from-env": {
+        "types": "./dist/src/config/from-env.d.ts",
+        "default": "./dist/src/config/from-env.js"
       },
       "./content-handler": {
         "types": "./dist/dev-server/content-handler.d.ts",

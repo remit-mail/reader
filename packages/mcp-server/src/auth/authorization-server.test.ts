@@ -826,11 +826,18 @@ describe("device authorization (RFC 8628)", () => {
 		let round = 0;
 		return {
 			lines,
-			fetch: (input, init) =>
-				app(
-					new Request(input instanceof Request ? input : String(input), init),
-					peer,
-				),
+			fetch: async (input, init) => {
+				const request = new Request(
+					input instanceof Request ? input : String(input),
+					init,
+				);
+				if (new URL(request.url).pathname !== "/auth/device/code") {
+					return app(request, peer);
+				}
+				const body = new URLSearchParams(await request.text());
+				body.set("scope", `${body.get("scope") ?? ""} operator`.trim());
+				return app(new Request(request, { body }), peer);
+			},
 			print: (line) => lines.push(line),
 			sleep: async (ms) => {
 				const userCode = /enter the code (\S+)$/.exec(lines[0] ?? "")?.[1];
