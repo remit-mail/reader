@@ -231,6 +231,7 @@ const createWorld = async (
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
+			statusRefused: false,
 			syncStatus: "synced",
 		});
 		if (created.outcome !== "Created") {
@@ -284,6 +285,7 @@ const createWorld = async (
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
+			statusRefused: false,
 			syncStatus: "synced",
 		});
 		if (created.outcome !== "Created") {

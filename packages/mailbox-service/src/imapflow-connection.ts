@@ -6,6 +6,7 @@
  */
 
 import type { ImapFlow } from "imapflow";
+import { statusOrThrow } from "./mailbox-status.js";
 import type {
 	FlatMailboxInfo,
 	ImapAddress,
@@ -16,6 +17,7 @@ import type {
 	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
+	MailboxStatusRead,
 	MailCredentials,
 } from "./types.js";
 import { MailConnectionError } from "./types.js";
@@ -1262,9 +1264,12 @@ export class ImapFlowConnection {
 	 * @param mailboxPath - Full path to the mailbox
 	 * @returns Mailbox status including unseen and deleted counts
 	 */
-	getMailboxStatus = async (
+	getMailboxStatus = async (mailboxPath: string): Promise<ImapMailboxStatus> =>
+		statusOrThrow(await this.readMailboxStatus(mailboxPath), mailboxPath);
+
+	readMailboxStatus = async (
 		mailboxPath: string,
-	): Promise<ImapMailboxStatus> => {
+	): Promise<MailboxStatusRead> => {
 		this.ensureConnected();
 		const { client } = this;
 
@@ -1281,19 +1286,30 @@ export class ImapFlowConnection {
 			highestModseq: true,
 		});
 		if (status === false) {
-			throw new Error(`IMAP STATUS returned no result for ${mailboxPath}`);
+			// imapflow answers a server NO and a lost socket alike. Only a
+			// connection still usable afterwards heard a refusal.
+			if (!client.usable) {
+				throw new MailConnectionError(
+					"network",
+					`IMAP connection lost during STATUS of ${mailboxPath}`,
+				);
+			}
+			return { outcome: "Refused" };
 		}
 
 		const deletedCount = await this.countDeleted(mailboxPath);
 
 		return {
-			messages: status.messages ?? 0,
-			recent: status.recent ?? 0,
-			unseen: status.unseen ?? 0,
-			uidNext: status.uidNext ?? 0,
-			uidValidity: Number(status.uidValidity ?? 0),
-			highestModseq: (status.highestModseq ?? 0n).toString(),
-			deletedCount,
+			outcome: "Read",
+			status: {
+				messages: status.messages ?? 0,
+				recent: status.recent ?? 0,
+				unseen: status.unseen ?? 0,
+				uidNext: status.uidNext ?? 0,
+				uidValidity: Number(status.uidValidity ?? 0),
+				highestModseq: (status.highestModseq ?? 0n).toString(),
+				deletedCount,
+			},
 		};
 	};
 

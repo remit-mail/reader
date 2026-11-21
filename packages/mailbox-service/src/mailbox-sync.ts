@@ -436,7 +436,17 @@ export class MailboxSyncService {
 	): Promise<MailboxItem | null> => {
 		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
 		// This gets us message counts including unseen without opening the mailbox
-		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
+		const read = await connection.readMailboxStatus(mailboxInfo.fullPath);
+		// A folder refused on first sight has no UIDVALIDITY to store, so it
+		// gets no row until a STATUS answers.
+		if (read.outcome === "Refused") {
+			this.log.debug(
+				{ accountId, fullPath: mailboxInfo.fullPath },
+				"Skipped a new folder whose STATUS the server refused",
+			);
+			return null;
+		}
+		const { status } = read;
 
 		// Parse special-use attributes (RFC 6154) up front so the row stores a
 		// denormalized copy. Frontends list mailboxes by account; threading a join
@@ -470,6 +480,7 @@ export class MailboxSyncService {
 			// defaults to this, so the row is right either way; the field is total
 			// now (D1) and the insert says what it means.
 			syncStatus: MailboxSyncStatus.synced,
+			statusRefused: false,
 			// parentMailboxId would need to be resolved from parentPath
 		};
 
@@ -523,7 +534,22 @@ export class MailboxSyncService {
 		connection: IImapConnection,
 	): Promise<MailboxItem | null> => {
 		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
-		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
+		const read = await connection.readMailboxStatus(mailboxInfo.fullPath);
+		if (read.outcome === "Refused") {
+			if (existing.statusRefused) return null;
+			this.log.info(
+				{
+					mailboxId: existing.mailboxId,
+					fullPath: mailboxInfo.fullPath,
+					changes: ["statusRefused: false -> true"],
+				},
+				"Updating mailbox",
+			);
+			return this.mailboxService.update(accountId, existing.mailboxId, {
+				statusRefused: true,
+			});
+		}
+		const { status } = read;
 
 		const parsed = parseImapAttributes(mailboxInfo.attributes);
 		const specialUseChanged = !areSpecialUseSetsEqual(
@@ -551,6 +577,7 @@ export class MailboxSyncService {
 			existing.messageCount !== status.messages ||
 			existing.unseenCount !== status.unseen ||
 			existing.deletedCount !== status.deletedCount ||
+			existing.statusRefused ||
 			specialUseChanged;
 
 		// Sync special-use attributes (handles migration of existing mailboxes)
@@ -578,6 +605,7 @@ export class MailboxSyncService {
 			changes.push(
 				`deletedCount: ${existing.deletedCount} -> ${status.deletedCount}`,
 			);
+		if (existing.statusRefused) changes.push("statusRefused: true -> false");
 		if (specialUseChanged)
 			changes.push(
 				`specialUse: [${(existing.specialUse ?? []).join(",")}] -> [${parsed.specialUse.join(",")}]`,
@@ -606,6 +634,7 @@ export class MailboxSyncService {
 			unseenCount: status.unseen,
 			deletedCount: status.deletedCount,
 			specialUse: parsed.specialUse.length > 0 ? parsed.specialUse : undefined,
+			statusRefused: false,
 			...cursorTrip,
 		});
 	};

@@ -1,0 +1,1 @@
+ALTER TABLE `mailbox` ADD `status_refused` integer DEFAULT false NOT NULL;

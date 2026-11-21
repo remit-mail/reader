@@ -44,6 +44,7 @@ export interface AttemptBudgets {
 
 export interface ImapWorkerConfig {
 	readonly attempts: AttemptBudgets;
+	readonly headerBatchSize: number;
 	readonly bodyBatchSize: number;
 	readonly bodyProcessConcurrency: number;
 	readonly bodyProcessBytesInFlight: number;
@@ -80,5 +81,6 @@ export const defaultImapWorkerConfig: Omit<
 		messageDelete: 3,
 		messageCopy: 3,
 	},
+	headerBatchSize: 200,
 	mailboxFreshnessMs: DEFAULT_MAILBOX_FRESHNESS_MS,
 };

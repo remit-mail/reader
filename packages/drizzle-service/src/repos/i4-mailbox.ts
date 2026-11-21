@@ -134,6 +134,7 @@ export function rowToMailbox(
 		syncStatus: row.syncStatus as MailboxItem["syncStatus"],
 		...(row.pendingPath !== null ? { pendingPath: row.pendingPath } : {}),
 		syncFailureReason: row.syncFailureReason,
+		statusRefused: row.statusRefused,
 		cursorState: (row.cursorState as MailboxItem["cursorState"]) ?? undefined,
 		specialUse: (row.specialUse as MailboxItem["specialUse"]) ?? undefined,
 		createdAt: row.createdAt,
@@ -181,6 +182,7 @@ export class MailboxRepo implements IMailboxRepository {
 				// about is confirmed.
 				syncStatus: input.syncStatus ?? "synced",
 				cursorState: input.cursorState ?? MailboxCursorState.normal,
+				statusRefused: input.statusRefused,
 				specialUse: input.specialUse ?? null,
 				createdAt: now,
 				updatedAt: now,
@@ -268,6 +270,8 @@ export class MailboxRepo implements IMailboxRepository {
 		if (input.cursorState !== undefined)
 			updates.cursorState = input.cursorState;
 		if (input.specialUse !== undefined) updates.specialUse = input.specialUse;
+		if (input.statusRefused !== undefined)
+			updates.statusRefused = input.statusRefused;
 
 		if (remove) {
 			for (const field of remove) {

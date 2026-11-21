@@ -49,6 +49,7 @@ export const FILLED_COLUMNS: ReadonlyMap<string, string> = new Map([
 	["organize_job_request.start_position", "mail 0020"],
 	["organize_job_request.next_position", "mail 0020"],
 	["organize_job_request.remaining_count", "mail 0020"],
+	["mailbox.status_refused", "mail 0021"],
 ]);
 
 /**

@@ -91,6 +91,7 @@ describe("message objects follow the last row that references them", () => {
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				lastMessageSyncAt: 0,
+				statusRefused: false,
 			}),
 		);
 

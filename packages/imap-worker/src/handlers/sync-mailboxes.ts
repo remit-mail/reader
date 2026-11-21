@@ -35,6 +35,7 @@ import type { ConnectionPool } from "../connection-pool.js";
 import type { ProcessContext } from "../context.js";
 import { type EmitEvent, emitFrom } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
+import { isStale } from "../freshness.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { createImportedFolder } from "./imported-folder.js";
@@ -43,30 +44,6 @@ import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 const EVENT_EMIT_CONCURRENCY = 20;
 
 type RemitFolderDeps = RemitRootDeps & AdoptLabelFolderDeps;
-
-/**
- * Whether this fan-out should enqueue a mailbox.
- *
- * A sync asked for by name — POST /sync, which is the refresh control,
- * pull-to-refresh, and the client's automatic poll — always syncs every
- * mailbox, whatever ran a moment ago. A sync that happens as a side effect of
- * something else (config load, OAuth connect, account create, the scheduled
- * tick) skips mailboxes synced inside the freshness window, which is
- * what stops those triggers from re-enumerating an account's folders on every
- * page load.
- *
- * A mailbox that has never synced is always due.
- */
-export const mailboxNeedsSync = (
-	mailbox: { lastMessageSyncAt?: number },
-	event: Pick<SyncMailboxesEvent, "explicitRequest">,
-	now: number,
-	freshnessMs: number,
-): boolean => {
-	if (event.explicitRequest) return true;
-	if (!mailbox.lastMessageSyncAt) return true;
-	return now - mailbox.lastMessageSyncAt >= freshnessMs;
-};
 
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
@@ -125,6 +102,19 @@ export const syncMailboxes = async (
 	// sync attempt would retry and dead-letter forever. Skip cleanly — ack the
 	// event without connecting or throwing.
 	if (isUnsyncableHost(account, log)) {
+		return;
+	}
+
+	// A side-effect trigger, such as each GET /config, skips an account swept
+	// inside the freshness window. A sync asked for by name always runs.
+	if (
+		!event.explicitRequest &&
+		!isStale(account.lastSyncAt, Date.now(), ctx.config.mailboxFreshnessMs)
+	) {
+		log.debug(
+			{ accountId, lastSyncAt: account.lastSyncAt },
+			"Skipped a side-effect sync of a freshly synced account",
+		);
 		return;
 	}
 
@@ -240,7 +230,11 @@ const syncMailboxesForAccount = async (
 	}
 
 	const stored = await mailboxService.listAllByAccount(accountId);
-	const allMailboxes = collectAllMailboxes(stored);
+	// A folder whose STATUS the server refused has nothing message sync could
+	// read; its row says so, and the next mailbox sync retries it.
+	const allMailboxes = collectAllMailboxes(
+		stored.filter((mailbox) => !mailbox.statusRefused),
+	);
 
 	const adopted = await reconcileRemitFolders(remitFolders, account, stored);
 	if (adopted.length > 0) {
@@ -250,18 +244,15 @@ const syncMailboxesForAccount = async (
 		);
 	}
 
-	// This fan-out is where an account's IMAP work is decided: one SEARCH per
-	// mailbox per event, on a queue every account shares. `GET /config` fires a
-	// trigger per account on every call, so without a gate here an idle client
-	// re-enumerates every folder it owns on every page load.
-	//
-	// The gate is per mailbox and a sync asked for by name skips it outright.
-	// That distinction is the whole point: the previous cooldown gated
-	// everything, which is what made a refresh a no-op whenever a side-effect
-	// trigger had just run (issue #37).
+	// One SEARCH per mailbox per event, on a queue every account shares. A
+	// side-effect trigger skips mailboxes synced inside the freshness window; a
+	// sync asked for by name skips the gate outright, or a refresh right after
+	// a side-effect sync would do nothing (issue #37).
 	const now = Date.now();
-	const mailboxes = allMailboxes.filter((mailbox) =>
-		mailboxNeedsSync(mailbox, event, now, freshnessMs),
+	const mailboxes = allMailboxes.filter(
+		(mailbox) =>
+			event.explicitRequest ||
+			isStale(mailbox.lastMessageSyncAt, now, freshnessMs),
 	);
 
 	const skipped = allMailboxes.length - mailboxes.length;

@@ -163,6 +163,7 @@ const toMailboxResponse = (
 	// target of a failed rename, or offer the right retry.
 	pendingPath: mailbox.pendingPath,
 	syncFailureReason: mailbox.syncFailureReason,
+	statusRefused: mailbox.statusRefused,
 	muted: overrides.muted,
 	displayNameOverride: overrides.displayNameOverride,
 	createdAt: mailbox.createdAt,

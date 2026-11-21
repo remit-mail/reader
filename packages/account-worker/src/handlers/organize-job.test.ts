@@ -483,6 +483,7 @@ describe("processOrganizeJob for a source-folder job", () => {
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				lastMessageSyncAt: 0,
+				statusRefused: false,
 			});
 			assert.equal(created.outcome, "Created");
 			return created.mailbox.mailboxId;

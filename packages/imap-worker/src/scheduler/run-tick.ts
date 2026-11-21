@@ -17,11 +17,11 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
+import { isStale } from "../freshness.js";
 import {
 	SCHEDULER_ENQUEUE_CONCURRENCY,
 	SCHEDULER_PAGE_SIZE,
 } from "./config.js";
-import { isSyncDue } from "./decide-due.js";
 
 export interface CalendarSubscriptionTally {
 	refreshed: number;
@@ -118,7 +118,7 @@ const isEligible = (account: AccountItem): boolean => {
 /**
  * One tick of the periodic mailbox-sync scheduler (#1247, restructured
  * #1251). Pages through every account (never loading the whole account base
- * into memory), decides per account via `isSyncDue` against the single
+ * into memory), decides per account via `isStale` against the single
  * offline threshold, and enqueues SYNC_MAILBOXES for the accounts that are
  * due — in bounded-concurrency batches, never an unbounded `Promise.all`.
  *
@@ -155,7 +155,8 @@ export const runSchedulerTick = async (
 
 		const due = page.items.filter(
 			(account) =>
-				isEligible(account) && isSyncDue(account, now, offlineIntervalMs),
+				isEligible(account) &&
+				isStale(account.lastSyncAt, now, offlineIntervalMs),
 		);
 		skipped += page.items.length - due.length;
 

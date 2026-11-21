@@ -122,6 +122,14 @@ export interface ImapMailboxStatus {
 }
 
 /**
+ * What a STATUS read came back with. `Refused` is a server NO on a connection
+ * that is still usable; a lost connection throws instead.
+ */
+export type MailboxStatusRead =
+	| { outcome: "Read"; status: ImapMailboxStatus }
+	| { outcome: "Refused" };
+
+/**
  * Flattened mailbox info for processing
  */
 export interface FlatMailboxInfo {
@@ -357,6 +365,11 @@ export interface IImapConnection {
 	 * @returns Mailbox status including unseen count
 	 */
 	getMailboxStatus(mailboxPath: string): Promise<ImapMailboxStatus>;
+	/**
+	 * Read mailbox status, reporting a refused STATUS as an outcome rather
+	 * than an error, for the mailbox sync that skips such a folder.
+	 */
+	readMailboxStatus(mailboxPath: string): Promise<MailboxStatusRead>;
 	/**
 	 * Append a message to a mailbox via IMAP APPEND command.
 	 *

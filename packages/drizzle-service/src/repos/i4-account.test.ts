@@ -192,6 +192,7 @@ describe("AccountRepo", () => {
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				lastMessageSyncAt: Date.now(),
+				statusRefused: false,
 			}),
 		);
 

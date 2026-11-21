@@ -1,4 +1,5 @@
 import { simpleParser } from "mailparser";
+import { statusOrThrow } from "../mailbox-status.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
@@ -10,6 +11,7 @@ import type {
 	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
+	MailboxStatusRead,
 } from "../types.js";
 
 interface StoredMessage {
@@ -128,6 +130,8 @@ export class FakeImapServer {
 	readonly log: string[] = [];
 	readonly failNext: Partial<Record<FakeImapVerb, Error>> = {};
 	readonly ignoreNext = new Set<FakeImapVerb>();
+	/** Folders the server LISTs but answers NO to STATUS on, as a shared folder without read rights does. */
+	readonly refusesStatus = new Set<string>();
 	condstore = true;
 	uidplus = true;
 	namespacePrefix = "";
@@ -668,21 +672,30 @@ export class FakeImapConnection implements IImapConnection {
 		return deleted;
 	};
 
-	getMailboxStatus = async (path: string): Promise<ImapMailboxStatus> => {
+	getMailboxStatus = async (path: string): Promise<ImapMailboxStatus> =>
+		statusOrThrow(await this.readMailboxStatus(path), path);
+
+	readMailboxStatus = async (path: string): Promise<MailboxStatusRead> => {
 		this.server.run("STATUS", path);
 		const folder = this.server.folder(path);
+		if (this.server.refusesStatus.has(path)) return { outcome: "Refused" };
 		const messages = [...folder.messages.values()];
 		return {
-			messages: messages.length,
-			recent: 0,
-			unseen: messages.filter((message) => !message.flags.has("\\Seen")).length,
-			uidNext: folder.uidNext,
-			uidValidity: folder.uidValidity,
-			highestModseq: this.server.condstore
-				? this.server.highestModseq().toString()
-				: "0",
-			deletedCount: messages.filter((message) => message.flags.has("\\Deleted"))
-				.length,
+			outcome: "Read",
+			status: {
+				messages: messages.length,
+				recent: 0,
+				unseen: messages.filter((message) => !message.flags.has("\\Seen"))
+					.length,
+				uidNext: folder.uidNext,
+				uidValidity: folder.uidValidity,
+				highestModseq: this.server.condstore
+					? this.server.highestModseq().toString()
+					: "0",
+				deletedCount: messages.filter((message) =>
+					message.flags.has("\\Deleted"),
+				).length,
+			},
 		};
 	};
 

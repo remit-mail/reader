@@ -73,6 +73,7 @@ describe("which SYNC_MESSAGES events reach the server", () => {
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				lastMessageSyncAt: 0,
+				statusRefused: false,
 			},
 			w.account.accountId,
 		);
