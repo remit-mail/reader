@@ -1,6 +1,11 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { serve } from "@hono/node-server";
-import { client as operatorClient } from "@remit/api-http-client/client.gen.js";
+import {
+	createAuth,
+	createPeopleDirectory,
+	openIdentityStore,
+	resolveAuthConfig,
+} from "@remit/auth-service";
 import { resolveSignInEnabled } from "@remit/auth-service/verifier";
 import { getClient } from "@remit/backend/client";
 import { configFromEnv } from "@remit/backend/config-from-env";
@@ -16,19 +21,32 @@ import {
 	FOLDER_SETTLE_TIMEOUT_MS,
 	mcpDepsOf,
 } from "./deps.js";
+import { createOperatorClient } from "./operator-client.js";
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
 import { loadPageAssets } from "./pages/load-assets.js";
 
 installNodeLogger();
 
 const config = resolveMcpServerConfig();
-operatorClient.setConfig({ baseUrl: config.origin });
 
 const client = await getClient();
+const identityStore = await openIdentityStore(config.databases.app);
+const authConfig = resolveAuthConfig();
+const peopleDirectory = await createPeopleDirectory({
+	auth: await createAuth(authConfig, identityStore),
+	store: identityStore,
+	baseURL: authConfig.baseURL,
+});
+const operatorHost = {
+	config: configFromEnv(process.env),
+	client: async () => client,
+	peopleDirectory: async () => peopleDirectory,
+};
 const deps = mcpDepsOf(client, {
 	apiConfig: configFromEnv(process.env),
 	logger,
-	operatorClient: () => operatorClient,
+	operatorClient: (userId) =>
+		createOperatorClient(config.origin, operatorHost, userId),
 	settle: {
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
 		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,

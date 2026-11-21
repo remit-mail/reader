@@ -17,9 +17,7 @@ import type {
 	ClassificationDefaultStore,
 	RemitClient,
 } from "@remit/backend/create-remit-client";
-import { handlers, publicHandlers } from "@remit/backend/handlers";
 import type { ApiConfig, UserIdentity } from "@remit/backend/serve";
-import { serveApi } from "@remit/backend/serve";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { ClassificationPresetId } from "@remit/domain-enums";
 import {
@@ -33,9 +31,9 @@ import {
 	sharedDatabases,
 } from "@remit/drizzle-service/test-sqlite";
 import { createSecretsService } from "@remit/secrets-service";
-import { createClient } from "../../../build/remit-client/client/index.js";
 import { MCP_OPERATOR_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
+import { createOperatorClient } from "./operator-client.js";
 import { createMcpHandler } from "./server.js";
 
 const ORIGIN = "https://operator.remit.test";
@@ -196,22 +194,15 @@ before(async () => {
 			value: { ...target, status },
 		}),
 	};
-	const api = serveApi({ handlers, publicHandlers });
-	const operatorClient = createClient({
-		baseUrl: ORIGIN,
-		fetch: (request, init) =>
-			api.handleFetch(
-				request instanceof Request ? request : new Request(request, init),
-				{
-					config,
-					client: async () => client,
-					identity: async () => caller,
-					operator: async () => true,
-					peopleDirectory: async () => hostedDirectory,
-				},
-				"operator-tools-test",
-			),
-	});
+	const operatorClient = createOperatorClient(
+		ORIGIN,
+		{
+			config,
+			client: async () => client,
+			peopleDirectory: async () => hostedDirectory,
+		},
+		caller.sub,
+	);
 	handler = createMcpHandler(
 		{ userId: caller.sub, scopes: [MCP_OPERATOR_SCOPE] },
 		{ operatorClient: () => operatorClient } as unknown as McpDeps,
@@ -253,7 +244,11 @@ describe("the operator tools over sqlite dependencies", () => {
 		);
 		await rpc("clear_tenant_classification", { userId: target.userId });
 
-		await rpc("list_people");
+		const people = (await rpc("list_people")) as { people: Person[] };
+		assert.equal(
+			people.people.find((person) => person.userId === caller.sub)?.isCaller,
+			true,
+		);
 		await rpc("invite_person", { email: "invitee@example.test" });
 		await rpc("revoke_invite", { email: "invitee@example.test" });
 		await rpc("disable_person", { userId: target.userId });

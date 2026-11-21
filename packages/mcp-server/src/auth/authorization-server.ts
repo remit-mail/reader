@@ -749,6 +749,26 @@ const subjectIdOf = async (
 	return (await auth.api.getSession({ headers }))?.user.id;
 };
 
+const withoutDeviceOperatorScope = async (
+	request: Request,
+	path: string,
+): Promise<Request> => {
+	if (path !== DEVICE_CODE_PATH || request.method !== "POST") return request;
+	const body = new URLSearchParams(await request.text());
+	body.set(
+		"scope",
+		(body.get("scope") ?? "")
+			.split(" ")
+			.filter((scope) => scope.length > 0 && scope !== MCP_OPERATOR_SCOPE)
+			.join(" "),
+	);
+	return new Request(request.url, {
+		method: request.method,
+		headers: request.headers,
+		body,
+	});
+};
+
 const createMcpAuthRoutes = (
 	auth: McpAuth,
 	identity: McpIdentity,
@@ -765,7 +785,7 @@ const createMcpAuthRoutes = (
 				? SUBJECT_SERVED_PATHS.has(path)
 				: isServedAuthPath(path);
 		if (!served) return new Response("Not found", { status: 404 });
-		return auth.handler(request);
+		return auth.handler(await withoutDeviceOperatorScope(request, path));
 	},
 	serverMetadata: oauthProviderAuthServerMetadata(auth),
 	sessionOf: async (headers) => {
