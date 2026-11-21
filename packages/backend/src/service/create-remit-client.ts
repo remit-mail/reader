@@ -175,7 +175,7 @@ export interface RemitClientCore {
 
 	mailTransports: MailTransports;
 
-	classificationDefault: ClassificationDeploymentDefault;
+	getClassificationDefault: () => ClassificationDeploymentDefault;
 
 	// RFC 041: the spam service body sync asks, and the evidence it gathers
 	// first. One RDAP client per process, so the IANA bootstrap is read once.
@@ -251,13 +251,22 @@ export interface RemitClientRepositories {
 	calendarTask: ICalendarTaskRepository;
 }
 
+export type ClassificationDefaultSource =
+	| ClassificationDeploymentDefault
+	| (() => ClassificationDeploymentDefault);
+
+const classificationDefaultGetter = (
+	source: ClassificationDefaultSource,
+): (() => ClassificationDeploymentDefault) =>
+	typeof source === "function" ? source : () => source;
+
 export interface RemitClientSharedDeps {
 	storage: StorageService;
 	secrets: SecretsService;
 	connectionScope: ConnectionScopeFactory;
 	mailTransports: MailTransports;
 	queues: RemitClientQueues;
-	classificationDefault: ClassificationDeploymentDefault;
+	classificationDefault: ClassificationDefaultSource;
 	spamPipeline: SpamPipeline;
 }
 
@@ -389,7 +398,9 @@ export const createRemitCore = (
 		}),
 		createConnectionScope: connectionScope(repositories.account, secrets),
 		mailTransports,
-		classificationDefault,
+		getClassificationDefault: classificationDefaultGetter(
+			classificationDefault,
+		),
 		spam: {
 			spamPipeline,
 			domainRegistration: repositories.domainRegistration,
@@ -476,7 +487,7 @@ export const composeReadPathServices = (
 	const classifierConfig = {
 		accountSetting: core.accountSetting,
 		accountConfig: core.accountConfig,
-		classificationDefault: core.classificationDefault,
+		getClassificationDefault: core.getClassificationDefault,
 		secrets: core.secrets,
 		labelService: core.label,
 		messageLabelService: core.messageLabel,

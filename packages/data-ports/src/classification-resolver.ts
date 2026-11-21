@@ -220,7 +220,7 @@ export const resolveClassification = (
 export interface ClassificationResolverDeps {
 	accountSetting: Pick<IAccountSettingRepository, "getMany">;
 	accountConfig: Pick<IAccountConfigRepository, "get">;
-	classificationDefault: ClassificationDeploymentDefault;
+	getClassificationDefault: () => ClassificationDeploymentDefault;
 }
 
 export const readClassificationInput = async (
@@ -236,7 +236,7 @@ export const readClassificationInput = async (
 	]);
 	return {
 		rows,
-		deployment: deps.classificationDefault,
+		deployment: deps.getClassificationDefault(),
 		accountConfigCreatedAt: accountConfig.createdAt,
 	};
 };

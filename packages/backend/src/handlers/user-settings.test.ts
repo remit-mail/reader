@@ -25,7 +25,7 @@ describe("the default invitation sender", () => {
 			{
 				accountSetting: client.accountSetting,
 				accountConfig: client.accountConfig,
-				classificationDefault: client.classificationDefault,
+				getClassificationDefault: client.getClassificationDefault,
 				spamPipeline: client.spam.spamPipeline,
 				accounts: client.account,
 				secrets: client.secrets,

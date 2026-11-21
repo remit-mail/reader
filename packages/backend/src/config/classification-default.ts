@@ -14,6 +14,61 @@ const DAILY_LIMIT = "CLASSIFICATION_DEFAULT_DAILY_LIMIT";
 
 const DEPENDENT_KEYS = [MODEL, BASE_URL, API_KEY, ENABLED, DAILY_LIMIT];
 
+export interface ClassificationDefaultInput {
+	presetId: string;
+	model?: string;
+	baseUrl?: string;
+	apiKey?: string;
+	enabled: boolean;
+	dailyLimit?: number;
+}
+
+export type ClassificationDefaultParse =
+	| { ok: true; value: ClassificationDeploymentDefault }
+	| { ok: false; message: string };
+
+const invalid = (message: string): ClassificationDefaultParse => ({
+	ok: false,
+	message,
+});
+
+const isPositiveInteger = (value: number): boolean =>
+	Number.isSafeInteger(value) && value > 0;
+
+export const parseClassificationDefault = (
+	input: ClassificationDefaultInput,
+): ClassificationDefaultParse => {
+	const { presetId } = input;
+	if (!isClassificationPresetId(presetId))
+		return invalid(
+			`${presetId} is not a known preset. Use one of ${Object.keys(CLASSIFICATION_PRESETS).join(", ")}.`,
+		);
+
+	const preset = CLASSIFICATION_PRESETS[presetId];
+	const apiKey = input.apiKey ?? "";
+	if (preset.needsKey && apiKey === "")
+		return invalid(`${presetId} needs an API key.`);
+	const baseUrl = input.baseUrl || preset.defaultBaseUrl;
+	if (!baseUrl)
+		return invalid(`${presetId} has no default base URL, so it needs one.`);
+	const dailyLimit = input.dailyLimit ?? DEFAULT_CLASSIFICATION_DAILY_LIMIT;
+	if (!isPositiveInteger(dailyLimit))
+		return invalid(`Daily limit ${dailyLimit} must be a positive integer.`);
+
+	return {
+		ok: true,
+		value: {
+			state: "Configured",
+			presetId,
+			model: input.model || preset.defaultModel,
+			baseUrl,
+			apiKey,
+			enabled: input.enabled,
+			dailyLimit,
+		},
+	};
+};
+
 const refuse = (message: string): never => {
 	throw new Error(`Refusing to start: ${message}`);
 };
@@ -27,11 +82,10 @@ const enabledOf = (raw: string): boolean => {
 	return refuse(`${ENABLED}=${raw} must be true or false.`);
 };
 
-const dailyLimitOf = (raw: string): number => {
-	if (raw === "") return DEFAULT_CLASSIFICATION_DAILY_LIMIT;
+const dailyLimitOf = (raw: string): number | undefined => {
+	if (raw === "") return undefined;
 	const limit = Number(raw);
-	if (/^\d+$/.test(raw) && Number.isSafeInteger(limit) && limit > 0)
-		return limit;
+	if (/^\d+$/.test(raw) && isPositiveInteger(limit)) return limit;
 	return refuse(`${DAILY_LIMIT}=${raw} must be a positive integer.`);
 };
 
@@ -45,28 +99,15 @@ export const classificationDefaultFromEnv = (
 			return refuse(`${stray.join(", ")} set without ${PRESET}.`);
 		return { state: "None" };
 	}
-	if (!isClassificationPresetId(presetId))
-		return refuse(
-			`${PRESET}=${presetId} is not a known preset. Use one of ${Object.keys(CLASSIFICATION_PRESETS).join(", ")}.`,
-		);
 
-	const preset = CLASSIFICATION_PRESETS[presetId];
-	const apiKey = envValue(env, API_KEY);
-	if (preset.needsKey && apiKey === "")
-		return refuse(`${API_KEY} is not set. ${PRESET}=${presetId} needs a key.`);
-	const baseUrl = envValue(env, BASE_URL) || preset.defaultBaseUrl;
-	if (!baseUrl)
-		return refuse(
-			`${BASE_URL} is not set. ${PRESET}=${presetId} has no default base URL.`,
-		);
-
-	return {
-		state: "Configured",
+	const parsed = parseClassificationDefault({
 		presetId,
-		model: envValue(env, MODEL) || preset.defaultModel,
-		baseUrl,
-		apiKey,
+		model: envValue(env, MODEL),
+		baseUrl: envValue(env, BASE_URL),
+		apiKey: envValue(env, API_KEY),
 		enabled: enabledOf(envValue(env, ENABLED)),
 		dailyLimit: dailyLimitOf(envValue(env, DAILY_LIMIT)),
-	};
+	});
+	if (!parsed.ok) return refuse(`${PRESET}=${presetId}: ${parsed.message}`);
+	return parsed.value;
 };

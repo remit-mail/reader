@@ -259,7 +259,7 @@ export const rescanServiceFor = (
 		classifier: {
 			accountSetting: store.accountSetting,
 			accountConfig: store.accountConfig,
-			classificationDefault: { state: "None" },
+			getClassificationDefault: () => ({ state: "None" }),
 			secrets: classifierSecrets,
 			labelService: store.label,
 			messageLabelService: store.messageLabel,
