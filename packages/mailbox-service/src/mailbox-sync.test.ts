@@ -227,8 +227,8 @@ describe("a folder leaving mid-sweep", () => {
 		message: string,
 	) => {
 		const connection = imap.connection();
-		const status = connection.getMailboxStatus;
-		connection.getMailboxStatus = async (asked) => {
+		const status = connection.readMailboxStatus;
+		connection.readMailboxStatus = async (asked) => {
 			if (asked !== path) return status(asked);
 			await before();
 			throw new Error(message);
@@ -242,8 +242,8 @@ describe("a folder leaving mid-sweep", () => {
 		const doomed = await inState("Doomed", MailboxSyncStatus.deleting);
 		const connection = imap.connection();
 		const asked: string[] = [];
-		const status = connection.getMailboxStatus;
-		connection.getMailboxStatus = (path) => {
+		const status = connection.readMailboxStatus;
+		connection.readMailboxStatus = (path) => {
 			asked.push(path);
 			return status(path);
 		};
@@ -282,5 +282,52 @@ describe("a folder leaving mid-sweep", () => {
 			),
 			/connection reset by peer/,
 		);
+	});
+});
+
+describe("a folder whose STATUS the server refuses", () => {
+	it("records the refusal and keeps syncing the other folders", async () => {
+		imap.addFolder("INBOX");
+		imap.addFolder("Shared/Team");
+		imap.refusesStatus.add("Shared/Team");
+		imap.deliver("INBOX", eml({}));
+
+		await sweep();
+
+		const shared = await byPath("Shared/Team");
+		const inbox = await byPath("INBOX");
+		assert.equal(shared.statusRefused, true);
+		assert.equal(inbox.statusRefused, false);
+		assert.equal(inbox.messageCount, 1);
+	});
+
+	it("marks a folder that was readable before and keeps its stored status", async () => {
+		imap.addFolder("INBOX");
+		imap.addFolder("Shared/Team");
+		await sweep();
+		const before = await byPath("Shared/Team");
+		imap.refusesStatus.add("Shared/Team");
+
+		await sweep();
+
+		const after = await row(before);
+		assert.equal(after.statusRefused, true);
+		assert.equal(after.uidValidity, before.uidValidity);
+		assert.equal(after.cursorState, MailboxCursorState.normal);
+	});
+
+	it("clears the refusal without tripping the cursor once STATUS answers", async () => {
+		imap.addFolder("INBOX");
+		imap.addFolder("Shared/Team");
+		imap.refusesStatus.add("Shared/Team");
+		await sweep();
+		imap.refusesStatus.delete("Shared/Team");
+
+		await sweep();
+
+		const after = await byPath("Shared/Team");
+		assert.equal(after.statusRefused, false);
+		assert.equal(after.uidValidity, imap.uidValidityOf("Shared/Team"));
+		assert.equal(after.cursorState, MailboxCursorState.normal);
 	});
 });

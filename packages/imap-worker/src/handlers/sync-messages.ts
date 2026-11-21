@@ -47,7 +47,6 @@ import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const EVENT_EMIT_CONCURRENCY = 10;
-const MESSAGE_BATCH_SIZE = 200;
 
 /** Slice synced messages into body-sync batches, each one ranged FETCH. */
 export const batchSyncedMessages = (
@@ -435,7 +434,7 @@ const syncMailboxMessages = async (
 			mailboxId,
 			account.accountId,
 			account.accountConfigId,
-			MESSAGE_BATCH_SIZE,
+			config.headerBatchSize,
 		);
 	})().finally(() => borrowed.release());
 	await lease.renew();

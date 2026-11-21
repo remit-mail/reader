@@ -139,6 +139,10 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   syncFailureReason: string = "";
 
+  @doc("Whether the mail server refused STATUS on this folder at the last mailbox sync. A folder the user can LIST but not read, such as a shared folder without read rights, is skipped by message sync while this holds, and the rest of the account keeps syncing. Total: false for a folder whose STATUS answered.")
+  @visibility(Lifecycle.Read)
+  statusRefused: boolean = false;
+
   @doc("Cursor integrity state machine for stored UIDs (epic #1281 invariant 5, issue #1272). Total per RFC 032: defaults to `normal` rather than being absent. A row written before this field existed reads back as `normal` (unset DynamoDB/Postgres attribute deserializes to the schema default).")
   @visibility(Lifecycle.Read)
   cursorState: MailboxCursorState = MailboxCursorState.normal;
@@ -300,6 +304,7 @@ model MailboxResponse {
     | "syncStatus"
     | "pendingPath"
     | "syncFailureReason"
+    | "statusRefused"
     | "createdAt"
     | "updatedAt"
   >;

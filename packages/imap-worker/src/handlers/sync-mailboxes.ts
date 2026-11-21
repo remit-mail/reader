@@ -45,6 +45,25 @@ const EVENT_EMIT_CONCURRENCY = 20;
 type RemitFolderDeps = RemitRootDeps & AdoptLabelFolderDeps;
 
 /**
+ * Whether a side-effect trigger should enumerate the account's folders at
+ * all. Config load fires one per account on every `GET /config`, and a client
+ * that loads its settings more than once on startup would otherwise run the
+ * whole LIST and STATUS sweep each time. The account's FIFO group runs the
+ * events in order, so a burst of triggers sweeps once and the rest find
+ * `lastSyncAt` fresh. A sync asked for by name always runs.
+ */
+export const accountNeedsSync = (
+	account: { lastSyncAt?: number },
+	event: Pick<SyncMailboxesEvent, "explicitRequest">,
+	now: number,
+	freshnessMs: number,
+): boolean => {
+	if (event.explicitRequest) return true;
+	if (!account.lastSyncAt) return true;
+	return now - account.lastSyncAt >= freshnessMs;
+};
+
+/**
  * Whether this fan-out should enqueue a mailbox.
  *
  * A sync asked for by name — POST /sync, which is the refresh control,
@@ -125,6 +144,16 @@ export const syncMailboxes = async (
 	// sync attempt would retry and dead-letter forever. Skip cleanly — ack the
 	// event without connecting or throwing.
 	if (isUnsyncableHost(account, log)) {
+		return;
+	}
+
+	if (
+		!accountNeedsSync(account, event, Date.now(), ctx.config.mailboxFreshnessMs)
+	) {
+		log.debug(
+			{ accountId, lastSyncAt: account.lastSyncAt },
+			"Skipped a side-effect sync of a freshly synced account",
+		);
 		return;
 	}
 
@@ -240,7 +269,11 @@ const syncMailboxesForAccount = async (
 	}
 
 	const stored = await mailboxService.listAllByAccount(accountId);
-	const allMailboxes = collectAllMailboxes(stored);
+	// A folder whose STATUS the server refused has nothing message sync could
+	// read; its row says so, and the next mailbox sync retries it.
+	const allMailboxes = collectAllMailboxes(
+		stored.filter((mailbox) => !mailbox.statusRefused),
+	);
 
 	const adopted = await reconcileRemitFolders(remitFolders, account, stored);
 	if (adopted.length > 0) {

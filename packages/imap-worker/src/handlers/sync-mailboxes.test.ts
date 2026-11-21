@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { resolveMailboxFreshnessMs } from "../config-env.js";
 import { DEFAULT_MAILBOX_FRESHNESS_MS } from "../context.js";
 import {
+	accountNeedsSync,
 	emitSyncMessagesEvents,
 	mailboxNeedsSync,
 	splitInboxFirst,
@@ -70,6 +71,50 @@ describe("mailboxNeedsSync", () => {
 		assert.equal(
 			mailboxNeedsSync(
 				{ lastMessageSyncAt: 0 },
+				sideEffect,
+				NOW,
+				DEFAULT_MAILBOX_FRESHNESS_MS,
+			),
+			true,
+		);
+	});
+});
+
+describe("accountNeedsSync", () => {
+	// Issue #1461: every settings load enqueued a sync, and each one ran the
+	// whole folder sweep, so a client that loaded its settings twice swept twice.
+	it("skips a freshly-synced account for a side-effect trigger", () => {
+		assert.equal(
+			accountNeedsSync(
+				{ lastSyncAt: NOW - 1_000 },
+				sideEffect,
+				NOW,
+				DEFAULT_MAILBOX_FRESHNESS_MS,
+			),
+			false,
+		);
+	});
+
+	it("syncs a freshly-synced account when the sync was asked for by name", () => {
+		assert.equal(
+			accountNeedsSync(
+				{ lastSyncAt: NOW - 1_000 },
+				askedForByName,
+				NOW,
+				DEFAULT_MAILBOX_FRESHNESS_MS,
+			),
+			true,
+		);
+	});
+
+	it("syncs an account that has never synced or went stale", () => {
+		assert.equal(
+			accountNeedsSync({}, sideEffect, NOW, DEFAULT_MAILBOX_FRESHNESS_MS),
+			true,
+		);
+		assert.equal(
+			accountNeedsSync(
+				{ lastSyncAt: NOW - DEFAULT_MAILBOX_FRESHNESS_MS },
 				sideEffect,
 				NOW,
 				DEFAULT_MAILBOX_FRESHNESS_MS,

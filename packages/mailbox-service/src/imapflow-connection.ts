@@ -16,6 +16,7 @@ import type {
 	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
+	MailboxStatusRead,
 	MailCredentials,
 } from "./types.js";
 import { MailConnectionError } from "./types.js";
@@ -1265,6 +1266,16 @@ export class ImapFlowConnection {
 	getMailboxStatus = async (
 		mailboxPath: string,
 	): Promise<ImapMailboxStatus> => {
+		const read = await this.readMailboxStatus(mailboxPath);
+		if (read.outcome === "Refused") {
+			throw new Error(`IMAP STATUS returned no result for ${mailboxPath}`);
+		}
+		return read.status;
+	};
+
+	readMailboxStatus = async (
+		mailboxPath: string,
+	): Promise<MailboxStatusRead> => {
 		this.ensureConnected();
 		const { client } = this;
 
@@ -1280,20 +1291,21 @@ export class ImapFlowConnection {
 			uidValidity: true,
 			highestModseq: true,
 		});
-		if (status === false) {
-			throw new Error(`IMAP STATUS returned no result for ${mailboxPath}`);
-		}
+		if (status === false) return { outcome: "Refused" };
 
 		const deletedCount = await this.countDeleted(mailboxPath);
 
 		return {
-			messages: status.messages ?? 0,
-			recent: status.recent ?? 0,
-			unseen: status.unseen ?? 0,
-			uidNext: status.uidNext ?? 0,
-			uidValidity: Number(status.uidValidity ?? 0),
-			highestModseq: (status.highestModseq ?? 0n).toString(),
-			deletedCount,
+			outcome: "Read",
+			status: {
+				messages: status.messages ?? 0,
+				recent: status.recent ?? 0,
+				unseen: status.unseen ?? 0,
+				uidNext: status.uidNext ?? 0,
+				uidValidity: Number(status.uidValidity ?? 0),
+				highestModseq: (status.highestModseq ?? 0n).toString(),
+				deletedCount,
+			},
 		};
 	};
 

@@ -24,7 +24,7 @@ export const resolveMailboxFreshnessMs = (env: NodeJS.ProcessEnv): number => {
 export const imapWorkerConfigFromEnv = (
 	env: NodeJS.ProcessEnv,
 ): ImapWorkerConfig => {
-	const { attempts } = defaultImapWorkerConfig;
+	const { attempts, headerBatchSize } = defaultImapWorkerConfig;
 	return {
 		attempts: {
 			body: attemptBudget("BODY_SYNC_MAX_ATTEMPTS", attempts.body, env),
@@ -55,6 +55,7 @@ export const imapWorkerConfigFromEnv = (
 				env,
 			),
 		},
+		headerBatchSize,
 		bodyBatchSize: BODY_BATCH_SIZE,
 		bodyProcessConcurrency: BODY_PROCESS_CONCURRENCY,
 		bodyProcessBytesInFlight: BODY_PROCESS_BYTES_IN_FLIGHT,

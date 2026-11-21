@@ -80,6 +80,7 @@ export const makeMailbox = (
 ): MailboxItem => ({
 	namespaceType: "personal",
 	syncFailureReason: "",
+	statusRefused: false,
 	namespacePrefix: "",
 	hierarchyDelimiter: ".",
 	uidValidity: 1,
