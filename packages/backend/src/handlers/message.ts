@@ -1,12 +1,15 @@
 import type {
 	BodyPartResponse,
+	BulkMessageInput,
+	BulkUpdateFlagsInput,
 	EnvelopeAddressResponse,
 	EnvelopeResponse,
+	UpdateFlagsInput,
+	UpdateMessageLabelsInput,
 } from "@remit/api-openapi-types";
 import type { MailboxItem } from "@remit/data-ports";
 import {
 	ForbiddenError,
-	MessagePlacementUnsettledError,
 	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
 import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
@@ -15,7 +18,6 @@ import {
 	MediaType,
 	MessageCategory,
 	SenderTrust,
-	type StarColor,
 } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import {
@@ -25,8 +27,6 @@ import {
 	MailboxCursorPausedError,
 	materializeBodyParts,
 	moveMessagesTo,
-	type NeverSpamGrant,
-	NoJunkMailboxError,
 	ownedMessages,
 	resolveFolderPlacement,
 	settledFolder,
@@ -43,7 +43,14 @@ import {
 } from "../derive/contentSignature.js";
 import { buildContentUrl } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
-import { requestNeverSpamBackApply } from "../service/never-spam.js";
+import {
+	getRawMessageFor,
+	notSpamFor,
+	reportSpamFor,
+	updateFlagsFor,
+	updateMessageFlagsFor,
+	updateMessageLabelsFor,
+} from "../service/message-action-operations.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -53,19 +60,13 @@ import type {
 	OperationHandler,
 } from "../types.js";
 
-type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
+export {
+	GENERIC_FAILURE_REASON,
+	settleSpamReportBulk,
+} from "../service/message-action-operations.js";
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
-
-/**
- * Decode the raw `.eml` bytes into a string for inspection. RFC822/MIME
- * sources are 7-bit/8-bit ASCII-compatible (non-ASCII bytes are encoded via
- * quoted-printable / base64 inside the body), so `latin1` round-trips every
- * byte 1:1 without loss or replacement characters — unlike `utf8`, which would
- * mangle raw 8-bit bytes. Headers and structure stay byte-accurate.
- */
-export const decodeRawEml = (body: Buffer): string => body.toString("latin1");
 
 /**
  * Extract the accountConfigId + accountId segments from a bodyStorageKey URI
@@ -182,97 +183,6 @@ export const buildBodyPartResponses = (
 			sign: context.sign,
 		}),
 	}));
-};
-
-export interface SpamReportBulkFailure {
-	messageId: string;
-	reason: string;
-}
-
-export interface SpamReportBulkOutcome {
-	successCount: number;
-	failureCount: number;
-	failures?: SpamReportBulkFailure[];
-}
-
-/**
- * The fallback for a failure nobody designed copy for — an AWS SDK message
- * naming a queue URL, an `ECONNREFUSED host:port`, a programmer error.
- * Everything reaching it is flattened, same policy as `error.ts`'s "Internal
- * server error" flattening, because `SpamReportBulkResult.reason` is shown to
- * the user as-is. It says "try again" because retrying is the only thing left
- * to say about a cause we cannot name; an outcome the service DOES understand
- * carries its own text through `DESIGNED_FAILURES` instead of landing here.
- */
-export const GENERIC_FAILURE_REASON =
-	"This message could not be processed. Please try again. If it keeps failing, report it.";
-
-/**
- * The designed, user-facing outcomes whose own message is returned verbatim:
- * each names what happened and what the user can do about it, which the
- * generic text cannot.
- */
-const DESIGNED_FAILURES = [NoJunkMailboxError, MessagePlacementUnsettledError];
-
-const isDesignedFailure = (reason: unknown): reason is Error =>
-	DESIGNED_FAILURES.some((designed) => reason instanceof designed);
-
-/**
- * The placement refusal is the one designed outcome whose own message is not
- * the text to ship: it names a uuid and no remedy. One remedy answers it, and
- * only one refusal reaches it — a mutation still in flight, which settles on
- * its own (imap-mutations R3). Worded here, the way the delete path words the
- * same refusal for the client.
- */
-const placementRefusalReason = (
-	_error: MessagePlacementUnsettledError,
-): string =>
-	"This message is still being moved on the mail server. Try again in a moment.";
-
-const failureReason = (reason: unknown): string => {
-	if (!isDesignedFailure(reason)) return GENERIC_FAILURE_REASON;
-	if (reason instanceof MessagePlacementUnsettledError)
-		return placementRefusalReason(reason);
-	return reason.message;
-};
-
-/**
- * Drive one report-spam/not-spam operation per message, concurrently. Each
- * message's own wait for its move to settle (SpamReportService's R2 wait) is
- * bounded on its own, but running the batch sequentially would let those
- * waits accumulate across the whole request — 50 messages could each wait
- * seconds, serializing into minutes and dying at the proxy. Running them
- * concurrently instead bounds the whole request by a single message's wait,
- * regardless of batch size.
- */
-export const settleSpamReportBulk = async (
-	messageIds: string[],
-	run: (messageId: string) => Promise<void>,
-): Promise<SpamReportBulkOutcome> => {
-	const results = await Promise.allSettled(
-		messageIds.map((messageId) => run(messageId)),
-	);
-
-	let successCount = 0;
-	const failures: SpamReportBulkFailure[] = [];
-	results.forEach((result, index) => {
-		if (result.status === "fulfilled") {
-			successCount += 1;
-			return;
-		}
-		const messageId = messageIds[index];
-		failures.push({ messageId, reason: failureReason(result.reason) });
-		logger.error(
-			{ messageId, error: result.reason },
-			"spam-report bulk operation failed for one message",
-		);
-	});
-
-	return {
-		successCount,
-		failureCount: failures.length,
-		...(failures.length > 0 ? { failures } : {}),
-	};
 };
 
 export const MessageOperations = {
@@ -558,97 +468,7 @@ export const MessageOperations = {
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
-		const client = ctx.client;
-
-		// Cross-tenant ownership guard. Returning raw RFC822 bytes is sensitive,
-		// so resolve the owning account and prove the caller owns it BEFORE any
-		// storage read or backfill. `read` mode throws NotFoundError (→ 404) on a
-		// foreign message and never leaks the owner's accountConfigId.
-		const accountId = unwrap(
-			await ownedMessages(client, [messageId], accountConfigId, "read"),
-		);
-
-		// Resolve the message row for its mailboxId / bodyStorageKey.
-		const message = await client.message.get(messageId);
-
-		// Backfill from IMAP when the body has never been stored, reusing the
-		// exact path describeMessage uses. fetchAndGetBody writes the raw .eml +
-		// parsed cache + per-part rows and sets message.bodyStorageKey as a
-		// side-effect; we then re-read the row to pick up the freshly written key.
-		if (!message.bodyStorageKey) {
-			const mailbox = await client.mailbox.get(accountId, message.mailboxId);
-
-			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
-			// paused never even opens a connection. The existing "no
-			// bodyStorageKey after backfill" check just past this block is
-			// already the right signal for that case, so no new response shape
-			// is needed here.
-			if (isCursorRebuildNeeded(mailbox.cursorState)) {
-				logger.debug(
-					{
-						accountId,
-						mailboxId: mailbox.mailboxId,
-						messageId,
-						cursorState: mailbox.cursorState,
-					},
-					"Mailbox cursor not normal; skipping IMAP body backfill for this request",
-				);
-			} else {
-				const folder = {
-					mailboxId: mailbox.mailboxId,
-					fullPath: mailbox.fullPath,
-					initialSyncCompletedAt: mailbox.initialSyncCompletedAt,
-					createdAt: mailbox.createdAt,
-					placement: await resolveFolderPlacement(
-						client.mailboxSpecialUse,
-						accountId,
-						mailbox.mailboxId,
-					),
-				};
-				const scope = await client.createConnectionScope(accountId);
-				// Guard at the openBox choke point — a fresh mismatch trips the
-				// mailbox and throws once the SELECT reveals it; caught below.
-				const connection = guardConnectionCursor(
-					await scope.getConnection(),
-					{ mailboxService: client.mailbox },
-					accountId,
-					mailbox,
-				);
-				await client.bodySync
-					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
-						Promise.resolve(connection),
-					)
-					.catch((error: unknown) => {
-						if (error instanceof MailboxCursorPausedError) {
-							logger.debug(
-								{
-									accountId,
-									mailboxId: mailbox.mailboxId,
-									messageId,
-									cursorState: error.state,
-								},
-								"Mailbox cursor not normal; skipping IMAP body backfill for this request",
-							);
-							return;
-						}
-						throw error;
-					})
-					.finally(() => scope.disconnect());
-			}
-		}
-
-		// Re-read so we have the bodyStorageKey the backfill just wrote (or the
-		// key that was already present), then pull the raw bytes from storage.
-		const stored = await client.message.get(messageId);
-		if (!stored.bodyStorageKey) {
-			throw new Error(
-				`Raw source unavailable for message ${messageId}: no bodyStorageKey after backfill`,
-			);
-		}
-
-		const body = await client.storage.retrieve(stored.bodyStorageKey);
-
-		return { raw: decodeRawEml(body) };
+		return getRawMessageFor(ctx.client, accountConfigId, messageId);
 	},
 
 	MessageOperations_updateMessageFlags: async (
@@ -657,34 +477,8 @@ export const MessageOperations = {
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
-		const { isRead, isStarred, starColor } = context.request.requestBody as {
-			isRead?: boolean;
-			isStarred?: boolean;
-			starColor?: string;
-		};
-
-		const client = ctx.client;
-		const accountId = unwrap(
-			await ownedMessages(client, [messageId], accountConfigId, "act"),
-		);
-
-		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS event
-		const result = await client.flagQueue.updateFlags(
-			accountConfigId,
-			messageId,
-			accountId,
-			{
-				isRead,
-				isStarred,
-				starColor: starColor as StarColorValue | undefined,
-			},
-		);
-
-		return {
-			messageId: result.messageId,
-			isRead: result.isRead,
-			isStarred: result.isStarred,
-		};
+		const input = context.request.requestBody as UpdateFlagsInput;
+		return updateMessageFlagsFor(ctx.client, accountConfigId, messageId, input);
 	},
 } satisfies Record<
 	MessageOperationIds,
@@ -697,42 +491,8 @@ export const MessageBulkOperations = {
 		ctx: HandlerContext<"sync">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const { messageIds, isRead, isStarred, starColor } = context.request
-			.requestBody as {
-			messageIds: string[];
-			isRead?: boolean;
-			isStarred?: boolean;
-			starColor?: string;
-		};
-
-		if (messageIds.length === 0) {
-			return { successCount: 0, failureCount: 0 };
-		}
-
-		const client = ctx.client;
-		const accountId = unwrap(
-			await ownedMessages(client, messageIds, accountConfigId, "act"),
-		);
-
-		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS events
-		// Process each message individually (same pattern as moveMessages)
-		for (const messageId of messageIds) {
-			await client.flagQueue.updateFlags(
-				accountConfigId,
-				messageId,
-				accountId,
-				{
-					isRead,
-					isStarred,
-					starColor: starColor as StarColorValue | undefined,
-				},
-			);
-		}
-
-		return {
-			successCount: messageIds.length,
-			failureCount: 0,
-		};
+		const input = context.request.requestBody as BulkUpdateFlagsInput;
+		return updateFlagsFor(ctx.client, accountConfigId, input);
 	},
 
 	MessageBulkOperations_deleteMessages: async (
@@ -856,43 +616,8 @@ export const MessageBulkOperations = {
 		ctx: HandlerContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const { messageIds, labelId, action } = context.request.requestBody as {
-			messageIds: string[];
-			labelId: string;
-			action: "Apply" | "Remove";
-		};
-
-		if (messageIds.length === 0) {
-			return { successCount: 0, failureCount: 0 };
-		}
-
-		const client = ctx.client;
-		unwrap(await ownedMessages(client, messageIds, accountConfigId, "act"));
-
-		// Scoped by accountConfigId (RFC 030) — a foreign labelId 404s here rather
-		// than silently applying to messages under someone else's label.
-		await client.label.get(accountConfigId, labelId);
-
-		// `appliedByFilterId` stays absent — this is the manual "just these" scope
-		// (RFC 034 Decision 3.3), never filter-attributed.
-		if (action === "Apply") {
-			for (const messageId of messageIds) {
-				await client.messageLabel.apply({
-					accountConfigId,
-					messageId,
-					labelId,
-				});
-			}
-		} else {
-			for (const messageId of messageIds) {
-				await client.messageLabel.remove(messageId, labelId);
-			}
-		}
-
-		return {
-			successCount: messageIds.length,
-			failureCount: 0,
-		};
+		const input = context.request.requestBody as UpdateMessageLabelsInput;
+		return updateMessageLabelsFor(ctx.client, accountConfigId, input);
 	},
 
 	MessageBulkOperations_reportSpam: async (
@@ -900,29 +625,8 @@ export const MessageBulkOperations = {
 		ctx: HandlerContext<"sync">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const { messageIds: requestedIds } = context.request.requestBody as {
-			messageIds: string[];
-		};
-		const messageIds = [...new Set(requestedIds)];
-
-		if (messageIds.length === 0) {
-			return { successCount: 0, failureCount: 0 };
-		}
-
-		const client = ctx.client;
-		const accountId = unwrap(
-			await ownedMessages(client, messageIds, accountConfigId, "act"),
-		);
-		const setBy = ctx.identity.sub;
-
-		return settleSpamReportBulk(messageIds, (messageId) =>
-			client.spamReport.reportSpam({
-				accountConfigId,
-				accountId,
-				messageId,
-				setBy,
-			}),
-		);
+		const input = context.request.requestBody as BulkMessageInput;
+		return reportSpamFor(ctx.client, accountConfigId, ctx.identity.sub, input);
 	},
 
 	MessageBulkOperations_notSpam: async (
@@ -930,55 +634,8 @@ export const MessageBulkOperations = {
 		ctx: HandlerContext<"sync" | "accountFanout">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const { messageIds: requestedIds } = context.request.requestBody as {
-			messageIds: string[];
-		};
-		const messageIds = [...new Set(requestedIds)];
-
-		if (messageIds.length === 0) {
-			return { successCount: 0, failureCount: 0 };
-		}
-
-		const client = ctx.client;
-		const accountId = unwrap(
-			await ownedMessages(client, messageIds, accountConfigId, "act"),
-		);
-
-		const setBy = ctx.identity.sub;
-
-		const grants = new Map<string, NeverSpamGrant>();
-		const outcome = await settleSpamReportBulk(
-			messageIds,
-			async (messageId) => {
-				const grant = await client.spamReport.notSpam({
-					accountConfigId,
-					accountId,
-					messageId,
-					setBy,
-				});
-				if (grant) grants.set(grant.addressId, grant);
-			},
-		);
-		const unstarted: { grant: NeverSpamGrant; cause: unknown }[] = [];
-		await Promise.all(
-			[...grants.values()].map((grant) =>
-				requestNeverSpamBackApply(client.queues.accountFanout, grant).catch(
-					(cause: unknown) => {
-						unstarted.push({ grant, cause });
-					},
-				),
-			),
-		);
-		if (unstarted.length > 0) {
-			const senders = unstarted
-				.map(({ grant }) => grant.normalizedEmail)
-				.join(", ");
-			throw new Error(
-				`Never spam is saved for ${senders}, but their other mail in Spam did not move. Press Not spam again, or turn never spam on from the sender's settings, to retry.`,
-				{ cause: unstarted.map(({ cause }) => cause) },
-			);
-		}
-		return outcome;
+		const input = context.request.requestBody as BulkMessageInput;
+		return notSpamFor(ctx.client, accountConfigId, ctx.identity.sub, input);
 	},
 } satisfies Record<
 	MessageBulkOperationIds,

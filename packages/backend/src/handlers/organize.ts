@@ -4,11 +4,7 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
-import {
-	FILTER_NO_ACTION,
-	filterRuleFromClauses,
-	isListPosition,
-} from "@remit/data-ports";
+import { FILTER_NO_ACTION, isListPosition } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger";
 import {
@@ -19,11 +15,9 @@ import {
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
 import {
-	buildOrganizeMatchDeps,
-	matchOrganize,
-	ORGANIZE_MATCH_LIMIT,
-	type OrganizePredicate,
 	organizePredicateRejection,
+	predicateFromInput,
+	previewOrganizeFor,
 } from "../service/organize.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
@@ -34,20 +28,7 @@ import type {
 	OrganizeOperationIds,
 } from "../types.js";
 
-/**
- * Normalize the request body into the flattened predicate the job row and the
- * matcher share.
- */
-export const predicateFromInput = (
-	input: OrganizeInput,
-): OrganizePredicate => ({
-	rule: filterRuleFromClauses({
-		matchOperator: input.matchOperator,
-		literalClauses: input.literalClauses,
-	}),
-	actionLabelId: input.actionLabelId,
-	actionMailboxId: input.actionMailboxId,
-});
+export { predicateFromInput } from "../service/organize.js";
 
 const assertAccount = async (
 	client: RemitClient<never>,
@@ -166,26 +147,7 @@ export const OrganizeOperations = {
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as OrganizeInput;
 
-		const client = ctx.client;
-		await assertAccount(client, accountId, accountConfigId, "read");
-
-		if (input.filterId) {
-			throw new BadRequestError(
-				"Preview takes a rule, not a saved filter. Run the filter to apply it.",
-			);
-		}
-		const result = await matchOrganize(
-			buildOrganizeMatchDeps(client),
-			accountConfigId,
-			predicateFromInput(input),
-			ORGANIZE_MATCH_LIMIT,
-		);
-		if (result.rejected) throw new BadRequestError(result.rejected.message);
-
-		return {
-			matchedCount: result.messageIds.length,
-			messageIds: result.messageIds,
-		};
+		return previewOrganizeFor(ctx.client, accountConfigId, accountId, input);
 	},
 } satisfies Record<
 	OrganizeOperationIds,

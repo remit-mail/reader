@@ -430,6 +430,7 @@ describe("the MCP authorization server", () => {
 			scopes_supported: [
 				"mail:read",
 				"mail:rules",
+				"mail:actions",
 				"mail:send",
 				"account",
 				"calendar",
@@ -469,12 +470,15 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(rpc.result.tools.map((tool) => tool.name).sort(), [
 			"classifier_stats",
 			"get_message",
+			"get_raw_message",
 			"get_thread",
 			"list_labels",
 			"list_mailboxes",
 			"list_quarantine",
 			"list_threads",
 			"list_vip_suggestions",
+			"preview_organize",
+			"search_addresses",
 			"search_threads",
 		]);
 		assert.deepEqual(sharedRows(), shared);
@@ -894,7 +898,7 @@ describe("device authorization (RFC 8628)", () => {
 		assert.ok([claims.aud].flat().includes(RESOURCE));
 		assert.equal(
 			claims.scope,
-			"mail:read mail:rules mail:send account calendar",
+			"mail:read mail:rules mail:actions mail:send account calendar",
 		);
 		assert.equal(claims.exp - claims.iat, DEVICE_TOKEN_TTL_SECONDS);
 

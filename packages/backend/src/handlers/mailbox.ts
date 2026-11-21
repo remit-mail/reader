@@ -21,6 +21,7 @@ import {
 } from "../derive/pendingMoveCounts.js";
 import type { RemitClient } from "../service/data-client.js";
 import { deleteFolder } from "../service/folder-delete.js";
+import { emptyTrashFor } from "../service/message-action-operations.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -344,16 +345,7 @@ export const TrashOperations = {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
-		const client = ctx.client;
-
-		const account = await client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "act"));
-
-		// The service resolves Trash, marks the rows and counts them, all off one
-		// read, and refuses with a coded 409 when the role is unresolved. Counting
-		// here as well would be a second answer free to disagree with the one that
-		// acts, and "0 deleted" reads as success to a user whose Trash is untouched.
-		return client.messageMove.emptyTrash(accountConfigId, accountId);
+		return emptyTrashFor(ctx.client, accountConfigId, accountId);
 	},
 } satisfies Record<
 	TrashOperationIds,
