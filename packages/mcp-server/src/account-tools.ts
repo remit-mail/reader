@@ -10,7 +10,6 @@ import {
 import type { RemitClient } from "@remit/backend/client";
 import { handlers } from "@remit/backend/handlers";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import type { Context } from "openapi-backend";
 import type { McpDeps } from "./deps.js";
 import { asJson } from "./tool-result.js";
 
@@ -19,6 +18,9 @@ type OperationId = keyof typeof handlers;
 type OperationConfig = Parameters<
 	(typeof handlers)["ConfigOperations_getConfig"]
 >[1]["config"];
+type OperationContext = Parameters<
+	(typeof handlers)["ConfigOperations_getConfig"]
+>[0];
 
 const operationConfig = {
 	commit: "unknown",
@@ -36,7 +38,7 @@ const callOperation = async (
 	params: Record<string, string> = {},
 ) => {
 	const handler = handlers[operationId] as unknown as (
-		context: Context,
+		context: OperationContext,
 		caller: {
 			client: RemitClient;
 			identity: {
@@ -48,7 +50,7 @@ const callOperation = async (
 			config: OperationConfig;
 		},
 	) => Promise<unknown>;
-	return handler({ request: { requestBody, params } } as Context, {
+	return handler({ request: { requestBody, params } } as OperationContext, {
 		client,
 		identity: {
 			kind: "user",
