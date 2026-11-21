@@ -78,7 +78,6 @@ export const clampThreadSearchLimit = (limit?: number): number => {
 type DateCursor = { s: number; id: string };
 type AccountCursor = { id: string };
 type RankedDateCursor = { v: 2; r: number; s: number; id: string };
-type SearchCursor = RankedDateCursor | (DateCursor & { v: 1 });
 
 function encodeRankedDateCursor(
 	rank: number,
@@ -90,11 +89,8 @@ function encodeRankedDateCursor(
 	).toString("base64");
 }
 
-function decodeSearchCursor(token: string): SearchCursor {
+function decodeSearchCursor(token: string): RankedDateCursor {
 	const decoded = decodeToken(token, "base64");
-	if (decoded.v === undefined) {
-		return { v: 1, ...decodeDateCursor(token) };
-	}
 	if (
 		decoded.v !== 2 ||
 		typeof decoded.r !== "number" ||
@@ -837,9 +833,8 @@ export class DrizzleThreadMessageRepository
 	/**
 	 * Cross-mailbox search for the unified listing's search mode. Same predicate
 	 * builder as `searchByMailboxWindow`, with the mailbox equality swapped for
-	 * the caller's scope set. Sender matches rank first, then date order; a
-	 * cursor minted before the ranking finishes its session in date order. Matching runs in SQL over the
-	 * whole scope, so a short page means the matches are exhausted.
+	 * the caller's scope set. Sender matches rank first, then date order. Matching runs in SQL over
+	 * the whole scope, so a short page means the matches are exhausted.
 	 */
 	async searchByDate(
 		accountConfigId: string,
@@ -856,7 +851,6 @@ export class DrizzleThreadMessageRepository
 		const cursor = options?.continuationToken
 			? decodeSearchCursor(options.continuationToken)
 			: null;
-		const ranked = cursor?.v !== 1;
 		const terms = queryTerms(search.query);
 		const conditions = buildSearchConditions(search);
 
@@ -866,7 +860,7 @@ export class DrizzleThreadMessageRepository
 				? [...options.mailboxIds]
 				: undefined,
 			text: conditions.text,
-			rank: ranked && terms.length > 0 ? senderMatchRank(terms) : undefined,
+			rank: terms.length > 0 ? senderMatchRank(terms) : undefined,
 			row: [
 				options?.excludeDeleted
 					? eq(threadMessageTable.isDeleted, false)
@@ -883,13 +877,11 @@ export class DrizzleThreadMessageRepository
 			items: rows.map(toItem),
 			continuationToken:
 				rows.length === limit && lastRow
-					? ranked
-						? encodeRankedDateCursor(
-								lastRow.rank,
-								lastRow.sentDate,
-								lastRow.threadMessageId,
-							)
-						: encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+					? encodeRankedDateCursor(
+							lastRow.rank,
+							lastRow.sentDate,
+							lastRow.threadMessageId,
+						)
 					: undefined,
 		};
 	}

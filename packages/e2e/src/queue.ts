@@ -131,16 +131,14 @@ export const enqueueBodySync = async (
  * else. A version the worker does not recognise abandons the delete and alerts,
  * which the spec's own assertions would fail on rather than pass quietly.
  */
-const MUTATION_EVENT_SCHEMA_VERSION = 2;
+const MUTATION_EVENT_SCHEMA_VERSION = 3;
 
 export interface MessageDeleteEnvelope {
 	accountId: string;
 	messageId: string;
 	mailboxId: string;
-	mailboxPath: string;
 	uid: number;
 	destinationMailboxId: string;
-	destinationMailboxPath: string;
 }
 
 export const enqueueMessageDelete = async (

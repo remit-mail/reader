@@ -171,10 +171,11 @@ describe("moving a message", () => {
 		assert.deepEqual(
 			queue.map((event) => [
 				event.body.type,
-				event.body.sourceMailboxPath,
+				event.body.schemaVersion,
+				event.body.sourceMailboxId,
 				event.body.uid,
 			]),
-			[["MESSAGE_MOVE", "INBOX", 337]],
+			[["MESSAGE_MOVE", 3, inbox.mailboxId, 337]],
 		);
 	});
 
@@ -208,8 +209,8 @@ describe("moving a message", () => {
 		);
 
 		assert.deepEqual(
-			queue.map((event) => [event.body.sourceMailboxPath, event.body.uid]),
-			[["Archive", 907]],
+			queue.map((event) => [event.body.sourceMailboxId, event.body.uid]),
+			[[archive.mailboxId, 907]],
 		);
 	});
 
@@ -382,9 +383,9 @@ describe("deleting a message", () => {
 		assert.deepEqual(
 			queue.map((event) => [
 				event.body.operation,
-				event.body.destinationMailboxPath,
+				event.body.destinationMailboxId,
 			]),
-			[["move_to_trash", "INBOX/Trash"]],
+			[["move_to_trash", trash?.mailboxId]],
 		);
 	});
 
@@ -487,8 +488,8 @@ describe("deleting a message", () => {
 		await remove([messageId]);
 
 		assert.deepEqual(
-			queue.map((event) => [event.body.mailboxPath, event.body.uid]),
-			[["Archive", 907]],
+			queue.map((event) => [event.body.mailboxId, event.body.uid]),
+			[[archive.mailboxId, 907]],
 		);
 	});
 
@@ -652,8 +653,8 @@ describe("copying a message", () => {
 		);
 
 		assert.deepEqual(
-			queue.map((event) => [event.body.sourceMailboxPath, event.body.uid]),
-			[["Archive", 907]],
+			queue.map((event) => [event.body.sourceMailboxId, event.body.uid]),
+			[[archive.mailboxId, 907]],
 		);
 	});
 });
