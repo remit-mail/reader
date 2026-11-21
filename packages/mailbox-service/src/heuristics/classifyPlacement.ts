@@ -1,8 +1,10 @@
 import type { MessageItem, UpdateMessageInput } from "@remit/data-ports";
 import {
 	AuthResultVerdict,
+	FromPlacement,
 	PlacementAction as PlacementActionValue,
 	PlacementConfidence,
+	PlacementReason,
 	SenderOverride,
 	SenderTrust,
 } from "@remit/domain-enums";
@@ -11,14 +13,18 @@ type SenderTrustValue = (typeof SenderTrust)[keyof typeof SenderTrust];
 
 type SenderOverrideValue = (typeof SenderOverride)[keyof typeof SenderOverride];
 
-export type FolderPlacement = "inbox" | "junk" | "other";
+export type FolderPlacement =
+	(typeof FromPlacement)[keyof typeof FromPlacement];
+
+type PlacementReasonValue =
+	(typeof PlacementReason)[keyof typeof PlacementReason];
 
 export type PlacementAction = "move-to-inbox" | "move-to-junk" | "leave";
 
 export interface PlacementVerdict {
 	action: PlacementAction;
 	confidence: "confident" | "unsure";
-	reasons: string[];
+	reasons: PlacementReasonValue[];
 }
 
 const isTrusted = (senderTrust: SenderTrustValue): boolean =>
@@ -124,7 +130,7 @@ export const classifyPlacement = (
 		return {
 			action: "move-to-junk",
 			confidence: "confident",
-			reasons: ["sender=blocked"],
+			reasons: [PlacementReason.SenderBlocked],
 		};
 	}
 
@@ -133,23 +139,23 @@ export const classifyPlacement = (
 		senderOverride === SenderOverride.None &&
 		!isTrusted(senderTrust)
 	) {
-		return placement === "inbox"
+		return placement === FromPlacement.Inbox
 			? {
 					action: "move-to-junk",
 					confidence: "confident",
-					reasons: ["classifier=spam"],
+					reasons: [PlacementReason.ClassifierSpam],
 				}
 			: {
 					action: "leave",
 					confidence: "confident",
-					reasons: ["classifier=spam"],
+					reasons: [PlacementReason.ClassifierSpam],
 				};
 	}
 
 	return {
 		action: "leave",
 		confidence: "unsure",
-		reasons: ["no-confident-signal"],
+		reasons: [PlacementReason.NoConfidentSignal],
 	};
 };
 
@@ -171,12 +177,14 @@ const rescueReason = (
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
 	clean: boolean,
-): string | undefined => {
-	if (clean) return "spam=clean";
+): PlacementReasonValue | undefined => {
+	if (clean) return PlacementReason.SpamClean;
 	if (message.authResult?.dmarc === AuthResultVerdict.Fail) return undefined;
-	if (senderOverride === SenderOverride.NeverSpam) return "sender=never-spam";
-	if (senderTrust === SenderTrust.Vip) return "sender=vip";
-	if (senderTrust === SenderTrust.Wellknown) return "sender=wellknown";
+	if (senderOverride === SenderOverride.NeverSpam)
+		return PlacementReason.SenderNeverSpam;
+	if (senderTrust === SenderTrust.Vip) return PlacementReason.SenderVip;
+	if (senderTrust === SenderTrust.Wellknown)
+		return PlacementReason.SenderWellknown;
 	return undefined;
 };
 
@@ -184,7 +192,7 @@ const filedIntoJunkByRemit = (message: MessageItem): boolean =>
 	message.movedByRemit === true &&
 	message.filterMove === undefined &&
 	message.placementVerdict?.action === PlacementActionValue.MoveToJunk &&
-	message.placementVerdict.fromPlacement !== "junk";
+	message.placementVerdict.fromPlacement !== FromPlacement.Junk;
 
 /**
  * What body sync does with a message's placement. `verdict.action` is relative
@@ -228,20 +236,20 @@ export const decidePlacement = (
 ): PlacementDecision => {
 	const rescuable =
 		junkExit.state === "Rescue" &&
-		placement === "junk" &&
+		placement === FromPlacement.Junk &&
 		filedIntoJunkByRemit(message);
 	if (message.movedByRemit === true && !rescuable) {
 		return {
 			verdict: {
 				action: "leave",
 				confidence: "confident",
-				reasons: ["already-moved-by-remit"],
+				reasons: [PlacementReason.AlreadyMovedByRemit],
 			},
 			destination: undefined,
 		};
 	}
 
-	if (placement !== "junk") {
+	if (placement !== FromPlacement.Junk) {
 		const verdict = classifyPlacement(
 			placement,
 			senderTrust,
@@ -262,13 +270,18 @@ export const decidePlacement = (
 			verdict: {
 				action: "leave",
 				confidence: "confident",
-				reasons: ["placed-in-junk"],
+				reasons: [PlacementReason.PlacedInJunk],
 			},
 			destination: undefined,
 		};
 	}
 
-	const asInbox = classifyPlacement("inbox", senderTrust, senderOverride, junk);
+	const asInbox = classifyPlacement(
+		FromPlacement.Inbox,
+		senderTrust,
+		senderOverride,
+		junk,
+	);
 	if (asInbox.action === "move-to-junk") {
 		return { verdict: asInbox, destination: undefined };
 	}
@@ -284,7 +297,7 @@ export const decidePlacement = (
 				verdict: {
 					action: "leave",
 					confidence: "unsure",
-					reasons: ["junk-not-rescued"],
+					reasons: [PlacementReason.JunkNotRescued],
 				},
 				destination: undefined,
 			};

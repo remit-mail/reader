@@ -6,10 +6,12 @@ import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AuthResultVerdict,
 	ClassificationLabel,
+	FromPlacement,
 	MessageCategory,
 	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
+	PlacementReason,
 	SpamAction,
 	SpamJudgeName,
 	SpamKind,
@@ -122,7 +124,7 @@ before(async () => {
 				action: PlacementAction.MoveToJunk,
 				confidence: PlacementConfidence.Confident,
 				fromPlacement: "inbox",
-				reasons: ["dmarc-fail"],
+				reasons: [PlacementReason.DmarcFail],
 				dryRun: false,
 				decidedAt: 1_700_000_000_000,
 			},
@@ -256,7 +258,9 @@ describe("placement on get_thread", () => {
 			action: "MoveToJunk",
 			fromPlacement: "inbox",
 		});
-		assert.deepEqual(row?.placementVerdict?.reasons, ["dmarc-fail"]);
+		assert.deepEqual(row?.placementVerdict?.reasons, [
+			PlacementReason.DmarcFail,
+		]);
 		assert.deepEqual(row?.spamVerdict, {
 			state: "Checked",
 			score: 0.95,

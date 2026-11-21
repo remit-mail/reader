@@ -7,6 +7,7 @@ import type {
 	QueueProducer,
 	SenderNeverSpamBackApplyEvent,
 } from "@remit/data-ports";
+import { FromPlacement, PlacementReason } from "@remit/domain-enums";
 import {
 	type PlacementDecision,
 	placementVerdictRecord,
@@ -48,7 +49,7 @@ const NEVER_SPAM_DECISION: PlacementDecision = {
 	verdict: {
 		action: "move-to-inbox",
 		confidence: "confident",
-		reasons: ["sender=never-spam"],
+		reasons: [PlacementReason.SenderNeverSpam],
 	},
 	destination: "inbox",
 };
@@ -76,7 +77,11 @@ export const backApplyNeverSpam = async (
 
 	const verdict = {
 		placementDecidedAt: now,
-		placementVerdict: placementVerdictRecord(NEVER_SPAM_DECISION, "junk", now),
+		placementVerdict: placementVerdictRecord(
+			NEVER_SPAM_DECISION,
+			FromPlacement.Junk,
+			now,
+		),
 		movedByRemit: true,
 	};
 	const accounts = await deps.accountService.listMailSourcesByAccountConfig(

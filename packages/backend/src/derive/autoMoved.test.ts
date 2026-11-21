@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { MessageItem } from "@remit/data-ports";
-import { PlacementAction, PlacementConfidence } from "@remit/domain-enums";
+import {
+	FromPlacement,
+	PlacementAction,
+	PlacementConfidence,
+	PlacementReason,
+} from "@remit/domain-enums";
 import { deriveAutoMoved } from "./autoMoved.js";
 
 type AutoMovedInput = Pick<
@@ -12,8 +17,8 @@ type AutoMovedInput = Pick<
 const confidentVerdict = {
 	action: PlacementAction.MoveToInbox,
 	confidence: PlacementConfidence.Confident,
-	fromPlacement: "junk",
-	reasons: ["provider=spam", "dmarc=pass"],
+	fromPlacement: FromPlacement.Junk,
+	reasons: [PlacementReason.ProviderSpam, PlacementReason.DmarcPass],
 	dryRun: false,
 	decidedAt: 1_700_000_000_000,
 };
@@ -71,7 +76,7 @@ describe("deriveAutoMoved", () => {
 		};
 		assert.deepEqual(deriveAutoMoved(message), {
 			action: PlacementAction.MoveToInbox,
-			fromPlacement: "junk",
+			fromPlacement: FromPlacement.Junk,
 		});
 	});
 
@@ -85,7 +90,7 @@ describe("deriveAutoMoved", () => {
 		};
 		assert.deepEqual(deriveAutoMoved(message), {
 			action: PlacementAction.MoveToInbox,
-			fromPlacement: "junk",
+			fromPlacement: FromPlacement.Junk,
 		});
 	});
 

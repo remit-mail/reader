@@ -7,9 +7,11 @@ import {
 	AccountAuthType,
 	AccountService,
 	ConnectionState,
+	FromPlacement,
 	MailboxCursorState,
 	PlacementAction,
 	PlacementConfidence,
+	PlacementReason,
 } from "@remit/domain-enums";
 import {
 	createSqliteRepositories,
@@ -205,8 +207,8 @@ describe("placementVerdict on a thread message", () => {
 		const placementVerdict = {
 			action: PlacementAction.MoveToInbox,
 			confidence: PlacementConfidence.Unsure,
-			fromPlacement: "junk",
-			reasons: ["classifier=unavailable"],
+			fromPlacement: FromPlacement.Junk,
+			reasons: [PlacementReason.NoConfidentSignal],
 			dryRun: false,
 			decidedAt: NOW,
 		};

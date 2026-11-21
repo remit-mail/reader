@@ -10,8 +10,10 @@ import "../enums/MessageFlag.tsp";
 import "../enums/MessageMutation.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
+import "../enums/FromPlacement.tsp";
 import "../enums/PlacementAction.tsp";
 import "../enums/PlacementConfidence.tsp";
+import "../enums/PlacementReason.tsp";
 import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
@@ -91,10 +93,10 @@ model MessagePlacementVerdict {
   confidence: PlacementConfidence;
 
   @doc("The folder the message was in when the verdict was made: inbox | junk | other.")
-  fromPlacement: string;
+  fromPlacement: FromPlacement;
 
   @doc("Deterministic signals the verdict was based on, for diagnostics.")
-  reasons: string[];
+  reasons: PlacementReason[];
 
   @doc("True when the dark-ship flag was off, so the move was computed but not enqueued (would-move only). False when a real IMAP move was enqueued.")
   dryRun: boolean;
@@ -130,7 +132,7 @@ model AutoMovedInfo {
   action?: PlacementAction;
 
   @doc("Classifier move only: folder role the message was moved from — inbox | junk | other. Used to render \"moved from Junk\" and to resolve the undo target via MailboxRole. Absent for a standing-filter move, which names its source via `fromMailboxId`.")
-  fromPlacement?: string;
+  fromPlacement?: FromPlacement;
 
   @doc("Standing-filter move only: the mailbox the message was moved out of. The undo target — the client resolves its display name for the badge and moves the message back here.")
   fromMailboxId?: UUID;
