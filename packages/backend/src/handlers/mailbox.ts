@@ -339,21 +339,22 @@ export const MailboxDetailOperations = {
 	OperationHandler<MailboxDetailOperationIds, QueueName>
 >;
 
+export const emptyTrashFor = async (
+	client: RemitClient<"sync">,
+	accountConfigId: string,
+	accountId: string,
+) => {
+	const account = await client.account.get(accountId);
+	unwrap(ownedAccount(account, accountConfigId, "act"));
+	return client.messageMove.emptyTrash(accountConfigId, accountId);
+};
+
 export const TrashOperations = {
 	TrashOperations_emptyTrash: async (context, ctx: HandlerContext<"sync">) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
-		const client = ctx.client;
-
-		const account = await client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "act"));
-
-		// The service resolves Trash, marks the rows and counts them, all off one
-		// read, and refuses with a coded 409 when the role is unresolved. Counting
-		// here as well would be a second answer free to disagree with the one that
-		// acts, and "0 deleted" reads as success to a user whose Trash is untouched.
-		return client.messageMove.emptyTrash(accountConfigId, accountId);
+		return emptyTrashFor(ctx.client, accountConfigId, accountId);
 	},
 } satisfies Record<
 	TrashOperationIds,

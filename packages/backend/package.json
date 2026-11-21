@@ -115,6 +115,10 @@
       "types": "./src/service/me-operations.ts",
       "default": "./src/service/me-operations.ts"
     },
+    "./mail-action-operations": {
+      "types": "./src/service/mail-action-operations.ts",
+      "default": "./src/service/mail-action-operations.ts"
+    },
     "./config-from-env": {
       "types": "./src/config/from-env.ts",
       "default": "./src/config/from-env.ts"
@@ -235,6 +239,10 @@
       "./me-operations": {
         "types": "./dist/src/service/me-operations.d.ts",
         "default": "./dist/src/service/me-operations.js"
+      },
+      "./mail-action-operations": {
+        "types": "./dist/src/service/mail-action-operations.d.ts",
+        "default": "./dist/src/service/mail-action-operations.js"
       },
       "./config-from-env": {
         "types": "./dist/src/config/from-env.d.ts",

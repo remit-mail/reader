@@ -15,6 +15,7 @@ import {
 	labelFoldersFor,
 	ownedAccount,
 } from "@remit/mailbox-service";
+import type { RemitClient } from "../service/data-client.js";
 import {
 	deleteLabelWithCascade,
 	findFiltersForLabel,
@@ -82,6 +83,25 @@ const toLabelResponse = (
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });
+
+export const updateLabelFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	accountId: string,
+	labelId: string,
+	input: Partial<UpdateLabelRequestBody>,
+): Promise<LabelResponse> => {
+	const account = await client.account.get(accountId);
+	unwrap(ownedAccount(account, accountConfigId, "act"));
+
+	const updated = await client.label.update(accountConfigId, labelId, input);
+	const filters = await findFiltersForLabel(client, accountConfigId, labelId);
+	return toLabelResponse(
+		updated,
+		filters.length,
+		await foldersOf(client, accountConfigId, updated),
+	);
+};
 
 export const LabelOperations: Record<
 	LabelOperationIds,
@@ -180,16 +200,12 @@ export const LabelDetailOperations: Record<
 		};
 		const body = context.request.requestBody as Partial<UpdateLabelRequestBody>;
 
-		const client = ctx.client;
-		const account = await client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "act"));
-
-		const updated = await client.label.update(accountConfigId, labelId, body);
-		const filters = await findFiltersForLabel(client, accountConfigId, labelId);
-		return toLabelResponse(
-			updated,
-			filters.length,
-			await foldersOf(client, accountConfigId, updated),
+		return updateLabelFor(
+			ctx.client,
+			accountConfigId,
+			accountId,
+			labelId,
+			body,
 		);
 	},
 

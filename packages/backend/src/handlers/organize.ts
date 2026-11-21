@@ -59,6 +59,33 @@ const assertAccount = async (
 	unwrap(ownedAccount(account, accountConfigId, mode));
 };
 
+export const previewOrganizeFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	accountId: string,
+	input: OrganizeInput,
+): Promise<OrganizePreviewResponse> => {
+	await assertAccount(client, accountId, accountConfigId, "read");
+
+	if (input.filterId) {
+		throw new BadRequestError(
+			"Preview takes a rule, not a saved filter. Run the filter to apply it.",
+		);
+	}
+	const result = await matchOrganize(
+		buildOrganizeMatchDeps(client),
+		accountConfigId,
+		predicateFromInput(input),
+		ORGANIZE_MATCH_LIMIT,
+	);
+	if (result.rejected) throw new BadRequestError(result.rejected.message);
+
+	return {
+		matchedCount: result.messageIds.length,
+		messageIds: result.messageIds,
+	};
+};
+
 const toOrganizeJobResponse = (
 	job: Awaited<ReturnType<RemitClient["organizeJobRequest"]["get"]>>,
 ): OrganizeJobResponse => ({
@@ -166,26 +193,7 @@ export const OrganizeOperations = {
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as OrganizeInput;
 
-		const client = ctx.client;
-		await assertAccount(client, accountId, accountConfigId, "read");
-
-		if (input.filterId) {
-			throw new BadRequestError(
-				"Preview takes a rule, not a saved filter. Run the filter to apply it.",
-			);
-		}
-		const result = await matchOrganize(
-			buildOrganizeMatchDeps(client),
-			accountConfigId,
-			predicateFromInput(input),
-			ORGANIZE_MATCH_LIMIT,
-		);
-		if (result.rejected) throw new BadRequestError(result.rejected.message);
-
-		return {
-			matchedCount: result.messageIds.length,
-			messageIds: result.messageIds,
-		};
+		return previewOrganizeFor(ctx.client, accountConfigId, accountId, input);
 	},
 } satisfies Record<
 	OrganizeOperationIds,

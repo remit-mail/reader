@@ -7,6 +7,7 @@ import {
 	ownedAccount,
 	settledFolder,
 } from "@remit/mailbox-service";
+import type { RemitClient } from "../service/data-client.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	FolderRoleOperationIds,
@@ -20,6 +21,47 @@ import {
 	resolveAccountFolderAppointments,
 	writeFolderRoleAppointment,
 } from "./folder-role-appointments.js";
+
+export const appointFolderRoleFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	accountId: string,
+	role: CanonicalMailboxRole,
+	input: AppointFolderRoleInput,
+) => {
+	const { account, accountSetting, mailbox } = client;
+	const existing = await account.get(accountId);
+	unwrap(ownedAccount(existing, accountConfigId, "act"));
+
+	let lastKnownPath: string | undefined;
+	if (input.mailboxId) {
+		const target = await mailbox.get(accountId, input.mailboxId);
+		unwrap(folderInAccount(target, accountId, "act"));
+		unwrap(settledFolder(target));
+		lastKnownPath = target.fullPath;
+	}
+
+	await writeFolderRoleAppointment(
+		accountSetting,
+		accountConfigId,
+		accountId,
+		role,
+		input.mailboxId ?? null,
+		lastKnownPath,
+	);
+
+	const [signature, overrides, folderAppointments] = await Promise.all([
+		loadSignatureForAccount(accountSetting, accountConfigId, accountId),
+		loadAccountOverrides(accountSetting, accountConfigId, accountId),
+		resolveAccountFolderAppointments(
+			{ mailbox, accountSetting },
+			accountConfigId,
+			accountId,
+		),
+	]);
+
+	return toAccountResponse(existing, signature, overrides, folderAppointments);
+};
 
 /**
  * RFC 032 exclusive-folder-appointment (#976): the single write operation for
@@ -43,42 +85,12 @@ export const FolderRoleOperations: Record<
 		};
 		const body = context.request.requestBody as AppointFolderRoleInput;
 
-		const { account, accountSetting, mailbox } = ctx.client;
-		const existing = await account.get(accountId);
-		unwrap(ownedAccount(existing, accountConfigId, "act"));
-
-		let lastKnownPath: string | undefined;
-		if (body.mailboxId) {
-			const target = await mailbox.get(accountId, body.mailboxId);
-			unwrap(folderInAccount(target, accountId, "act"));
-			unwrap(settledFolder(target));
-			lastKnownPath = target.fullPath;
-		}
-
-		await writeFolderRoleAppointment(
-			accountSetting,
+		return appointFolderRoleFor(
+			ctx.client,
 			accountConfigId,
 			accountId,
 			role,
-			body.mailboxId ?? null,
-			lastKnownPath,
-		);
-
-		const [signature, overrides, folderAppointments] = await Promise.all([
-			loadSignatureForAccount(accountSetting, accountConfigId, accountId),
-			loadAccountOverrides(accountSetting, accountConfigId, accountId),
-			resolveAccountFolderAppointments(
-				{ mailbox, accountSetting },
-				accountConfigId,
-				accountId,
-			),
-		]);
-
-		return toAccountResponse(
-			existing,
-			signature,
-			overrides,
-			folderAppointments,
+			body,
 		);
 	},
 };

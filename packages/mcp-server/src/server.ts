@@ -21,6 +21,10 @@ import {
 	registerLabelReadTools,
 	registerLabelWriteTools,
 } from "./label-tools.js";
+import {
+	registerMailActionReadTools,
+	registerMailActionWriteTools,
+} from "./mail-action-tools.js";
 import { registerMoveTools } from "./move-tools.js";
 import { registerReadTools } from "./read-tools.js";
 import { registerRescanTools } from "./rescan-tools.js";
@@ -57,6 +61,11 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 			deps,
 			deriveAccountConfigId(principal.userId),
 		);
+		registerMailActionReadTools(
+			server,
+			deps,
+			deriveAccountConfigId(principal.userId),
+		);
 	}
 	if (principal.scopes.includes(MCP_RULES_SCOPE)) {
 		registerFolderTools(server, deps, deriveAccountConfigId(principal.userId));
@@ -69,6 +78,12 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 		registerMoveTools(server, deps, principal.userId);
 		registerRescanTools(server, deps, deriveAccountConfigId(principal.userId));
 		registerDeleteTools(server, deps, deriveAccountConfigId(principal.userId));
+		registerMailActionWriteTools(
+			server,
+			deps,
+			deriveAccountConfigId(principal.userId),
+			principal.userId,
+		);
 	}
 	if (principal.scopes.includes(MCP_ACCOUNT_SCOPE)) {
 		registerAccountTools(server, deps, principal.userId);
