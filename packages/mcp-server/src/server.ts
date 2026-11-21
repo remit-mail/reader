@@ -2,7 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
+import {
+	registerAccountReadTools,
+	registerAccountTools,
+} from "./account-tools.js";
+import {
+	MCP_ACCOUNT_SCOPE,
+	MCP_READ_SCOPE,
+	MCP_RULES_SCOPE,
+} from "./auth/scopes.js";
 import { registerDeleteTools } from "./delete-tools.js";
 import type { McpDeps } from "./deps.js";
 import { registerFilterTools } from "./filter-tools.js";
@@ -37,6 +45,11 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	);
 	if (principal.scopes.includes(MCP_READ_SCOPE)) {
 		registerReadTools(server, deps, deriveAccountConfigId(principal.userId));
+		registerAccountReadTools(
+			server,
+			deps,
+			deriveAccountConfigId(principal.userId),
+		);
 		registerLabelReadTools(
 			server,
 			deps,
@@ -54,6 +67,9 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 		registerMoveTools(server, deps, principal.userId);
 		registerRescanTools(server, deps, deriveAccountConfigId(principal.userId));
 		registerDeleteTools(server, deps, deriveAccountConfigId(principal.userId));
+	}
+	if (principal.scopes.includes(MCP_ACCOUNT_SCOPE)) {
+		registerAccountTools(server, deps, principal.userId);
 	}
 	return server;
 };

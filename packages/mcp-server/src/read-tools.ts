@@ -104,7 +104,7 @@ const toThreadRow = (
 
 const withMessages = async (deps: McpDeps, rows: ThreadMessageItem[]) => {
 	const messages = new Map(
-		(await deps.message.get(rows.map((row) => row.messageId))).map(
+		(await deps.client.message.get(rows.map((row) => row.messageId))).map(
 			(message) => [message.messageId, message],
 		),
 	);
@@ -141,14 +141,17 @@ const labelsOf = async (
 	accountConfigId: string,
 	messageIds: string[],
 ) => {
-	const messageLabels = await deps.messageLabel.listByMessageIds(messageIds);
+	const messageLabels =
+		await deps.client.messageLabel.listByMessageIds(messageIds);
 	const labels = await Promise.all(
 		[...new Set(messageLabels.map((applied) => applied.labelId))].map(
 			(labelId) =>
-				deps.label.get(accountConfigId, labelId).catch((error: unknown) => {
-					if (error instanceof NotFoundError) return undefined;
-					throw error;
-				}),
+				deps.client.label
+					.get(accountConfigId, labelId)
+					.catch((error: unknown) => {
+						if (error instanceof NotFoundError) return undefined;
+						throw error;
+					}),
 		),
 	);
 	const labelById = new Map(
@@ -183,7 +186,7 @@ const placementOf = async (
 	const [addresses, labelsFor] = await Promise.all([
 		addressIds.length === 0
 			? []
-			: deps.address.getAddress(accountConfigId, addressIds),
+			: deps.client.address.getAddress(accountConfigId, addressIds),
 		labelsOf(
 			deps,
 			accountConfigId,
@@ -263,7 +266,7 @@ const readPlainText = async (
 			.filter(isPlainTextLeaf)
 			.sort((left, right) => left.partPath.localeCompare(right.partPath))
 			.map((part) =>
-				deps.storage.retrieveBodyPart(
+				deps.client.storage.retrieveBodyPart(
 					accountConfigId,
 					accountId,
 					messageId,
@@ -291,14 +294,14 @@ export const registerReadTools = (
 		},
 		async () => {
 			const accounts =
-				await deps.account.listAllByAccountConfig(accountConfigId);
+				await deps.client.account.listAllByAccountConfig(accountConfigId);
 			const result = await Promise.all(
 				accounts.map(async (account) => ({
 					accountId: account.accountId,
 					email: account.email,
 					connectionState: account.connectionState,
 					mailboxes: (
-						await deps.mailbox.listAllByAccount(account.accountId)
+						await deps.client.mailbox.listAllByAccount(account.accountId)
 					).map((mailbox) => ({
 						mailboxId: mailbox.mailboxId,
 						fullPath: mailbox.fullPath,
@@ -333,13 +336,17 @@ export const registerReadTools = (
 			return asJson(
 				await toPage(
 					deps,
-					await deps.threadMessage.searchByDate(accountConfigId, sent.value, {
-						order: args.order ?? "desc",
-						limit: args.limit ?? DEFAULT_PAGE_SIZE,
-						continuationToken: args.continuationToken,
-						mailboxIds: new Set([args.mailboxId]),
-						excludeDeleted: true,
-					}),
+					await deps.client.threadMessage.searchByDate(
+						accountConfigId,
+						sent.value,
+						{
+							order: args.order ?? "desc",
+							limit: args.limit ?? DEFAULT_PAGE_SIZE,
+							continuationToken: args.continuationToken,
+							mailboxIds: new Set([args.mailboxId]),
+							excludeDeleted: true,
+						},
+					),
 					"Confident",
 				),
 			);
@@ -376,7 +383,7 @@ export const registerReadTools = (
 			return asJson(
 				await toPage(
 					deps,
-					await deps.threadMessage.searchByDate(
+					await deps.client.threadMessage.searchByDate(
 						accountConfigId,
 						{
 							...sent.value,
@@ -415,7 +422,7 @@ export const registerReadTools = (
 			annotations: READ_ONLY,
 		},
 		async (args) => {
-			const result = await deps.threadMessage.listByThread(
+			const result = await deps.client.threadMessage.listByThread(
 				args.threadId,
 				accountConfigId,
 				{
@@ -458,7 +465,7 @@ export const registerReadTools = (
 		},
 		async (args) => {
 			const stats = await readClassifierStats(
-				deps,
+				deps.client,
 				accountConfigId,
 				args.since,
 			);
@@ -478,7 +485,7 @@ export const registerReadTools = (
 		},
 		async (args) => {
 			const owned = await ownedMessages(
-				deps,
+				deps.client,
 				[args.messageId],
 				accountConfigId,
 				"read",
@@ -487,16 +494,16 @@ export const registerReadTools = (
 				throw new NotFoundError(`Message not found: ${args.messageId}`);
 			}
 			const accountId = owned.value;
-			const message = await deps.message.get(args.messageId);
-			const description = await deps.message.describe(args.messageId);
-			const materialized = await materializeBodyParts(deps.bodySync, {
+			const message = await deps.client.message.get(args.messageId);
+			const description = await deps.client.message.describe(args.messageId);
+			const materialized = await materializeBodyParts(deps.client.bodySync, {
 				accountConfigId,
 				accountId,
 				mailboxId: message.mailboxId,
 				messageId: message.messageId,
 				uid: message.uid,
 				bodyStorageKey: message.bodyStorageKey,
-				cue: deps.bodySyncQueue,
+				cue: deps.client.bodySyncQueue,
 				logger: deps.logger,
 			});
 			const bodyAvailable =

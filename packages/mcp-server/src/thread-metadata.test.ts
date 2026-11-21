@@ -6,7 +6,6 @@ import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AuthResultVerdict,
 	ClassificationLabel,
-	FromPlacement,
 	MessageCategory,
 	MessageClassificationState,
 	PlacementAction,
@@ -31,7 +30,7 @@ import {
 import { MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler } from "./server.js";
-import { ruleDeps } from "./test-rule-deps.js";
+import { ruleDeps, testClient } from "./test-rule-deps.js";
 
 const USER_ID = "mcp-metadata-user";
 const THREAD_ID = "thread-across-two-folders";
@@ -94,10 +93,11 @@ const callToolJson = async (
 before(async () => {
 	store = await openStore();
 	const storage = store.storage();
-	deps = {
-		...store,
+	const client = testClient(
+		store,
+		recordingQueue(),
 		storage,
-		bodySync: new BodySyncService(
+		new BodySyncService(
 			store.message,
 			storage,
 			store.threadMessage,
@@ -107,9 +107,12 @@ before(async () => {
 			spamConfigFor(store),
 			silentLog,
 		),
-		bodySyncQueue: { requestBodySync: async () => {} },
+		{ requestBodySync: async () => {} },
+	);
+	deps = {
+		apiConfig: undefined as never,
 		logger: silentLog,
-		...ruleDeps(store, recordingQueue()),
+		...ruleDeps(client),
 	};
 	account = await seedAccount(store, {
 		accountConfigId: deriveAccountConfigId(USER_ID),

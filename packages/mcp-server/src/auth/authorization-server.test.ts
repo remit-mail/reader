@@ -41,7 +41,7 @@ import { createMcpApp } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
 import type { McpDeps } from "../deps.js";
 import type { McpRequestHandler } from "../server.js";
-import { ruleDeps } from "../test-rule-deps.js";
+import { ruleDeps, testClient } from "../test-rule-deps.js";
 import {
 	BROWSER_TOKEN_TTL_SECONDS,
 	createBetterAuthTokenVerifier,
@@ -159,10 +159,12 @@ before(async () => {
 
 	store = await openStore();
 	const storage = store.storage();
-	deps = {
-		...store,
+	const queue = recordingQueue();
+	const client = testClient(
+		store,
+		queue,
 		storage,
-		bodySync: new BodySyncService(
+		new BodySyncService(
 			store.message,
 			storage,
 			store.threadMessage,
@@ -172,9 +174,12 @@ before(async () => {
 			spamConfigFor(store),
 			silentLog,
 		),
-		bodySyncQueue: new BodySyncQueueService({ queue: recordingQueue() }),
+		new BodySyncQueueService({ queue }),
+	);
+	deps = {
+		apiConfig: undefined as never,
 		logger: silentLog,
-		...ruleDeps(store, recordingQueue()),
+		...ruleDeps(client),
 	};
 	({ auth, handler } = buildApp());
 });
@@ -422,7 +427,7 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(await response.json(), {
 			resource: RESOURCE,
 			authorization_servers: [MCP_ORIGIN],
-			scopes_supported: ["mail:read", "mail:rules"],
+			scopes_supported: ["mail:read", "mail:rules", "account"],
 			bearer_methods_supported: ["header"],
 		});
 	});
@@ -461,7 +466,9 @@ describe("the MCP authorization server", () => {
 			"get_thread",
 			"list_labels",
 			"list_mailboxes",
+			"list_quarantine",
 			"list_threads",
+			"list_vip_suggestions",
 			"search_threads",
 		]);
 		assert.deepEqual(sharedRows(), shared);
@@ -879,7 +886,7 @@ describe("device authorization (RFC 8628)", () => {
 		);
 		const claims = claimsOf(result.accessToken);
 		assert.ok([claims.aud].flat().includes(RESOURCE));
-		assert.equal(claims.scope, "mail:read mail:rules");
+		assert.equal(claims.scope, "mail:read mail:rules account");
 		assert.equal(claims.exp - claims.iat, DEVICE_TOKEN_TTL_SECONDS);
 
 		const response = await listTools(result.accessToken);

@@ -1,11 +1,11 @@
-import {
-	type ConfigAccount,
-	type ConfigAddressFlagsEntry,
-	type ConfigFilter,
-	ConfigReadError,
-	type ReaderConfigDocument,
-	readConfigDocument,
-} from "@remit/config-format";
+import type {
+	ConfigAccount,
+	ConfigAddressFlagsEntry,
+	ConfigFilter,
+	ReaderConfigDocument,
+} from "@remit/config-format/document";
+import { ConfigReadError } from "@remit/config-format/errors";
+import { readConfigDocument } from "@remit/config-format/read";
 import {
 	type AccountItem,
 	type AccountSettingValue,

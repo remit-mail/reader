@@ -40,13 +40,13 @@ export const registerRescanTools = (
 			annotations: RESCAN_WRITE,
 		},
 		async ({ accountId, messageIds, move }) => {
-			const owned = await deps.account
+			const owned = await deps.client.account
 				.get(accountId)
 				.then((account) => ownedAccount(account, accountConfigId, "act"))
 				.catch(notFound);
 			if (!owned.ok) return refused(owned.refusal);
 			return asJson(
-				await deps.rescan.rescan(
+				await deps.client.rescan.rescan(
 					{ accountId, accountConfigId },
 					{ messageIds, move },
 				),

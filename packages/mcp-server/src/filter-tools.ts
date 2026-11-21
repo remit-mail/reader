@@ -137,9 +137,9 @@ export const registerFilterTools = (
 ): void => {
 	const accountConfigId = deriveAccountConfigId(userId);
 	const organizeDeps = {
-		organizeJobRequest: deps.organizeJobRequest,
-		queue: deps.filters.organizeQueue,
-		logger: deps.filters.logger,
+		organizeJobRequest: deps.client.organizeJobRequest,
+		queue: deps.client.queues.accountFanout,
+		logger: deps.logger,
 	};
 
 	server.registerTool(
@@ -152,7 +152,7 @@ export const registerFilterTools = (
 		},
 		async (args) => {
 			const listed = await listAccountFilters(
-				deps,
+				deps.client,
 				accountConfigId,
 				args.accountId,
 			).catch(notFound);
@@ -183,7 +183,7 @@ export const registerFilterTools = (
 		},
 		async ({ accountId, ...rule }) => {
 			const created = await createFilter(
-				{ ...deps, ...organizeDeps },
+				{ ...deps.client, ...organizeDeps },
 				{ accountConfigId, userId },
 				{ accountId, filter: rule },
 			).catch(notFound);
@@ -225,7 +225,7 @@ export const registerFilterTools = (
 			annotations: FILTER_WRITE,
 		},
 		async ({ accountId, filterId, applyToExisting, ...patch }) => {
-			const updated = await updateFilter(deps, accountConfigId, {
+			const updated = await updateFilter(deps.client, accountConfigId, {
 				accountId,
 				filterId,
 				patch,
@@ -259,7 +259,7 @@ export const registerFilterTools = (
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
 		async ({ organizeJobId }) => {
-			const job = await deps.organizeJobRequest
+			const job = await deps.client.organizeJobRequest
 				.get(organizeJobId)
 				.catch(absentJob);
 			if (!job || job.accountConfigId !== accountConfigId) {
@@ -270,7 +270,7 @@ export const registerFilterTools = (
 			const sourceAccountId =
 				job.sourceMailboxId === FILTER_NO_ACTION
 					? null
-					: await deps.mailbox.resolveAccountId(job.sourceMailboxId);
+					: await deps.client.mailbox.resolveAccountId(job.sourceMailboxId);
 			return asJson({
 				...toOrganizeJob(job),
 				cursor: sourceAccountId ? moveCursorOf(sourceAccountId, job) : "",
@@ -290,12 +290,12 @@ export const registerFilterTools = (
 			annotations: FILTER_WRITE,
 		},
 		async ({ accountId, filterId }) => {
-			const owned = await deps.account
+			const owned = await deps.client.account
 				.get(accountId)
 				.then((account) => ownedAccount(account, accountConfigId, "act"))
 				.catch(notFound);
 			if (!owned.ok) return refused(owned.refusal);
-			const filter = await deps.filter
+			const filter = await deps.client.filter
 				.get(accountConfigId, filterId)
 				.then(accept)
 				.catch(notFound);

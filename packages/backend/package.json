@@ -95,6 +95,30 @@
       "types": "./src/config/classification-default.ts",
       "default": "./src/config/classification-default.ts"
     },
+    "./account-operations": {
+      "types": "./src/service/account-operations.ts",
+      "default": "./src/service/account-operations.ts"
+    },
+    "./config-operations": {
+      "types": "./src/service/config-operations.ts",
+      "default": "./src/service/config-operations.ts"
+    },
+    "./user-settings-operations": {
+      "types": "./src/service/user-settings-operations.ts",
+      "default": "./src/service/user-settings-operations.ts"
+    },
+    "./sync-operations": {
+      "types": "./src/service/sync-operations.ts",
+      "default": "./src/service/sync-operations.ts"
+    },
+    "./me-operations": {
+      "types": "./src/service/me-operations.ts",
+      "default": "./src/service/me-operations.ts"
+    },
+    "./config-from-env": {
+      "types": "./src/config/from-env.ts",
+      "default": "./src/config/from-env.ts"
+    },
     "./content-handler": {
       "types": "./dev-server/content-handler.ts",
       "default": "./dev-server/content-handler.ts"
@@ -191,6 +215,30 @@
       "./classification-default": {
         "types": "./dist/src/config/classification-default.d.ts",
         "default": "./dist/src/config/classification-default.js"
+      },
+      "./account-operations": {
+        "types": "./dist/src/service/account-operations.d.ts",
+        "default": "./dist/src/service/account-operations.js"
+      },
+      "./config-operations": {
+        "types": "./dist/src/service/config-operations.d.ts",
+        "default": "./dist/src/service/config-operations.js"
+      },
+      "./user-settings-operations": {
+        "types": "./dist/src/service/user-settings-operations.d.ts",
+        "default": "./dist/src/service/user-settings-operations.js"
+      },
+      "./sync-operations": {
+        "types": "./dist/src/service/sync-operations.d.ts",
+        "default": "./dist/src/service/sync-operations.js"
+      },
+      "./me-operations": {
+        "types": "./dist/src/service/me-operations.d.ts",
+        "default": "./dist/src/service/me-operations.js"
+      },
+      "./config-from-env": {
+        "types": "./dist/src/config/from-env.d.ts",
+        "default": "./dist/src/config/from-env.js"
       },
       "./content-handler": {
         "types": "./dist/dev-server/content-handler.d.ts",

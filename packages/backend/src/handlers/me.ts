@@ -7,55 +7,33 @@ import type {
 	VipSuggestionsResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
 import { logger } from "@remit/logger";
 import type { Context } from "openapi-backend";
+import {
+	createExportFor,
+	listQuarantineFor,
+	listVipSuggestionsFor,
+} from "../service/me-operations.js";
 import type { QueueName } from "../service/queues.js";
 import type {
 	HandlerContext,
 	MeOperationIds,
 	OperationHandler,
 } from "../types.js";
-import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
 const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
-
-const SURFACED_WARNING_CAP = 200;
 
 export const MeOperations = {
 	MeOperations_listVipSuggestions: async (
 		_context: Context,
 		ctx: HandlerContext,
-	): Promise<VipSuggestionsResponse> => {
-		const accountConfigId = ctx.identity.accountConfigId;
-
-		const { address } = ctx.client;
-		const items = await address.listSuggestedVips({ accountConfigId });
-
-		return { suggestions: items.map(toVipSuggestionEntry) };
-	},
+	): Promise<VipSuggestionsResponse> =>
+		listVipSuggestionsFor(ctx.client, ctx.identity.accountConfigId),
 	MeOperations_listQuarantine: async (
 		_context: Context,
 		ctx: HandlerContext,
-	): Promise<QuarantineListResponse> => {
-		const accountConfigId = ctx.identity.accountConfigId;
-
-		const { quarantine, syncWarning } = ctx.client;
-		const [entries, warnings] = await Promise.all([
-			quarantine.listByAccountConfigId(accountConfigId),
-			syncWarning.listSurfacedByAccountConfigId(
-				accountConfigId,
-				SYNC_WARNING_SURFACE_ATTEMPTS,
-				SURFACED_WARNING_CAP,
-			),
-		]);
-
-		return {
-			entries,
-			warnings: warnings.items,
-			warningsTotal: warnings.total,
-		};
-	},
+	): Promise<QuarantineListResponse> =>
+		listQuarantineFor(ctx.client, ctx.identity.accountConfigId),
 	MeOperations_deleteMe: async (
 		context: Context,
 		ctx: HandlerContext<"accountFanout">,
@@ -117,39 +95,8 @@ export const MeOperations = {
 	MeOperations_createExport: async (
 		_context: Context,
 		ctx: HandlerContext<"accountFanout">,
-	): Promise<CreateExportResponse> => {
-		const accountConfigId = ctx.identity.accountConfigId;
-		const userId = ctx.identity.sub;
-
-		const { accountExportRequest } = ctx.client;
-		const exportRequest = await accountExportRequest.create({
-			accountConfigId,
-			userId,
-			state: "Pending",
-		});
-
-		await ctx.client.queues.accountFanout.send({
-			body: {
-				type: "AccountExport",
-				accountConfigId,
-				accountExportRequestId: exportRequest.accountExportRequestId,
-			},
-		});
-
-		// biome-ignore lint/plugin/no-logger-info: account export is an audit-grade signal
-		logger.info(
-			{
-				accountConfigId,
-				accountExportRequestId: exportRequest.accountExportRequestId,
-			},
-			"Account export initiated",
-		);
-
-		return {
-			statusCode: 202,
-			exportId: exportRequest.accountExportRequestId,
-		};
-	},
+	): Promise<CreateExportResponse> =>
+		createExportFor(ctx.client, ctx.identity.accountConfigId, ctx.identity.sub),
 	MeOperations_getExport: async (
 		context: Context,
 		ctx: HandlerContext,

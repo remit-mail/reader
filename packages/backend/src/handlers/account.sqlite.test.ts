@@ -38,10 +38,13 @@ import { testApiConfig } from "../config/test-config.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
+import { exportIdentity } from "../service/export-identity.js";
 import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
-import { ConfigOperations } from "./config.js";
+import { configOperations } from "./config.js";
+
+const ConfigOperations = configOperations(exportIdentity);
 
 let client: RemitClient;
 

@@ -18,9 +18,12 @@ import {
 import type { Context } from "openapi-backend";
 import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
+import { exportIdentity } from "../service/export-identity.js";
 import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
-import { ConfigOperations } from "./config.js";
+import { configOperations } from "./config.js";
+
+const ConfigOperations = configOperations(exportIdentity);
 
 const SUB = "host-sub-1452";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);

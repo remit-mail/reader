@@ -37,11 +37,14 @@ import { testApiConfig } from "../config/test-config.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
+import { exportIdentity } from "../service/export-identity.js";
 import type { QueueName } from "../service/queues.js";
 import { captureStdout, restoreStdout } from "../stdout-capture-fixture.js";
 import type { HandlerContext } from "../types.js";
-import { ConfigOperations } from "./config.js";
+import { configOperations } from "./config.js";
 import { UserSettingsOperations } from "./user-settings.js";
+
+const ConfigOperations = configOperations(exportIdentity);
 
 const SUB = "classification-sub-1528";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);

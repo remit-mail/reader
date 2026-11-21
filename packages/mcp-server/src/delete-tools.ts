@@ -32,10 +32,12 @@ const labelFolders = async (
 	deps: McpDeps,
 	labelId: string,
 ): Promise<MailboxItem[]> => {
-	const mappings = await deps.labelMailbox.listByLabel(labelId);
+	const mappings = await deps.client.labelMailbox.listByLabel(labelId);
 	const folders = await Promise.all(
 		mappings.map((mapping) =>
-			deps.mailbox.get(mapping.accountId, mapping.mailboxId).catch(absent),
+			deps.client.mailbox
+				.get(mapping.accountId, mapping.mailboxId)
+				.catch(absent),
 		),
 	);
 	return folders.filter((folder) => folder !== undefined);
@@ -86,12 +88,12 @@ export const registerDeleteTools = (
 			annotations: DELETE,
 		},
 		async ({ filterId }) => {
-			const filter = await deps.filter
+			const filter = await deps.client.filter
 				.get(accountConfigId, filterId)
 				.then(accept)
 				.catch(notFoundRefusal("Check the filterId against list_filters."));
 			if (!filter.ok) return refused(filter.refusal);
-			await deps.filter.delete(accountConfigId, filterId);
+			await deps.client.filter.delete(accountConfigId, filterId);
 			return asJson({ deleted: true, filter: filterRef(filter.value) });
 		},
 	);
@@ -114,14 +116,18 @@ export const registerDeleteTools = (
 		},
 		async ({ labelId, force }) => {
 			const forced = force === true;
-			const found = await deps.label
+			const found = await deps.client.label
 				.get(accountConfigId, labelId)
 				.then(accept)
 				.catch(notFoundRefusal("Check the labelId against list_labels."));
 			if (!found.ok) return refused(found.refusal);
 			const label = found.value;
 
-			const filters = await findFiltersForLabel(deps, accountConfigId, labelId);
+			const filters = await findFiltersForLabel(
+				deps.client,
+				accountConfigId,
+				labelId,
+			);
 			if (!forced && filters.length > 0) {
 				return toolError(
 					`The label “${label.name}” is applied by the ${filters.length === 1 ? "filter" : "filters"} ${quoted(filters.map((filter) => filter.name))}. Point them elsewhere with update_filter or remove them with delete_filter, then call delete_label again; or pass force: true to delete them with the label.`,
@@ -176,7 +182,7 @@ export const registerDeleteTools = (
 					});
 				}
 				if (left.syncStatus === MailboxSyncStatus.failed) {
-					await deps.folders.mailboxQueue.dismissMailboxIntent(
+					await deps.client.mailboxQueue.dismissMailboxIntent(
 						left.mailboxId,
 						left.accountId,
 					);
@@ -187,7 +193,7 @@ export const registerDeleteTools = (
 			}
 
 			const deletedFilters = await deleteLabelWithCascade(
-				deps,
+				deps.client,
 				accountConfigId,
 				labelId,
 			);
