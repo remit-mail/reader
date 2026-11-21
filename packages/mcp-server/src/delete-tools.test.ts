@@ -60,6 +60,7 @@ beforeEach(async () => {
 	const { client } = mine;
 	deps = {
 		apiConfig: undefined as never,
+		calendarClient: () => undefined as never,
 		client,
 		logger: silentLog,
 		operatorClient: () => undefined as never,

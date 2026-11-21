@@ -21,6 +21,7 @@ import {
 	FOLDER_SETTLE_TIMEOUT_MS,
 	mcpDepsOf,
 } from "./deps.js";
+import { createCalendarClient } from "./local-api-client.js";
 import { createOperatorClient } from "./operator-client.js";
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
 import { loadPageAssets } from "./pages/load-assets.js";
@@ -30,6 +31,7 @@ installNodeLogger();
 const config = resolveMcpServerConfig();
 
 const client = await getClient();
+const apiConfig = configFromEnv(process.env);
 const identityStore = await openIdentityStore(config.databases.app);
 const authConfig = resolveAuthConfig();
 const peopleDirectory = await createPeopleDirectory({
@@ -38,12 +40,14 @@ const peopleDirectory = await createPeopleDirectory({
 	baseURL: authConfig.baseURL,
 });
 const operatorHost = {
-	config: configFromEnv(process.env),
+	config: apiConfig,
 	client: async () => client,
 	peopleDirectory: async () => peopleDirectory,
 };
 const deps = mcpDepsOf(client, {
-	apiConfig: configFromEnv(process.env),
+	apiConfig,
+	calendarClient: (userId) =>
+		createCalendarClient(config.origin, apiConfig, client, userId),
 	logger,
 	operatorClient: (userId) =>
 		createOperatorClient(config.origin, operatorHost, userId),
