@@ -11,6 +11,7 @@ import {
 	createPeopleDirectory,
 	openIdentityStore,
 	type PeopleAdmin,
+	type PeopleDirectory,
 } from "@remit/auth-service";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { SqliteValue } from "@remit/drizzle-service/sqlite";
@@ -71,11 +72,12 @@ const callerOf = (
 	sub: string,
 	config = closedConfig,
 	operator = true,
+	directory: PeopleDirectory = people,
 ): HandlerContext => ({
 	client: {} as RemitClient,
 	config,
 	operator,
-	peopleDirectory: people,
+	peopleDirectory: directory,
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(sub),
@@ -325,22 +327,49 @@ describe("the People operations", () => {
 				JSON.stringify(validate.errors),
 			);
 		}
-		assert.equal(
-			refusalOf(await signOut(alice, carol, "", hostedConfig)),
-			undefined,
-		);
-		assert.equal(
-			refusalOf(await reset(alice, carol, "", hostedConfig)),
-			undefined,
-		);
-		assert.equal(
-			refusalOf(await update(alice, carol, "Disabled", "", hostedConfig)),
-			undefined,
-		);
-		assert.equal(
-			refusalOf(await update(alice, carol, "Active", "", hostedConfig)),
-			undefined,
-		);
+		const person = {
+			userId: carol,
+			email: "carol@remit.test",
+			createdAt: 0,
+			lastSignInAt: 0,
+			sessionCount: 0,
+			status: "Active" as const,
+			isCaller: false,
+		};
+		const withoutStepUp = (stepUpToken: string | null) => {
+			assert.equal(stepUpToken, null);
+			return { ok: true as const, value: person };
+		};
+		const hostedDirectory: PeopleDirectory = {
+			...people,
+			signOutPerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
+			updatePerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
+			createPasswordReset: async ({ stepUpToken }) => ({
+				ok: true,
+				value: {
+					person: withoutStepUp(stepUpToken).value,
+					resetUrl: "https://login.remit.test/reset",
+					expiresAt: 1,
+				},
+			}),
+		};
+		const caller = callerOf(alice, hostedConfig, true, hostedDirectory);
+		for (const answer of [
+			await PeopleOperations.PeopleOperations_signOutPerson(
+				contextOf({ userId: carol }, undefined),
+				caller,
+			),
+			await PeopleOperations.PeopleOperations_updatePerson(
+				contextOf({ userId: carol }, { status: "Disabled" }),
+				caller,
+			),
+			await PeopleOperations.PeopleOperations_createPasswordReset(
+				contextOf({ userId: carol }, undefined),
+				caller,
+			),
+		]) {
+			assert.equal(refusalOf(answer), undefined);
+		}
 	});
 
 	it("refuse every sensitive operation without a matching, unspent, unexpired step-up", async () => {

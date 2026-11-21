@@ -68,8 +68,9 @@ export interface PersonRequest extends PeopleRequest {
 	targetId: string;
 }
 
-export type TargetedRequest = PersonRequest &
-	({ operator: true } | { operator: false; stepUpToken: string });
+export interface TargetedRequest extends PersonRequest {
+	stepUpToken: string | null;
+}
 
 export interface InviteRequest extends PeopleRequest {
 	email: string;
@@ -218,20 +219,22 @@ const stepUpRefusal = (
 	request: TargetedRequest,
 	action: StepUpAction,
 ): Refused | undefined => {
-	if (request.operator) return undefined;
-	const spent = store.db
-		.delete(identity_step_up)
-		.where(
-			and(
-				eq(identity_step_up.digest, digestOf(request.stepUpToken)),
-				eq(identity_step_up.callerUserId, request.callerId),
-				eq(identity_step_up.action, action),
-				eq(identity_step_up.targetUserId, request.targetId),
-				gt(identity_step_up.expiresAt, new Date()),
-			),
-		)
-		.returning({ digest: identity_step_up.digest })
-		.all();
+	const spent =
+		request.stepUpToken === null
+			? []
+			: store.db
+					.delete(identity_step_up)
+					.where(
+						and(
+							eq(identity_step_up.digest, digestOf(request.stepUpToken)),
+							eq(identity_step_up.callerUserId, request.callerId),
+							eq(identity_step_up.action, action),
+							eq(identity_step_up.targetUserId, request.targetId),
+							gt(identity_step_up.expiresAt, new Date()),
+						),
+					)
+					.returning({ digest: identity_step_up.digest })
+					.all();
 	if (spent.length === 1) return undefined;
 	store.audit({
 		actor: request.callerId,
