@@ -39,7 +39,7 @@ const responseOf = (
 				source,
 			};
 
-const requireOperator = (ctx: HandlerContext): void => {
+export const requireOperator = (ctx: HandlerContext): void => {
 	if (!ctx.operator) throw new ForbiddenError("Operator access required.");
 };
 

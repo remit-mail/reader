@@ -18,6 +18,7 @@ import {
 import { parseAccountSettingValue } from "@remit/data-ports/account-settings";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { readClassificationInput } from "@remit/data-ports/classification-resolver";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { AccountSettingName } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import type { ClassificationLabelDeps } from "@remit/mailbox-service";
@@ -25,9 +26,11 @@ import type { SecretsService } from "@remit/secrets-service";
 import type {
 	HandlerContext,
 	OperationHandler,
+	PersonSettingsOperationIds,
 	UserSettingsOperationIds,
 } from "../types.js";
 import { badRequest } from "./calendar.js";
+import { requireOperator } from "./classification-default.js";
 import {
 	classificationPresetsResponse,
 	clearClassification,
@@ -212,5 +215,42 @@ export const UserSettingsOperations: Record<
 		);
 		if (!tested.ok) return badRequest(tested.error);
 		return tested.value;
+	},
+};
+
+export const PersonSettingsOperations: Record<
+	PersonSettingsOperationIds,
+	OperationHandler<PersonSettingsOperationIds>
+> = {
+	PersonSettingsOperations_getPersonSettings: async (context, ctx) => {
+		requireOperator(ctx);
+		return readUserSettings(
+			depsOf(ctx),
+			deriveAccountConfigId(context.request.params.userId),
+		);
+	},
+
+	PersonSettingsOperations_updatePersonSettings: async (context, ctx) => {
+		requireOperator(ctx);
+		const updated = await updateUserSettingsFor(
+			depsOf(ctx),
+			deriveAccountConfigId(context.request.params.userId),
+			context.request.requestBody as UpdateUserSettingsInput,
+		);
+		if (!updated.ok) return badRequest(updated.error);
+		return updated.value;
+	},
+
+	PersonSettingsOperations_clearPersonClassificationProvider: async (
+		context,
+		ctx,
+	) => {
+		requireOperator(ctx);
+		const deps = depsOf(ctx);
+		const accountConfigId = deriveAccountConfigId(
+			context.request.params.userId,
+		);
+		await clearClassification(deps.accountSetting, accountConfigId);
+		return readUserSettings(deps, accountConfigId);
 	},
 };
