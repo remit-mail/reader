@@ -7,7 +7,6 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
-import { operationTool } from "./operation-tool.js";
 import { asJson, refused } from "./tool-result.js";
 
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
@@ -31,10 +30,7 @@ export const registerLabelReadTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(server, [
-		"LabelOperations_listLabels",
-		"LabelDetailOperations_getLabel",
-	]).registerTool(
+	server.registerTool(
 		"list_labels",
 		{
 			description:
@@ -54,7 +50,7 @@ export const registerLabelWriteTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(server, ["LabelOperations_createLabel"]).registerTool(
+	server.registerTool(
 		"create_label",
 		{
 			description:

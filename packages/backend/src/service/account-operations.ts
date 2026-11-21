@@ -1,0 +1,542 @@
+import type {
+	AccountResponse,
+	CreateAccountInput,
+	DeleteAccountResponse,
+	TestConnectionInput,
+	TestConnectionResponse,
+	UpdateAccountInput,
+} from "@remit/api-openapi-types";
+import type {
+	AccountItem,
+	UpdateAccountInput as AccountUpdate,
+	IAccountRepository,
+} from "@remit/data-ports";
+import { ensureAccountConfig } from "@remit/data-ports/account-config";
+import {
+	AccountAuthType,
+	AccountService,
+	ConnectionState,
+} from "@remit/domain-enums";
+import { logger } from "@remit/logger";
+import {
+	createMailOAuthService,
+	microsoftProviderConfig,
+	RefreshTokenError,
+} from "@remit/mail-oauth-service";
+import {
+	ownedAccount,
+	resolveConnectionCredentials,
+	testImapConnection,
+} from "@remit/mailbox-service";
+import {
+	deserializeEncryptedPayload,
+	type SecretsService,
+	serializeEncryptedPayload,
+} from "@remit/secrets-service";
+import { verifySmtpConnection } from "@remit/smtp-service";
+import { loadMsOAuth, type MsOAuthConfig } from "../config/msoauth.js";
+import {
+	assertNoDuplicateMailbox,
+	assertNotOAuthCreate,
+	assertPasswordProvided,
+	resolveSyncedServices,
+	toAccountResponse,
+} from "../handlers/account-guards.js";
+import {
+	loadAccountOverrides,
+	upsertAccountDisplayName,
+	writeAccountComposeLanguages,
+	writeAccountMuted,
+} from "../handlers/account-overrides.js";
+import {
+	loadSignatureForAccount,
+	upsertAccountSignature,
+} from "../handlers/account-signature.js";
+import { resolveAccountFolderAppointments } from "../handlers/folder-role-appointments.js";
+import { deleteAccount } from "./account-deletion.js";
+import type { MailTransports } from "./create-remit-client.js";
+import type { RemitClient } from "./data-client.js";
+import { fireAndForget } from "./fire-and-forget.js";
+import { unwrap } from "./refusal.js";
+import { triggerAccountSync } from "./trigger-sync.js";
+
+export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
+
+export const triggerAccountSyncSafe = async (
+	client: RemitClient<"sync">,
+	accountId: string,
+): Promise<void> => {
+	// Best-effort: account creation must still return 200 even if the sync
+	// enqueue fails. fireAndForget catches and logs every rejection loudly with
+	// the alertable structured fields and never rejects, so a failure here (SQS
+	// unreachable in smoke/e2e, an IAM/SQS misconfig in prod) cannot leak an
+	// unhandled rejection onto an unrelated in-flight request.
+	await fireAndForget(
+		async () => {
+			const { eventId } = await triggerAccountSync({
+				queue: client.queues.sync,
+				accountId,
+			});
+			// biome-ignore lint/plugin/no-logger-info: sync-triggered-for-new-account is an audit-grade signal
+			logger.info({ accountId, eventId }, "Sync triggered for new account");
+		},
+		{
+			source: "account_create",
+			message: "Failed to enqueue SYNC_MAILBOXES for new account (best-effort)",
+			ids: { accountId },
+		},
+	);
+};
+
+/**
+ * Test connectivity for an OAuth (Microsoft) account.
+ *
+ * Mints an access token from the stored refresh token via
+ * resolveConnectionCredentials (the single authType branch), then runs the
+ * IMAP — and, when configured, SMTP — connection tests with those credentials.
+ *
+ * A revoked / expired refresh token surfaces as RefreshTokenError; the
+ * reauth-required case is mapped to the distinct `reauth_required` error code
+ * so the UI can route the user into the OAuth re-auth flow.
+ */
+const testOAuthConnection = async (
+	msOAuth: MsOAuthConfig,
+	existingAccount: AccountItem,
+	account: IAccountRepository,
+	secrets: SecretsService,
+	mailTransports: MailTransports,
+): Promise<TestConnectionResponse> => {
+	const { config, credentials: app } = await loadMsOAuth(msOAuth);
+	const tokenService = createMailOAuthService(
+		microsoftProviderConfig({
+			clientId: app.clientId,
+			clientSecret: app.clientSecret,
+			overrides: config.overrides,
+		}),
+	);
+
+	let resolution: Awaited<ReturnType<typeof resolveConnectionCredentials>>;
+	try {
+		resolution = await resolveConnectionCredentials(existingAccount, {
+			secrets,
+			tokenService,
+			persistRotatedToken: async (id, encryptedHash, updatedAt) => {
+				await account.update(id, {
+					oauthRefreshTokenHash: encryptedHash,
+					oauthTokenUpdatedAt: updatedAt,
+				});
+			},
+		});
+	} catch (err) {
+		if (
+			err instanceof RefreshTokenError &&
+			err.error.kind === "reauth-required"
+		) {
+			return {
+				imapSuccess: false,
+				imapError: "reauth_required",
+				smtpSuccess: undefined,
+			};
+		}
+		throw err;
+	}
+
+	if (resolution.status === "missing") {
+		return {
+			imapSuccess: false,
+			imapError: "oauth_not_configured",
+			smtpSuccess: undefined,
+		};
+	}
+	const credentials = resolution.credentials;
+
+	const result: TestConnectionResponse = {
+		imapSuccess: false,
+		smtpSuccess: undefined,
+	};
+
+	const imapResult = await testImapConnection(
+		{
+			host: existingAccount.imapHost,
+			port: existingAccount.imapPort,
+			secure: existingAccount.imapTls,
+			user: existingAccount.username,
+			credentials,
+		},
+		mailTransports.imap(existingAccount.imapHost, existingAccount.imapTls),
+	);
+	result.imapSuccess = imapResult.success;
+	if (!imapResult.success) {
+		result.imapError = imapResult.error;
+	}
+
+	// OAuth accounts share the same access token for IMAP and SMTP.
+	if (existingAccount.smtpEnabled) {
+		const smtpResult = await verifySmtpConnection({
+			host: existingAccount.smtpHost ?? "",
+			port: existingAccount.smtpPort ?? 587,
+			secure: existingAccount.smtpTls ?? false,
+			user: existingAccount.smtpUsername || existingAccount.username,
+			credentials,
+			getSocket: mailTransports.smtp,
+		});
+		result.smtpSuccess = smtpResult.success;
+		if (!smtpResult.success) {
+			result.smtpError = smtpResult.error;
+		}
+	}
+
+	return result;
+};
+
+export const createAccountFor = async (
+	client: RemitClient<"sync">,
+	accountConfigId: string,
+	input: CreateAccountInput,
+): Promise<AccountResponse> => {
+	// OAuth accounts must be created via the dedicated connect flow
+	assertNotOAuthCreate(input.authType);
+
+	// Password accounts require a non-empty password
+	assertPasswordProvided(input.authType, input.password);
+
+	const syncedServices = resolveSyncedServices(
+		{ authType: AccountAuthType.Password, grantedScopes: [] },
+		input.syncedServices ?? [AccountService.Mail],
+	);
+
+	const { account, accountConfig, accountSetting, mailbox, secrets } = client;
+
+	await ensureAccountConfig(accountConfig, accountConfigId);
+
+	// Reject re-onboarding the same mailbox-in-the-same-place. Message
+	// identity is account-scoped (#633), so duplicate onboards are no longer
+	// incidentally deduped — this is the explicit replacement (#635).
+	const existingAccounts =
+		await account.listAllByAccountConfig(accountConfigId);
+	assertNoDuplicateMailbox(existingAccounts, {
+		imapHost: input.imapHost,
+		username: input.username ?? input.email,
+	});
+
+	// biome-ignore lint/style/noNonNullAssertion: guard above ensures password is set for password-auth accounts
+	const passwordPayload = await secrets.encrypt(input.password!);
+	const passwordHash = JSON.stringify(
+		serializeEncryptedPayload(passwordPayload),
+	);
+
+	let smtpPasswordHash: string | undefined;
+	if (input.smtpPassword) {
+		const smtpPayload = await secrets.encrypt(input.smtpPassword);
+		smtpPasswordHash = JSON.stringify(serializeEncryptedPayload(smtpPayload));
+	}
+
+	const newAccount = await account.create({
+		accountConfigId,
+		email: input.email,
+		username: input.username ?? input.email,
+		authType: AccountAuthType.Password,
+		syncedServices,
+		passwordHash,
+		imapHost: input.imapHost,
+		imapPort: input.imapPort,
+		imapTls: input.imapTls,
+		imapStartTls: input.imapStartTls,
+		// RFC 032 Tier 2: smtpEnabled is the explicit send-capability marker.
+		// Honour an explicit flag from the client; otherwise enable sending when
+		// an SMTP host was supplied (the prior implicit behaviour).
+		smtpEnabled: input.smtpEnabled ?? Boolean(input.smtpHost),
+		smtpHost: input.smtpHost,
+		smtpPort: input.smtpPort,
+		smtpTls: input.smtpTls,
+		smtpStartTls: input.smtpStartTls,
+		smtpUsername: input.smtpUsername,
+		smtpPasswordHash,
+		isActive: true,
+		connectionState: ConnectionState.NotAuthenticated,
+	});
+
+	// Display name lives in a per-account AccountSetting row (RFC 032), not on
+	// the entity. Persist it when supplied so the response and later reads
+	// surface it unchanged.
+	if (input.displayName !== undefined) {
+		await upsertAccountDisplayName(
+			accountSetting,
+			accountConfigId,
+			newAccount.accountId,
+			input.displayName,
+		);
+	}
+
+	await triggerAccountSyncSafe(client, newAccount.accountId);
+
+	const [overrides, folderAppointments] = await Promise.all([
+		loadAccountOverrides(accountSetting, accountConfigId, newAccount.accountId),
+		resolveAccountFolderAppointments(
+			{ mailbox, accountSetting },
+			accountConfigId,
+			newAccount.accountId,
+		),
+	]);
+	return toAccountResponse(newAccount, {}, overrides, folderAppointments);
+};
+
+export const testConnectionFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	input: TestConnectionInput,
+	msOAuth: MsOAuthConfig,
+): Promise<TestConnectionResponse> => {
+	const { account, secrets, mailTransports } = client;
+	let connection = input;
+
+	// Resolve password - use provided password or decrypt stored password
+	let imapPassword = input.password;
+	let smtpPassword = input.smtpPassword;
+
+	if (!imapPassword && input.accountId) {
+		const existingAccount = await account.get(input.accountId);
+		unwrap(ownedAccount(existingAccount, accountConfigId, "read"));
+
+		const authType = existingAccount.authType ?? "password";
+		if (authType === "oauthMicrosoft") {
+			return testOAuthConnection(
+				msOAuth,
+				existingAccount,
+				account,
+				secrets,
+				mailTransports,
+			);
+		}
+
+		if (existingAccount.passwordHash) {
+			const payload = deserializeEncryptedPayload(
+				JSON.parse(existingAccount.passwordHash),
+			);
+			imapPassword = await secrets.decrypt(payload);
+		}
+		connection = {
+			...input,
+			username: existingAccount.username,
+			imapHost: existingAccount.imapHost,
+			imapPort: existingAccount.imapPort,
+			imapTls: existingAccount.imapTls,
+			imapStartTls: existingAccount.imapStartTls,
+			smtpHost: existingAccount.smtpEnabled
+				? existingAccount.smtpHost
+				: undefined,
+			smtpPort: existingAccount.smtpPort,
+			smtpTls: existingAccount.smtpTls,
+			smtpStartTls: existingAccount.smtpStartTls,
+			smtpUsername: existingAccount.smtpUsername,
+		};
+
+		// Also get SMTP password if needed and available
+		if (!smtpPassword && existingAccount.smtpPasswordHash) {
+			const smtpPayload = deserializeEncryptedPayload(
+				JSON.parse(existingAccount.smtpPasswordHash),
+			);
+			smtpPassword = await secrets.decrypt(smtpPayload);
+		}
+	}
+
+	if (!imapPassword) {
+		return {
+			imapSuccess: false,
+			imapError: "Password required",
+			smtpSuccess: undefined,
+		};
+	}
+
+	const result: TestConnectionResponse = {
+		imapSuccess: false,
+		smtpSuccess: undefined,
+	};
+
+	// Test IMAP connection
+	const imapResult = await testImapConnection(
+		{
+			host: connection.imapHost,
+			port: connection.imapPort,
+			secure: connection.imapTls,
+			user: connection.username,
+			credentials: { kind: "password", password: imapPassword },
+		},
+		mailTransports.imap(connection.imapHost, connection.imapTls),
+	);
+
+	result.imapSuccess = imapResult.success;
+	if (!imapResult.success) {
+		result.imapError = imapResult.error;
+	}
+
+	// Test SMTP connection if configured
+	if (connection.smtpHost) {
+		const smtpResult = await verifySmtpConnection({
+			host: connection.smtpHost,
+			port: connection.smtpPort ?? 587,
+			secure: connection.smtpTls ?? false,
+			user: connection.smtpUsername ?? connection.username,
+			credentials: {
+				kind: "password",
+				password: smtpPassword ?? imapPassword,
+			},
+			getSocket: mailTransports.smtp,
+		});
+
+		result.smtpSuccess = smtpResult.success;
+		if (!smtpResult.success) {
+			result.smtpError = smtpResult.error;
+		}
+	}
+
+	return result;
+};
+
+const encryptedSecret = async (
+	secrets: RemitClient["secrets"],
+	plaintext: string | undefined,
+): Promise<string | undefined> =>
+	plaintext
+		? JSON.stringify(
+				serializeEncryptedPayload(await secrets.encrypt(plaintext)),
+			)
+		: undefined;
+
+type AccountSettingField =
+	| "displayName"
+	| "composeLanguages"
+	| "muted"
+	| "signaturePlainText"
+	| "signatureHtml";
+
+type AccountEntityField = Exclude<
+	keyof UpdateAccountInput,
+	AccountSettingField | "password" | "smtpPassword"
+>;
+
+export const updateAccountFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	accountId: string,
+	input: UpdateAccountInput,
+): Promise<AccountResponse> => {
+	const { account, accountSetting, mailbox, secrets } = client;
+
+	const existing = await account.get(accountId);
+	unwrap(ownedAccount(existing, accountConfigId, "act"));
+
+	const entityFields: { [K in AccountEntityField]: AccountUpdate[K] } = {
+		imapHost: input.imapHost,
+		imapPort: input.imapPort,
+		imapTls: input.imapTls,
+		imapStartTls: input.imapStartTls,
+		// RFC 032 Tier 2: keep the explicit send-capability marker in sync. When a
+		// caller changes the SMTP host without passing smtpEnabled, derive it from
+		// host presence so the marker can't drift from the config.
+		smtpEnabled:
+			input.smtpEnabled ??
+			(input.smtpHost === undefined ? undefined : Boolean(input.smtpHost)),
+		smtpHost: input.smtpHost,
+		smtpPort: input.smtpPort,
+		smtpTls: input.smtpTls,
+		smtpStartTls: input.smtpStartTls,
+		smtpUsername: input.smtpUsername,
+		isActive: input.isActive,
+		syncedServices:
+			input.syncedServices === undefined
+				? undefined
+				: resolveSyncedServices(existing, input.syncedServices),
+	};
+	const updates: AccountUpdate = {
+		...entityFields,
+		passwordHash: await encryptedSecret(secrets, input.password),
+		smtpPasswordHash: await encryptedSecret(secrets, input.smtpPassword),
+	};
+
+	// Display name and the mute flag live in per-account AccountSetting rows
+	// (RFC 032), not on the account entity. Display name upserts when supplied;
+	// the mute flag follows the address-flag null→remove, object→set semantics
+	// (the client populates setAt).
+	if (input.displayName !== undefined) {
+		await upsertAccountDisplayName(
+			accountSetting,
+			accountConfigId,
+			accountId,
+			input.displayName,
+		);
+	}
+	if (input.composeLanguages !== undefined) {
+		await writeAccountComposeLanguages(
+			accountSetting,
+			accountConfigId,
+			accountId,
+			input.composeLanguages,
+		);
+	}
+	if (Object.hasOwn(input, "muted")) {
+		if (input.muted !== undefined) {
+			await writeAccountMuted(
+				accountSetting,
+				accountConfigId,
+				accountId,
+				input.muted,
+			);
+		}
+	}
+
+	// Signatures live in per-account AccountSetting rows (RFC 032), not on the
+	// account entity. Persist each supplied part as a composite-named setting;
+	// an empty string is a valid stored value (preserves the prior "set ''
+	// stores ''" semantics — it does not delete the row).
+	if (
+		input.signaturePlainText !== undefined ||
+		input.signatureHtml !== undefined
+	) {
+		await upsertAccountSignature(accountSetting, accountConfigId, accountId, {
+			plainText: input.signaturePlainText,
+			html: input.signatureHtml,
+		});
+	}
+
+	const updated = await account.update(accountId, updates);
+
+	const [signature, overrides, folderAppointments] = await Promise.all([
+		loadSignatureForAccount(accountSetting, accountConfigId, accountId),
+		loadAccountOverrides(accountSetting, accountConfigId, accountId),
+		resolveAccountFolderAppointments(
+			{ mailbox, accountSetting },
+			accountConfigId,
+			accountId,
+		),
+	]);
+	return toAccountResponse(updated, signature, overrides, folderAppointments);
+};
+
+export const deleteAccountFor = async (
+	client: RemitClient<"accountFanout">,
+	accountConfigId: string,
+	accountId: string,
+): Promise<DeleteAccountResponse> => {
+	const { account } = client;
+
+	const existing = await account.get(accountId);
+	unwrap(ownedAccount(existing, accountConfigId, "act"));
+
+	const deletedAt = Date.now();
+	await deleteAccount(
+		{
+			account,
+			queue: client.queues.accountFanout,
+			log: logger,
+		},
+		existing,
+		deletedAt,
+	);
+
+	return {
+		accountId,
+		deletedAt,
+		message: "Account marked for deletion. Data cleanup will complete shortly.",
+	};
+};

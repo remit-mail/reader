@@ -7,72 +7,21 @@ import type {
 	VipSuggestionsResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
 import { logger } from "@remit/logger";
 import type { Context } from "openapi-backend";
+import {
+	createExportFor,
+	listQuarantineFor,
+	listVipSuggestionsFor,
+} from "../service/me-operations.js";
 import type { QueueName } from "../service/queues.js";
 import type {
 	HandlerContext,
 	MeOperationIds,
 	OperationHandler,
 } from "../types.js";
-import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
 const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
-
-const SURFACED_WARNING_CAP = 200;
-
-export const listVipSuggestionsFor = async (
-	client: HandlerContext["client"],
-	accountConfigId: string,
-): Promise<VipSuggestionsResponse> => ({
-	suggestions: (
-		await client.address.listSuggestedVips({ accountConfigId })
-	).map(toVipSuggestionEntry),
-});
-
-export const listQuarantineFor = async (
-	client: HandlerContext["client"],
-	accountConfigId: string,
-): Promise<QuarantineListResponse> => {
-	const [entries, warnings] = await Promise.all([
-		client.quarantine.listByAccountConfigId(accountConfigId),
-		client.syncWarning.listSurfacedByAccountConfigId(
-			accountConfigId,
-			SYNC_WARNING_SURFACE_ATTEMPTS,
-			SURFACED_WARNING_CAP,
-		),
-	]);
-	return { entries, warnings: warnings.items, warningsTotal: warnings.total };
-};
-
-export const createExportFor = async (
-	client: HandlerContext<"accountFanout">["client"],
-	accountConfigId: string,
-	userId: string,
-): Promise<CreateExportResponse> => {
-	const exportRequest = await client.accountExportRequest.create({
-		accountConfigId,
-		userId,
-		state: "Pending",
-	});
-	await client.queues.accountFanout.send({
-		body: {
-			type: "AccountExport",
-			accountConfigId,
-			accountExportRequestId: exportRequest.accountExportRequestId,
-		},
-	});
-	// biome-ignore lint/plugin/no-logger-info: account export is an audit-grade signal
-	logger.info(
-		{
-			accountConfigId,
-			accountExportRequestId: exportRequest.accountExportRequestId,
-		},
-		"Account export initiated",
-	);
-	return { statusCode: 202, exportId: exportRequest.accountExportRequestId };
-};
 
 export const MeOperations = {
 	MeOperations_listVipSuggestions: async (

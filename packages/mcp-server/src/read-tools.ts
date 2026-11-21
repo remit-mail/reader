@@ -23,7 +23,6 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
-import { operationTool } from "./operation-tool.js";
 import { refused, toolError } from "./tool-result.js";
 
 export const MAX_BODY_BYTES = 20 * 1024;
@@ -285,10 +284,7 @@ export const registerReadTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(server, [
-		"MailboxOperations_listMailboxes",
-		"MailboxDetailOperations_getMailbox",
-	]).registerTool(
+	server.registerTool(
 		"list_mailboxes",
 		{
 			description:
@@ -319,10 +315,7 @@ export const registerReadTools = (
 		},
 	);
 
-	operationTool(server, [
-		"ThreadOperations_listThreads",
-		"UnifiedThreadOperations_listAllThreads",
-	]).registerTool(
+	server.registerTool(
 		"list_threads",
 		{
 			description:
@@ -360,7 +353,7 @@ export const registerReadTools = (
 		},
 	);
 
-	operationTool(server, ["ThreadOperations_searchThreads"]).registerTool(
+	server.registerTool(
 		"search_threads",
 		{
 			description:
@@ -417,9 +410,7 @@ export const registerReadTools = (
 		},
 	);
 
-	operationTool(server, [
-		"ThreadDetailOperations_listThreadMessages",
-	]).registerTool(
+	server.registerTool(
 		"get_thread",
 		{
 			description: `Fetch the messages of one conversation, oldest first, at envelope level, each with ${PLACEMENT_FIELDS}.`,
@@ -457,9 +448,7 @@ export const registerReadTools = (
 		},
 	);
 
-	operationTool(server, [
-		"ClassificationStatsOperations_getClassificationStats",
-	]).registerTool(
+	server.registerTool(
 		"classifier_stats",
 		{
 			description:
@@ -485,7 +474,7 @@ export const registerReadTools = (
 		},
 	);
 
-	operationTool(server, ["MessageOperations_describeMessage"]).registerTool(
+	server.registerTool(
 		"get_message",
 		{
 			description: `Read one message: envelope, flags, attachment metadata, its plain-text body up to ${MAX_BODY_BYTES / 1024} KB, and ${PLACEMENT_FIELDS}.`,

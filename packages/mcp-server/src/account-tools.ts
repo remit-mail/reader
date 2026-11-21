@@ -18,7 +18,6 @@ import {
 	getConfigFor,
 	importConfigFor,
 } from "@remit/backend/config-operations";
-import type { handlers } from "@remit/backend/handlers";
 import {
 	createExportFor,
 	listQuarantineFor,
@@ -37,10 +36,7 @@ import {
 } from "@remit/backend/user-settings-operations";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { McpDeps } from "./deps.js";
-import { operationTool } from "./operation-tool.js";
 import { asJson } from "./tool-result.js";
-
-type OperationId = keyof typeof handlers;
 
 const accountIdSchema = TestConnectionInputSchema.shape.accountId.unwrap();
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
@@ -58,9 +54,7 @@ export const registerAccountTools = (
 ): void => {
 	const accountConfigId = deriveAccountConfigId(userId);
 
-	operationTool(server, [
-		"UserSettingsOperations_getUserSettings",
-	]).registerTool(
+	server.registerTool(
 		"get_user_settings",
 		{
 			description:
@@ -75,9 +69,7 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(server, [
-		"UserSettingsOperations_updateUserSettings",
-	]).registerTool(
+	server.registerTool(
 		"update_user_settings",
 		{
 			description: "Change your settings and return their current values.",
@@ -94,9 +86,7 @@ export const registerAccountTools = (
 			return asJson(result.value);
 		},
 	);
-	operationTool(server, [
-		"UserSettingsOperations_clearClassificationProvider",
-	]).registerTool(
+	server.registerTool(
 		"clear_classification_provider",
 		{
 			description:
@@ -111,9 +101,7 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(server, [
-		"UserSettingsOperations_testClassificationProvider",
-	]).registerTool(
+	server.registerTool(
 		"test_classification_provider",
 		{
 			description:
@@ -132,7 +120,7 @@ export const registerAccountTools = (
 		},
 	);
 
-	operationTool(server, ["ConfigOperations_getConfig"]).registerTool(
+	server.registerTool(
 		"get_config",
 		{
 			description: "Get your accounts and configuration.",
@@ -143,7 +131,7 @@ export const registerAccountTools = (
 				await getConfigFor(deps.client, accountConfigId, deps.apiConfig.commit),
 			),
 	);
-	operationTool(server, ["ConfigOperations_exportConfig"]).registerTool(
+	server.registerTool(
 		"export_config",
 		{
 			description: "Export your configuration without credentials.",
@@ -159,7 +147,7 @@ export const registerAccountTools = (
 				}),
 			),
 	);
-	operationTool(server, ["ConfigOperations_importConfig"]).registerTool(
+	server.registerTool(
 		"import_config",
 		{
 			description: "Validate or apply an exported configuration document.",
@@ -170,7 +158,7 @@ export const registerAccountTools = (
 			asJson(await importConfigFor(deps.client, accountConfigId, input)),
 	);
 
-	operationTool(server, ["AccountOperations_createAccount"]).registerTool(
+	server.registerTool(
 		"create_account",
 		{
 			description: "Create an email account.",
@@ -180,7 +168,7 @@ export const registerAccountTools = (
 		async (input) =>
 			asJson(await createAccountFor(deps.client, accountConfigId, input)),
 	);
-	operationTool(server, ["AccountOperations_testConnection"]).registerTool(
+	server.registerTool(
 		"test_connection",
 		{
 			description:
@@ -198,7 +186,7 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(server, ["AccountDetailOperations_updateAccount"]).registerTool(
+	server.registerTool(
 		"update_account",
 		{
 			description:
@@ -214,27 +202,17 @@ export const registerAccountTools = (
 				await updateAccountFor(deps.client, accountConfigId, accountId, input),
 			),
 	);
-	const accountIdTool = (
-		name: string,
-		description: string,
-		operationId: OperationId,
-	) =>
-		operationTool(server, [operationId]).registerTool(
-			name,
-			{
-				description,
-				annotations: DESTRUCTIVE,
-				inputSchema: { accountId: accountIdSchema },
-			},
-			async ({ accountId }) =>
-				asJson(await deleteAccountFor(deps.client, accountConfigId, accountId)),
-		);
-	accountIdTool(
+	server.registerTool(
 		"delete_account",
-		"Delete an email account and its associated data.",
-		"AccountDetailOperations_deleteAccount",
+		{
+			description: "Delete an email account and its associated data.",
+			annotations: DESTRUCTIVE,
+			inputSchema: { accountId: accountIdSchema },
+		},
+		async ({ accountId }) =>
+			asJson(await deleteAccountFor(deps.client, accountConfigId, accountId)),
 	);
-	operationTool(server, ["SyncOperations_triggerSync"]).registerTool(
+	server.registerTool(
 		"trigger_sync",
 		{
 			description: "Request an immediate sync for an account.",
@@ -250,7 +228,7 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	operationTool(server, ["SyncOperations_getSyncStatus"]).registerTool(
+	server.registerTool(
 		"get_sync_status",
 		{
 			description: "Get account and mailbox sync progress.",
@@ -267,7 +245,7 @@ export const registerAccountTools = (
 			),
 	);
 
-	operationTool(server, ["MeOperations_createExport"]).registerTool(
+	server.registerTool(
 		"create_export",
 		{
 			description: "Request an export of all account data.",
@@ -289,7 +267,7 @@ export const registerAccountReadTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	operationTool(server, ["MeOperations_listVipSuggestions"]).registerTool(
+	server.registerTool(
 		"list_vip_suggestions",
 		{
 			description: "List frequent correspondents that are not yet VIPs.",
@@ -298,7 +276,7 @@ export const registerAccountReadTools = (
 		async () =>
 			asJson(await listVipSuggestionsFor(deps.client, accountConfigId)),
 	);
-	operationTool(server, ["MeOperations_listQuarantine"]).registerTool(
+	server.registerTool(
 		"list_quarantine",
 		{
 			description:

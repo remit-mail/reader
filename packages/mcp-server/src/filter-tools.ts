@@ -27,7 +27,6 @@ import {
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
 import { moveCursorOf } from "./move-cursor.js";
-import { operationTool } from "./operation-tool.js";
 import { asJson, notFoundRefusal, refused, toolError } from "./tool-result.js";
 
 const FILTER_WRITE = {
@@ -143,10 +142,7 @@ export const registerFilterTools = (
 		logger: deps.logger,
 	};
 
-	operationTool(server, [
-		"FilterOperations_listFilters",
-		"FilterDetailOperations_getFilter",
-	]).registerTool(
+	server.registerTool(
 		"list_filters",
 		{
 			description:
@@ -165,7 +161,7 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(server, ["FilterOperations_createFilter"]).registerTool(
+	server.registerTool(
 		"create_filter",
 		{
 			description:
@@ -199,7 +195,7 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(server, ["FilterDetailOperations_updateFilter"]).registerTool(
+	server.registerTool(
 		"update_filter",
 		{
 			description:
@@ -247,9 +243,7 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(server, [
-		"OrganizeJobDetailOperations_getOrganizeJob",
-	]).registerTool(
+	server.registerTool(
 		"get_organize_job",
 		{
 			description:
@@ -284,7 +278,7 @@ export const registerFilterTools = (
 		},
 	);
 
-	operationTool(server, ["OrganizeOperations_createOrganizeJob"]).registerTool(
+	server.registerTool(
 		"apply_filter",
 		{
 			description:
