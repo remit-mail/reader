@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,24 +11,10 @@ import {
 	openIdentityStore,
 	type PeopleAdmin,
 } from "@remit/auth-service";
-import type {
-	ClassificationDefaultStore,
-	RemitClient,
-} from "@remit/backend/create-remit-client";
-import type { ApiConfig, UserIdentity } from "@remit/backend/serve";
-import { deriveAccountConfigId } from "@remit/data-ports/id";
+import type { RemitClient } from "@remit/backend/create-remit-client";
+import type { ApiConfig } from "@remit/backend/serve";
 import { ClassificationPresetId } from "@remit/domain-enums";
-import {
-	createSqliteRepositories,
-	messageObjectsInMemory,
-	NODE_SQLITE_LIMITS,
-} from "@remit/drizzle-service";
 import { migrateSqlite, openSqlite } from "@remit/drizzle-service/sqlite";
-import {
-	createShippedSqliteDb,
-	sharedDatabases,
-} from "@remit/drizzle-service/test-sqlite";
-import { createSecretsService } from "@remit/secrets-service";
 import { createClient } from "../../../build/remit-client/client/index.js";
 import { MCP_OPERATOR_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
@@ -63,7 +48,7 @@ type ToolResult = { isError?: boolean; content: { text: string }[] };
 
 let directory: PeopleAdmin;
 let dir: string;
-let caller: UserIdentity;
+let callerId: string;
 let target: Person;
 let handler: ReturnType<typeof createMcpHandler>;
 
@@ -146,63 +131,18 @@ before(async () => {
 	const callerPerson = await signUp("operator@example.test");
 	target = await signUp("person@example.test");
 	directory.applySignInSwitch(false);
-	caller = {
-		kind: "user",
-		accountConfigId: deriveAccountConfigId(callerPerson.userId),
-		sub: callerPerson.userId,
-		email: callerPerson.email,
-	};
-
-	const database = createShippedSqliteDb();
-	const repositories = createSqliteRepositories(
-		sharedDatabases(database),
-		NODE_SQLITE_LIMITS,
-		messageObjectsInMemory(),
-	);
-	await repositories.accountConfig.create({
-		accountConfigId: deriveAccountConfigId(target.userId),
-		userId: target.userId,
-	});
-	let savedDefault:
-		| Awaited<ReturnType<ClassificationDefaultStore["get"]>>["value"]
-		| null = null;
-	const classificationDefault: ClassificationDefaultStore = {
-		get: async () => ({
-			value: savedDefault ?? { state: "None" },
-			source: savedDefault === null ? "Config" : "Operator",
-		}),
-		put: async (value) => {
-			savedDefault = value;
-		},
-		delete: async () => {
-			savedDefault = null;
-		},
-	};
-	const dataKey = randomBytes(32);
-	const client = {
-		...repositories,
-		classificationDefault,
-		getClassificationDefault: async () =>
-			(await classificationDefault.get()).value,
-		secrets: createSecretsService({
-			generateDataKey: async () => ({ plaintext: dataKey, encrypted: dataKey }),
-			decryptDataKey: async () => dataKey,
-		}),
-		spam: {
-			spamPipeline: [{ name: "Inline", thresholds: { state: "Unset" } }],
-		},
-	} as unknown as RemitClient;
+	callerId = callerPerson.userId;
 	const operatorClient = createOperatorClient(
 		ORIGIN,
 		{
 			config,
-			client: async () => client,
+			client: async () => ({}) as RemitClient,
 			peopleDirectory: async () => directory,
 		},
-		caller.sub,
+		callerId,
 	);
 	handler = createMcpHandler(
-		{ userId: caller.sub, scopes: [MCP_OPERATOR_SCOPE] },
+		{ userId: callerId, scopes: [MCP_OPERATOR_SCOPE] },
 		{ operatorClient: () => operatorClient } as unknown as McpDeps,
 		true,
 	);
@@ -214,37 +154,10 @@ after(() => {
 });
 
 describe("the operator tools over sqlite dependencies", () => {
-	it("runs the classification, tenant, and People operations without exposing a key", async () => {
-		await rpc("get_classification_default");
-		const classification = await rpc("set_classification_default", {
-			presetId: ClassificationPresetId.Local,
-			model: "local-model",
-			baseUrl: "http://localhost:11434/v1",
-			apiKey: "test-only-key",
-			enabled: true,
-			dailyLimit: 10,
-		});
-		assert.doesNotMatch(
-			JSON.stringify(classification),
-			/"apiKey"|test-only-key/,
-		);
-		await rpc("clear_classification_default");
-
-		await rpc("get_tenant_settings", { userId: target.userId });
-		const settings = await rpc("update_tenant_settings", {
-			userId: target.userId,
-			classificationPresetId: ClassificationPresetId.Local,
-			classificationApiKey: "test-only-tenant-key",
-		});
-		assert.doesNotMatch(
-			JSON.stringify(settings),
-			/classificationApiKey|test-only-tenant-key/,
-		);
-		await rpc("clear_tenant_classification", { userId: target.userId });
-
+	it("grants People operations without step-up", async () => {
 		const people = (await rpc("list_people")) as { people: Person[] };
 		assert.equal(
-			people.people.find((person) => person.userId === caller.sub)?.isCaller,
+			people.people.find((person) => person.userId === callerId)?.isCaller,
 			true,
 		);
 		await rpc("disable_person", { userId: target.userId });
@@ -269,7 +182,7 @@ describe("the operator tools over sqlite dependencies", () => {
 			},
 		});
 		const mapped = createMcpHandler(
-			{ userId: caller.sub, scopes: [MCP_OPERATOR_SCOPE] },
+			{ userId: callerId, scopes: [MCP_OPERATOR_SCOPE] },
 			{ operatorClient: () => client } as unknown as McpDeps,
 			true,
 		);

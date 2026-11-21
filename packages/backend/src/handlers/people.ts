@@ -98,7 +98,7 @@ const guard = (
 		directory,
 		callerId: ctx.identity.sub,
 		clientIp: headerOf(context, CLIENT_IP_HEADER) ?? "unknown",
-		operatorGrant: ctx.operator === "grant",
+		operatorGrant: ctx.operatorGrant === true,
 	};
 	const refuseAudited = (
 		outcome: GuardRefusal,

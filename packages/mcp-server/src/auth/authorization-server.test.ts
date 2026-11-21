@@ -740,6 +740,16 @@ describe("a host that authenticates the browser itself", () => {
 		assert.equal(response.status, 404);
 	});
 
+	it("does not expose the provider consent endpoint", async () => {
+		const response = await hosted().handle(
+			new Request(`${MCP_ORIGIN}/auth/mcp/oauth2/consent`, {
+				method: "POST",
+				headers: asSubject("host-user"),
+			}),
+		);
+		assert.equal(response.status, 404);
+	});
+
 	it("provisions the subject the host names and opens its session", async () => {
 		const { handle } = hosted();
 		const signedIn = await handle(

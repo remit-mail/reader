@@ -780,6 +780,9 @@ const createMcpAuthRoutes = (
 			return new Response("Not found", { status: 404 });
 		}
 		const path = pathname.slice(AUTH_BASE_PATH.length);
+		if (path === "/oauth2/consent") {
+			return new Response("Not found", { status: 404 });
+		}
 		const served =
 			"subjectOf" in identity.browser
 				? SUBJECT_SERVED_PATHS.has(path)
