@@ -16,7 +16,8 @@ import type { McpDeps } from "./deps.js";
 
 export const ruleDeps = (
 	client: McpDeps["client"],
-): Pick<McpDeps, "client" | "folders" | "moves"> => ({
+): Pick<McpDeps, "calendarClient" | "client" | "folders" | "moves"> => ({
+	calendarClient: () => undefined as never,
 	client,
 	folders: {
 		settleTimeoutMs: 100,

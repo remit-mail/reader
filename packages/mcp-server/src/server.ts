@@ -8,9 +8,11 @@ import {
 } from "./account-tools.js";
 import {
 	MCP_ACCOUNT_SCOPE,
+	MCP_CALENDAR_SCOPE,
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,
 } from "./auth/scopes.js";
+import { registerCalendarTools } from "./calendar-tools.js";
 import { registerDeleteTools } from "./delete-tools.js";
 import type { McpDeps } from "./deps.js";
 import { registerFilterTools } from "./filter-tools.js";
@@ -70,6 +72,9 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	}
 	if (principal.scopes.includes(MCP_ACCOUNT_SCOPE)) {
 		registerAccountTools(server, deps, principal.userId);
+	}
+	if (principal.scopes.includes(MCP_CALENDAR_SCOPE)) {
+		registerCalendarTools(server, deps.calendarClient(principal.userId));
 	}
 	return server;
 };

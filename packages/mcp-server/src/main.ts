@@ -15,6 +15,7 @@ import {
 	FOLDER_SETTLE_TIMEOUT_MS,
 	mcpDepsOf,
 } from "./deps.js";
+import { createCalendarClient } from "./local-api-client.js";
 import { ASSETS_PATH_PREFIX, serveAsset } from "./pages/assets.js";
 import { loadPageAssets } from "./pages/load-assets.js";
 
@@ -23,8 +24,11 @@ installNodeLogger();
 const config = resolveMcpServerConfig();
 
 const client = await getClient();
+const apiConfig = configFromEnv(process.env);
 const deps = mcpDepsOf(client, {
-	apiConfig: configFromEnv(process.env),
+	apiConfig,
+	calendarClient: (userId) =>
+		createCalendarClient(config.origin, apiConfig, client, userId),
 	logger,
 	settle: {
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
