@@ -1,0 +1,39 @@
+name: tumpel prebuild
+
+on:
+  workflow_dispatch:
+    inputs:
+      prebuildId:
+        description: The prebuild Tumpel started
+        required: true
+        type: string
+      tenantId:
+        description: The tenant that started the prebuild
+        required: true
+        type: string
+      apiOrigin:
+        description: The Tumpel API the upload job calls
+        required: true
+        type: string
+      rootfsUrl:
+        description: A presigned GET of the guest image's root filesystem tar
+        required: true
+        type: string
+      imageDigest:
+        description: The digest of the guest image the layer is built on
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prebuild:
+    uses: tumpel/workflows/.github/workflows/prebuild.yml@v1
+    with:
+      prebuildId: ${{ inputs.prebuildId }}
+      tenantId: ${{ inputs.tenantId }}
+      apiOrigin: ${{ inputs.apiOrigin }}
+      rootfsUrl: ${{ inputs.rootfsUrl }}
+      imageDigest: ${{ inputs.imageDigest }}
