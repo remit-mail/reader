@@ -44,7 +44,12 @@ const WRITE = {
 	idempotentHint: true,
 	openWorldHint: false,
 } as const;
-const DESTRUCTIVE = { ...WRITE, destructiveHint: true } as const;
+const DESTRUCTIVE = {
+	readOnlyHint: false,
+	destructiveHint: true,
+	idempotentHint: false,
+	openWorldHint: false,
+} as const;
 
 export const registerMailActionReadTools = (
 	server: McpServer,
