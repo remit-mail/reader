@@ -225,7 +225,10 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/{userId}/sign-out")
-    op signOutPerson(@path userId: string, @body body: SignOutPersonInput):
+    op signOutPerson(
+      @path userId: string,
+      @header("X-Remit-Step-Up") stepUpToken?: string,
+    ):
       | Person
       | UnauthorizedError
       | ForbiddenError
@@ -236,7 +239,11 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: false })
     @route("/{userId}")
-    op updatePerson(@path userId: string, @body body: UpdatePersonInput):
+    op updatePerson(
+      @path userId: string,
+      @header("X-Remit-Step-Up") stepUpToken?: string,
+      @body body: UpdatePersonInput,
+    ):
       | Person
       | UnauthorizedError
       | ForbiddenError
@@ -250,7 +257,7 @@ namespace RemitApi {
     @route("/{userId}/password-reset")
     op createPasswordReset(
       @path userId: string,
-      @body body: CreatePasswordResetInput,
+      @header("X-Remit-Step-Up") stepUpToken?: string,
     ):
       | PasswordResetResponse
       | UnauthorizedError

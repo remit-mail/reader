@@ -21,6 +21,7 @@ export const lambdaHandler = (
 		config,
 		localIdentity,
 		client,
+		peopleDirectory: async () => null,
 	});
 
 export const telemetryHandler = (

@@ -67,20 +67,9 @@ model StepUpResponse {
   expiresAt: int64;
 }
 
-@doc("Sign the person out of every browser session and MCP connection.")
-model SignOutPersonInput {
-  stepUpToken: string;
-}
-
 @doc("Disable or enable the person. Disabling also revokes their sessions, MCP grants and calendar feeds.")
 model UpdatePersonInput {
   status: PersonStatus;
-  stepUpToken: string;
-}
-
-@doc("Issue a password reset link for the person. Their old password stops working and their sessions are revoked.")
-model CreatePasswordResetInput {
-  stepUpToken: string;
 }
 
 @doc("The person, and the reset link to hand them. The link is shown once and works once.")

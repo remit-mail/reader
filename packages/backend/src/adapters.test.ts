@@ -64,6 +64,7 @@ const throughLambda = async (request: Sent): Promise<Answer> => {
 		config: request.config ?? testApiConfig(),
 		localIdentity: { kind: "anonymous" },
 		client: async () => client,
+		peopleDirectory: async () => null,
 	});
 	const result: APIGatewayProxyResult = await viaLambda(
 		{
@@ -101,6 +102,7 @@ const throughFetch = async (request: Sent): Promise<Answer> => {
 		client: async () => client,
 		identity: async () => (request.signedIn ? USER : { kind: "anonymous" }),
 		operator: async () => true,
+		peopleDirectory: async () => null,
 	};
 	const response = await served.handleFetch(
 		new Request(url, {

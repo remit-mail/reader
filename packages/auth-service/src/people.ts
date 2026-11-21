@@ -427,7 +427,6 @@ export const createPeopleDirectory = async (
 						.select()
 						.from(identity_audit_event)
 						.orderBy(desc(identity_audit_event.occurredAt))
-						.limit(1000)
 						.all()
 						.map((event) => ({
 							...event,

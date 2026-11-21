@@ -69,7 +69,8 @@ export const envelopeHeaders = ({
 
 	const headers: Record<string, string> = {
 		"Access-Control-Allow-Origin": allowOrigin,
-		"Access-Control-Allow-Headers": "Authorization,Content-Type",
+		"Access-Control-Allow-Headers":
+			"Authorization,Content-Type,X-Remit-Step-Up",
 		"Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
 		Vary: "Origin",
 	};

@@ -1,4 +1,5 @@
 import type { Operations } from "@remit/api-openapi-types";
+import type { PeopleDirectory } from "@remit/auth-service/people";
 import type { Context } from "openapi-backend";
 import type { ApiConfig } from "./config/api-config.js";
 import type { RemitClient } from "./service/create-remit-client.js";
@@ -227,6 +228,7 @@ export interface HandlerContext<K extends QueueName = never> {
 	client: RemitClient<K>;
 	identity: UserIdentity;
 	operator?: boolean;
+	peopleDirectory?: PeopleDirectory | null;
 	config: ApiConfig;
 }
 

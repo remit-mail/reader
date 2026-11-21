@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { requestValidators } from "@remit/api-openapi-spec/request-validators";
 import {
 	type Auth,
 	createAuth,
@@ -18,7 +19,6 @@ import type { Context } from "openapi-backend";
 import type { ApiConfig } from "../config/api-config.js";
 import { testApiConfig, testSelfHostAuth } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
-import { setPeopleDirectory } from "../service/people-directory.js";
 import type { HandlerContext } from "../types.js";
 import { PeopleOperations } from "./people.js";
 
@@ -75,6 +75,7 @@ const callerOf = (
 	client: {} as RemitClient,
 	config,
 	operator,
+	peopleDirectory: people,
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(sub),
@@ -87,12 +88,19 @@ const contextOf = (
 	params: Record<string, string>,
 	requestBody: unknown,
 	origin = ORIGIN,
+	stepUpToken?: string,
 ): Context =>
 	({
 		request: {
 			params,
 			requestBody,
-			headers: { origin, "x-remit-client-ip": PEER },
+			headers: {
+				origin,
+				"x-remit-client-ip": PEER,
+				...(stepUpToken === undefined
+					? {}
+					: { "x-remit-step-up": stepUpToken }),
+			},
 		},
 	}) as unknown as Context;
 
@@ -170,7 +178,7 @@ const signOut = (
 	origin = ORIGIN,
 ) =>
 	PeopleOperations.PeopleOperations_signOutPerson(
-		contextOf({ userId }, { stepUpToken: token }, origin),
+		contextOf({ userId }, undefined, origin, token),
 		callerOf(caller, config),
 	);
 
@@ -182,7 +190,7 @@ const update = (
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_updatePerson(
-		contextOf({ userId }, { status, stepUpToken: token }),
+		contextOf({ userId }, { status }, ORIGIN, token),
 		callerOf(caller, config),
 	);
 
@@ -193,7 +201,7 @@ const reset = (
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_createPasswordReset(
-		contextOf({ userId }, { stepUpToken: token }),
+		contextOf({ userId }, undefined, ORIGIN, token),
 		callerOf(caller, config),
 	);
 
@@ -236,11 +244,9 @@ before(async () => {
 		store,
 		baseURL: ORIGIN,
 	});
-	setPeopleDirectory(people);
 });
 
 after(() => {
-	setPeopleDirectory(null);
 	people.close();
 	rmSync(dir, { recursive: true, force: true });
 });
@@ -302,6 +308,23 @@ describe("the People operations", () => {
 	});
 
 	it("let a hosted operator act without a step-up", async () => {
+		for (const [operation, body] of [
+			["PeopleOperations_signOutPerson", undefined],
+			["PeopleOperations_updatePerson", { status: "Disabled" }],
+			["PeopleOperations_createPasswordReset", undefined],
+		] as const) {
+			const validate = requestValidators[operation]?.[0];
+			assert.ok(validate);
+			assert.equal(
+				validate({
+					path: { userId: carol },
+					header: {},
+					...(body === undefined ? {} : { requestBody: body }),
+				}),
+				true,
+				JSON.stringify(validate.errors),
+			);
+		}
 		assert.equal(
 			refusalOf(await signOut(alice, carol, "", hostedConfig)),
 			undefined,

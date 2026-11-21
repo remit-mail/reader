@@ -35,6 +35,7 @@ test.describe("People operations on self-host (#1519)", () => {
 			path: string,
 			body?: unknown,
 			origin = baseUrl,
+			stepUpToken?: string,
 		): Promise<Response> =>
 			fetch(`${peopleApiUrl}/people${path}`, {
 				method,
@@ -42,6 +43,9 @@ test.describe("People operations on self-host (#1519)", () => {
 					authorization: `Bearer ${bearer}`,
 					"content-type": "application/json",
 					origin,
+					...(stepUpToken === undefined
+						? {}
+						: { "x-remit-step-up": stepUpToken }),
 				},
 				body: body === undefined ? undefined : JSON.stringify(body),
 			});
@@ -66,9 +70,13 @@ test.describe("People operations on self-host (#1519)", () => {
 			return ((await granted.json()) as { stepUpToken: string }).stepUpToken;
 		};
 
-		const issued = await people("POST", `/${targetId}/password-reset`, {
-			stepUpToken: await stepUp("ResetPassword"),
-		});
+		const issued = await people(
+			"POST",
+			`/${targetId}/password-reset`,
+			undefined,
+			baseUrl,
+			await stepUp("ResetPassword"),
+		);
 		expect(issued.status).toBe(200);
 		const { resetUrl } = (await issued.json()) as { resetUrl: string };
 		const token = resetUrl.split("/").at(-1) ?? "";
@@ -80,17 +88,22 @@ test.describe("People operations on self-host (#1519)", () => {
 			password: NEW_PASSWORD,
 		});
 		expect(await tokenStatus(cookie)).toBe(200);
-		const signedOut = await people("POST", `/${targetId}/sign-out`, {
-			stepUpToken: await stepUp("SignOut"),
-		});
+		const signedOut = await people(
+			"POST",
+			`/${targetId}/sign-out`,
+			undefined,
+			baseUrl,
+			await stepUp("SignOut"),
+		);
 		expect(signedOut.status).toBe(200);
 		expect(await tokenStatus(cookie)).toBe(401);
 
 		const foreign = await people(
 			"POST",
 			`/${targetId}/sign-out`,
-			{ stepUpToken: await stepUp("SignOut") },
+			undefined,
 			"https://evil.example",
+			await stepUp("SignOut"),
 		);
 		expect(foreign.status).toBe(403);
 		expect(((await foreign.json()) as { code: string }).code).toBe(
