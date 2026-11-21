@@ -27,7 +27,7 @@ export interface MoveToolDeps {
 export interface McpDeps {
 	calendarClient: (userId: string) => CalendarClient;
 	client: RemitClient;
-	apiConfig: Pick<ApiConfig, "commit" | "msOAuth" | "publicOrigin">;
+	apiConfig: ApiConfig;
 	logger: MaterializeLogger & OrganizeJobLogger;
 	folders: FolderToolDeps;
 	moves: MoveToolDeps;

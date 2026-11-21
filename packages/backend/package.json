@@ -127,6 +127,10 @@
       "types": "./src/service/message-action-operations.ts",
       "default": "./src/service/message-action-operations.ts"
     },
+    "./outbox-operations": {
+      "types": "./src/service/outbox-operations.ts",
+      "default": "./src/service/outbox-operations.ts"
+    },
     "./config-from-env": {
       "types": "./src/config/from-env.ts",
       "default": "./src/config/from-env.ts"
@@ -259,6 +263,10 @@
       "./message-action-operations": {
         "types": "./dist/src/service/message-action-operations.d.ts",
         "default": "./dist/src/service/message-action-operations.js"
+      },
+      "./outbox-operations": {
+        "types": "./dist/src/service/outbox-operations.d.ts",
+        "default": "./dist/src/service/outbox-operations.js"
       },
       "./config-from-env": {
         "types": "./dist/src/config/from-env.d.ts",
