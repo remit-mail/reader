@@ -19,7 +19,7 @@ import {
 	deleteLabelWithCascade,
 	findFiltersForLabel,
 } from "../service/label-delete.js";
-import { updateLabelFor } from "../service/mail-action-operations.js";
+import { updateLabelFor } from "../service/label-operations.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,

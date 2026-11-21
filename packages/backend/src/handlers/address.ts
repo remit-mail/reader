@@ -6,7 +6,7 @@ import type { Context } from "openapi-backend";
 import {
 	searchAddressesFor,
 	updateAddressFor,
-} from "../service/mail-action-operations.js";
+} from "../service/address-operations.js";
 import type { QueueName } from "../service/queues.js";
 import type {
 	AddressDetailOperationIds,

@@ -1,14 +1,19 @@
+import type {
+	OrganizeInput,
+	OrganizePreviewResponse,
+} from "@remit/api-openapi-types";
 import {
 	FILTER_NO_ACTION,
 	type FilterItem,
 	type FilterRuleV1Item,
+	filterRuleFromClauses,
 	filterRuleLeaves,
 	filterRuleTestsClassification,
 	type MessageItem,
 	type OrganizeJobRequestItem,
 	type SentDateRange,
 } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import {
@@ -16,6 +21,7 @@ import {
 	type FilterMessage,
 	FilterPipeline,
 	moveDestination,
+	ownedAccount,
 	PlacementMoveService,
 	type PreparedFilters,
 	type RuleNarrowing,
@@ -24,6 +30,7 @@ import {
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import type { RemitClient } from "./data-client.js";
+import { unwrap } from "./refusal.js";
 
 /**
  * Hard cap on both the previewed and the applied set. A back-apply is a
@@ -44,6 +51,44 @@ export interface OrganizePredicate extends SentDateRange {
 	actionLabelId: string;
 	actionMailboxId: string;
 }
+
+export const predicateFromInput = (
+	input: OrganizeInput,
+): OrganizePredicate => ({
+	rule: filterRuleFromClauses({
+		matchOperator: input.matchOperator,
+		literalClauses: input.literalClauses,
+	}),
+	actionLabelId: input.actionLabelId,
+	actionMailboxId: input.actionMailboxId,
+});
+
+export const previewOrganizeFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	accountId: string,
+	input: OrganizeInput,
+): Promise<OrganizePreviewResponse> => {
+	unwrap(
+		ownedAccount(await client.account.get(accountId), accountConfigId, "read"),
+	);
+	if (input.filterId) {
+		throw new BadRequestError(
+			"Preview takes a rule, not a saved filter. Run the filter to apply it.",
+		);
+	}
+	const result = await matchOrganize(
+		buildOrganizeMatchDeps(client),
+		accountConfigId,
+		predicateFromInput(input),
+		ORGANIZE_MATCH_LIMIT,
+	);
+	if (result.rejected) throw new BadRequestError(result.rejected.message);
+	return {
+		matchedCount: result.messageIds.length,
+		messageIds: result.messageIds,
+	};
+};
 
 const boundOf = (bound: string): string | undefined =>
 	bound === FILTER_NO_ACTION ? undefined : bound;

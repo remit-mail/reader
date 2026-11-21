@@ -115,9 +115,17 @@
       "types": "./src/service/me-operations.ts",
       "default": "./src/service/me-operations.ts"
     },
-    "./mail-action-operations": {
-      "types": "./src/service/mail-action-operations.ts",
-      "default": "./src/service/mail-action-operations.ts"
+    "./address-operations": {
+      "types": "./src/service/address-operations.ts",
+      "default": "./src/service/address-operations.ts"
+    },
+    "./label-operations": {
+      "types": "./src/service/label-operations.ts",
+      "default": "./src/service/label-operations.ts"
+    },
+    "./message-action-operations": {
+      "types": "./src/service/message-action-operations.ts",
+      "default": "./src/service/message-action-operations.ts"
     },
     "./config-from-env": {
       "types": "./src/config/from-env.ts",
@@ -240,9 +248,17 @@
         "types": "./dist/src/service/me-operations.d.ts",
         "default": "./dist/src/service/me-operations.js"
       },
-      "./mail-action-operations": {
-        "types": "./dist/src/service/mail-action-operations.d.ts",
-        "default": "./dist/src/service/mail-action-operations.js"
+      "./address-operations": {
+        "types": "./dist/src/service/address-operations.d.ts",
+        "default": "./dist/src/service/address-operations.js"
+      },
+      "./label-operations": {
+        "types": "./dist/src/service/label-operations.d.ts",
+        "default": "./dist/src/service/label-operations.js"
+      },
+      "./message-action-operations": {
+        "types": "./dist/src/service/message-action-operations.d.ts",
+        "default": "./dist/src/service/message-action-operations.js"
       },
       "./config-from-env": {
         "types": "./dist/src/config/from-env.d.ts",

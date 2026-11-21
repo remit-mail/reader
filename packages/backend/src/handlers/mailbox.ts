@@ -21,7 +21,7 @@ import {
 } from "../derive/pendingMoveCounts.js";
 import type { RemitClient } from "../service/data-client.js";
 import { deleteFolder } from "../service/folder-delete.js";
-import { emptyTrashFor } from "../service/mail-action-operations.js";
+import { emptyTrashFor } from "../service/message-action-operations.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {

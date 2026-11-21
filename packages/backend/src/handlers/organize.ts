@@ -15,10 +15,10 @@ import {
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
 import {
+	organizePredicateRejection,
 	predicateFromInput,
 	previewOrganizeFor,
-} from "../service/mail-action-operations.js";
-import { organizePredicateRejection } from "../service/organize.js";
+} from "../service/organize.js";
 import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -28,7 +28,7 @@ import type {
 	OrganizeOperationIds,
 } from "../types.js";
 
-export { predicateFromInput } from "../service/mail-action-operations.js";
+export { predicateFromInput } from "../service/organize.js";
 
 const assertAccount = async (
 	client: RemitClient<never>,
