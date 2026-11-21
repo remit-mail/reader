@@ -6,6 +6,7 @@ import type {
 } from "@remit/api-openapi-types";
 import type { ReaderConfigDocument } from "@remit/config-format";
 import {
+	type ConfigExportIdentity,
 	importConfig,
 	pendingImportOf,
 	readConfigForExport,
@@ -24,7 +25,6 @@ import {
 } from "@remit/mailbox-service/account-credentials";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
-import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import type { QueueName } from "../service/queues.js";
 import {
@@ -242,13 +242,9 @@ export const getConfigFor = async (
 export const exportConfigFor = async (
 	client: RemitClient<never>,
 	accountConfigId: string,
-	config: Parameters<typeof exportIdentity>[0],
+	identity: ConfigExportIdentity,
 ): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
-	const document = await readConfigForExport(
-		client,
-		accountConfigId,
-		exportIdentity(config),
-	);
+	const document = await readConfigForExport(client, accountConfigId, identity);
 	return { schemaVersion: document.schemaVersion, document };
 };
 
@@ -293,27 +289,35 @@ export const importConfigFor = async (
 	return outcome.report;
 };
 
-export const ConfigOperations = {
-	ConfigOperations_getConfig: async (
-		_context: Context,
-		ctx: HandlerContext<"sync">,
-	): Promise<ConfigDescriptionResponse> =>
-		getConfigFor(ctx.client, ctx.identity.accountConfigId, ctx.config.commit),
-	ConfigOperations_exportConfig: async (
-		_context: Context,
-		ctx: HandlerContext,
-	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> =>
-		exportConfigFor(ctx.client, ctx.identity.accountConfigId, ctx.config),
-	ConfigOperations_importConfig: async (
-		context: Context,
-		ctx: HandlerContext,
-	): Promise<ConfigImportReport> =>
-		importConfigFor(
-			ctx.client,
-			ctx.identity.accountConfigId,
-			context.request.requestBody as ImportConfigInput,
-		),
-} satisfies Record<
-	ConfigOperationIds,
-	OperationHandler<ConfigOperationIds, QueueName>
->;
+export const configOperations = (
+	exportIdentity: (config: HandlerContext["config"]) => ConfigExportIdentity,
+) =>
+	({
+		ConfigOperations_getConfig: async (
+			_context: Context,
+			ctx: HandlerContext<"sync">,
+		): Promise<ConfigDescriptionResponse> =>
+			getConfigFor(ctx.client, ctx.identity.accountConfigId, ctx.config.commit),
+		ConfigOperations_exportConfig: async (
+			_context: Context,
+			ctx: HandlerContext,
+		): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
+			return exportConfigFor(
+				ctx.client,
+				ctx.identity.accountConfigId,
+				exportIdentity(ctx.config),
+			);
+		},
+		ConfigOperations_importConfig: async (
+			context: Context,
+			ctx: HandlerContext,
+		): Promise<ConfigImportReport> =>
+			importConfigFor(
+				ctx.client,
+				ctx.identity.accountConfigId,
+				context.request.requestBody as ImportConfigInput,
+			),
+	}) satisfies Record<
+		ConfigOperationIds,
+		OperationHandler<ConfigOperationIds, QueueName>
+	>;

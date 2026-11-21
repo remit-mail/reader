@@ -151,7 +151,12 @@ export const registerAccountTools = (
 		},
 		async () =>
 			asJson(
-				await exportConfigFor(deps.client, accountConfigId, deps.apiConfig),
+				await exportConfigFor(deps.client, accountConfigId, {
+					app: "reader",
+					version: "unknown",
+					exportedAt: new Date().toISOString(),
+					instance: deps.apiConfig.publicOrigin,
+				}),
 			),
 	);
 	operationTool(server, ["ConfigOperations_importConfig"]).registerTool(

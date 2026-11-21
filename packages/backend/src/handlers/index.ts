@@ -1,3 +1,4 @@
+import { exportIdentity } from "../service/export-identity.js";
 import type { QueueName } from "../service/queues.js";
 import type {
 	OperationHandler,
@@ -32,7 +33,7 @@ import {
 } from "./calendar-task.js";
 import { ClassificationDefaultOperations } from "./classification-default.js";
 import { ClassificationStatsOperations } from "./classification-stats.js";
-import { ConfigOperations } from "./config.js";
+import { configOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
 import { LabelDetailOperations, LabelOperations } from "./label.js";
@@ -59,6 +60,8 @@ import {
 	PersonSettingsOperations,
 	UserSettingsOperations,
 } from "./user-settings.js";
+
+const ConfigOperations = configOperations(exportIdentity);
 
 export const handlers = {
 	...MeOperations,

@@ -56,10 +56,7 @@ export interface FilterToolDeps {
 
 export interface McpDeps {
 	client: RemitClient;
-	apiConfig: Pick<
-		ApiConfig,
-		"commit" | "msOAuth" | "publicOrigin" | "updateControlDir"
-	>;
+	apiConfig: Pick<ApiConfig, "commit" | "msOAuth" | "publicOrigin">;
 	account: Pick<
 		IAccountRepository,
 		"get" | "listAllByAccountConfig" | "listMailSourcesByAccountConfig"
