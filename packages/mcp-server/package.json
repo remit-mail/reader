@@ -44,6 +44,7 @@
   },
   "devDependencies": {
     "@remit/account-worker": "*",
+    "@remit/api-openapi-spec": "*",
     "@remit/imap-worker": "*",
     "@tailwindcss/vite": "^4",
     "tailwindcss": "^4",
