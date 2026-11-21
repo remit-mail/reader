@@ -23,6 +23,7 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
+import { operationTool } from "./operation-tool.js";
 import { refused, toolError } from "./tool-result.js";
 
 export const MAX_BODY_BYTES = 20 * 1024;
@@ -281,7 +282,11 @@ export const registerReadTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	server.registerTool(
+	operationTool(
+		server,
+		["MailboxOperations_listMailboxes", "MailboxDetailOperations_getMailbox"],
+		"list_mailboxes",
+	).registerTool(
 		"list_mailboxes",
 		{
 			description:
@@ -312,7 +317,11 @@ export const registerReadTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["ThreadOperations_listThreads", "UnifiedThreadOperations_listAllThreads"],
+		"list_threads",
+	).registerTool(
 		"list_threads",
 		{
 			description:
@@ -346,7 +355,11 @@ export const registerReadTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["ThreadOperations_searchThreads"],
+		"search_threads",
+	).registerTool(
 		"search_threads",
 		{
 			description:
@@ -403,7 +416,11 @@ export const registerReadTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["ThreadDetailOperations_listThreadMessages"],
+		"get_thread",
+	).registerTool(
 		"get_thread",
 		{
 			description: `Fetch the messages of one conversation, oldest first, at envelope level, each with ${PLACEMENT_FIELDS}.`,
@@ -441,7 +458,11 @@ export const registerReadTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["ClassificationStatsOperations_getClassificationStats"],
+		"classifier_stats",
+	).registerTool(
 		"classifier_stats",
 		{
 			description:
@@ -467,7 +488,11 @@ export const registerReadTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["MessageOperations_describeMessage"],
+		"get_message",
+	).registerTool(
 		"get_message",
 		{
 			description: `Read one message: envelope, flags, attachment metadata, its plain-text body up to ${MAX_BODY_BYTES / 1024} KB, and ${PLACEMENT_FIELDS}.`,

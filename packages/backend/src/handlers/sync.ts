@@ -70,45 +70,55 @@ export const triggerSyncSafe = async (
 	);
 };
 
+export const triggerSyncFor = async (
+	client: HandlerContext<"sync">["client"],
+	accountConfigId: string,
+	accountId: string,
+) => {
+	const account = await client.account.get(accountId);
+	unwrap(ownedAccount(account, accountConfigId, "act"));
+	void triggerSyncSafe(account.accountId, accountConfigId, {
+		queue: client.queues.sync,
+		logger,
+	});
+	return {
+		triggered: true,
+		message: `Sync triggered for account ${accountId}`,
+	};
+};
+
+export const getSyncStatusFor = async (
+	client: HandlerContext["client"],
+	accountConfigId: string,
+	accountId: string,
+) => {
+	const account = await client.account.get(accountId);
+	unwrap(ownedAccount(account, accountConfigId, "read"));
+	const mailboxes = await client.mailbox.listAllByAccount(accountId);
+	return {
+		accountId: account.accountId,
+		syncPhase: account.syncPhase,
+		mailboxCountTotal: account.mailboxCountTotal,
+		mailboxCountSynced: account.mailboxCountSynced,
+		lastSyncAt: account.lastSyncAt,
+		mailboxes: mailboxes.map(toMailboxSyncProgress),
+	};
+};
+
 export const SyncOperations = {
-	SyncOperations_triggerSync: async (context, ctx: HandlerContext<"sync">) => {
-		const accountConfigId = ctx.identity.accountConfigId;
-		const { accountId } = context.request.params as { accountId: string };
+	SyncOperations_triggerSync: async (context, ctx: HandlerContext<"sync">) =>
+		triggerSyncFor(
+			ctx.client,
+			ctx.identity.accountConfigId,
+			(context.request.params as { accountId: string }).accountId,
+		),
 
-		const account = await ctx.client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "act"));
-
-		void triggerSyncSafe(account.accountId, accountConfigId, {
-			queue: ctx.client.queues.sync,
-			logger,
-		});
-
-		return {
-			triggered: true,
-			message: `Sync triggered for account ${accountId}`,
-		};
-	},
-
-	SyncOperations_getSyncStatus: async (context, ctx: HandlerContext) => {
-		const accountConfigId = ctx.identity.accountConfigId;
-		const { accountId } = context.request.params as { accountId: string };
-
-		const client = ctx.client;
-		const account = await client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "read"));
-
-		// Collect all mailboxes (read-only — does not write or contend with sync lock)
-		const mailboxes = await client.mailbox.listAllByAccount(accountId);
-
-		return {
-			accountId: account.accountId,
-			syncPhase: account.syncPhase,
-			mailboxCountTotal: account.mailboxCountTotal,
-			mailboxCountSynced: account.mailboxCountSynced,
-			lastSyncAt: account.lastSyncAt,
-			mailboxes: mailboxes.map(toMailboxSyncProgress),
-		};
-	},
+	SyncOperations_getSyncStatus: async (context, ctx: HandlerContext) =>
+		getSyncStatusFor(
+			ctx.client,
+			ctx.identity.accountConfigId,
+			(context.request.params as { accountId: string }).accountId,
+		),
 } satisfies Record<
 	SyncOperationIds,
 	OperationHandler<SyncOperationIds, QueueName>

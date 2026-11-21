@@ -9,15 +9,28 @@ import {
 } from "@remit/api-zod-schemas";
 import type { RemitClient } from "@remit/backend/client";
 import { handlers } from "@remit/backend/handlers";
+import {
+	clearClassificationProviderFor,
+	createExportFor,
+	getSyncStatusFor,
+	listQuarantineFor,
+	listVipSuggestionsFor,
+	readUserSettings,
+	testClassificationProviderFor,
+	triggerSyncFor,
+	updateUserSettingsFor,
+	userSettingsDepsOf,
+} from "@remit/backend/mcp-account-operations";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import type { z } from "zod";
 import type { McpDeps } from "./deps.js";
+import { operationTool } from "./operation-tool.js";
 import { asJson } from "./tool-result.js";
-
-type OperationId = keyof typeof handlers;
 
 type OperationConfig = Parameters<
 	(typeof handlers)["ConfigOperations_getConfig"]
 >[1]["config"];
+type OperationId = keyof typeof handlers;
 type OperationContext = Parameters<
 	(typeof handlers)["ConfigOperations_getConfig"]
 >[0];
@@ -29,6 +42,20 @@ const operationConfig = {
 } as OperationConfig;
 
 const accountIdSchema = TestConnectionInputSchema.shape.accountId.unwrap();
+
+const operationError = (
+	value: unknown,
+): value is {
+	statusCode: number;
+	message: string;
+} =>
+	typeof value === "object" &&
+	value !== null &&
+	"statusCode" in value &&
+	typeof value.statusCode === "number" &&
+	value.statusCode >= 400 &&
+	"message" in value &&
+	typeof value.message === "string";
 
 const callOperation = async (
 	client: RemitClient,
@@ -50,16 +77,54 @@ const callOperation = async (
 			config: OperationConfig;
 		},
 	) => Promise<unknown>;
-	return handler({ request: { requestBody, params } } as OperationContext, {
-		client,
-		identity: {
-			kind: "user",
-			accountConfigId: deriveAccountConfigId(userId),
-			sub: userId,
-			email: userId,
+	const result = await handler(
+		{ request: { requestBody, params } } as OperationContext,
+		{
+			client,
+			identity: {
+				kind: "user",
+				accountConfigId: deriveAccountConfigId(userId),
+				sub: userId,
+				email: userId,
+			},
+			config: operationConfig,
 		},
-		config: operationConfig,
-	});
+	);
+	if (operationError(result)) throw new Error(result.message);
+	return result;
+};
+
+const testConnection = async (
+	client: RemitClient,
+	userId: string,
+	input: z.infer<typeof TestConnectionInputSchema>,
+) => {
+	if (input.accountId !== undefined && input.password === undefined) {
+		const account = await client.account.get(input.accountId);
+		if (account.accountConfigId !== deriveAccountConfigId(userId)) {
+			throw new Error(`Account not found: ${input.accountId}`);
+		}
+		if (account.authType === "oauthMicrosoft") {
+			const scope = await client.createConnectionScope(account.accountId);
+			try {
+				await scope.getConnection();
+				return { imapSuccess: true };
+			} catch (error) {
+				return {
+					imapSuccess: false,
+					imapError: error instanceof Error ? error.message : String(error),
+				};
+			} finally {
+				await scope.disconnect();
+			}
+		}
+	}
+	return callOperation(
+		client,
+		userId,
+		"AccountOperations_testConnection",
+		input,
+	);
 };
 
 export const registerAccountTools = (
@@ -72,52 +137,88 @@ export const registerAccountTools = (
 		description: string,
 		operationId: OperationId,
 	) =>
-		server.registerTool(name, { description }, async () =>
-			asJson(await callOperation(deps.client, userId, operationId)),
+		operationTool(server, [operationId], name).registerTool(
+			name,
+			{ description },
+			async () => asJson(await callOperation(deps.client, userId, operationId)),
 		);
 
-	noInput(
+	operationTool(
+		server,
+		["UserSettingsOperations_getUserSettings"],
 		"get_user_settings",
-		"Read your settings, including classification and spam settings.",
-		"UserSettingsOperations_getUserSettings",
+	).registerTool(
+		"get_user_settings",
+		{
+			description:
+				"Read your settings, including classification and spam settings.",
+		},
+		async () =>
+			asJson(
+				await readUserSettings(
+					userSettingsDepsOf(deps.client),
+					deriveAccountConfigId(userId),
+				),
+			),
 	);
-	server.registerTool(
+	operationTool(
+		server,
+		["UserSettingsOperations_updateUserSettings"],
+		"update_user_settings",
+	).registerTool(
 		"update_user_settings",
 		{
 			description: "Change your settings and return their current values.",
 			inputSchema: UpdateUserSettingsInputSchema.shape,
 		},
-		async (input) =>
+		async (input) => {
+			const result = await updateUserSettingsFor(
+				userSettingsDepsOf(deps.client),
+				deriveAccountConfigId(userId),
+				input,
+			);
+			if (!result.ok) throw new Error(result.error.message);
+			return asJson(result.value);
+		},
+	);
+	operationTool(
+		server,
+		["UserSettingsOperations_clearClassificationProvider"],
+		"clear_classification_provider",
+	).registerTool(
+		"clear_classification_provider",
+		{
+			description:
+				"Delete the saved classification provider, key, and classification settings.",
+		},
+		async () =>
 			asJson(
-				await callOperation(
-					deps.client,
-					userId,
-					"UserSettingsOperations_updateUserSettings",
-					input,
+				await clearClassificationProviderFor(
+					userSettingsDepsOf(deps.client),
+					deriveAccountConfigId(userId),
 				),
 			),
 	);
-	noInput(
-		"clear_classification_provider",
-		"Delete the saved classification provider, key, and classification settings.",
-		"UserSettingsOperations_clearClassificationProvider",
-	);
-	server.registerTool(
+	operationTool(
+		server,
+		["UserSettingsOperations_testClassificationProvider"],
+		"test_classification_provider",
+	).registerTool(
 		"test_classification_provider",
 		{
 			description:
 				"Test classification settings against a built-in sample message without saving them.",
 			inputSchema: ClassificationTestInputSchema.shape,
 		},
-		async (input) =>
-			asJson(
-				await callOperation(
-					deps.client,
-					userId,
-					"UserSettingsOperations_testClassificationProvider",
-					input,
-				),
-			),
+		async (input) => {
+			const result = await testClassificationProviderFor(
+				deps.client,
+				deriveAccountConfigId(userId),
+				input,
+			);
+			if (!result.ok) throw new Error(result.error.message);
+			return asJson(result.value);
+		},
 	);
 
 	noInput(
@@ -130,7 +231,11 @@ export const registerAccountTools = (
 		"Export your configuration without credentials.",
 		"ConfigOperations_exportConfig",
 	);
-	server.registerTool(
+	operationTool(
+		server,
+		["ConfigOperations_importConfig"],
+		"import_config",
+	).registerTool(
 		"import_config",
 		{
 			description: "Validate or apply an exported configuration document.",
@@ -147,7 +252,11 @@ export const registerAccountTools = (
 			),
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["AccountOperations_createAccount"],
+		"create_account",
+	).registerTool(
 		"create_account",
 		{
 			description: "Create an email account.",
@@ -163,24 +272,24 @@ export const registerAccountTools = (
 				),
 			),
 	);
-	server.registerTool(
+	operationTool(
+		server,
+		["AccountOperations_testConnection"],
+		"test_connection",
+	).registerTool(
 		"test_connection",
 		{
 			description:
 				"Test an IMAP and optional SMTP connection without saving it.",
 			inputSchema: TestConnectionInputSchema.shape,
 		},
-		async (input) =>
-			asJson(
-				await callOperation(
-					deps.client,
-					userId,
-					"AccountOperations_testConnection",
-					input,
-				),
-			),
+		async (input) => asJson(await testConnection(deps.client, userId, input)),
 	);
-	server.registerTool(
+	operationTool(
+		server,
+		["AccountDetailOperations_updateAccount"],
+		"update_account",
+	).registerTool(
 		"update_account",
 		{
 			description:
@@ -206,7 +315,7 @@ export const registerAccountTools = (
 		description: string,
 		operationId: OperationId,
 	) =>
-		server.registerTool(
+		operationTool(server, [operationId], name).registerTool(
 			name,
 			{ description, inputSchema: { accountId: accountIdSchema } },
 			async ({ accountId }) =>
@@ -221,30 +330,86 @@ export const registerAccountTools = (
 		"Delete an email account and its associated data.",
 		"AccountDetailOperations_deleteAccount",
 	);
-	accountIdTool(
+	operationTool(
+		server,
+		["SyncOperations_triggerSync"],
 		"trigger_sync",
-		"Request an immediate sync for an account.",
-		"SyncOperations_triggerSync",
+	).registerTool(
+		"trigger_sync",
+		{
+			description: "Request an immediate sync for an account.",
+			inputSchema: { accountId: accountIdSchema },
+		},
+		async ({ accountId }) =>
+			asJson(
+				await triggerSyncFor(
+					deps.client,
+					deriveAccountConfigId(userId),
+					accountId,
+				),
+			),
 	);
-	accountIdTool(
+	operationTool(
+		server,
+		["SyncOperations_getSyncStatus"],
 		"get_sync_status",
-		"Get account and mailbox sync progress.",
-		"SyncOperations_getSyncStatus",
+	).registerTool(
+		"get_sync_status",
+		{
+			description: "Get account and mailbox sync progress.",
+			inputSchema: { accountId: accountIdSchema },
+		},
+		async ({ accountId }) =>
+			asJson(
+				await getSyncStatusFor(
+					deps.client,
+					deriveAccountConfigId(userId),
+					accountId,
+				),
+			),
 	);
 
-	noInput(
+	operationTool(
+		server,
+		["MeOperations_listVipSuggestions"],
 		"list_vip_suggestions",
-		"List frequent correspondents that are not yet VIPs.",
-		"MeOperations_listVipSuggestions",
+	).registerTool(
+		"list_vip_suggestions",
+		{ description: "List frequent correspondents that are not yet VIPs." },
+		async () =>
+			asJson(
+				await listVipSuggestionsFor(deps.client, deriveAccountConfigId(userId)),
+			),
 	);
-	noInput(
+	operationTool(
+		server,
+		["MeOperations_createExport"],
 		"create_export",
-		"Request an export of all account data.",
-		"MeOperations_createExport",
+	).registerTool(
+		"create_export",
+		{ description: "Request an export of all account data." },
+		async () =>
+			asJson(
+				await createExportFor(
+					deps.client,
+					deriveAccountConfigId(userId),
+					userId,
+				),
+			),
 	);
-	noInput(
+	operationTool(
+		server,
+		["MeOperations_listQuarantine"],
 		"list_quarantine",
-		"List messages and warnings the sync path could not process.",
-		"MeOperations_listQuarantine",
+	).registerTool(
+		"list_quarantine",
+		{
+			description:
+				"List messages and warnings the sync path could not process.",
+		},
+		async () =>
+			asJson(
+				await listQuarantineFor(deps.client, deriveAccountConfigId(userId)),
+			),
 	);
 };

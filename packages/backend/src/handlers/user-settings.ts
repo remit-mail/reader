@@ -153,26 +153,56 @@ export const updateUserSettingsFor = async (
 	return { ok: true, value: await readUserSettings(deps, accountConfigId) };
 };
 
-const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
-	accountSetting: ctx.client.accountSetting,
-	accountConfig: ctx.client.accountConfig,
-	getClassificationDefault: ctx.client.getClassificationDefault,
-	spamPipeline: ctx.client.spam.spamPipeline,
-	accounts: ctx.client.account,
-	secrets: ctx.client.secrets,
-	label: ctx.client.label,
+export const userSettingsDepsOf = (
+	client: HandlerContext["client"],
+): UserSettingsDeps => ({
+	accountSetting: client.accountSetting,
+	accountConfig: client.accountConfig,
+	getClassificationDefault: client.getClassificationDefault,
+	spamPipeline: client.spam.spamPipeline,
+	accounts: client.account,
+	secrets: client.secrets,
+	label: client.label,
 });
+
+export const clearClassificationProviderFor = async (
+	deps: UserSettingsDeps,
+	accountConfigId: string,
+): Promise<UserSettingsResponse> => {
+	await clearClassification(deps.accountSetting, accountConfigId);
+	return readUserSettings(deps, accountConfigId);
+};
+
+export const testClassificationProviderFor = (
+	client: HandlerContext["client"],
+	accountConfigId: string,
+	input: ClassificationTestInput,
+) =>
+	testClassificationProvider(
+		{
+			accountSetting: client.accountSetting,
+			accountConfig: client.accountConfig,
+			getClassificationDefault: client.getClassificationDefault,
+			secrets: client.secrets,
+			logger,
+		},
+		accountConfigId,
+		input,
+	);
 
 export const UserSettingsOperations: Record<
 	UserSettingsOperationIds,
 	OperationHandler<UserSettingsOperationIds>
 > = {
 	UserSettingsOperations_getUserSettings: async (_context, ctx) =>
-		readUserSettings(depsOf(ctx), ctx.identity.accountConfigId),
+		readUserSettings(
+			userSettingsDepsOf(ctx.client),
+			ctx.identity.accountConfigId,
+		),
 
 	UserSettingsOperations_updateUserSettings: async (context, ctx) => {
 		const updated = await updateUserSettingsFor(
-			depsOf(ctx),
+			userSettingsDepsOf(ctx.client),
 			ctx.identity.accountConfigId,
 			context.request.requestBody as UpdateUserSettingsInput,
 		);
@@ -184,7 +214,7 @@ export const UserSettingsOperations: Record<
 		_context,
 		ctx,
 	) => {
-		const deps = depsOf(ctx);
+		const deps = userSettingsDepsOf(ctx.client);
 		await deps.accountSetting.delete(
 			ctx.identity.accountConfigId,
 			AccountSettingName.DefaultInvitationSenderAccountId,
@@ -193,23 +223,15 @@ export const UserSettingsOperations: Record<
 	},
 
 	UserSettingsOperations_clearClassificationProvider: async (_context, ctx) => {
-		const deps = depsOf(ctx);
-		await clearClassification(
-			deps.accountSetting,
+		return clearClassificationProviderFor(
+			userSettingsDepsOf(ctx.client),
 			ctx.identity.accountConfigId,
 		);
-		return readUserSettings(deps, ctx.identity.accountConfigId);
 	},
 
 	UserSettingsOperations_testClassificationProvider: async (context, ctx) => {
-		const tested = await testClassificationProvider(
-			{
-				accountSetting: ctx.client.accountSetting,
-				accountConfig: ctx.client.accountConfig,
-				getClassificationDefault: ctx.client.getClassificationDefault,
-				secrets: ctx.client.secrets,
-				logger,
-			},
+		const tested = await testClassificationProviderFor(
+			ctx.client,
 			ctx.identity.accountConfigId,
 			context.request.requestBody as ClassificationTestInput,
 		);

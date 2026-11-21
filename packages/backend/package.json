@@ -95,6 +95,10 @@
       "types": "./src/config/classification-default.ts",
       "default": "./src/config/classification-default.ts"
     },
+	"./mcp-account-operations": {
+	  "types": "./src/mcp-account-operations.ts",
+	  "default": "./src/mcp-account-operations.ts"
+	},
     "./content-handler": {
       "types": "./dev-server/content-handler.ts",
       "default": "./dev-server/content-handler.ts"
@@ -192,6 +196,10 @@
         "types": "./dist/src/config/classification-default.d.ts",
         "default": "./dist/src/config/classification-default.js"
       },
+	  "./mcp-account-operations": {
+		"types": "./dist/src/mcp-account-operations.d.ts",
+		"default": "./dist/src/mcp-account-operations.js"
+	  },
       "./content-handler": {
         "types": "./dist/dev-server/content-handler.d.ts",
         "default": "./dist/dev-server/content-handler.js"

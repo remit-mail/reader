@@ -18,6 +18,7 @@ import {
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { FolderToolDeps, McpDeps } from "./deps.js";
+import { operationTool } from "./operation-tool.js";
 import { asJson, notFoundRefusal, refused, toolError } from "./tool-result.js";
 import { trashFolderOf } from "./trash.js";
 
@@ -275,7 +276,11 @@ export const registerFolderTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	server.registerTool(
+	operationTool(
+		server,
+		["MailboxOperations_createMailbox"],
+		"create_folder",
+	).registerTool(
 		"create_folder",
 		{
 			description:
@@ -315,7 +320,11 @@ export const registerFolderTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["MailboxDetailOperations_renameMailbox"],
+		"rename_folder",
+	).registerTool(
 		"rename_folder",
 		{
 			description:
@@ -353,7 +362,11 @@ export const registerFolderTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["MailboxDetailOperations_deleteMailbox"],
+		"delete_folder",
+	).registerTool(
 		"delete_folder",
 		{
 			description:

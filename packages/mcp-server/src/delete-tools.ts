@@ -16,6 +16,7 @@ import {
 	folderDeleteRefusal,
 	plural,
 } from "./folder-tools.js";
+import { operationTool } from "./operation-tool.js";
 import { asJson, notFoundRefusal, refused, toolError } from "./tool-result.js";
 
 const DELETE = {
@@ -75,7 +76,11 @@ export const registerDeleteTools = (
 	deps: McpDeps,
 	accountConfigId: string,
 ): void => {
-	server.registerTool(
+	operationTool(
+		server,
+		["FilterDetailOperations_deleteFilter"],
+		"delete_filter",
+	).registerTool(
 		"delete_filter",
 		{
 			description:
@@ -96,7 +101,11 @@ export const registerDeleteTools = (
 		},
 	);
 
-	server.registerTool(
+	operationTool(
+		server,
+		["LabelDetailOperations_deleteLabel"],
+		"delete_label",
+	).registerTool(
 		"delete_label",
 		{
 			description:
