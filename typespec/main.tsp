@@ -168,7 +168,8 @@ namespace RemitApi {
     op getPersonSettings(@path userId: string):
       | UserSettingsResponse
       | UnauthorizedError
-      | ForbiddenError;
+      | ForbiddenError
+      | NotFoundError;
 
     @doc("Change a person's settings. Operator-only. Answers with every setting as it now stands; the classification provider key is never returned.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -180,7 +181,8 @@ namespace RemitApi {
       | UserSettingsResponse
       | ValidationError
       | UnauthorizedError
-      | ForbiddenError;
+      | ForbiddenError
+      | NotFoundError;
 
     @doc("Delete the person's saved classification provider, its key and every classification setting. Classification is then off. Operator-only. Answers with every setting as it now stands.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -189,7 +191,8 @@ namespace RemitApi {
     op clearPersonClassificationProvider(@path userId: string):
       | UserSettingsResponse
       | UnauthorizedError
-      | ForbiddenError;
+      | ForbiddenError
+      | NotFoundError;
   }
 
   // ============================================
