@@ -32,13 +32,13 @@ export const composeSqliteClient = async (
 };
 
 export const buildSqliteClient = (
-	classificationDefault: ClassificationDeploymentDefault,
+	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>,
 	spamPipeline: SpamPipeline,
 ): Promise<RemitClient> =>
 	composeSqliteClient(
 		buildSharedDeps(
 			sqsQueues(sqsQueueUrlsFromEnv()),
-			classificationDefault,
+			getClassificationDefault,
 			spamPipeline,
 		),
 	);

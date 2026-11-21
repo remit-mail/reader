@@ -108,7 +108,7 @@ export const syncMessageBody = async (
 		accountSetting: accountSettingService,
 		accountConfig: accountConfigService,
 		label: labelService,
-		classificationDefault,
+		getClassificationDefault,
 		spam,
 	} = ctx.client;
 
@@ -229,7 +229,7 @@ export const syncMessageBody = async (
 				{
 					accountSetting: accountSettingService,
 					accountConfig: accountConfigService,
-					classificationDefault,
+					getClassificationDefault,
 					secrets,
 					labelService,
 					messageLabelService,

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { classificationDefaultFromEnv } from "./classification-default.js";
+import {
+	classificationDefaultFromEnv,
+	parseClassificationDefault,
+} from "./classification-default.js";
 
 describe("classificationDefaultFromEnv", () => {
 	it("has no default without a preset", () => {
@@ -144,5 +147,46 @@ describe("classificationDefaultFromEnv", () => {
 				}),
 			/CLASSIFICATION_DEFAULT_API_KEY, CLASSIFICATION_DEFAULT_DAILY_LIMIT set without CLASSIFICATION_DEFAULT_PRESET/,
 		);
+	});
+});
+
+describe("parseClassificationDefault", () => {
+	it("fills the preset defaults from typed input", () => {
+		assert.deepEqual(
+			parseClassificationDefault({
+				presetId: "Mistral",
+				apiKey: "sk-test",
+				enabled: true,
+			}),
+			{
+				ok: true,
+				value: {
+					state: "Configured",
+					presetId: "Mistral",
+					model: "ministral-8b-latest",
+					baseUrl: "https://api.eu.mistral.ai/v1",
+					apiKey: "sk-test",
+					enabled: true,
+					dailyLimit: 500,
+				},
+			},
+		);
+	});
+
+	it("returns a message instead of throwing on invalid input", () => {
+		const cases = [
+			{ presetId: "Bogus", enabled: false },
+			{ presetId: "Mistral", enabled: false },
+			{ presetId: "OpenAiCompatible", apiKey: "sk-test", enabled: false },
+			{ presetId: "Local", enabled: false, dailyLimit: 0 },
+			{ presetId: "Local", enabled: false, dailyLimit: 1.5 },
+		];
+		for (const input of cases) {
+			assert.equal(
+				parseClassificationDefault(input).ok,
+				false,
+				JSON.stringify(input),
+			);
+		}
 	});
 });

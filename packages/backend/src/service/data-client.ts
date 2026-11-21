@@ -42,7 +42,10 @@ const buildRelationalClient = async (): Promise<RemitClient> => {
 		);
 	}
 	const composition = await import("./compose-sqlite.js");
-	return composition.buildSqliteClient(classificationDefault, spamPipeline);
+	return composition.buildSqliteClient(
+		async () => classificationDefault,
+		spamPipeline,
+	);
 };
 
 export const getClient = (): Promise<RemitClient> => {

@@ -52,7 +52,7 @@ const caller = (): HandlerContext<QueueName> => ({
 	client: {
 		...repos,
 		secrets,
-		classificationDefault: { state: "None" },
+		getClassificationDefault: async () => ({ state: "None" }),
 		spam: {
 			spamPipeline: [{ name: "Inline", thresholds: { state: "Unset" } }],
 		},

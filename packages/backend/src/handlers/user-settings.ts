@@ -45,7 +45,7 @@ export interface UserSettingsDeps {
 		"get" | "getMany" | "upsert" | "delete"
 	>;
 	accountConfig: Pick<IAccountConfigRepository, "get">;
-	classificationDefault: ClassificationDeploymentDefault;
+	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>;
 	spamPipeline: SpamPipeline;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 	secrets: Pick<SecretsService, "encrypt">;
@@ -153,7 +153,7 @@ export const updateUserSettingsFor = async (
 const depsOf = (ctx: HandlerContext): UserSettingsDeps => ({
 	accountSetting: ctx.client.accountSetting,
 	accountConfig: ctx.client.accountConfig,
-	classificationDefault: ctx.client.classificationDefault,
+	getClassificationDefault: ctx.client.getClassificationDefault,
 	spamPipeline: ctx.client.spam.spamPipeline,
 	accounts: ctx.client.account,
 	secrets: ctx.client.secrets,
@@ -203,7 +203,7 @@ export const UserSettingsOperations: Record<
 			{
 				accountSetting: ctx.client.accountSetting,
 				accountConfig: ctx.client.accountConfig,
-				classificationDefault: ctx.client.classificationDefault,
+				getClassificationDefault: ctx.client.getClassificationDefault,
 				secrets: ctx.client.secrets,
 				logger,
 			},

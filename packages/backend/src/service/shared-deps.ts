@@ -44,7 +44,7 @@ export const sqsQueues = (urls: SqsQueueUrls): RemitClientQueues => ({
 
 export const buildSharedDeps = (
 	queues: RemitClientQueues,
-	classificationDefault: ClassificationDeploymentDefault,
+	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>,
 	spamPipeline: SpamPipeline,
 ): RemitClientSharedDeps => {
 	const imapTransport = nodeTransport();
@@ -58,7 +58,7 @@ export const buildSharedDeps = (
 		connectionScope: passwordConnectionScope(imapTransport),
 		mailTransports: { imap: () => imapTransport, smtp: directSmtpSocket },
 		queues,
-		classificationDefault,
+		getClassificationDefault,
 		spamPipeline,
 	};
 };

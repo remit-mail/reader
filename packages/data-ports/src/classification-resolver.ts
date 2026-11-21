@@ -220,23 +220,24 @@ export const resolveClassification = (
 export interface ClassificationResolverDeps {
 	accountSetting: Pick<IAccountSettingRepository, "getMany">;
 	accountConfig: Pick<IAccountConfigRepository, "get">;
-	classificationDefault: ClassificationDeploymentDefault;
+	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>;
 }
 
 export const readClassificationInput = async (
 	deps: ClassificationResolverDeps,
 	accountConfigId: string,
 ): Promise<ClassificationResolverInput> => {
-	const [rows, accountConfig] = await Promise.all([
+	const [rows, accountConfig, deployment] = await Promise.all([
 		deps.accountSetting.getMany(
 			[accountConfigId],
 			CLASSIFICATION_SETTING_NAMES,
 		),
 		deps.accountConfig.get(accountConfigId),
+		deps.getClassificationDefault(),
 	]);
 	return {
 		rows,
-		deployment: deps.classificationDefault,
+		deployment,
 		accountConfigCreatedAt: accountConfig.createdAt,
 	};
 };
