@@ -1,4 +1,5 @@
 import type { RemitClient } from "@remit/backend/client";
+import type { ApiConfig } from "@remit/backend/serve";
 import type {
 	IAccountRepository,
 	IAccountSettingRepository,
@@ -55,6 +56,10 @@ export interface FilterToolDeps {
 
 export interface McpDeps {
 	client: RemitClient;
+	apiConfig: Pick<
+		ApiConfig,
+		"commit" | "msOAuth" | "publicOrigin" | "updateControlDir"
+	>;
 	account: Pick<
 		IAccountRepository,
 		"get" | "listAllByAccountConfig" | "listMailSourcesByAccountConfig"
@@ -120,15 +125,17 @@ export interface McpDeps {
 }
 
 export interface McpDepsExtras {
+	apiConfig: McpDeps["apiConfig"];
 	logger: MaterializeLogger & OrganizeJobLogger;
 	settle: Omit<FolderToolDeps, "mailboxQueue">;
 }
 
 export const mcpDepsOf = (
 	client: RemitClient,
-	{ logger, settle }: McpDepsExtras,
+	{ apiConfig, logger, settle }: McpDepsExtras,
 ): McpDeps => ({
 	client,
+	apiConfig,
 	account: client.account,
 	mailbox: client.mailbox,
 	accountSetting: client.accountSetting,

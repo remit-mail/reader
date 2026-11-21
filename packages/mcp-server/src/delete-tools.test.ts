@@ -60,6 +60,7 @@ beforeEach(async () => {
 
 	const { client } = mine;
 	deps = {
+		apiConfig: undefined as never,
 		client,
 		account: client.account,
 		address: client.address,

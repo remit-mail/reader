@@ -7,39 +7,40 @@ import {
 	UpdateAccountInputSchema,
 	UpdateUserSettingsInputSchema,
 } from "@remit/api-zod-schemas";
-import type { RemitClient } from "@remit/backend/client";
-import { handlers } from "@remit/backend/handlers";
 import {
-	clearClassificationProviderFor,
+	createAccountFor,
+	deleteAccountFor,
+	testConnectionFor,
+	updateAccountFor,
+} from "@remit/backend/account-operations";
+import {
+	exportConfigFor,
+	getConfigFor,
+	importConfigFor,
+} from "@remit/backend/config-operations";
+import type { handlers } from "@remit/backend/handlers";
+import {
 	createExportFor,
-	getSyncStatusFor,
 	listQuarantineFor,
 	listVipSuggestionsFor,
+} from "@remit/backend/me-operations";
+import {
+	getSyncStatusFor,
+	triggerSyncFor,
+} from "@remit/backend/sync-operations";
+import {
+	clearClassificationProviderFor,
 	readUserSettings,
 	testClassificationProviderFor,
-	triggerSyncFor,
 	updateUserSettingsFor,
 	userSettingsDepsOf,
-} from "@remit/backend/mcp-account-operations";
+} from "@remit/backend/user-settings-operations";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import type { z } from "zod";
 import type { McpDeps } from "./deps.js";
 import { operationTool } from "./operation-tool.js";
 import { asJson } from "./tool-result.js";
 
-type OperationConfig = Parameters<
-	(typeof handlers)["ConfigOperations_getConfig"]
->[1]["config"];
 type OperationId = keyof typeof handlers;
-type OperationContext = Parameters<
-	(typeof handlers)["ConfigOperations_getConfig"]
->[0];
-
-const operationConfig = {
-	commit: "unknown",
-	publicOrigin: "mcp",
-	updateControlDir: "",
-} as OperationConfig;
 
 const accountIdSchema = TestConnectionInputSchema.shape.accountId.unwrap();
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
@@ -50,105 +51,12 @@ const WRITE = {
 } as const;
 const DESTRUCTIVE = { ...WRITE, destructiveHint: true } as const;
 
-const operationError = (
-	value: unknown,
-): value is {
-	statusCode: number;
-	message: string;
-} =>
-	typeof value === "object" &&
-	value !== null &&
-	"statusCode" in value &&
-	typeof value.statusCode === "number" &&
-	value.statusCode >= 400 &&
-	"message" in value &&
-	typeof value.message === "string";
-
-const callOperation = async (
-	client: RemitClient,
-	userId: string,
-	operationId: OperationId,
-	requestBody?: unknown,
-	params: Record<string, string> = {},
-) => {
-	const handler = handlers[operationId] as unknown as (
-		context: OperationContext,
-		caller: {
-			client: RemitClient;
-			identity: {
-				kind: "user";
-				accountConfigId: string;
-				sub: string;
-				email: string;
-			};
-			config: OperationConfig;
-		},
-	) => Promise<unknown>;
-	const result = await handler(
-		{ request: { requestBody, params } } as OperationContext,
-		{
-			client,
-			identity: {
-				kind: "user",
-				accountConfigId: deriveAccountConfigId(userId),
-				sub: userId,
-				email: userId,
-			},
-			config: operationConfig,
-		},
-	);
-	if (operationError(result)) throw new Error(result.message);
-	return result;
-};
-
-const testConnection = async (
-	client: RemitClient,
-	userId: string,
-	input: z.infer<typeof TestConnectionInputSchema>,
-) => {
-	if (input.accountId !== undefined && input.password === undefined) {
-		const account = await client.account.get(input.accountId);
-		if (account.accountConfigId !== deriveAccountConfigId(userId)) {
-			throw new Error(`Account not found: ${input.accountId}`);
-		}
-		if (account.authType === "oauthMicrosoft") {
-			const scope = await client.createConnectionScope(account.accountId);
-			try {
-				await scope.getConnection();
-				return { imapSuccess: true };
-			} catch (error) {
-				return {
-					imapSuccess: false,
-					imapError: error instanceof Error ? error.message : String(error),
-				};
-			} finally {
-				await scope.disconnect();
-			}
-		}
-	}
-	return callOperation(
-		client,
-		userId,
-		"AccountOperations_testConnection",
-		input,
-	);
-};
-
 export const registerAccountTools = (
 	server: McpServer,
 	deps: McpDeps,
 	userId: string,
 ): void => {
-	const noInput = (
-		name: string,
-		description: string,
-		operationId: OperationId,
-	) =>
-		operationTool(server, [operationId]).registerTool(
-			name,
-			{ description, annotations: READ_ONLY },
-			async () => asJson(await callOperation(deps.client, userId, operationId)),
-		);
+	const accountConfigId = deriveAccountConfigId(userId);
 
 	operationTool(server, [
 		"UserSettingsOperations_getUserSettings",
@@ -224,15 +132,27 @@ export const registerAccountTools = (
 		},
 	);
 
-	noInput(
+	operationTool(server, ["ConfigOperations_getConfig"]).registerTool(
 		"get_config",
-		"Get your accounts and configuration.",
-		"ConfigOperations_getConfig",
+		{
+			description: "Get your accounts and configuration.",
+			annotations: READ_ONLY,
+		},
+		async () =>
+			asJson(
+				await getConfigFor(deps.client, accountConfigId, deps.apiConfig.commit),
+			),
 	);
-	noInput(
+	operationTool(server, ["ConfigOperations_exportConfig"]).registerTool(
 		"export_config",
-		"Export your configuration without credentials.",
-		"ConfigOperations_exportConfig",
+		{
+			description: "Export your configuration without credentials.",
+			annotations: READ_ONLY,
+		},
+		async () =>
+			asJson(
+				await exportConfigFor(deps.client, accountConfigId, deps.apiConfig),
+			),
 	);
 	operationTool(server, ["ConfigOperations_importConfig"]).registerTool(
 		"import_config",
@@ -242,14 +162,7 @@ export const registerAccountTools = (
 			inputSchema: ImportConfigInputSchema.shape,
 		},
 		async (input) =>
-			asJson(
-				await callOperation(
-					deps.client,
-					userId,
-					"ConfigOperations_importConfig",
-					input,
-				),
-			),
+			asJson(await importConfigFor(deps.client, accountConfigId, input)),
 	);
 
 	operationTool(server, ["AccountOperations_createAccount"]).registerTool(
@@ -260,14 +173,7 @@ export const registerAccountTools = (
 			inputSchema: CreateAccountInputSchema.shape,
 		},
 		async (input) =>
-			asJson(
-				await callOperation(
-					deps.client,
-					userId,
-					"AccountOperations_createAccount",
-					input,
-				),
-			),
+			asJson(await createAccountFor(deps.client, accountConfigId, input)),
 	);
 	operationTool(server, ["AccountOperations_testConnection"]).registerTool(
 		"test_connection",
@@ -277,7 +183,15 @@ export const registerAccountTools = (
 			annotations: READ_ONLY,
 			inputSchema: TestConnectionInputSchema.shape,
 		},
-		async (input) => asJson(await testConnection(deps.client, userId, input)),
+		async (input) =>
+			asJson(
+				await testConnectionFor(
+					deps.client,
+					accountConfigId,
+					input,
+					deps.apiConfig.msOAuth,
+				),
+			),
 	);
 	operationTool(server, ["AccountDetailOperations_updateAccount"]).registerTool(
 		"update_account",
@@ -292,13 +206,7 @@ export const registerAccountTools = (
 		},
 		async ({ accountId, ...input }) =>
 			asJson(
-				await callOperation(
-					deps.client,
-					userId,
-					"AccountDetailOperations_updateAccount",
-					input,
-					{ accountId },
-				),
+				await updateAccountFor(deps.client, accountConfigId, accountId, input),
 			),
 	);
 	const accountIdTool = (
@@ -314,11 +222,7 @@ export const registerAccountTools = (
 				inputSchema: { accountId: accountIdSchema },
 			},
 			async ({ accountId }) =>
-				asJson(
-					await callOperation(deps.client, userId, operationId, undefined, {
-						accountId,
-					}),
-				),
+				asJson(await deleteAccountFor(deps.client, accountConfigId, accountId)),
 		);
 	accountIdTool(
 		"delete_account",

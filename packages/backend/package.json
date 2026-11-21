@@ -95,9 +95,29 @@
       "types": "./src/config/classification-default.ts",
       "default": "./src/config/classification-default.ts"
     },
-	"./mcp-account-operations": {
-	  "types": "./src/mcp-account-operations.ts",
-	  "default": "./src/mcp-account-operations.ts"
+	"./account-operations": {
+	  "types": "./src/handlers/account.ts",
+	  "default": "./src/handlers/account.ts"
+	},
+	"./config-operations": {
+	  "types": "./src/handlers/config.ts",
+	  "default": "./src/handlers/config.ts"
+	},
+	"./user-settings-operations": {
+	  "types": "./src/handlers/user-settings.ts",
+	  "default": "./src/handlers/user-settings.ts"
+	},
+	"./sync-operations": {
+	  "types": "./src/handlers/sync.ts",
+	  "default": "./src/handlers/sync.ts"
+	},
+	"./me-operations": {
+	  "types": "./src/handlers/me.ts",
+	  "default": "./src/handlers/me.ts"
+	},
+	"./config-from-env": {
+	  "types": "./src/config/from-env.ts",
+	  "default": "./src/config/from-env.ts"
 	},
     "./content-handler": {
       "types": "./dev-server/content-handler.ts",
@@ -196,9 +216,29 @@
         "types": "./dist/src/config/classification-default.d.ts",
         "default": "./dist/src/config/classification-default.js"
       },
-	  "./mcp-account-operations": {
-		"types": "./dist/src/mcp-account-operations.d.ts",
-		"default": "./dist/src/mcp-account-operations.js"
+	  "./account-operations": {
+		"types": "./dist/src/handlers/account.d.ts",
+		"default": "./dist/src/handlers/account.js"
+	  },
+	  "./config-operations": {
+		"types": "./dist/src/handlers/config.d.ts",
+		"default": "./dist/src/handlers/config.js"
+	  },
+	  "./user-settings-operations": {
+		"types": "./dist/src/handlers/user-settings.d.ts",
+		"default": "./dist/src/handlers/user-settings.js"
+	  },
+	  "./sync-operations": {
+		"types": "./dist/src/handlers/sync.d.ts",
+		"default": "./dist/src/handlers/sync.js"
+	  },
+	  "./me-operations": {
+		"types": "./dist/src/handlers/me.d.ts",
+		"default": "./dist/src/handlers/me.js"
+	  },
+	  "./config-from-env": {
+		"types": "./dist/src/config/from-env.d.ts",
+		"default": "./dist/src/config/from-env.js"
 	  },
       "./content-handler": {
         "types": "./dist/dev-server/content-handler.d.ts",

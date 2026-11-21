@@ -160,6 +160,7 @@ before(async () => {
 	store = await openStore();
 	const storage = store.storage();
 	deps = {
+		apiConfig: undefined as never,
 		...store,
 		storage,
 		bodySync: new BodySyncService(

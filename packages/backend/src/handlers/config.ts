@@ -2,6 +2,7 @@ import type {
 	AccountConfigResponse,
 	ConfigDescriptionResponse,
 	ConfigImportReport,
+	ImportConfigInput,
 } from "@remit/api-openapi-types";
 import type { ReaderConfigDocument } from "@remit/config-format";
 import {
@@ -22,6 +23,7 @@ import {
 	type StoredCredentialFields,
 } from "@remit/mailbox-service/account-credentials";
 import type { Context } from "openapi-backend";
+import type { RemitClient } from "../service/data-client.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import type { QueueName } from "../service/queues.js";
@@ -148,158 +150,169 @@ const emptyConfigResponse = (
 	};
 };
 
+export const getConfigFor = async (
+	client: RemitClient<"sync">,
+	accountConfigId: string,
+	commit: string,
+): Promise<ConfigDescriptionResponse> => {
+	const description = await client.accountConfig
+		.describe(accountConfigId)
+		.catch((err: unknown) => {
+			if (err instanceof NotFoundError) return undefined;
+			throw err;
+		});
+
+	if (!description || description.accountConfig.length === 0) {
+		return emptyConfigResponse(accountConfigId, commit);
+	}
+
+	const accountConfig = description.accountConfig[0];
+	if (!accountConfig) {
+		return emptyConfigResponse(accountConfigId, commit);
+	}
+
+	// Filter out deleted accounts (tombstone pattern)
+	const activeAccounts = description.account.filter(
+		(acc) => acc.deletedAt === undefined,
+	);
+
+	// Signatures and the display-name/mute overrides are stored per-account in
+	// AccountSetting rows (RFC 032). Load the whole set for this config once and
+	// key both by accountId so the account mapping below surfaces each without
+	// an N+1. The per-account folder-role map (RFC 032
+	// exclusive-folder-appointment, #976) rides the same settings rows, grouped
+	// the same way.
+	const allSettings =
+		await client.accountSetting.listByAccountConfig(accountConfigId);
+	const signaturesByAccount = groupSignaturesByAccount(allSettings);
+	const overridesByAccount = groupAccountOverrides(allSettings);
+	const appointmentsByAccount = groupFolderAppointmentsByAccount(allSettings);
+	const signatureOf = (accountId: string): AccountSignature =>
+		signaturesByAccount.get(accountId) ?? {};
+	const overridesOf = (accountId: string): AccountOverrides =>
+		overridesByAccount.get(accountId) ?? {};
+
+	// One mailbox list per account, fetched in parallel: `findFolderForRole`
+	// needs each account's folders to fill any role the user hasn't appointed
+	// yet (RFC 032: "the map is never empty for a normal provider").
+	const mailboxesByAccount = new Map<string, MailboxItem[]>(
+		await Promise.all(
+			activeAccounts.map(
+				async (acc): Promise<[string, MailboxItem[]]> => [
+					acc.accountId,
+					await client.mailbox.listAllByAccount(acc.accountId),
+				],
+			),
+		),
+	);
+
+	// Fire-and-forget: a failed sync enqueue must never fail this read.
+	// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
+	// with an alertable structured field — but it also never rejects, so the
+	// `void` here cannot leak an unhandled rejection into a later request.
+	void triggerConfigLoadSyncs(accountConfigId, activeAccounts, {
+		queue: client.queues.sync,
+		logger,
+	});
+
+	// An import that named folders IMAP had not produced yet rides the config
+	// read rather than a route of its own, so nothing has to poll for it.
+	const pendingImport = pendingImportOf(
+		await client.configImport.listByAccountConfig(accountConfigId),
+	);
+
+	return {
+		accountConfig: toAccountConfigResponse(accountConfig),
+		...(pendingImport ? { pendingImport } : {}),
+		buildCommit: commit,
+		accounts: activeAccounts.map((acc) =>
+			toAccountResponse(
+				acc,
+				signatureOf(acc.accountId),
+				overridesOf(acc.accountId),
+				resolveFolderAppointments(
+					appointmentsByAccount.get(acc.accountId) ?? new Map(),
+					mailboxesByAccount.get(acc.accountId) ?? [],
+				),
+			),
+		),
+	};
+};
+
+export const exportConfigFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	config: Parameters<typeof exportIdentity>[0],
+): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
+	const document = await readConfigForExport(
+		client,
+		accountConfigId,
+		exportIdentity(config),
+	);
+	return { schemaVersion: document.schemaVersion, document };
+};
+
+export const importConfigFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	body: ImportConfigInput,
+): Promise<ConfigImportReport> => {
+	const outcome = await importConfig(
+		{
+			repositories: client,
+			appointFolderRole: (
+				configId,
+				accountId,
+				role,
+				mailboxId,
+				lastKnownPath,
+			) =>
+				writeFolderRoleAppointment(
+					client.accountSetting,
+					configId,
+					accountId,
+					role as CanonicalMailboxRoleValue,
+					mailboxId,
+					lastKnownPath,
+				),
+		},
+		{
+			accountConfigId,
+			document: body.document,
+			mode: body.mode ?? "validate",
+			onExisting: body.onExisting ?? "abort",
+		},
+	);
+
+	if (outcome.outcome === "conflict") {
+		throw new ConfigNotEmptyError(
+			outcome.conflict.message,
+			outcome.conflict.details,
+		);
+	}
+	return outcome.report;
+};
+
 export const ConfigOperations = {
 	ConfigOperations_getConfig: async (
 		_context: Context,
 		ctx: HandlerContext<"sync">,
-	): Promise<ConfigDescriptionResponse> => {
-		const accountConfigId = ctx.identity.accountConfigId;
-		const client = ctx.client;
-		const description = await client.accountConfig
-			.describe(accountConfigId)
-			.catch((err: unknown) => {
-				if (err instanceof NotFoundError) return undefined;
-				throw err;
-			});
-
-		if (!description || description.accountConfig.length === 0) {
-			return emptyConfigResponse(accountConfigId, ctx.config.commit);
-		}
-
-		const accountConfig = description.accountConfig[0];
-		if (!accountConfig) {
-			return emptyConfigResponse(accountConfigId, ctx.config.commit);
-		}
-
-		// Filter out deleted accounts (tombstone pattern)
-		const activeAccounts = description.account.filter(
-			(acc) => acc.deletedAt === undefined,
-		);
-
-		// Signatures and the display-name/mute overrides are stored per-account in
-		// AccountSetting rows (RFC 032). Load the whole set for this config once and
-		// key both by accountId so the account mapping below surfaces each without
-		// an N+1. The per-account folder-role map (RFC 032
-		// exclusive-folder-appointment, #976) rides the same settings rows, grouped
-		// the same way.
-		const allSettings =
-			await client.accountSetting.listByAccountConfig(accountConfigId);
-		const signaturesByAccount = groupSignaturesByAccount(allSettings);
-		const overridesByAccount = groupAccountOverrides(allSettings);
-		const appointmentsByAccount = groupFolderAppointmentsByAccount(allSettings);
-		const signatureOf = (accountId: string): AccountSignature =>
-			signaturesByAccount.get(accountId) ?? {};
-		const overridesOf = (accountId: string): AccountOverrides =>
-			overridesByAccount.get(accountId) ?? {};
-
-		// One mailbox list per account, fetched in parallel: `findFolderForRole`
-		// needs each account's folders to fill any role the user hasn't appointed
-		// yet (RFC 032: "the map is never empty for a normal provider").
-		const mailboxesByAccount = new Map<string, MailboxItem[]>(
-			await Promise.all(
-				activeAccounts.map(
-					async (acc): Promise<[string, MailboxItem[]]> => [
-						acc.accountId,
-						await client.mailbox.listAllByAccount(acc.accountId),
-					],
-				),
-			),
-		);
-
-		// Fire-and-forget: a failed sync enqueue must never fail this read.
-		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
-		// with an alertable structured field — but it also never rejects, so the
-		// `void` here cannot leak an unhandled rejection into a later request.
-		void triggerConfigLoadSyncs(accountConfigId, activeAccounts, {
-			queue: ctx.client.queues.sync,
-			logger,
-		});
-
-		// An import that named folders IMAP had not produced yet rides the config
-		// read rather than a route of its own, so nothing has to poll for it.
-		const pendingImport = pendingImportOf(
-			await client.configImport.listByAccountConfig(accountConfigId),
-		);
-
-		return {
-			accountConfig: toAccountConfigResponse(accountConfig),
-			...(pendingImport ? { pendingImport } : {}),
-			buildCommit: ctx.config.commit,
-			accounts: activeAccounts.map((acc) =>
-				toAccountResponse(
-					acc,
-					signatureOf(acc.accountId),
-					overridesOf(acc.accountId),
-					resolveFolderAppointments(
-						appointmentsByAccount.get(acc.accountId) ?? new Map(),
-						mailboxesByAccount.get(acc.accountId) ?? [],
-					),
-				),
-			),
-		};
-	},
-
+	): Promise<ConfigDescriptionResponse> =>
+		getConfigFor(ctx.client, ctx.identity.accountConfigId, ctx.config.commit),
 	ConfigOperations_exportConfig: async (
 		_context: Context,
 		ctx: HandlerContext,
-	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
-		const accountConfigId = ctx.identity.accountConfigId;
-		const client = ctx.client;
-		const document = await readConfigForExport(
-			client,
-			accountConfigId,
-			exportIdentity(ctx.config),
-		);
-		return { schemaVersion: document.schemaVersion, document };
-	},
-
+	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> =>
+		exportConfigFor(ctx.client, ctx.identity.accountConfigId, ctx.config),
 	ConfigOperations_importConfig: async (
 		context: Context,
 		ctx: HandlerContext,
-	): Promise<ConfigImportReport> => {
-		const accountConfigId = ctx.identity.accountConfigId;
-		const body = (context.request.requestBody ?? {}) as {
-			mode?: "validate" | "apply";
-			onExisting?: "abort" | "merge";
-			document?: unknown;
-		};
-		const client = ctx.client;
-
-		const outcome = await importConfig(
-			{
-				repositories: client,
-				appointFolderRole: (
-					configId,
-					accountId,
-					role,
-					mailboxId,
-					lastKnownPath,
-				) =>
-					writeFolderRoleAppointment(
-						client.accountSetting,
-						configId,
-						accountId,
-						role as CanonicalMailboxRoleValue,
-						mailboxId,
-						lastKnownPath,
-					),
-			},
-			{
-				accountConfigId,
-				document: body.document,
-				mode: body.mode ?? "validate",
-				onExisting: body.onExisting ?? "abort",
-			},
-		);
-
-		if (outcome.outcome === "conflict") {
-			throw new ConfigNotEmptyError(
-				outcome.conflict.message,
-				outcome.conflict.details,
-			);
-		}
-		return outcome.report;
-	},
+	): Promise<ConfigImportReport> =>
+		importConfigFor(
+			ctx.client,
+			ctx.identity.accountConfigId,
+			context.request.requestBody as ImportConfigInput,
+		),
 } satisfies Record<
 	ConfigOperationIds,
 	OperationHandler<ConfigOperationIds, QueueName>
