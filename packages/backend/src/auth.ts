@@ -1,6 +1,7 @@
+import { ForbiddenError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import type { HandlerIdentity } from "./types.js";
+import type { HandlerContext, HandlerIdentity } from "./types.js";
 
 const LOCAL_BYPASS_VARS = [
 	"LOCAL_ACCOUNT_CONFIG_ID",
@@ -9,6 +10,10 @@ const LOCAL_BYPASS_VARS = [
 
 const isLocalEnv = (env: NodeJS.ProcessEnv): boolean =>
 	env.NODE_ENV === "development" || env.NODE_ENV === "test";
+
+export const requireOperator = (ctx: HandlerContext): void => {
+	if (!ctx.operator) throw new ForbiddenError("Operator access required.");
+};
 
 /**
  * The LOCAL_ACCOUNT_CONFIG_ID / LOCAL_COGNITO_SUB overrides bypass authentication

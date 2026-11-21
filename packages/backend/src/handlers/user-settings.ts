@@ -23,6 +23,7 @@ import { AccountSettingName } from "@remit/domain-enums";
 import { logger } from "@remit/logger";
 import type { ClassificationLabelDeps } from "@remit/mailbox-service";
 import type { SecretsService } from "@remit/secrets-service";
+import { requireOperator } from "../auth.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -30,7 +31,6 @@ import type {
 	UserSettingsOperationIds,
 } from "../types.js";
 import { badRequest } from "./calendar.js";
-import { requireOperator } from "./classification-default.js";
 import {
 	classificationPresetsResponse,
 	clearClassification,
