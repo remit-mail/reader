@@ -98,6 +98,19 @@ model MintOutboxAttachmentInput {
   sizeBytes: int64;
 }
 
+@doc("A file supplied inline to an MCP attachment tool")
+model InlineOutboxAttachmentInput {
+  @doc("Filename as the sender picked it. Sanitized server-side.")
+  filename: String256;
+
+  @doc("Media type reported by the sender. Recorded, never trusted for rendering.")
+  contentType: String256;
+
+  @doc("The file bytes encoded as base64")
+  @minLength(1)
+  contentBase64: string;
+}
+
 @doc("""
   A reservation and somewhere to put the bytes.
   

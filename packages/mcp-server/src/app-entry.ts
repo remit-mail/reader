@@ -51,6 +51,7 @@ export {
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,
 	MCP_SCOPES,
+	MCP_SEND_SCOPE,
 	OFFLINE_ACCESS_SCOPE,
 } from "./auth/scopes.js";
 export type {

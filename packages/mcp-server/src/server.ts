@@ -11,6 +11,7 @@ import {
 	MCP_CALENDAR_SCOPE,
 	MCP_READ_SCOPE,
 	MCP_RULES_SCOPE,
+	MCP_SEND_SCOPE,
 } from "./auth/scopes.js";
 import { registerCalendarTools } from "./calendar-tools.js";
 import { registerDeleteTools } from "./delete-tools.js";
@@ -21,6 +22,7 @@ import {
 	registerLabelReadTools,
 	registerLabelWriteTools,
 } from "./label-tools.js";
+import { registerMailTools } from "./mail-tools.js";
 import { registerMoveTools } from "./move-tools.js";
 import { registerReadTools } from "./read-tools.js";
 import { registerRescanTools } from "./rescan-tools.js";
@@ -75,6 +77,9 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	}
 	if (principal.scopes.includes(MCP_CALENDAR_SCOPE)) {
 		registerCalendarTools(server, deps.calendarClient(principal.userId));
+	}
+	if (principal.scopes.includes(MCP_SEND_SCOPE)) {
+		registerMailTools(server, deps, deriveAccountConfigId(principal.userId));
 	}
 	return server;
 };
