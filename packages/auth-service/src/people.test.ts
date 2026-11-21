@@ -157,7 +157,6 @@ describe("a disabled account", () => {
 			clientIp: PEER,
 			targetId: userId,
 			status: "Disabled",
-			operator: false,
 			stepUpToken: await stepUp(userId, "Disable"),
 		});
 		assert.ok(disabled.ok);
@@ -229,7 +228,6 @@ describe("a password reset link", () => {
 			callerId: operatorId,
 			clientIp: PEER,
 			targetId: userId,
-			operator: false,
 			stepUpToken: await stepUp(userId, "ResetPassword"),
 		});
 		assert.ok(issued.ok);

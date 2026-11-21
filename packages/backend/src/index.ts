@@ -10,7 +10,6 @@ import { handlers, publicHandlers } from "./handlers/index.js";
 import { createApiEventHandler } from "./lambda.js";
 import { serveApi } from "./serve.js";
 import { getClient } from "./service/data-client.js";
-import { getPeopleDirectory } from "./service/people-directory.js";
 
 installNodeLogger();
 
@@ -29,7 +28,7 @@ export const handleApiEvent = createApiEventHandler(
 		config: configFromEnv(process.env),
 		localIdentity: localIdentityFromEnv(process.env),
 		client: getClient,
-		peopleDirectory: async () => getPeopleDirectory(),
+		peopleDirectory: async () => null,
 	},
 );
 
