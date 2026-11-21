@@ -207,7 +207,7 @@ const bodySync = (classifier = true, filters = false): BodySyncService => {
 			? {
 					accountSetting: store.accountSetting,
 					accountConfig: store.accountConfig,
-					getClassificationDefault: () => world.classificationDefault,
+					getClassificationDefault: async () => world.classificationDefault,
 					secrets,
 					labelService: store.label,
 					messageLabelService: store.messageLabel,

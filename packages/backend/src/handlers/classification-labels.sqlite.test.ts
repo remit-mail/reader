@@ -35,7 +35,7 @@ const enable = async (): Promise<void> => {
 		{
 			accountSetting: repos.accountSetting,
 			accountConfig: repos.accountConfig,
-			getClassificationDefault: () => ({ state: "None" }),
+			getClassificationDefault: async () => ({ state: "None" }),
 			spamPipeline: [{ name: "Inline", thresholds: { state: "Unset" } }],
 			accounts: repos.account,
 			secrets,

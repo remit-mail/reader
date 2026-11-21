@@ -45,7 +45,7 @@ export interface UserSettingsDeps {
 		"get" | "getMany" | "upsert" | "delete"
 	>;
 	accountConfig: Pick<IAccountConfigRepository, "get">;
-	getClassificationDefault: () => ClassificationDeploymentDefault;
+	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>;
 	spamPipeline: SpamPipeline;
 	accounts: Pick<IAccountRepository, "listAllByAccountConfig">;
 	secrets: Pick<SecretsService, "encrypt">;

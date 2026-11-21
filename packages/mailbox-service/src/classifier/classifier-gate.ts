@@ -33,7 +33,7 @@ export interface ClassifierConfig {
 		"getMany" | "claimDailyCount"
 	>;
 	accountConfig: Pick<IAccountConfigRepository, "get">;
-	getClassificationDefault: () => ClassificationDeploymentDefault;
+	getClassificationDefault: () => Promise<ClassificationDeploymentDefault>;
 	secrets: Pick<SecretsService, "decrypt">;
 	labelService: ClassificationLabelDeps;
 	messageLabelService: Pick<IMessageLabelRepository, "apply">;

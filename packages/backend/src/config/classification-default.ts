@@ -23,6 +23,27 @@ export interface ClassificationDefaultInput {
 	dailyLimit?: number;
 }
 
+export interface ClassificationDefaultLabels {
+	presetId: string;
+	baseUrl: string;
+	apiKey: string;
+	dailyLimit: string;
+}
+
+const INPUT_LABELS: ClassificationDefaultLabels = {
+	presetId: "presetId",
+	baseUrl: "baseUrl",
+	apiKey: "apiKey",
+	dailyLimit: "dailyLimit",
+};
+
+const ENV_LABELS: ClassificationDefaultLabels = {
+	presetId: PRESET,
+	baseUrl: BASE_URL,
+	apiKey: API_KEY,
+	dailyLimit: DAILY_LIMIT,
+};
+
 export type ClassificationDefaultParse =
 	| { ok: true; value: ClassificationDeploymentDefault }
 	| { ok: false; message: string };
@@ -37,23 +58,30 @@ const isPositiveInteger = (value: number): boolean =>
 
 export const parseClassificationDefault = (
 	input: ClassificationDefaultInput,
+	labels: ClassificationDefaultLabels = INPUT_LABELS,
 ): ClassificationDefaultParse => {
 	const { presetId } = input;
 	if (!isClassificationPresetId(presetId))
 		return invalid(
-			`${presetId} is not a known preset. Use one of ${Object.keys(CLASSIFICATION_PRESETS).join(", ")}.`,
+			`${labels.presetId}=${presetId} is not a known preset. Use one of ${Object.keys(CLASSIFICATION_PRESETS).join(", ")}.`,
 		);
 
 	const preset = CLASSIFICATION_PRESETS[presetId];
 	const apiKey = input.apiKey ?? "";
 	if (preset.needsKey && apiKey === "")
-		return invalid(`${presetId} needs an API key.`);
+		return invalid(
+			`${labels.apiKey} is not set. ${labels.presetId}=${presetId} needs a key.`,
+		);
 	const baseUrl = input.baseUrl || preset.defaultBaseUrl;
 	if (!baseUrl)
-		return invalid(`${presetId} has no default base URL, so it needs one.`);
+		return invalid(
+			`${labels.baseUrl} is not set. ${labels.presetId}=${presetId} has no default base URL.`,
+		);
 	const dailyLimit = input.dailyLimit ?? DEFAULT_CLASSIFICATION_DAILY_LIMIT;
 	if (!isPositiveInteger(dailyLimit))
-		return invalid(`Daily limit ${dailyLimit} must be a positive integer.`);
+		return invalid(
+			`${labels.dailyLimit}=${dailyLimit} must be a positive integer.`,
+		);
 
 	return {
 		ok: true,
@@ -100,14 +128,17 @@ export const classificationDefaultFromEnv = (
 		return { state: "None" };
 	}
 
-	const parsed = parseClassificationDefault({
-		presetId,
-		model: envValue(env, MODEL),
-		baseUrl: envValue(env, BASE_URL),
-		apiKey: envValue(env, API_KEY),
-		enabled: enabledOf(envValue(env, ENABLED)),
-		dailyLimit: dailyLimitOf(envValue(env, DAILY_LIMIT)),
-	});
-	if (!parsed.ok) return refuse(`${PRESET}=${presetId}: ${parsed.message}`);
+	const parsed = parseClassificationDefault(
+		{
+			presetId,
+			model: envValue(env, MODEL),
+			baseUrl: envValue(env, BASE_URL),
+			apiKey: envValue(env, API_KEY),
+			enabled: enabledOf(envValue(env, ENABLED)),
+			dailyLimit: dailyLimitOf(envValue(env, DAILY_LIMIT)),
+		},
+		ENV_LABELS,
+	);
+	if (!parsed.ok) return refuse(parsed.message);
 	return parsed.value;
 };

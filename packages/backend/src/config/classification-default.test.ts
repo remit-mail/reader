@@ -86,7 +86,7 @@ describe("classificationDefaultFromEnv", () => {
 				classificationDefaultFromEnv({
 					CLASSIFICATION_DEFAULT_PRESET: "Bogus",
 				}),
-			/CLASSIFICATION_DEFAULT_PRESET=Bogus: Bogus is not a known preset/,
+			/CLASSIFICATION_DEFAULT_PRESET=Bogus is not a known preset/,
 		);
 	});
 
@@ -96,7 +96,7 @@ describe("classificationDefaultFromEnv", () => {
 				classificationDefaultFromEnv({
 					CLASSIFICATION_DEFAULT_PRESET: "Mistral",
 				}),
-			/CLASSIFICATION_DEFAULT_PRESET=Mistral: Mistral needs an API key/,
+			/CLASSIFICATION_DEFAULT_API_KEY is not set/,
 		);
 	});
 
@@ -107,7 +107,7 @@ describe("classificationDefaultFromEnv", () => {
 					CLASSIFICATION_DEFAULT_PRESET: "OpenAiCompatible",
 					CLASSIFICATION_DEFAULT_API_KEY: "sk-test",
 				}),
-			/CLASSIFICATION_DEFAULT_PRESET=OpenAiCompatible: OpenAiCompatible has no default base URL/,
+			/CLASSIFICATION_DEFAULT_BASE_URL is not set/,
 		);
 	});
 
@@ -182,9 +182,11 @@ describe("parseClassificationDefault", () => {
 			{ presetId: "Local", enabled: false, dailyLimit: 1.5 },
 		];
 		for (const input of cases) {
-			const parsed = parseClassificationDefault(input);
-			assert.equal(parsed.ok, false, JSON.stringify(input));
-			if (!parsed.ok) assert.doesNotMatch(parsed.message, /Refusing to start/);
+			assert.equal(
+				parseClassificationDefault(input).ok,
+				false,
+				JSON.stringify(input),
+			);
 		}
 	});
 });
