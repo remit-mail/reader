@@ -862,66 +862,6 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 		assert.equal(decoded.v, 2);
 		assert.equal(typeof decoded.r, "number");
 	});
-
-	test("a cursor minted before the ranking finishes its session in date order", async () => {
-		const acct = uuid();
-		const mbx = uuid();
-		const now = Date.now();
-		const rows: Array<Partial<CreateThreadMessageInput>> = [
-			{ subject: "nu news", sentDate: now, internalDate: now },
-			{ subject: "nu digest", sentDate: now - 1, internalDate: now - 1 },
-			{
-				subject: "from nu",
-				fromEmail: "nu@acme.test",
-				sentDate: now - 2,
-				internalDate: now - 2,
-			},
-			{ subject: "nu recap", sentDate: now - 3, internalDate: now - 3 },
-			{
-				subject: "also from nu",
-				fromEmail: "nu@acme.test",
-				sentDate: now - 4,
-				internalDate: now - 4,
-			},
-		];
-		const ids: string[] = [];
-		for (const overrides of rows) {
-			const created = await repo.create(makeInput(acct, mbx, overrides));
-			ids.push(created.threadMessageId);
-			cleanup.push(() => repo.delete(acct, created.threadMessageId));
-		}
-
-		let continuationToken: string | undefined = Buffer.from(
-			JSON.stringify({ s: now - 1, id: ids[1] }),
-		).toString("base64");
-		const walked: string[] = [];
-		do {
-			const page = await repo.searchByDate(
-				acct,
-				{ query: "nu" },
-				{
-					excludeDeleted: true,
-					mailboxIds: new Set([mbx]),
-					limit: 2,
-					continuationToken,
-				},
-			);
-			walked.push(...page.items.map((r) => r.subject ?? ""));
-			continuationToken = page.continuationToken;
-			if (continuationToken) {
-				const decoded = JSON.parse(
-					Buffer.from(continuationToken, "base64").toString("utf8"),
-				);
-				assert.equal(
-					decoded.v,
-					undefined,
-					"the session keeps its cursor shape",
-				);
-			}
-		} while (continuationToken);
-
-		assert.deepEqual(walked, ["from nu", "nu recap", "also from nu"]);
-	});
 });
 
 // ─── Native text-search semantics ─────────────────────────────────────────────

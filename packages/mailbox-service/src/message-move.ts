@@ -24,7 +24,13 @@ import {
 	UNCONFIRMED_TRASH_FOLDER_REASON,
 } from "@remit/data-ports/folder-role";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
-import { MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
+import {
+	type EmptyTrashEventV3 as EmptyTrashEvent,
+	type MessageCopyEventV3 as MessageCopyEvent,
+	type MessageDeleteEventV3 as MessageDeleteEvent,
+	type MessageMoveEventV3 as MessageMoveEvent,
+	PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
+} from "@remit/data-ports/mutation-events";
 import {
 	CanonicalMailboxRole,
 	MessageMutation,
@@ -47,64 +53,6 @@ import { restoreSourcePlacement } from "./restore-source-placement.js";
  */
 export interface DeleteMessagesOutcome {
 	refusedMessageIds: string[];
-}
-
-/**
- * Event types for message move/delete operations.
- * These match the worker event types in remit-imap-worker/events.ts.
- */
-export interface MessageDeleteEvent {
-	type: "MESSAGE_DELETE";
-	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	messageId: string;
-	mailboxId: string;
-	mailboxPath: string;
-	uid: number;
-	operation: "move_to_trash" | "permanent_delete";
-	destinationMailboxId?: string;
-	destinationMailboxPath?: string;
-}
-
-export interface MessageMoveEvent {
-	type: "MESSAGE_MOVE";
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	messageId: string;
-	sourceMailboxId: string;
-	sourceMailboxPath: string;
-	destinationMailboxId: string;
-	destinationMailboxPath: string;
-	uid: number;
-}
-
-export interface EmptyTrashEvent {
-	type: "EMPTY_TRASH";
-	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	trashMailboxId: string;
-	trashMailboxPath: string;
-	/** The folder's UIDVALIDITY at consent time; the worker re-checks it. */
-	trashUidValidity: number;
-}
-
-export interface MessageCopyEvent {
-	type: "MESSAGE_COPY";
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	sourceMessageId: string;
-	newMessageId: string;
-	sourceMailboxId: string;
-	sourceMailboxPath: string;
-	destinationMailboxId: string;
-	destinationMailboxPath: string;
-	uid: number;
 }
 
 /** An event, and the undo of the local write it was enqueued for. */
@@ -538,17 +486,15 @@ export class MessageMoveService {
 				events.push({
 					event: {
 						type: "MESSAGE_DELETE",
-						schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
+						schemaVersion: PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
 						eventId: randomUUID(),
 						timestamp: Date.now(),
 						accountId,
 						messageId,
 						mailboxId: sourceMailbox.mailboxId,
-						mailboxPath: sourceMailbox.fullPath,
 						uid: message.uid,
 						operation: "move_to_trash",
 						destinationMailboxId: trashMailbox.mailboxId,
-						destinationMailboxPath: trashMailbox.fullPath,
 					},
 					handBack: () =>
 						this.handBackUnsentMove(
@@ -616,13 +562,12 @@ export class MessageMoveService {
 			events.push({
 				event: {
 					type: "MESSAGE_DELETE",
-					schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
+					schemaVersion: PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
 					eventId: randomUUID(),
 					timestamp: Date.now(),
 					accountId,
 					messageId,
 					mailboxId: sourceMailbox.mailboxId,
-					mailboxPath: sourceMailbox.fullPath,
 					uid: message.uid,
 					operation: "permanent_delete",
 				},
@@ -805,14 +750,13 @@ export class MessageMoveService {
 		// Enqueue IMAP sync
 		const event: MessageMoveEvent = {
 			type: "MESSAGE_MOVE",
+			schemaVersion: PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
 			eventId: randomUUID(),
 			timestamp: Date.now(),
 			accountId,
 			messageId,
 			sourceMailboxId: sourceMailbox.mailboxId,
-			sourceMailboxPath: sourceMailbox.fullPath,
 			destinationMailboxId,
-			destinationMailboxPath: destinationMailbox.fullPath,
 			uid: message.uid,
 		};
 
@@ -981,15 +925,14 @@ export class MessageMoveService {
 		// Enqueue IMAP sync
 		const event: MessageCopyEvent = {
 			type: "MESSAGE_COPY",
+			schemaVersion: PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
 			eventId: randomUUID(),
 			timestamp: Date.now(),
 			accountId,
 			sourceMessageId: messageId,
 			newMessageId,
 			sourceMailboxId: sourceMailbox.mailboxId,
-			sourceMailboxPath: sourceMailbox.fullPath,
 			destinationMailboxId,
-			destinationMailboxPath: destinationMailbox.fullPath,
 			uid: sourceMessage.uid,
 		};
 
@@ -1197,12 +1140,11 @@ export class MessageMoveService {
 		// Enqueue single event for worker to handle batch
 		const event: EmptyTrashEvent = {
 			type: "EMPTY_TRASH",
-			schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
+			schemaVersion: PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
 			eventId: randomUUID(),
 			timestamp: Date.now(),
 			accountId,
 			trashMailboxId: trashMailbox.mailboxId,
-			trashMailboxPath: trashMailbox.fullPath,
 			trashUidValidity,
 		};
 

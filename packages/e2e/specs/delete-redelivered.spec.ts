@@ -109,10 +109,8 @@ test.describe("A redelivered delete (#845)", () => {
 			accountId: run.accountId,
 			messageId,
 			mailboxId: run.inboxId,
-			mailboxPath: "INBOX",
 			uid: sourceUid,
 			destinationMailboxId: trash.mailboxId,
-			destinationMailboxPath: TRASH,
 		});
 
 		await api.deleteMessages([idFor(BARRIER_SUBJECT)]);
