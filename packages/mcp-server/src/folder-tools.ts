@@ -50,7 +50,9 @@ export const awaitSettled = async (
 ): Promise<Watched> => {
 	const deadline = Date.now() + folders.settleTimeoutMs;
 	for (;;) {
-		const folder = await deps.mailbox.get(accountId, mailboxId).catch(absent);
+		const folder = await deps.client.mailbox
+			.get(accountId, mailboxId)
+			.catch(absent);
 		if (!folder) return { state: "Gone" };
 		if (folder.syncStatus !== inFlight || Date.now() >= deadline) {
 			return { state: "Present", folder };
@@ -170,10 +172,10 @@ const keptFolderReason = async (
 		return `“${folder.fullPath}” holds Remit's label folders.`;
 	}
 	const mapping = (
-		await deps.labelMailbox.listByAccount(folder.accountId)
+		await deps.client.labelMailbox.listByAccount(folder.accountId)
 	).find((row) => row.mailboxId === folder.mailboxId);
 	if (mapping) {
-		const label = await deps.label.get(accountConfigId, mapping.labelId);
+		const label = await deps.client.label.get(accountConfigId, mapping.labelId);
 		return `“${folder.fullPath}” is the folder of the label “${label.name}”. Delete the label instead.`;
 	}
 	return undefined;
@@ -181,7 +183,10 @@ const keptFolderReason = async (
 
 const movingOut = async (deps: McpDeps, mailboxId: string): Promise<number> =>
 	(
-		await deps.message.listStrandedPlacements([mailboxId], Date.now() + 1)
+		await deps.client.message.listStrandedPlacements(
+			[mailboxId],
+			Date.now() + 1,
+		)
 	).filter((row) => row.originalMailboxId === mailboxId).length;
 
 // Moves out of the folder settle before it is deleted: the server must hold
@@ -208,15 +213,13 @@ const trashPathFor = async (
 ): Promise<Refusable<string>> => {
 	const trash = await trashFolderOf(deps, folder.accountId);
 	if (!trash.ok) return trash;
-	const { fullPath } = await deps.mailbox.get(folder.accountId, trash.value);
+	const { fullPath } = await deps.client.mailbox.get(
+		folder.accountId,
+		trash.value,
+	);
 	await awaitMovedOut(deps, folder.mailboxId);
 	return accept(fullPath);
 };
-
-const deleteDepsOf = (deps: McpDeps) => ({
-	...deps,
-	mailboxQueue: deps.folders.mailboxQueue,
-});
 
 // The refusals checked before a delete changes anything.
 export const folderDeleteRefusal = async (
@@ -225,7 +228,7 @@ export const folderDeleteRefusal = async (
 	folder: MailboxItem,
 	force: boolean,
 ): Promise<CallToolResult | undefined> => {
-	const deletable = await deletableFolder(deleteDepsOf(deps), accountConfigId, {
+	const deletable = await deletableFolder(deps.client, accountConfigId, {
 		accountId: folder.accountId,
 		mailboxId: folder.mailboxId,
 	});
@@ -261,7 +264,7 @@ export const deleteFolderOnServer = async (
 	if (refusal) return refusal;
 	const trashed = force ? await trashPathFor(deps, folder) : undefined;
 	if (trashed && !trashed.ok) return refused(trashed.refusal);
-	const deleted = await deleteFolder(deleteDepsOf(deps), accountConfigId, {
+	const deleted = await deleteFolder(deps.client, accountConfigId, {
 		accountId: folder.accountId,
 		mailboxId: folder.mailboxId,
 		requireEmpty: true,
@@ -296,9 +299,9 @@ export const registerFolderTools = (
 			const { folders } = deps;
 			const created = await createFolder(
 				{
-					account: deps.account,
-					mailbox: deps.mailbox,
-					mailboxQueue: folders.mailboxQueue,
+					account: deps.client.account,
+					mailbox: deps.client.mailbox,
+					mailboxQueue: deps.client.mailboxQueue,
 				},
 				accountConfigId,
 				{ accountId, namespaceType: "personal", fullPath },
@@ -338,9 +341,9 @@ export const registerFolderTools = (
 
 			const changed = await changeFolderPath(
 				{
-					account: deps.account,
-					mailbox: deps.mailbox,
-					mailboxQueue: folders.mailboxQueue,
+					account: deps.client.account,
+					mailbox: deps.client.mailbox,
+					mailboxQueue: deps.client.mailboxQueue,
 				},
 				accountConfigId,
 				{ accountId, mailboxId, fullPath },
@@ -374,7 +377,7 @@ export const registerFolderTools = (
 		async ({ accountId, mailboxId, force }) => {
 			const { folders } = deps;
 			const owned = await ownedFolder(
-				deps,
+				deps.client,
 				accountConfigId,
 				accountId,
 				mailboxId,

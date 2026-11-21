@@ -161,9 +161,9 @@ export const registerMoveTools = (
 ): void => {
 	const accountConfigId = deriveAccountConfigId(userId);
 	const organizeDeps = {
-		organizeJobRequest: deps.organizeJobRequest,
-		queue: deps.filters.organizeQueue,
-		logger: deps.filters.logger,
+		organizeJobRequest: deps.client.organizeJobRequest,
+		queue: deps.client.queues.accountFanout,
+		logger: deps.logger,
 	};
 
 	const ruleFor = async (args: {
@@ -174,7 +174,10 @@ export const registerMoveTools = (
 			return invalid("Send filterId or rule, not both.");
 		}
 		if (args.filterId) {
-			const filter = await deps.filter.get(accountConfigId, args.filterId);
+			const filter = await deps.client.filter.get(
+				accountConfigId,
+				args.filterId,
+			);
 			return accept(filter.rule);
 		}
 		if (!args.rule) return accept(EVERY_MESSAGE);
@@ -203,7 +206,7 @@ export const registerMoveTools = (
 			if (!target.ok) return refused(target.refusal);
 			const ids = [...new Set(messageIds)];
 			const moved = await moveMessagesTo(
-				deps,
+				deps.client,
 				accountConfigId,
 				ids,
 				target.value,
@@ -225,8 +228,13 @@ export const registerMoveTools = (
 			return invalid("Send sourceMailboxId or sourceLabelId, not both.");
 		}
 		if (args.sourceLabelId) {
-			const label = await deps.label.get(accountConfigId, args.sourceLabelId);
-			const [found] = await labelFoldersFor(deps, accountConfigId, [label]);
+			const label = await deps.client.label.get(
+				accountConfigId,
+				args.sourceLabelId,
+			);
+			const [found] = await labelFoldersFor(deps.client, accountConfigId, [
+				label,
+			]);
 			const folders = found?.folders ?? [];
 			const present = folders.flatMap((folder) =>
 				folder.state === "Present"
@@ -251,12 +259,12 @@ export const registerMoveTools = (
 			);
 		}
 		const { accountId, sourceMailboxId } = args;
-		const owned = await deps.account
+		const owned = await deps.client.account
 			.get(accountId)
 			.then((account) => ownedAccount(account, accountConfigId, "act"));
 		if (!owned.ok) return owned;
 		const source = folderInAccount(
-			await deps.mailbox.get(accountId, sourceMailboxId),
+			await deps.client.mailbox.get(accountId, sourceMailboxId),
 			accountId,
 			"act",
 		);
@@ -280,7 +288,7 @@ export const registerMoveTools = (
 			});
 		}
 		const destination = await resolveMoveDestination(
-			deps,
+			deps.client,
 			accountConfigId,
 			source.accountId,
 			target,
@@ -306,7 +314,7 @@ export const registerMoveTools = (
 		async ({ messageIds }): Promise<CallToolResult> => {
 			const ids = [...new Set(messageIds)];
 			const owned = await ownedMessagesByAccount(
-				deps,
+				deps.client,
 				ids,
 				accountConfigId,
 				"act",
@@ -333,14 +341,14 @@ export const registerMoveTools = (
 				trashMailboxId,
 				messageIds: accountIds,
 			} of planned) {
-				const rows = await deps.message.get(accountIds);
+				const rows = await deps.client.message.get(accountIds);
 				const toMove = rows.flatMap((row) => {
 					if (row.mailboxId !== trashMailboxId) return [row.messageId];
 					alreadyInTrash.push(row.messageId);
 					return [];
 				});
 				if (toMove.length === 0) continue;
-				await deps.messageMove.moveMessages(
+				await deps.client.messageMove.moveMessages(
 					accountConfigId,
 					toMove,
 					trashMailboxId,
@@ -380,20 +388,20 @@ export const registerMoveTools = (
 		if (!cursor || !isListPosition(cursor.startPosition)) {
 			return invalid(CURSOR_REFUSAL);
 		}
-		const owned = await deps.account
+		const owned = await deps.client.account
 			.get(cursor.accountId)
 			.then((account) => ownedAccount(account, accountConfigId, "act"));
 		if (!owned.ok) return owned;
 		for (const mailboxId of [cursor.sourceMailboxId, cursor.actionMailboxId]) {
 			const folder = folderInAccount(
-				await deps.mailbox.get(cursor.accountId, mailboxId),
+				await deps.client.mailbox.get(cursor.accountId, mailboxId),
 				cursor.accountId,
 				"act",
 			);
 			if (!folder.ok) return folder;
 		}
 		if (cursor.actionLabelId !== FILTER_NO_ACTION) {
-			await deps.label.get(accountConfigId, cursor.actionLabelId);
+			await deps.client.label.get(accountConfigId, cursor.actionLabelId);
 		}
 		const tooBig =
 			filterRuleLeaves(cursor.rule).length > 0 &&
@@ -413,7 +421,7 @@ export const registerMoveTools = (
 		for (;;) {
 			for (const selection of selections) {
 				if (isTerminal(selection.job)) continue;
-				selection.job = await deps.organizeJobRequest.get(
+				selection.job = await deps.client.organizeJobRequest.get(
 					selection.job.organizeJobId,
 				);
 				if (!isTerminal(selection.job)) continue;

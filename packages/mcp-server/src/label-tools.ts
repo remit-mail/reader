@@ -43,7 +43,7 @@ export const registerLabelReadTools = (
 			annotations: READ_ONLY,
 		},
 		async () => {
-			const labels = await listLabelsWithFolders(deps, accountConfigId);
+			const labels = await listLabelsWithFolders(deps.client, accountConfigId);
 			return asJson({ labels: labels.map(toLabel) });
 		},
 	);
@@ -71,11 +71,11 @@ export const registerLabelWriteTools = (
 		async ({ name, color }) => {
 			const created = await createLabelWithFolders(
 				{
-					account: deps.account,
-					mailbox: deps.mailbox,
-					label: deps.label,
-					labelMailbox: deps.labelMailbox,
-					mailboxQueue: deps.folders.mailboxQueue,
+					account: deps.client.account,
+					mailbox: deps.client.mailbox,
+					label: deps.client.label,
+					labelMailbox: deps.client.labelMailbox,
+					mailboxQueue: deps.client.mailboxQueue,
 					log: deps.logger,
 				},
 				accountConfigId,

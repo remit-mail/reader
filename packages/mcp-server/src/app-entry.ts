@@ -63,7 +63,6 @@ export {
 	deviceLogin,
 } from "./cli/device-login.js";
 export {
-	type FilterToolDeps,
 	FOLDER_POLL_INTERVAL_MS,
 	FOLDER_SETTLE_TIMEOUT_MS,
 	type FolderToolDeps,

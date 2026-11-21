@@ -19,10 +19,10 @@ import {
 	storeBody,
 } from "@remit/mailbox-service/test-helpers/test-store";
 import type { StorageService } from "@remit/storage-service";
-import { MCP_READ_SCOPE } from "./auth/scopes.js";
+import { MCP_ACCOUNT_SCOPE, MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
-import { ruleDeps } from "./test-rule-deps.js";
+import { ruleDeps, testClient } from "./test-rule-deps.js";
 
 const USER_ID = "mcp-user";
 const OTHER_USER_ID = "mcp-other-user";
@@ -96,11 +96,11 @@ const seedUser = async (userId: string, label: string): Promise<Seeded> => {
 before(async () => {
 	store = await openStore();
 	storage = store.storage();
-	deps = {
-		apiConfig: undefined as never,
-		...store,
+	const client = testClient(
+		store,
+		recordingQueue(),
 		storage,
-		bodySync: new BodySyncService(
+		new BodySyncService(
 			store.message,
 			storage,
 			store.threadMessage,
@@ -110,13 +110,16 @@ before(async () => {
 			spamConfigFor(store),
 			silentLog,
 		),
-		bodySyncQueue: {
+		{
 			requestBodySync: async ({ messageId }) => {
 				rearmed.push(messageId);
 			},
 		},
+	);
+	deps = {
+		apiConfig: undefined as never,
 		logger: silentLog,
-		...ruleDeps(store, recordingQueue()),
+		...ruleDeps(client),
 	};
 	mine = await seedUser(USER_ID, "mine");
 	theirs = await seedUser(OTHER_USER_ID, "theirs");
@@ -191,20 +194,28 @@ describe("the read tools behind mail:read", () => {
 			"get_thread",
 			"list_labels",
 			"list_mailboxes",
+			"list_quarantine",
 			"list_threads",
+			"list_vip_suggestions",
 			"search_threads",
 		]);
 	});
 
-	it("refuses a read tool to a token without mail:read", async () => {
-		const unscoped = createMcpHandler({ userId: USER_ID, scopes: [] }, deps);
-		const body = await rpc(unscoped, "tools/call", {
-			name: "list_mailboxes",
+	it("refuses a read tool to an account-only token", async () => {
+		const accountOnly = createMcpHandler(
+			{ userId: USER_ID, scopes: [MCP_ACCOUNT_SCOPE] },
+			deps,
+		);
+		const body = await rpc(accountOnly, "tools/call", {
+			name: "list_quarantine",
 			arguments: {},
 		});
-		assert.equal(body.result, undefined);
-		assert.equal(body.error?.code, -32601);
-		assert.match(body.error?.message ?? "", /method not found/i);
+		const result = body.result as ToolResult;
+		assert.equal(result.isError, true);
+		assert.match(
+			result.content[0]?.text ?? "",
+			/tool list_quarantine not found/i,
+		);
 	});
 });
 

@@ -41,7 +41,7 @@ import { createMcpApp } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
 import type { McpDeps } from "../deps.js";
 import type { McpRequestHandler } from "../server.js";
-import { ruleDeps } from "../test-rule-deps.js";
+import { ruleDeps, testClient } from "../test-rule-deps.js";
 import {
 	BROWSER_TOKEN_TTL_SECONDS,
 	createBetterAuthTokenVerifier,
@@ -159,11 +159,12 @@ before(async () => {
 
 	store = await openStore();
 	const storage = store.storage();
-	deps = {
-		apiConfig: undefined as never,
-		...store,
+	const queue = recordingQueue();
+	const client = testClient(
+		store,
+		queue,
 		storage,
-		bodySync: new BodySyncService(
+		new BodySyncService(
 			store.message,
 			storage,
 			store.threadMessage,
@@ -173,9 +174,12 @@ before(async () => {
 			spamConfigFor(store),
 			silentLog,
 		),
-		bodySyncQueue: new BodySyncQueueService({ queue: recordingQueue() }),
+		new BodySyncQueueService({ queue }),
+	);
+	deps = {
+		apiConfig: undefined as never,
 		logger: silentLog,
-		...ruleDeps(store, recordingQueue()),
+		...ruleDeps(client),
 	};
 	({ auth, handler } = buildApp());
 });
@@ -462,7 +466,9 @@ describe("the MCP authorization server", () => {
 			"get_thread",
 			"list_labels",
 			"list_mailboxes",
+			"list_quarantine",
 			"list_threads",
+			"list_vip_suggestions",
 			"search_threads",
 		]);
 		assert.deepEqual(sharedRows(), shared);

@@ -2,7 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import { registerAccountTools } from "./account-tools.js";
+import {
+	registerAccountReadTools,
+	registerAccountTools,
+} from "./account-tools.js";
 import {
 	MCP_ACCOUNT_SCOPE,
 	MCP_READ_SCOPE,
@@ -42,6 +45,11 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	);
 	if (principal.scopes.includes(MCP_READ_SCOPE)) {
 		registerReadTools(server, deps, deriveAccountConfigId(principal.userId));
+		registerAccountReadTools(
+			server,
+			deps,
+			deriveAccountConfigId(principal.userId),
+		);
 		registerLabelReadTools(
 			server,
 			deps,

@@ -33,7 +33,7 @@ import {
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
-import { ruleDeps } from "./test-rule-deps.js";
+import { ruleDeps, testClient } from "./test-rule-deps.js";
 
 const USER_ID = "filter-user";
 const OTHER_USER_ID = "filter-other-user";
@@ -52,11 +52,11 @@ beforeEach(async () => {
 	capture = recordingQueue();
 	store = await openStore();
 	const storage = store.storage();
-	deps = {
-		apiConfig: undefined as never,
-		...store,
+	const client = testClient(
+		store,
+		capture,
 		storage,
-		bodySync: new BodySyncService(
+		new BodySyncService(
 			store.message,
 			storage,
 			store.threadMessage,
@@ -66,9 +66,12 @@ beforeEach(async () => {
 			spamConfigFor(store),
 			silentLog,
 		),
-		bodySyncQueue: new BodySyncQueueService({ queue: capture }),
+		new BodySyncQueueService({ queue: capture }),
+	);
+	deps = {
+		apiConfig: undefined as never,
 		logger: silentLog,
-		...ruleDeps(store, capture),
+		...ruleDeps(client),
 	};
 	account = await seedAccount(store, {
 		accountConfigId: deriveAccountConfigId(USER_ID),

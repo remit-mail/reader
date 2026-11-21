@@ -13,7 +13,6 @@ import {
 	openStore,
 	type World,
 } from "@remit/imap-worker/test-helpers/test-world";
-import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import { silentLog } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
@@ -62,42 +61,11 @@ beforeEach(async () => {
 	deps = {
 		apiConfig: undefined as never,
 		client,
-		account: client.account,
-		address: client.address,
-		label: client.label,
-		labelMailbox: client.labelMailbox,
-		mailbox: client.mailbox,
-		accountSetting: client.accountSetting,
-		mailboxSpecialUse: client.mailboxSpecialUse,
-		message: client.message,
-		messageLabel: client.messageLabel,
-		messageMove: client.messageMove,
-		threadMessage: client.threadMessage,
-		filter: client.filter,
-		organizeJobRequest: client.organizeJobRequest,
-		storage: client.storage,
-		bodySync: new BodySyncService(
-			client.message,
-			client.storage,
-			client.threadMessage,
-			client.address,
-			client.envelope,
-			new SyncWarningService(client.syncWarning),
-			client.spam,
-			silentLog,
-		),
-		bodySyncQueue: client.bodySyncQueue,
-		rescan: client.rescan,
 		logger: silentLog,
 		folders: {
-			mailboxQueue: client.mailboxQueue,
 			settleTimeoutMs: 100,
 			pollIntervalMs: 10,
 			sleep,
-		},
-		filters: {
-			organizeQueue: client.queues.accountFanout,
-			logger: silentLog,
 		},
 		moves: { budgetMs: 100, pollIntervalMs: 10, sleep, now: Date.now },
 	};

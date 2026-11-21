@@ -19,9 +19,24 @@ describe("MCP operation ledger", () => {
 				scopes: [MCP_READ_SCOPE, MCP_RULES_SCOPE, MCP_ACCOUNT_SCOPE],
 			},
 			{
-				filters: { organizeQueue: {}, logger: {} },
-				moves: { budgetMs: 1, pollIntervalMs: 1 },
-			} as McpDeps,
+				client: {
+					organizeJobRequest: {},
+					queues: { accountFanout: {} },
+				} as never,
+				apiConfig: undefined as never,
+				logger: undefined as never,
+				folders: {
+					settleTimeoutMs: 1,
+					pollIntervalMs: 1,
+					sleep: async () => {},
+				},
+				moves: {
+					budgetMs: 1,
+					pollIntervalMs: 1,
+					sleep: async () => {},
+					now: Date.now,
+				},
+			} satisfies McpDeps,
 		);
 		await handler(
 			new Request("https://mcp.example/mcp", {

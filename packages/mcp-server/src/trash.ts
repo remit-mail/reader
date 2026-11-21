@@ -3,11 +3,11 @@ import { accept, invalid, type Refusable } from "@remit/mailbox-service";
 import type { McpDeps } from "./deps.js";
 
 export const trashFolderOf = async (
-	deps: Pick<McpDeps, "mailboxSpecialUse">,
+	deps: McpDeps,
 	accountId: string,
 ): Promise<Refusable<string>> => {
 	const trash = trashMailboxAt(
-		await deps.mailboxSpecialUse.resolveTrashRole(accountId),
+		await deps.client.mailboxSpecialUse.resolveTrashRole(accountId),
 		"resolved",
 	);
 	if (!trash.allowed) {

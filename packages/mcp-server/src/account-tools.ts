@@ -267,17 +267,6 @@ export const registerAccountTools = (
 			),
 	);
 
-	operationTool(server, ["MeOperations_listVipSuggestions"]).registerTool(
-		"list_vip_suggestions",
-		{
-			description: "List frequent correspondents that are not yet VIPs.",
-			annotations: READ_ONLY,
-		},
-		async () =>
-			asJson(
-				await listVipSuggestionsFor(deps.client, deriveAccountConfigId(userId)),
-			),
-	);
 	operationTool(server, ["MeOperations_createExport"]).registerTool(
 		"create_export",
 		{
@@ -293,6 +282,22 @@ export const registerAccountTools = (
 				),
 			),
 	);
+};
+
+export const registerAccountReadTools = (
+	server: McpServer,
+	deps: McpDeps,
+	accountConfigId: string,
+): void => {
+	operationTool(server, ["MeOperations_listVipSuggestions"]).registerTool(
+		"list_vip_suggestions",
+		{
+			description: "List frequent correspondents that are not yet VIPs.",
+			annotations: READ_ONLY,
+		},
+		async () =>
+			asJson(await listVipSuggestionsFor(deps.client, accountConfigId)),
+	);
 	operationTool(server, ["MeOperations_listQuarantine"]).registerTool(
 		"list_quarantine",
 		{
@@ -300,9 +305,6 @@ export const registerAccountTools = (
 				"List messages and warnings the sync path could not process.",
 			annotations: READ_ONLY,
 		},
-		async () =>
-			asJson(
-				await listQuarantineFor(deps.client, deriveAccountConfigId(userId)),
-			),
+		async () => asJson(await listQuarantineFor(deps.client, accountConfigId)),
 	);
 };
