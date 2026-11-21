@@ -108,6 +108,7 @@ model InlineOutboxAttachmentInput {
 
   @doc("The file bytes encoded as base64")
   @minLength(1)
+  @maxLength(6990508)
   contentBase64: string;
 }
 

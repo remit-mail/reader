@@ -22,7 +22,7 @@ import {
 	registerLabelReadTools,
 	registerLabelWriteTools,
 } from "./label-tools.js";
-import { registerMailTools } from "./mail-tools.js";
+import { MCP_ATTACHMENT_MAX_BYTES, registerMailTools } from "./mail-tools.js";
 import { registerMoveTools } from "./move-tools.js";
 import { registerReadTools } from "./read-tools.js";
 import { registerRescanTools } from "./rescan-tools.js";
@@ -40,6 +40,37 @@ const unusedJsonSchemaValidator: jsonSchemaValidator = {
 			"JSON Schema validation is unused by this server: tools validate input with zod and declare no output schema",
 		);
 	},
+};
+
+const MCP_REQUEST_MAX_BYTES =
+	Math.ceil(MCP_ATTACHMENT_MAX_BYTES / 3) * 4 + 64 * 1024;
+
+const boundedRequest = async (request: Request): Promise<Request | null> => {
+	if (!request.body) return request;
+	const declared = Number(request.headers.get("content-length"));
+	if (declared > MCP_REQUEST_MAX_BYTES) return null;
+
+	const reader = request.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		size += value.byteLength;
+		if (size > MCP_REQUEST_MAX_BYTES) {
+			await reader.cancel();
+			return null;
+		}
+		chunks.push(value);
+	}
+
+	const body = new Uint8Array(size);
+	let offset = 0;
+	for (const chunk of chunks) {
+		body.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return new Request(request, { body });
 };
 
 const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
@@ -87,11 +118,13 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 export const createMcpHandler =
 	(principal: McpPrincipal, deps: McpDeps): McpRequestHandler =>
 	async (request) => {
+		const bounded = await boundedRequest(request);
+		if (!bounded) return new Response(null, { status: 413 });
 		const server = buildServer(principal, deps);
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			sessionIdGenerator: undefined,
 			enableJsonResponse: true,
 		});
 		await server.connect(transport);
-		return transport.handleRequest(request).finally(() => server.close());
+		return transport.handleRequest(bounded).finally(() => server.close());
 	};
