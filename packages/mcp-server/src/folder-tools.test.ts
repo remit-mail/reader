@@ -79,6 +79,7 @@ beforeEach(async () => {
 
 	const { client } = mine;
 	deps = {
+		operatorClient: () => undefined as never,
 		account: client.account,
 		address: client.address,
 		label: client.label,
@@ -159,7 +160,7 @@ const rpc = async (
 };
 
 const organizer = (scopes: string[] = [MCP_RULES_SCOPE]) =>
-	createMcpHandler({ userId: USER_ID, scopes }, deps);
+	createMcpHandler({ userId: USER_ID, scopes }, deps, false);
 
 const callTool = async (
 	name: string,

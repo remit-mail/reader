@@ -53,6 +53,7 @@ beforeEach(async () => {
 	store = await openStore();
 	const storage = store.storage();
 	deps = {
+		operatorClient: () => undefined as never,
 		...store,
 		storage,
 		bodySync: new BodySyncService(
@@ -164,7 +165,7 @@ const rpc = async (
 };
 
 const organizer = (scopes: string[] = [MCP_RULES_SCOPE]) =>
-	createMcpHandler({ userId: USER_ID, scopes }, deps);
+	createMcpHandler({ userId: USER_ID, scopes }, deps, false);
 
 const callTool = async (
 	name: string,

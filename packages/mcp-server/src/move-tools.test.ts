@@ -56,6 +56,7 @@ beforeEach(async () => {
 
 	const { client } = mine;
 	deps = {
+		operatorClient: () => undefined as never,
 		account: client.account,
 		address: client.address,
 		label: client.label,
@@ -104,6 +105,7 @@ const callTool = async (
 	const response = await createMcpHandler(
 		{ userId: USER_ID, scopes: [MCP_RULES_SCOPE] },
 		deps,
+		false,
 	)(
 		new Request("http://reader.test/mcp", {
 			method: "POST",

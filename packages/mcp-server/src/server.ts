@@ -2,7 +2,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
+import {
+	MCP_OPERATOR_SCOPE,
+	MCP_READ_SCOPE,
+	MCP_RULES_SCOPE,
+} from "./auth/scopes.js";
 import { registerDeleteTools } from "./delete-tools.js";
 import type { McpDeps } from "./deps.js";
 import { registerFilterTools } from "./filter-tools.js";
@@ -12,6 +16,7 @@ import {
 	registerLabelWriteTools,
 } from "./label-tools.js";
 import { registerMoveTools } from "./move-tools.js";
+import { registerOperatorTools } from "./operator-tools.js";
 import { registerReadTools } from "./read-tools.js";
 import { registerRescanTools } from "./rescan-tools.js";
 
@@ -30,7 +35,11 @@ const unusedJsonSchemaValidator: jsonSchemaValidator = {
 	},
 };
 
-const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
+const buildServer = (
+	principal: McpPrincipal,
+	deps: McpDeps,
+	isOperator: boolean,
+): McpServer => {
 	const server = new McpServer(
 		{ name: "remit-reader", version: "1.0.0" },
 		{ jsonSchemaValidator: unusedJsonSchemaValidator },
@@ -55,13 +64,20 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 		registerRescanTools(server, deps, deriveAccountConfigId(principal.userId));
 		registerDeleteTools(server, deps, deriveAccountConfigId(principal.userId));
 	}
+	if (principal.scopes.includes(MCP_OPERATOR_SCOPE) && isOperator) {
+		registerOperatorTools(server, deps.operatorClient(principal.userId));
+	}
 	return server;
 };
 
 export const createMcpHandler =
-	(principal: McpPrincipal, deps: McpDeps): McpRequestHandler =>
+	(
+		principal: McpPrincipal,
+		deps: McpDeps,
+		isOperator: boolean,
+	): McpRequestHandler =>
 	async (request) => {
-		const server = buildServer(principal, deps);
+		const server = buildServer(principal, deps, isOperator);
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			sessionIdGenerator: undefined,
 			enableJsonResponse: true,

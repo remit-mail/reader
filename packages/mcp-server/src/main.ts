@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { serve } from "@hono/node-server";
+import { client as operatorClient } from "@remit/api-http-client/client.gen.js";
 import { resolveSignInEnabled } from "@remit/auth-service/verifier";
 import { getClient } from "@remit/backend/client";
 import { logger } from "@remit/logger";
@@ -20,10 +21,12 @@ import { loadPageAssets } from "./pages/load-assets.js";
 installNodeLogger();
 
 const config = resolveMcpServerConfig();
+operatorClient.setConfig({ baseUrl: config.origin });
 
 const client = await getClient();
 const deps = mcpDepsOf(client, {
 	logger,
+	operatorClient: () => operatorClient,
 	settle: {
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
 		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,

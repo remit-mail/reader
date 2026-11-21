@@ -31,7 +31,11 @@ import {
 import { setSessionCookie } from "better-auth/cookies";
 import { jwt } from "better-auth/plugins";
 import { z } from "zod";
-import { MCP_SCOPES, OFFLINE_ACCESS_SCOPE } from "./scopes.js";
+import {
+	MCP_OPERATOR_SCOPE,
+	MCP_SCOPES,
+	OFFLINE_ACCESS_SCOPE,
+} from "./scopes.js";
 import type { TokenVerifier } from "./token-verifier.js";
 
 export const AUTH_BASE_PATH = "/auth";
@@ -90,6 +94,7 @@ export type McpBrowserAuth =
 
 export interface McpIdentity {
 	isDisabled(userId: string): Promise<boolean>;
+	isOperator(userId: string): Promise<boolean>;
 	audit(record: AuditRecord): Promise<void>;
 	browser: McpBrowserAuth;
 }
@@ -110,7 +115,7 @@ const buildOAuthOptions = (origin: string): OAuthOptions<Scope[]> => {
 	const resource = mcpResource(origin);
 	return {
 		schema: modelNames,
-		scopes: [...MCP_SCOPES, OFFLINE_ACCESS_SCOPE],
+		scopes: [...MCP_SCOPES, MCP_OPERATOR_SCOPE, OFFLINE_ACCESS_SCOPE],
 		grantTypes: ["authorization_code", "refresh_token"],
 		// A refreshable token stays short; the device flow, which a static
 		// header carries and nothing refreshes, gets the long default. Every
@@ -154,6 +159,13 @@ const withOfflineAccess = (query: Record<string, unknown>) => {
 	const scopes = query.scope.split(" ").filter((scope) => scope.length > 0);
 	if (scopes.includes(OFFLINE_ACCESS_SCOPE)) return query;
 	return { ...query, scope: [...scopes, OFFLINE_ACCESS_SCOPE].join(" ") };
+};
+
+const withScope = (query: Record<string, unknown>, scope: string) => {
+	if (typeof query.scope !== "string") return query;
+	const scopes = query.scope.split(" ").filter((value) => value.length > 0);
+	if (scopes.includes(scope)) return query;
+	return { ...query, scope: [...scopes, scope].join(" ") };
 };
 
 const userCodeOf = (body: unknown): string | undefined => {
@@ -430,7 +442,19 @@ const remitMcpBridge = (
 				{
 					matcher: (ctx) => ctx.path === "/oauth2/authorize",
 					handler: createAuthMiddleware(async (ctx) => {
-						const query = withOfflineAccess(ctx.query ?? {});
+						const session = await getSessionFromCtx(ctx);
+						const consentDecision =
+							typeof ctx.body === "object" &&
+							ctx.body !== null &&
+							"accept" in ctx.body;
+						const offeredOperator =
+							!consentDecision &&
+							session &&
+							(await identity.isOperator(session.user.id));
+						const requested = offeredOperator
+							? withScope(ctx.query ?? {}, MCP_OPERATOR_SCOPE)
+							: (ctx.query ?? {});
+						const query = withOfflineAccess(requested);
 						return {
 							context: {
 								query: hasResource(query) ? query : { ...query, resource },
@@ -630,9 +654,11 @@ export interface McpAuthRoutes {
 	handle(request: Request): Promise<Response>;
 	serverMetadata(request: Request): Promise<Response>;
 	sessionOf(headers: Headers): Promise<McpSessionState>;
+	operatorOf(headers: Headers): Promise<boolean>;
+	isOperator(userId: string): Promise<boolean>;
 	consent(
 		headers: Headers,
-		body: { accept: boolean; oauth_query: string },
+		body: { accept: boolean; oauth_query: string; scope: string },
 	): Promise<Response>;
 	clientName(headers: Headers, clientId: string): Promise<string | undefined>;
 	claimDeviceCode(headers: Headers, userCode: string): Promise<boolean>;
@@ -663,7 +689,7 @@ const postToRouter = (
 	auth: McpAuth,
 	headers: Headers,
 	path: string,
-	body: SignIn | { accept: boolean; oauth_query: string },
+	body: SignIn | { accept: boolean; oauth_query: string; scope: string },
 ): Promise<Response> =>
 	auth.handler(
 		new Request(`${auth.options.baseURL}${AUTH_BASE_PATH}${path}`, {
@@ -747,6 +773,11 @@ const createMcpAuthRoutes = (
 		if (userId === undefined) return "absent";
 		return (await identity.isDisabled(userId)) ? "disabled" : "active";
 	},
+	operatorOf: async (headers) => {
+		const userId = await subjectIdOf(auth, identity.browser, headers);
+		return userId !== undefined && identity.isOperator(userId);
+	},
+	isOperator: (userId) => identity.isOperator(userId),
 	// Through the router rather than auth.api: the authorization it resumes
 	// needs a request.
 	consent: (headers, body) =>

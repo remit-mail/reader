@@ -160,6 +160,7 @@ before(async () => {
 	store = await openStore();
 	const storage = store.storage();
 	deps = {
+		operatorClient: () => undefined as never,
 		...store,
 		storage,
 		bodySync: new BodySyncService(
@@ -422,7 +423,7 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(await response.json(), {
 			resource: RESOURCE,
 			authorization_servers: [MCP_ORIGIN],
-			scopes_supported: ["mail:read", "mail:rules"],
+			scopes_supported: ["mail:read", "mail:rules", "operator"],
 			bearer_methods_supported: ["header"],
 		});
 	});
@@ -701,7 +702,7 @@ describe("the MCP authorization server", () => {
 
 describe("a host that authenticates the browser itself", () => {
 	const SUBJECT_HEADER = "x-test-subject";
-	const hosted = (disabled = false) => {
+	const hosted = (disabled = false, operator = false) => {
 		const audits: AuditRecord[] = [];
 		const server = createMcpAuth(
 			MCP_CONFIG,
@@ -711,6 +712,7 @@ describe("a host that authenticates the browser itself", () => {
 			}),
 			{
 				isDisabled: async () => disabled,
+				isOperator: async () => operator,
 				audit: async (record) => {
 					audits.push(record);
 				},
@@ -743,6 +745,25 @@ describe("a host that authenticates the browser itself", () => {
 		assert.deepEqual(row, { email: "host-user@subject.invalid" });
 		const anonymous = await handle(new Request(`${MCP_ORIGIN}/apps`));
 		assert.equal(anonymous.status, 401);
+	});
+
+	it("offers the operator grant only to an operator", async () => {
+		const hostedClientId = await registerClient();
+		const query = new URLSearchParams({
+			client_id: hostedClientId,
+			scope: "mail:read",
+		});
+		const page = (operator: boolean) =>
+			hosted(false, operator).handle(
+				new Request(`${MCP_ORIGIN}/consent?${query}`, {
+					headers: asSubject("host-user"),
+				}),
+			);
+		assert.match(await (await page(true)).text(), /Grant operator access/);
+		assert.doesNotMatch(
+			await (await page(false)).text(),
+			/Grant operator access/,
+		);
 	});
 
 	it("never hands one subject another subject's session", async () => {

@@ -38,6 +38,7 @@ export const consentView = (
 	oauthQuery: string,
 	clientName: string,
 	scopes: readonly string[],
+	offerOperatorGrant: boolean,
 ): Response =>
 	renderPage(
 		`Allow ${clientName}`,
@@ -45,6 +46,7 @@ export const consentView = (
 			clientName={clientName}
 			permissions={describeScopes(scopes)}
 			oauthQuery={oauthQuery}
+			offerOperatorGrant={offerOperatorGrant}
 		/>,
 	);
 

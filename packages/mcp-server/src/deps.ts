@@ -25,6 +25,7 @@ import type {
 	RescanService,
 } from "@remit/mailbox-service";
 import type { StorageService } from "@remit/storage-service";
+import type { OperatorClient } from "./operator-tools.js";
 
 export const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
 export const FOLDER_POLL_INTERVAL_MS = 500;
@@ -54,6 +55,7 @@ export interface FilterToolDeps {
 }
 
 export interface McpDeps {
+	operatorClient: (userId: string) => OperatorClient;
 	account: Pick<
 		IAccountRepository,
 		"get" | "listAllByAccountConfig" | "listMailSourcesByAccountConfig"
@@ -120,13 +122,15 @@ export interface McpDeps {
 
 export interface McpDepsExtras {
 	logger: MaterializeLogger & OrganizeJobLogger;
+	operatorClient: (userId: string) => OperatorClient;
 	settle: Omit<FolderToolDeps, "mailboxQueue">;
 }
 
 export const mcpDepsOf = (
 	client: RemitClient,
-	{ logger, settle }: McpDepsExtras,
+	{ logger, operatorClient, settle }: McpDepsExtras,
 ): McpDeps => ({
+	operatorClient,
 	account: client.account,
 	mailbox: client.mailbox,
 	accountSetting: client.accountSetting,

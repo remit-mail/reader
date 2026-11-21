@@ -71,6 +71,7 @@ const callToolJson = async (
 	const handler = createMcpHandler(
 		{ userId: USER_ID, scopes: [MCP_READ_SCOPE] },
 		deps,
+		false,
 	);
 	const response = await handler(
 		new Request("http://reader.test/mcp", {
@@ -95,6 +96,7 @@ before(async () => {
 	store = await openStore();
 	const storage = store.storage();
 	deps = {
+		operatorClient: () => undefined as never,
 		...store,
 		storage,
 		bodySync: new BodySyncService(

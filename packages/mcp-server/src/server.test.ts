@@ -19,7 +19,7 @@ import {
 	storeBody,
 } from "@remit/mailbox-service/test-helpers/test-store";
 import type { StorageService } from "@remit/storage-service";
-import { MCP_READ_SCOPE } from "./auth/scopes.js";
+import { MCP_OPERATOR_SCOPE, MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
 import { ruleDeps } from "./test-rule-deps.js";
@@ -97,6 +97,7 @@ before(async () => {
 	store = await openStore();
 	storage = store.storage();
 	deps = {
+		operatorClient: () => undefined as never,
 		...store,
 		storage,
 		bodySync: new BodySyncService(
@@ -155,7 +156,7 @@ const rpc = async (
 };
 
 const reader = () =>
-	createMcpHandler({ userId: USER_ID, scopes: [MCP_READ_SCOPE] }, deps);
+	createMcpHandler({ userId: USER_ID, scopes: [MCP_READ_SCOPE] }, deps, false);
 
 const callTool = async (
 	name: string,
@@ -196,7 +197,11 @@ describe("the read tools behind mail:read", () => {
 	});
 
 	it("refuses a read tool to a token without mail:read", async () => {
-		const unscoped = createMcpHandler({ userId: USER_ID, scopes: [] }, deps);
+		const unscoped = createMcpHandler(
+			{ userId: USER_ID, scopes: [] },
+			deps,
+			false,
+		);
 		const body = await rpc(unscoped, "tools/call", {
 			name: "list_mailboxes",
 			arguments: {},
@@ -204,6 +209,40 @@ describe("the read tools behind mail:read", () => {
 		assert.equal(body.result, undefined);
 		assert.equal(body.error?.code, -32601);
 		assert.match(body.error?.message ?? "", /method not found/i);
+	});
+});
+
+describe("the operator tools", () => {
+	it("registers them only when the scope and current operator check both hold", async () => {
+		const names = async (scopes: string[], operator: boolean) => {
+			const body = await rpc(
+				createMcpHandler({ userId: USER_ID, scopes }, deps, operator),
+				"tools/list",
+			);
+			return (
+				(body.result as { tools: { name: string }[] } | undefined)?.tools ?? []
+			)
+				.map((tool) => tool.name)
+				.sort();
+		};
+		assert.deepEqual(await names([MCP_OPERATOR_SCOPE], false), []);
+		assert.deepEqual(await names([], true), []);
+		assert.deepEqual(await names([MCP_OPERATOR_SCOPE], true), [
+			"clear_classification_default",
+			"clear_tenant_classification",
+			"disable_person",
+			"enable_person",
+			"get_classification_default",
+			"get_tenant_settings",
+			"invite_person",
+			"list_audit",
+			"list_people",
+			"reset_person_factors",
+			"revoke_invite",
+			"set_classification_default",
+			"sign_out_person",
+			"update_tenant_settings",
+		]);
 	});
 });
 
@@ -330,6 +369,7 @@ describe("get_message", () => {
 		const handler = createMcpHandler(
 			{ userId, scopes: [MCP_READ_SCOPE] },
 			deps,
+			false,
 		);
 		const body = await rpc(handler, "tools/call", {
 			name: "get_message",
