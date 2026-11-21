@@ -29,7 +29,7 @@ export interface McpDeps {
 	calendarClient: (userId: string) => CalendarClient;
 	client: RemitClient;
 	operatorClient: (userId: string) => OperatorClient;
-	apiConfig: Pick<ApiConfig, "commit" | "msOAuth" | "publicOrigin">;
+	apiConfig: ApiConfig;
 	logger: MaterializeLogger & OrganizeJobLogger;
 	folders: FolderToolDeps;
 	moves: MoveToolDeps;
