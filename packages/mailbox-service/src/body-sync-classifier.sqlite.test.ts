@@ -782,6 +782,55 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		assert.notEqual(sender?.flags?.wellknown?.value, true);
 	});
 
+	for (const filing of ["classifier", "filter"] as const) {
+		it(`repeated Inbox-to-Junk ${filing} moves cannot establish newsletter trust`, async () => {
+			const senderEmail = "bulk-spam@example.com";
+			// A phisher can add list headers; DMARC none must not earn screening.
+			const raw = eml(
+				{
+					From: senderEmail,
+					"List-Unsubscribe": "<https://example.com/unsubscribe>",
+					"Authentication-Results": "mx.example.com; dmarc=none",
+				},
+				"Claim your prize now.",
+			);
+			await saveProvider();
+			world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
+			if (filing === "filter") {
+				await world.store.filter.create({
+					accountConfigId: world.account.accountConfigId,
+					name: "File bulk spam in Junk",
+					scope: FilterScope.Standing,
+					rule: {
+						version: 1,
+						test: {
+							test: "header",
+							match: "Contains",
+							header: "From",
+							key: senderEmail,
+						},
+					},
+					actionMailboxId: world.junk.mailboxId,
+				});
+			}
+			const service = bodySync(true, filing === "filter");
+			for (let i = 0; i < 4; i++) {
+				const messageId = await arrive(raw);
+				await sync(service, [messageId]);
+				const row = await world.store.message.get(messageId);
+				assert.equal(row.mailboxId, world.junk.mailboxId);
+				assert.equal(row.movedByRemit, true);
+			}
+			const sender = await readSenderPlacement(
+				world.store.address,
+				world.account.accountConfigId,
+				senderEmail,
+			);
+			assert.equal(sender.inboundCount, 0);
+			assert.equal(sender.senderTrust, SenderTrust.Unknown);
+		});
+	}
+
 	it("moves mail from a sender the owner wrote to out of Junk", async () => {
 		await flagSender(NEWSLETTER_SENDER, {});
 		await world.store.address.incrementOutboundCount(

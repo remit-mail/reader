@@ -1057,13 +1057,19 @@ export class BodySyncService {
 			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
 		};
-		await this.messageService.update(messageId, update);
+		const storedMessage = await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");
 
-		// From-Address engagement counter (Address entity, not Message). Mail
-		// that stays in Junk is no engagement: counting it would let a sender
-		// earn Wellknown or a Newsletter screen-out from Junk alone (#1428).
-		if (arrival.placement !== FromPlacement.Junk || update.movedByRemit) {
+		// From-Address engagement counter (Address entity, not Message). Use
+		// the resulting folder, including classifier/spam and filter moves:
+		// mail left or filed in Junk cannot earn sender trust (#1428).
+		const { junkMailbox } = await lookups.roleMailboxes();
+		const junkMailboxId =
+			junkMailbox?.mailboxId ??
+			(arrival.placement === FromPlacement.Junk
+				? decidedRow.mailboxId
+				: undefined);
+		if (storedMessage.mailboxId !== junkMailboxId) {
 			await this.incrementInboundCount(messageId, accountConfigId, parsed);
 		}
 
