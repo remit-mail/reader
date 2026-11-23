@@ -54,7 +54,6 @@ export interface IAddressRepository {
 		accountConfigId: string,
 		addressId: string,
 		now: number,
-		isBulk?: boolean,
 	): Promise<void>;
 	incrementOutboundCount(
 		accountConfigId: string,

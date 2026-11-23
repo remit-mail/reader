@@ -616,12 +616,14 @@ const JUNK_NEWSLETTER = eml(
 // Synthetic #1428 cases: newsletter headers/auth were not captured in the
 // report. Assume List-Unsubscribe and DMARC pass, plus one earlier qualifying
 // inbound (below the wellknown threshold); no outbound mail or trust flags.
+// Keep the provider-spam headers from the original Junk regression fixtures.
 const JAVASCRIPT_WEEKLY = eml(
 	{
 		From: "JavaScript Weekly <jsw@peterc.org>",
 		Subject: "JavaScript Weekly",
 		"List-Unsubscribe": "<https://peterc.org/unsubscribe>",
 		"Authentication-Results": "mx.example.com; dmarc=pass",
+		...PROVIDER_SPAM_HEADERS,
 	},
 	"This week in JavaScript.",
 );
@@ -632,6 +634,7 @@ const NODE_WEEKLY = eml(
 		Subject: "Node Weekly",
 		"List-Unsubscribe": "<https://cooperpress.com/unsubscribe>",
 		"Authentication-Results": "mx.example.com; dmarc=pass",
+		...PROVIDER_SPAM_HEADERS,
 	},
 	"This week in Node.js.",
 );

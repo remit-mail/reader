@@ -23,25 +23,10 @@ export const WELLKNOWN_INBOUND_THRESHOLD = 3;
 export const WELLKNOWN_REPLY_THRESHOLD = 1;
 export const WELLKNOWN_INBOUND_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
-/**
- * Categories and signals that make a sender "bulk".
- */
-const BULK_CATEGORIES: ReadonlySet<string> = new Set([
-	"newsletter",
-	"marketing",
-	"automated",
-]);
-
 export interface WellknownEngagementSnapshot {
 	inboundCount?: number;
 	replyCount?: number;
 	lastInboundAt?: number;
-	/**
-	 * Whether this sender is a bulk/automated sender (newsletter, marketing,
-	 * automated category, or List-Unsubscribe header present). This metadata
-	 * does not affect promotion.
-	 */
-	isBulk?: boolean;
 	flags?: {
 		wellknown?: { value: boolean } | undefined;
 	};
@@ -65,16 +50,3 @@ export const shouldPromoteWellknown = (
 
 	return true;
 };
-
-/**
- * Returns true when the category or presence of List-Unsubscribe marks the
- * sender as bulk. Bulk status does not affect wellknown promotion.
- */
-export function isBulkSender(
-	category: string | undefined,
-	hasListUnsubscribe: boolean,
-): boolean {
-	if (hasListUnsubscribe) return true;
-	if (category != null && BULK_CATEGORIES.has(category)) return true;
-	return false;
-}

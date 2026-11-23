@@ -107,7 +107,6 @@ describe("AddressRepo", () => {
 				addr.accountConfigId,
 				addr.addressId,
 				now,
-				false,
 			);
 		}
 
@@ -128,7 +127,6 @@ describe("AddressRepo", () => {
 				addr.accountConfigId,
 				addr.addressId,
 				now,
-				true,
 			);
 		}
 
@@ -150,12 +148,7 @@ describe("AddressRepo", () => {
 		});
 		assert.equal(addr.flags?.wellknown, undefined);
 
-		await repo.incrementInboundCount(
-			addr.accountConfigId,
-			addr.addressId,
-			now,
-			true,
-		);
+		await repo.incrementInboundCount(addr.accountConfigId, addr.addressId, now);
 
 		const updated = await repo.getAddress(addr.accountConfigId, addr.addressId);
 		assert.equal(updated.inboundCount, 13);

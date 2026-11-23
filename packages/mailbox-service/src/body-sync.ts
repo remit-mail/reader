@@ -32,7 +32,6 @@ import {
 } from "@remit/data-ports/errors";
 import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
-import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
 	FromPlacement,
@@ -1065,12 +1064,7 @@ export class BodySyncService {
 		// that stays in Junk is no engagement: counting it would let a sender
 		// earn Wellknown or a Newsletter screen-out from Junk alone (#1428).
 		if (arrival.placement !== FromPlacement.Junk || update.movedByRemit) {
-			await this.incrementInboundCount(
-				messageId,
-				accountConfigId,
-				parsed,
-				classification,
-			);
+			await this.incrementInboundCount(messageId, accountConfigId, parsed);
 		}
 
 		return parsed;
@@ -1377,7 +1371,6 @@ export class BodySyncService {
 		messageId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
-		classification: UpdateMessageInput,
 	): Promise<void> {
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) {
@@ -1389,15 +1382,10 @@ export class BodySyncService {
 		}
 
 		const addressId = deriveAddressId(accountConfigId, fromEmail);
-		const bulk = isBulkSender(
-			classification.category,
-			classification.hasListUnsubscribe ?? false,
-		);
 		await this.addressService.incrementInboundCount(
 			accountConfigId,
 			addressId,
 			Date.now(),
-			bulk,
 		);
 	}
 
