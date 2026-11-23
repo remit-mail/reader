@@ -12,6 +12,7 @@ import type {
 	RemitImapCalendarTaskResponse,
 	RemitImapCreateCalendarEventInput,
 	RemitImapCreateCalendarInput,
+	RemitImapMessageSpamVerdict,
 	RemitImapRecurrenceScope,
 	RemitImapUpdateCalendarEventInput,
 } from "@remit/api-http-client";
@@ -101,6 +102,7 @@ export interface Thread {
 }
 
 export interface ThreadMessage {
+	spamVerdict?: RemitImapMessageSpamVerdict;
 	threadMessageId: string;
 	messageId: string;
 	mailboxId: string;
