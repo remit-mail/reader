@@ -106,13 +106,14 @@ export interface IOutboxAttachmentRepository {
 
 	/**
 	 * Move a reservation to Stored at the size storage actually holds. Returns
-	 * null when the row is gone or no longer Pending, so a caller can tell a
-	 * lapsed reservation from a confirmed one without a second read.
+	 * null when the row is gone, no longer Pending, or no longer fits the caps.
+	 * The Pending-to-Stored transition must enforce quota atomically.
 	 */
 	markStored(
 		accountConfigId: string,
 		outboxAttachmentId: string,
 		sizeBytes: number,
+		cap: OutboxAttachmentCap,
 	): Promise<OutboxAttachmentItem | null>;
 
 	/** Drop specific attachments from a draft. */

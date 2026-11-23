@@ -317,30 +317,7 @@ describe("the People operations", () => {
 				JSON.stringify(validate.errors),
 			);
 		}
-		const person = {
-			userId: carol,
-			email: "carol@remit.test",
-			createdAt: 0,
-			lastSignInAt: 0,
-			sessionCount: 0,
-			status: "Active" as const,
-			isCaller: false,
-		};
-		const withoutStepUp = () => ({ ok: true as const, value: person });
-		const hostedDirectory: PeopleDirectory = {
-			...people,
-			signOutPerson: async () => withoutStepUp(),
-			updatePerson: async () => withoutStepUp(),
-			createPasswordReset: async () => ({
-				ok: true,
-				value: {
-					person: withoutStepUp().value,
-					resetUrl: "https://login.remit.test/reset",
-					expiresAt: 1,
-				},
-			}),
-		};
-		const caller = callerOf(alice, hostedConfig, true, hostedDirectory);
+		const caller = callerOf(alice, hostedConfig, true);
 		for (const answer of [
 			await PeopleOperations.PeopleOperations_signOutPerson(
 				contextOf({ userId: carol }, undefined),
@@ -356,7 +333,27 @@ describe("the People operations", () => {
 			),
 		]) {
 			assert.equal(refusalOf(answer), undefined);
+			assert.ok(
+				(answer && "userId" in answer) || (answer && "resetUrl" in answer),
+			);
+			if (answer && "resetUrl" in answer) {
+				assert.match(answer.resetUrl, /\/reset-password\/\S+/);
+				assert.ok(answer.expiresAt > Date.now());
+			} else if (answer && "sessionCount" in answer)
+				assert.equal(answer.sessionCount, 0);
 		}
+		const person = await people.listPeople({ callerId: alice, clientIp: PEER });
+		assert.ok(person.ok);
+		assert.equal(
+			person.value.find((entry) => entry.userId === carol)?.status,
+			"Disabled",
+		);
+		await people.updatePerson({
+			callerId: alice,
+			clientIp: PEER,
+			targetId: carol,
+			status: "Active",
+		});
 	});
 
 	it("allows People actions without a grant and ignores legacy tokens", async () => {

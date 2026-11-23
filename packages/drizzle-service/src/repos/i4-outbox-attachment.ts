@@ -6,7 +6,20 @@ import type {
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
-import { and, eq, gt, gte, lt, lte, ne, or, sql, sum } from "drizzle-orm";
+import {
+	and,
+	count,
+	eq,
+	gt,
+	gte,
+	lt,
+	lte,
+	ne,
+	or,
+	sql,
+	sum,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { WriteBatch } from "../batch.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import { NotFoundError } from "../error.js";
@@ -154,8 +167,24 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 			.select({ bytes: sum(outboxAttachmentTable.sizeBytes) })
 			.from(outboxAttachmentTable)
 			.where(others);
-		const [rows, updated] = await this.batch([
-			this.db.select().from(outboxAttachmentTable).where(draft),
+		const [summaries, updated] = await this.batch([
+			this.db
+				.select({
+					usedCount: this.db.$count(outboxAttachmentTable, others),
+					usedBytes: sql<number>`coalesce((${total}), 0)`,
+				})
+				.from(outboxAttachmentTable)
+				.where(
+					and(
+						draft,
+						eq(
+							outboxAttachmentTable.outboxAttachmentId,
+							input.outboxAttachmentId,
+						),
+						eq(outboxAttachmentTable.state, "Pending"),
+					),
+				)
+				.limit(1),
 			this.db
 				.update(outboxAttachmentTable)
 				.set({
@@ -181,25 +210,12 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 		] as const);
 		const [row] = updated;
 		if (row) return { outcome: "Reserved", item: rowToOutboxAttachment(row) };
-		if (
-			!rows.some(
-				(item) =>
-					item.outboxAttachmentId === input.outboxAttachmentId &&
-					item.state === "Pending",
-			)
-		)
-			return { outcome: "Missing" };
-		const held = rows
-			.map(rowToOutboxAttachment)
-			.filter(
-				(item) =>
-					item.outboxAttachmentId !== input.outboxAttachmentId &&
-					holdsRoom(item, cap.nowSeconds),
-			);
-		const usedBytes = held.reduce((total, item) => total + item.sizeBytes, 0);
+		const [summary] = summaries;
+		if (!summary) return { outcome: "Missing" };
 		return {
-			outcome: held.length >= cap.maxCount ? "OverCountCap" : "OverByteCap",
-			usedBytes,
+			outcome:
+				summary.usedCount >= cap.maxCount ? "OverCountCap" : "OverByteCap",
+			usedBytes: summary.usedBytes,
 		};
 	}
 
@@ -240,15 +256,31 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 	}
 
 	/**
-	 * Only a Pending row may become Stored; the service renews lapsed reservations
-	 * before verifying their bytes. The update names Pending in its WHERE — two completions for
+	 * Only a Pending row that still fits the caps may become Stored. The quota
+	 * guard runs at this final write, even if storage verification crossed its
+	 * reservation expiry. The update names Pending in its WHERE — two completions for
 	 * the same upload cannot both believe they were the one that confirmed it.
 	 */
 	async markStored(
 		accountConfigId: string,
 		outboxAttachmentId: string,
 		sizeBytes: number,
+		cap: OutboxAttachmentCap,
 	): Promise<OutboxAttachmentItem | null> {
+		const other = alias(outboxAttachmentTable, "other_attachment");
+		const liveOthers = and(
+			eq(other.accountConfigId, accountConfigId),
+			eq(other.outboxMessageId, outboxAttachmentTable.outboxMessageId),
+			ne(other.outboxAttachmentId, outboxAttachmentId),
+			or(
+				eq(other.state, "Stored"),
+				gte(other.reservationExpiresAt, cap.nowSeconds),
+			),
+		);
+		const total = this.db
+			.select({ bytes: sum(other.sizeBytes) })
+			.from(other)
+			.where(liveOthers);
 		const [row] = await this.db
 			.update(outboxAttachmentTable)
 			.set({
@@ -264,6 +296,11 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 					eq(outboxAttachmentTable.accountConfigId, accountConfigId),
 					eq(outboxAttachmentTable.outboxAttachmentId, outboxAttachmentId),
 					eq(outboxAttachmentTable.state, "Pending"),
+					lt(
+						this.db.select({ count: count() }).from(other).where(liveOthers),
+						cap.maxCount,
+					),
+					lte(sql`coalesce((${total}), 0) + ${sizeBytes}`, cap.maxTotalBytes),
 				),
 			)
 			.returning();

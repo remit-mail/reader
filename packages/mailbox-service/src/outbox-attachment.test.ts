@@ -464,6 +464,41 @@ describe("completing an attachment", () => {
 		);
 	});
 
+	it("refuses completion if storage verification outlasts the reservation and quota is taken", async () => {
+		let now = 3_000_000;
+		const { service, storage } = await build(
+			OutboxMessageStatus.draft,
+			() => now,
+		);
+		const first = await mint(service, { sizeBytes: 64 });
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		await uploadFor(storage, first.reservation.outboxAttachmentId, 64);
+		const stat = storage.statOutboxAttachment.bind(storage);
+		storage.statOutboxAttachment = async (...args) => {
+			now += UPLOAD_URL_TTL_SECONDS + 1;
+			assert.equal(
+				(await mint(service, { sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES }))
+					.outcome,
+				"Minted",
+			);
+			return stat(...args);
+		};
+		const result = await service.complete({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+		});
+		assert.equal(
+			result.outcome === "Rejected" && result.rejection.reason,
+			OutboxAttachmentRejectionReason.MessageTooLarge,
+		);
+		assert.equal(
+			(await rowOf(first.reservation.outboxAttachmentId)).state,
+			"Pending",
+		);
+	});
+
 	it("renews a slow upload before completion", async () => {
 		const clock = { seconds: 3_000_000 };
 		const { service, storage } = await build(

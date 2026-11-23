@@ -10,18 +10,15 @@
  *
  * Driven through the real handlers, the real OutboxQueueService and the real
  * error funnel, so what is asserted is the status code the browser receives.
- * Only the queue and the store are stood in for.
+ * The queue and message repository are stood in for; attachments use SQLite.
  */
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type {
-	CreateOutboxAttachmentInput,
 	CreateOutboxMessageInput,
 	IAccountRepository,
-	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
-	OutboxAttachmentItem,
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
@@ -38,6 +35,10 @@ import {
 	OutboxAttachmentService,
 	OutboxQueueService,
 } from "@remit/mailbox-service";
+import {
+	openStore,
+	type Store,
+} from "@remit/mailbox-service/test-helpers/test-store";
 import {
 	createMockStorageService,
 	type StorageService,
@@ -181,90 +182,16 @@ const accountRepository = {
 } as unknown as IAccountRepository;
 
 let installedStorage: StorageService | null = null;
-let attachmentRows = new Map<string, OutboxAttachmentItem>();
-
-/** Rows only — this suite asserts what a discard takes, not how bytes move. */
-const createAttachmentRepository = (
-	rows: Map<string, OutboxAttachmentItem>,
-): IOutboxAttachmentRepository =>
-	({
-		reserve: async (input: CreateOutboxAttachmentInput) => {
-			const item = {
-				...input,
-				state: "Pending",
-				createdAt: 0,
-				updatedAt: 0,
-			} as OutboxAttachmentItem;
-			rows.set(item.outboxAttachmentId, item);
-			return { outcome: "Reserved", item };
-		},
-		renew: async (input: CreateOutboxAttachmentInput) => {
-			const row = rows.get(input.outboxAttachmentId);
-			if (
-				!row ||
-				row.accountConfigId !== input.accountConfigId ||
-				row.outboxMessageId !== input.outboxMessageId ||
-				row.state !== "Pending"
-			)
-				return { outcome: "Missing" };
-			const item = { ...row, reservationExpiresAt: input.reservationExpiresAt };
-			rows.set(item.outboxAttachmentId, item);
-			return { outcome: "Reserved", item };
-		},
-		get: async (accountConfigId: string, outboxAttachmentId: string) => {
-			const row = rows.get(outboxAttachmentId);
-			if (!row || row.accountConfigId !== accountConfigId)
-				throw new NotFoundError("gone");
-			return row;
-		},
-		listByOutboxMessage: async (
-			_accountConfigId: string,
-			outboxMessageId: string,
-		) =>
-			[...rows.values()].filter(
-				(row) => row.outboxMessageId === outboxMessageId,
-			),
-		deleteByOutboxMessage: async (
-			_accountConfigId: string,
-			outboxMessageId: string,
-		) => {
-			for (const row of [...rows.values()]) {
-				if (row.outboxMessageId === outboxMessageId) {
-					rows.delete(row.outboxAttachmentId);
-				}
-			}
-		},
-		deleteLapsedReservations: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			nowSeconds: number,
-		) => {
-			const gone: string[] = [];
-			for (const row of [...rows.values()]) {
-				if (
-					row.accountConfigId === accountConfigId &&
-					row.outboxMessageId === outboxMessageId &&
-					row.state === "Pending" &&
-					row.reservationExpiresAt < nowSeconds
-				) {
-					rows.delete(row.outboxAttachmentId);
-					gone.push(row.outboxAttachmentId);
-				}
-			}
-			return gone;
-		},
-		deleteMany: async (_accountConfigId: string, ids: string[]) => {
-			for (const id of ids) rows.delete(id);
-		},
-	}) as unknown as IOutboxAttachmentRepository;
-
-const installClient = (queue: RecordingQueue = recordingQueue()): void => {
+let attachmentStore: Store;
+const installClient = async (
+	queue: RecordingQueue = recordingQueue(),
+): Promise<void> => {
 	const outboxMessage = createInMemoryOutboxRepository();
 	const storage = createMockStorageService();
-	attachmentRows = new Map<string, OutboxAttachmentItem>();
+	attachmentStore = await openStore();
 	const outboxAttachmentService = new OutboxAttachmentService({
 		outboxMessageService: outboxMessage,
-		outboxAttachmentService: createAttachmentRepository(attachmentRows),
+		outboxAttachmentService: attachmentStore.outboxAttachment,
 		storage,
 	});
 	installedStorage = storage;
@@ -358,13 +285,14 @@ const sentOutboxMessageId = async (): Promise<string> => {
 	return String(outboxMessageId);
 };
 
-afterEach(() => {
+afterEach(async () => {
+	await attachmentStore?.close();
 	accountSyncedServices = ["Mail"];
 });
 
 describe("an outbox entry that has left draft (#604)", () => {
 	it("answers a late autosave PATCH with 409, never a 500", async () => {
-		installClient();
+		await installClient();
 		const outboxMessageId = await sentOutboxMessageId();
 
 		const response = await respond(() =>
@@ -383,7 +311,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 	});
 
 	it("refuses a second send with 409, never a 500", async () => {
-		installClient();
+		await installClient();
 		const outboxMessageId = await sentOutboxMessageId();
 
 		const response = await respond(() =>
@@ -394,7 +322,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 	});
 
 	it("refuses a discard with 409, never a 500", async () => {
-		installClient();
+		await installClient();
 		const outboxMessageId = await sentOutboxMessageId();
 
 		const response = await respond(() =>
@@ -405,7 +333,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 	});
 
 	it("still discards a message that was sent but never filed", async () => {
-		installClient();
+		await installClient();
 		const outboxMessageId = await sentOutboxMessageId();
 		await client.outboxMessage.update(ACCOUNT_CONFIG_ID, outboxMessageId, {
 			status: OutboxMessageStatus.unfiled,
@@ -419,7 +347,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 	});
 
 	it("still accepts an autosave PATCH while the entry is a draft", async () => {
-		installClient();
+		await installClient();
 		const draft = await createDraft(
 			requestContext(
 				{},
@@ -451,7 +379,7 @@ describe("a send whose enqueue fails (#845.8)", () => {
 	const draftAgainstQueue = async (
 		queue: RecordingQueue,
 	): Promise<{ outboxMessageId: string; response: APIGatewayProxyResult }> => {
-		installClient(queue);
+		await installClient(queue);
 		const draft = await createDraft(
 			requestContext(
 				{},
@@ -525,7 +453,7 @@ describe("a send whose enqueue fails (#845.8)", () => {
 
 describe("discarding a draft that carries files (#679)", () => {
 	it("takes the stored bytes with it, leaving nothing behind", async () => {
-		installClient();
+		await installClient();
 		const storage = installedStorage;
 		assert.ok(storage);
 
@@ -553,7 +481,15 @@ describe("discarding a draft that carries files (#679)", () => {
 		// has to take with it is the reservation, not an object.
 		// A mint writes a row; nothing is uploaded yet, so what a discard has to
 		// take with it is the row, not an object.
-		assert.equal(attachmentRows.size, 1);
+		assert.equal(
+			(
+				await attachmentStore.outboxAttachment.listByOutboxMessage(
+					ACCOUNT_CONFIG_ID,
+					outboxMessageId,
+				)
+			).length,
+			1,
+		);
 
 		const response = await respond(() =>
 			deleteDraft(requestContext({ params: { outboxMessageId } }), caller()),
@@ -570,7 +506,15 @@ describe("discarding a draft that carries files (#679)", () => {
 			),
 			[],
 		);
-		assert.equal(attachmentRows.size, 0);
+		assert.equal(
+			(
+				await attachmentStore.outboxAttachment.listByOutboxMessage(
+					ACCOUNT_CONFIG_ID,
+					outboxMessageId,
+				)
+			).length,
+			0,
+		);
 	});
 });
 
@@ -615,7 +559,7 @@ describe("attachmentIds on a draft update (#679)", () => {
 		);
 
 	it("absent leaves the files alone — a subject-only save keeps them", async () => {
-		installClient();
+		await installClient();
 		const { outboxMessageId } = await seed();
 
 		const response = await patch(outboxMessageId, { subject: "still typing" });
@@ -623,11 +567,19 @@ describe("attachmentIds on a draft update (#679)", () => {
 		assert.equal(response.statusCode, 200);
 		const body = JSON.parse(response.body) as { attachments: unknown[] };
 		assert.equal(body.attachments.length, 2);
-		assert.equal(attachmentRows.size, 2);
+		assert.equal(
+			(
+				await attachmentStore.outboxAttachment.listByOutboxMessage(
+					ACCOUNT_CONFIG_ID,
+					outboxMessageId,
+				)
+			).length,
+			2,
+		);
 	});
 
 	it("names each file by its content-id and where its bytes are read from", async () => {
-		installClient();
+		await installClient();
 		const { outboxMessageId, ids } = await seed();
 
 		const response = await patch(outboxMessageId, { subject: "still typing" });
@@ -645,14 +597,14 @@ describe("attachmentIds on a draft update (#679)", () => {
 		assert.equal(first.contentId, `${ids[0]}@remit`);
 		assert.ok(
 			first.contentUrl.startsWith(
-				`${CONTENT_DOMAIN}/content/${attachmentRows.get(ids[0])?.storageKey}`,
+				`${CONTENT_DOMAIN}/content/${(await attachmentStore.outboxAttachment.get(ACCOUNT_CONFIG_ID, ids[0])).storageKey}`,
 			),
 			first.contentUrl,
 		);
 	});
 
 	it("present and empty removes every file", async () => {
-		installClient();
+		await installClient();
 		const { outboxMessageId } = await seed();
 
 		const response = await patch(outboxMessageId, { attachmentIds: [] });
@@ -662,11 +614,19 @@ describe("attachmentIds on a draft update (#679)", () => {
 			(JSON.parse(response.body) as { attachments: unknown[] }).attachments,
 			[],
 		);
-		assert.equal(attachmentRows.size, 0);
+		assert.equal(
+			(
+				await attachmentStore.outboxAttachment.listByOutboxMessage(
+					ACCOUNT_CONFIG_ID,
+					outboxMessageId,
+				)
+			).length,
+			0,
+		);
 	});
 
 	it("present with ids keeps those and removes the rest, bytes included", async () => {
-		installClient();
+		await installClient();
 		const { outboxMessageId, ids } = await seed();
 		const storage = installedStorage;
 		assert.ok(storage);
@@ -702,7 +662,7 @@ describe("attachmentIds on a draft update (#679)", () => {
 	});
 
 	it("an unknown id is a no-op, not a reason to drop the known ones", async () => {
-		installClient();
+		await installClient();
 		const { outboxMessageId, ids } = await seed();
 
 		const response = await patch(outboxMessageId, {
@@ -710,7 +670,15 @@ describe("attachmentIds on a draft update (#679)", () => {
 		});
 
 		assert.equal(response.statusCode, 200);
-		assert.equal(attachmentRows.size, 2);
+		assert.equal(
+			(
+				await attachmentStore.outboxAttachment.listByOutboxMessage(
+					ACCOUNT_CONFIG_ID,
+					outboxMessageId,
+				)
+			).length,
+			2,
+		);
 	});
 });
 
@@ -728,7 +696,7 @@ describe("sending from an account with mail off (#1181)", () => {
 	};
 
 	it("answers a send of a saved draft with a 400 naming the fix", async () => {
-		installClient();
+		await installClient();
 		const draft = await createDraft(
 			requestContext(
 				{},
@@ -762,7 +730,7 @@ describe("sending from an account with mail off (#1181)", () => {
 	});
 
 	it("answers a send-immediately create with the same 400", async () => {
-		installClient();
+		await installClient();
 		accountSyncedServices = ["Calendar"];
 
 		const response = await respond(() =>

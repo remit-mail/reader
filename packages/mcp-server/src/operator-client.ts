@@ -34,7 +34,6 @@ export const createOperatorClient = (
 						email: `${userId}@subject.invalid`,
 					}),
 					operator: async () => true,
-					operatorGrant: async () => true,
 				},
 				"mcp-operator",
 			),

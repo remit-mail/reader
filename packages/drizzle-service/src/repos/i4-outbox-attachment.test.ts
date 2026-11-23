@@ -133,6 +133,7 @@ describe("OutboxAttachmentRepo.markStored", () => {
 			cfg,
 			reserved.item.outboxAttachmentId,
 			100,
+			CAP,
 		);
 
 		assert.strictEqual(stored?.state, "Stored");
@@ -147,9 +148,9 @@ describe("OutboxAttachmentRepo.markStored", () => {
 		assert.strictEqual(reserved.outcome, "Reserved");
 		if (reserved.outcome !== "Reserved") return;
 
-		await repo.markStored(cfg, reserved.item.outboxAttachmentId, 100);
+		await repo.markStored(cfg, reserved.item.outboxAttachmentId, 100, CAP);
 		assert.strictEqual(
-			await repo.markStored(cfg, reserved.item.outboxAttachmentId, 100),
+			await repo.markStored(cfg, reserved.item.outboxAttachmentId, 100, CAP),
 			null,
 		);
 	});
@@ -162,7 +163,12 @@ describe("OutboxAttachmentRepo.markStored", () => {
 		if (reserved.outcome !== "Reserved") return;
 
 		assert.strictEqual(
-			await repo.markStored(randomId(), reserved.item.outboxAttachmentId, 100),
+			await repo.markStored(
+				randomId(),
+				reserved.item.outboxAttachmentId,
+				100,
+				CAP,
+			),
 			null,
 		);
 	});
@@ -202,7 +208,7 @@ describe("OutboxAttachmentRepo.renew", () => {
 			{ outcome: "Missing" },
 		);
 		assert.strictEqual(
-			await repo.markStored(cfg, stale.outboxAttachmentId, 100),
+			await repo.markStored(cfg, stale.outboxAttachmentId, 100, CAP),
 			null,
 		);
 		assert.deepStrictEqual(await repo.listByOutboxMessage(cfg, draft), []);
@@ -284,7 +290,7 @@ describe("OutboxAttachmentRepo.renew", () => {
 				.reservationExpiresAt,
 			renew.reservationExpiresAt,
 		);
-		await repo.markStored(cfg, reservation.outboxAttachmentId, 100);
+		await repo.markStored(cfg, reservation.outboxAttachmentId, 100, CAP);
 		assert.deepStrictEqual(await repo.renew(renew, CAP), {
 			outcome: "Missing",
 		});

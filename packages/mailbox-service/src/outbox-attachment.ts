@@ -381,12 +381,6 @@ export class OutboxAttachmentService {
 			return { outcome: "Completed", attachment: row };
 		}
 
-		if (!holdsRoom(row, nowSeconds)) {
-			const renewed = await this.renew(row);
-			if (renewed.outcome !== "Reserved")
-				return this.reservationRefusal(renewed, row.filename, row.sizeBytes);
-		}
-
 		const stored = await this.storage.statOutboxAttachment(
 			input.accountConfigId,
 			outbox.accountId,
@@ -423,6 +417,11 @@ export class OutboxAttachmentService {
 			input.accountConfigId,
 			input.outboxAttachmentId,
 			stored.sizeBytes,
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds: this.now(),
+			},
 		);
 		if (confirmed === null) {
 			// Another completion moved it between the read and the update. Read it
@@ -431,6 +430,12 @@ export class OutboxAttachmentService {
 				input.accountConfigId,
 				input.outboxAttachmentId,
 			);
+			if (settled.state !== "Stored")
+				return this.reject(
+					OutboxAttachmentRejectionReason.MessageTooLarge,
+					"This draft no longer has room to complete this upload. Remove another attachment and retry.",
+					await this.usedBytesOn(input.accountConfigId, input.outboxMessageId),
+				);
 			return { outcome: "Completed", attachment: settled };
 		}
 

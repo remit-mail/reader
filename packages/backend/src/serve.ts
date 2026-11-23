@@ -39,7 +39,6 @@ export interface RequestHost<K extends QueueName> {
 	client: () => Promise<RemitClient<K>>;
 	identity: () => Promise<HandlerIdentity>;
 	operator: () => Promise<boolean>;
-	operatorGrant: () => Promise<boolean>;
 	peopleDirectory: () => Promise<PeopleDirectory | null>;
 }
 
@@ -98,7 +97,6 @@ export const serveApi = <K extends QueueName>(
 						client: await host.client(),
 						identity,
 						operator: await host.operator(),
-						operatorGrant: await host.operatorGrant(),
 						peopleDirectory: await host.peopleDirectory(),
 						config: host.config,
 					});

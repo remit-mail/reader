@@ -14,7 +14,7 @@ import type {
 	PeopleDirectory,
 	PeopleOutcome,
 	PeopleRefusal,
-	TargetedRequest,
+	PersonRequest,
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
@@ -71,7 +71,6 @@ interface Guarded {
 	directory: PeopleDirectory;
 	callerId: string;
 	clientIp: string;
-	operatorGrant: boolean;
 }
 
 /**
@@ -98,7 +97,6 @@ const guard = (
 		directory,
 		callerId: ctx.identity.sub,
 		clientIp: headerOf(context, CLIENT_IP_HEADER) ?? "unknown",
-		operatorGrant: ctx.operatorGrant === true,
 	};
 	const refuseAudited = (
 		outcome: GuardRefusal,
@@ -133,10 +131,9 @@ const targetOf = (context: Context): string =>
 const targetedRequest = (
 	guarded: Guarded,
 	targetId: string,
-): TargetedRequest => ({
+): PersonRequest => ({
 	callerId: guarded.callerId,
 	clientIp: guarded.clientIp,
-	operatorGrant: guarded.operatorGrant,
 	targetId,
 });
 

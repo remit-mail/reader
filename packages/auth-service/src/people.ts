@@ -67,10 +67,6 @@ export interface PersonRequest extends PeopleRequest {
 	targetId: string;
 }
 
-export interface TargetedRequest extends PersonRequest {
-	operatorGrant: boolean;
-}
-
 export interface InviteRequest extends PeopleRequest {
 	email: string;
 }
@@ -94,12 +90,12 @@ export interface PeopleDirectory {
 	): Promise<PeopleOutcome<PersonInviteResponse>>;
 	resetPersonFactors(request: PersonRequest): Promise<PeopleOutcome<Person>>;
 	createStepUp(request: StepUpRequest): Promise<PeopleOutcome<StepUpGrant>>;
-	signOutPerson(request: TargetedRequest): Promise<PeopleOutcome<Person>>;
+	signOutPerson(request: PersonRequest): Promise<PeopleOutcome<Person>>;
 	updatePerson(
-		request: TargetedRequest & { status: PersonStatus },
+		request: PersonRequest & { status: PersonStatus },
 	): Promise<PeopleOutcome<Person>>;
 	createPasswordReset(
-		request: TargetedRequest,
+		request: PersonRequest,
 	): Promise<PeopleOutcome<PasswordReset>>;
 	recordRefusal(
 		request: PeopleRequest & { targetId: string; outcome: GuardRefusal },

@@ -214,6 +214,11 @@ const attach = async (
 		a.accountConfigId,
 		outboxAttachmentId,
 		file.content?.length ?? 4,
+		{
+			maxTotalBytes: 25 * 1024 * 1024,
+			maxCount: 25,
+			nowSeconds: Math.floor(Date.now() / 1000),
+		},
 	);
 	if (file.content === null) return;
 	await w.storage.storeOutboxAttachment({

@@ -16,13 +16,10 @@ import { Readable } from "node:stream";
 import { afterEach, describe, it } from "node:test";
 import type {
 	CreateOutboxMessageInput,
-	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
-	OutboxAttachmentItem,
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
-import { holdsRoom } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
@@ -33,6 +30,10 @@ import {
 	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
 	OutboxAttachmentService,
 } from "@remit/mailbox-service";
+import {
+	openStore,
+	type Store,
+} from "@remit/mailbox-service/test-helpers/test-store";
 import {
 	type StorageService,
 	UPLOAD_ROUTE_PREFIX,
@@ -100,111 +101,10 @@ const createOutboxRepository = (
 interface Installed {
 	storage: StorageService;
 	basePath: string;
-	rows: Map<string, OutboxAttachmentItem>;
 }
 
-/** The row store the cap and the sweep both read. */
-const createAttachmentRepository = (
-	rows: Map<string, OutboxAttachmentItem>,
-): IOutboxAttachmentRepository => {
-	const forDraft = (accountConfigId: string, outboxMessageId: string) =>
-		[...rows.values()].filter(
-			(row) =>
-				row.accountConfigId === accountConfigId &&
-				row.outboxMessageId === outboxMessageId,
-		);
-
-	return {
-		reserve: async (input, cap) => {
-			const live = forDraft(
-				input.accountConfigId,
-				input.outboxMessageId,
-			).filter(
-				(row) =>
-					row.outboxAttachmentId !== input.outboxAttachmentId &&
-					holdsRoom(row, cap.nowSeconds),
-			);
-			const usedBytes = live.reduce((total, row) => total + row.sizeBytes, 0);
-			if (live.length >= cap.maxCount) {
-				return { outcome: "OverCountCap", usedBytes };
-			}
-			if (usedBytes + input.sizeBytes > cap.maxTotalBytes) {
-				return { outcome: "OverByteCap", usedBytes };
-			}
-			const item = {
-				...input,
-				state: "Pending",
-				createdAt: 0,
-				updatedAt: 0,
-			} as OutboxAttachmentItem;
-			rows.set(item.outboxAttachmentId, item);
-			return { outcome: "Reserved", item };
-		},
-		renew: async (input) => {
-			const row = rows.get(input.outboxAttachmentId);
-			if (
-				!row ||
-				row.accountConfigId !== input.accountConfigId ||
-				row.outboxMessageId !== input.outboxMessageId ||
-				row.state !== "Pending"
-			)
-				return { outcome: "Missing" };
-			const item = { ...row, reservationExpiresAt: input.reservationExpiresAt };
-			rows.set(item.outboxAttachmentId, item);
-			return { outcome: "Reserved", item };
-		},
-		get: async (accountConfigId, outboxAttachmentId) => {
-			const row = rows.get(outboxAttachmentId);
-			if (!row || row.accountConfigId !== accountConfigId) {
-				throw new NotFoundError("gone");
-			}
-			return row;
-		},
-		listByOutboxMessage: async (accountConfigId, outboxMessageId) =>
-			forDraft(accountConfigId, outboxMessageId),
-		markStored: async (_accountConfigId, outboxAttachmentId, sizeBytes) => {
-			const row = rows.get(outboxAttachmentId);
-			if (!row || row.state !== "Pending") return null;
-			const next = {
-				...row,
-				state: "Stored",
-				sizeBytes,
-				reservationExpiresAt: 0,
-			} as OutboxAttachmentItem;
-			rows.set(outboxAttachmentId, next);
-			return next;
-		},
-		deleteLapsedReservations: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			nowSeconds: number,
-		) => {
-			const gone: string[] = [];
-			for (const row of [...rows.values()]) {
-				if (
-					row.accountConfigId === accountConfigId &&
-					row.outboxMessageId === outboxMessageId &&
-					row.state === "Pending" &&
-					row.reservationExpiresAt < nowSeconds
-				) {
-					rows.delete(row.outboxAttachmentId);
-					gone.push(row.outboxAttachmentId);
-				}
-			}
-			return gone;
-		},
-		deleteMany: async (_accountConfigId, ids) => {
-			for (const id of ids) rows.delete(id);
-		},
-		deleteByOutboxMessage: async (accountConfigId, outboxMessageId) => {
-			for (const row of forDraft(accountConfigId, outboxMessageId)) {
-				rows.delete(row.outboxAttachmentId);
-			}
-		},
-	};
-};
-
 const temporaryRoots: string[] = [];
+const attachmentStores: Store[] = [];
 
 const install = async (
 	overrides: Partial<OutboxMessageItem> = {},
@@ -231,18 +131,19 @@ const install = async (
 		signingSecret: SECRET,
 	});
 
-	const attachmentRows = new Map<string, OutboxAttachmentItem>();
+	const attachmentStore = await openStore();
+	attachmentStores.push(attachmentStore);
 	client = {
 		outboxMessage,
 		storage,
 		outboxAttachment: new OutboxAttachmentService({
 			outboxMessageService: outboxMessage,
-			outboxAttachmentService: createAttachmentRepository(attachmentRows),
+			outboxAttachmentService: attachmentStore.outboxAttachment,
 			storage,
 		}),
 	} as unknown as RemitClient;
 
-	return { storage, basePath, rows: attachmentRows };
+	return { storage, basePath };
 };
 
 const caller = (): HandlerContext => ({
@@ -339,6 +240,7 @@ const mintedBody = (
 
 afterEach(async () => {
 	_resetForTest();
+	for (const store of attachmentStores.splice(0)) await store.close();
 	for (const root of temporaryRoots.splice(0)) {
 		await rm(root, { recursive: true, force: true });
 	}
