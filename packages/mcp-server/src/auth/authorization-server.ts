@@ -666,11 +666,14 @@ const renewableDeviceAuthorization = (origin: string) => {
 			extension.grants[DEVICE_CODE_GRANT_TYPE] = (input) =>
 				grant({
 					...input,
-					provider: getOAuthProviderApi(
-						input.ctx,
-						{ ...input.opts, disableJwtPlugin: true },
-						input.grantType,
-					),
+					provider: {
+						...input.provider,
+						issueTokens: getOAuthProviderApi(
+							input.ctx,
+							{ ...input.opts, disableJwtPlugin: true },
+							input.grantType,
+						).issueTokens,
+					},
 				});
 		},
 	};
