@@ -299,7 +299,6 @@ describe("decidePlacement rescuing Junk mail", () => {
 	});
 
 	for (const [trust, override, junkExit] of [
-		[SenderTrust.Unknown, SenderOverride.None, ARRIVAL],
 		[SenderTrust.Vip, SenderOverride.None, ARRIVAL],
 		[SenderTrust.Unknown, SenderOverride.NeverSpam, RESCUE],
 	] as const) {

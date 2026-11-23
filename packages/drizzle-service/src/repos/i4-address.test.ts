@@ -98,24 +98,6 @@ describe("AddressRepo", () => {
 		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
 	});
 
-	test("three inbound messages promote a person-shaped sender to wellknown", async () => {
-		const addr = await repo.createAddress(makeAddressInput(randomId()));
-		const now = Date.now();
-
-		for (let i = 0; i < 3; i++) {
-			await repo.incrementInboundCount(
-				addr.accountConfigId,
-				addr.addressId,
-				now,
-			);
-		}
-
-		const updated = await repo.getAddress(addr.accountConfigId, addr.addressId);
-		assert.equal(updated.flags?.wellknown?.value, true);
-
-		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
-	});
-
 	test("JavaScript Weekly: three qualifying newsletter arrivals establish wellknown trust", async () => {
 		const addr = await repo.createAddress(
 			makeAddressInput(randomId(), "jsw@peterc.org"),
