@@ -35,6 +35,7 @@ import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
+	FromPlacement,
 	QuarantineFailureStage,
 	SyncWarningStage,
 } from "@remit/domain-enums";
@@ -96,6 +97,7 @@ import {
 	decideSpamVerdict,
 	type SpamConfig,
 	type SpamPlacement,
+	spamClearsJunk,
 	spamPlacementOf,
 } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
@@ -868,25 +870,26 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
-		const spamVerdict = arrival.folderSynced
-			? await decideSpamVerdict(
-					this.spamConfig,
-					this.addressService,
-					spamArrivalOf({
-						account: { accountId, accountConfigId },
-						parsed,
-						raw: body,
-						internalDate: arrival.internalDate,
-						sender: await senderPlacement(),
-						filterDecision,
-						classifierScores,
-						classification,
-						classifier: this.classifierConfig,
-						gate: await lookups.classifierGate(),
-						ownAddresses: await lookups.ownAddresses(),
-					}),
-				)
-			: undefined;
+		const spamVerdict =
+			arrival.folderSynced || arrival.placement === FromPlacement.Junk
+				? await decideSpamVerdict(
+						this.spamConfig,
+						this.addressService,
+						spamArrivalOf({
+							account: { accountId, accountConfigId },
+							parsed,
+							raw: body,
+							internalDate: arrival.internalDate,
+							sender: await senderPlacement(),
+							filterDecision,
+							classifierScores,
+							classification,
+							classifier: this.classifierConfig,
+							gate: await lookups.classifierGate(),
+							ownAddresses: await lookups.ownAddresses(),
+						}),
+					)
+				: undefined;
 		const spamPlacement = spamVerdict
 			? spamPlacementOf(spamVerdict, await lookups.spamSettings())
 			: NO_SPAM_PLACEMENT;
@@ -992,10 +995,19 @@ export class BodySyncService {
 						roles: await lookups.roleMailboxes(),
 						sender: await senderPlacement(),
 						move: !filterDecision.move,
-						junkExit:
-							arrival.internalDate <= arrival.folderCreatedAt
-								? { state: "Rescue", clean: false }
-								: { state: "Arrival" },
+						junkExit: {
+							state:
+								arrival.internalDate <= arrival.folderCreatedAt
+									? "Rescue"
+									: "Arrival",
+							cleared: spamVerdict
+								? spamClearsJunk(
+										spamVerdict,
+										this.spamConfig.spamPipeline,
+										classification.authResult?.dmarc,
+									)
+								: undefined,
+						},
 					}
 				: undefined,
 		});
@@ -1049,13 +1061,17 @@ export class BodySyncService {
 		await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");
 
-		// From-Address engagement counter (Address entity, not Message).
-		await this.incrementInboundCount(
-			messageId,
-			accountConfigId,
-			parsed,
-			classification,
-		);
+		// From-Address engagement counter (Address entity, not Message). Mail
+		// that stays in Junk is no engagement: counting it would let a sender
+		// earn Wellknown or a Newsletter screen-out from Junk alone (#1428).
+		if (arrival.placement !== FromPlacement.Junk || update.movedByRemit) {
+			await this.incrementInboundCount(
+				messageId,
+				accountConfigId,
+				parsed,
+				classification,
+			);
+		}
 
 		return parsed;
 	}

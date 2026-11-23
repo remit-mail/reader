@@ -52,7 +52,7 @@
 	"forwarded-message.spec.ts": 6.3,
 	"gateway.spec.ts": 0,
 	"inbox-category-filter.spec.ts": 78.1,
-	"junk-arrival-to-inbox.spec.ts": 3.2,
+	"junk-arrival-stays.spec.ts": 3.2,
 	"keyboard-and-selection.spec.ts": 37.7,
 	"labelled-message.spec.ts": 5.9,
 	"list-header-search.spec.ts": 2.9,

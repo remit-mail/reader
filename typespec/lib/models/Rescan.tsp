@@ -22,6 +22,9 @@ model RescanSuccess {
 
   @doc("Names of the labels the rescan applied to the message.")
   labels: string[];
+
+  @doc("Whether the rescan moved the message to another folder. Only a rescan with `move` moves.")
+  moved: boolean;
 }
 
 @doc("One message the rescan left unchecked.")

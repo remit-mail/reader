@@ -47,8 +47,8 @@ import { isPlacementUnsettled } from "../placement-settled.js";
 import { readSenderPlacement } from "../sender-placement.js";
 import {
 	decideSpamVerdict,
-	isConfidentlyClean,
 	type SpamConfig,
+	spamClearsJunk,
 	spamPlacementOf,
 } from "./index.js";
 import { removeSpamLabels } from "./spam-labels.js";
@@ -139,7 +139,7 @@ const spamFailure = (verdict: MessageSpamVerdict): FailureCode | undefined =>
  * only `uncategorized` mail gets one. A message the owner cleared (Not spam,
  * or a Never in Spam sender) gets its verdict recorded and no spam label; one
  * marked Not spam never moves. With `move`, a message in Junk returns to the
- * Inbox for a trusted sender or a verdict a judge called clean.
+ * Inbox when the spam check clears it.
  */
 export class RescanService {
 	constructor(private readonly deps: RescanDeps) {}
@@ -286,7 +286,11 @@ export class RescanService {
 							move: true,
 							junkExit: {
 								state: "Rescue",
-								clean: isConfidentlyClean(verdict, deps.spam.spamPipeline),
+								cleared: spamClearsJunk(
+									verdict,
+									deps.spam.spamPipeline,
+									classification.authResult?.dmarc,
+								),
 							},
 						}
 					: undefined,
@@ -301,7 +305,15 @@ export class RescanService {
 		}
 		await this.dropStaleSpamLabel(accountConfigId, message, settings, labels);
 		await deps.message.update(messageId, update);
-		return { ok: true, success: { messageId, verdict, labels } };
+		return {
+			ok: true,
+			success: {
+				messageId,
+				verdict,
+				labels,
+				moved: update.movedByRemit === true,
+			},
+		};
 	}
 
 	/**

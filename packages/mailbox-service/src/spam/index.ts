@@ -35,8 +35,8 @@ export {
 } from "./model.js";
 export {
 	classifierMayJunk,
-	isConfidentlyClean,
 	type SpamPlacement,
+	spamClearsJunk,
 	spamPlacementOf,
 } from "./placement.js";
 export { parseRdapRegistration, RdapClient, type RdapFetch } from "./rdap.js";

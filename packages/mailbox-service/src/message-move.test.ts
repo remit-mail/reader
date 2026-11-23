@@ -794,7 +794,7 @@ describe("a user move after Remit filed a message in Junk", () => {
 			SenderOverride.None,
 			false,
 			false,
-			{ state: "Rescue", clean: true },
+			{ state: "Rescue", cleared: "sender=vip" },
 		);
 		assert.equal(decision.destination, undefined);
 	});
