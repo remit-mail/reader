@@ -8,10 +8,8 @@
  *   1. `flags.wellknown.value` is not already `true` (idempotent).
  *   2. Engagement threshold:
  *      - `replyCount >= 1` always promotes (a real two-way conversation).
- *      - `inboundCount >= 3` promotes ONLY for non-bulk senders. Bulk senders
- *        (newsletters, marketing, automated, or List-Unsubscribe present) reach
- *        high inbound counts by volume alone — that is not engagement. Only a
- *        real reply from the user (`replyCount >= 1`) promotes a bulk sender.
+ *      - `inboundCount >= 3` promotes any sender, including bulk/newsletters.
+ *        Body sync excludes mail that stays in Junk from this count (#1428).
  *   3. `lastInboundAt` exists and is within the last 90 days
  *      (keeps dormant senders from being promoted by stale counters).
  *
@@ -26,8 +24,7 @@ export const WELLKNOWN_REPLY_THRESHOLD = 1;
 export const WELLKNOWN_INBOUND_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 /**
- * Categories and signals that make a sender "bulk". Bulk senders cannot be
- * promoted by inbound volume alone — only a real reply promotes them.
+ * Categories and signals that make a sender "bulk".
  */
 const BULK_CATEGORIES: ReadonlySet<string> = new Set([
 	"newsletter",
@@ -41,8 +38,8 @@ export interface WellknownEngagementSnapshot {
 	lastInboundAt?: number;
 	/**
 	 * Whether this sender is a bulk/automated sender (newsletter, marketing,
-	 * automated category, or List-Unsubscribe header present). Bulk senders
-	 * can only be promoted via `replyCount >= 1`, not by inbound volume.
+	 * automated category, or List-Unsubscribe header present). This metadata
+	 * does not affect promotion.
 	 */
 	isBulk?: boolean;
 	flags?: {
@@ -59,9 +56,7 @@ export const shouldPromoteWellknown = (
 	const replyCount = snapshot.replyCount ?? 0;
 	const inboundCount = snapshot.inboundCount ?? 0;
 	const replied = replyCount >= WELLKNOWN_REPLY_THRESHOLD;
-	// Bulk senders are only promotable via a real reply, not inbound volume.
-	const inboundEnough =
-		!snapshot.isBulk && inboundCount >= WELLKNOWN_INBOUND_THRESHOLD;
+	const inboundEnough = inboundCount >= WELLKNOWN_INBOUND_THRESHOLD;
 	if (!replied && !inboundEnough) return false;
 
 	const lastInboundAt = snapshot.lastInboundAt;
@@ -73,7 +68,7 @@ export const shouldPromoteWellknown = (
 
 /**
  * Returns true when the category or presence of List-Unsubscribe marks the
- * sender as bulk, meaning they cannot be promoted by inbound volume alone.
+ * sender as bulk. Bulk status does not affect wellknown promotion.
  */
 export function isBulkSender(
 	category: string | undefined,

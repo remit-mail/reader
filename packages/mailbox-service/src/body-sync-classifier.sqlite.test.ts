@@ -22,6 +22,7 @@ import {
 	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
+	SenderTrust,
 } from "@remit/domain-enums";
 import {
 	createSecretsService,
@@ -30,6 +31,7 @@ import {
 import { BodySyncService } from "./body-sync.js";
 import { CLASSIFIER_LABELS } from "./classifier/index.js";
 import { PlacementMoveService } from "./placement-move.js";
+import { readSenderPlacement } from "./sender-placement.js";
 import { SyncWarningService } from "./sync-warning.js";
 import {
 	classifierDecision as decision,
@@ -611,6 +613,29 @@ const JUNK_NEWSLETTER = eml(
 	"Read about the spring classics.",
 );
 
+// Synthetic #1428 cases: newsletter headers/auth were not captured in the
+// report. Assume List-Unsubscribe and DMARC pass, plus one earlier qualifying
+// inbound (below the wellknown threshold); no outbound mail or trust flags.
+const JAVASCRIPT_WEEKLY = eml(
+	{
+		From: "JavaScript Weekly <jsw@peterc.org>",
+		Subject: "JavaScript Weekly",
+		"List-Unsubscribe": "<https://peterc.org/unsubscribe>",
+		"Authentication-Results": "mx.example.com; dmarc=pass",
+	},
+	"This week in JavaScript.",
+);
+
+const NODE_WEEKLY = eml(
+	{
+		From: "Node Weekly <node@cooperpress.com>",
+		Subject: "Node Weekly",
+		"List-Unsubscribe": "<https://cooperpress.com/unsubscribe>",
+		"Authentication-Results": "mx.example.com; dmarc=pass",
+	},
+	"This week in Node.js.",
+);
+
 const NEWSLETTER_SENDER = "news@dutchcyclingweekly.nl";
 
 const PITCH_SENDER = "growth.partner.88@gmail.com";
@@ -665,14 +690,39 @@ const assertLeftInJunk = async (messageId: string): Promise<void> => {
 };
 
 describe("body sync judges a Junk arrival as an Inbox arrival", () => {
-	it("moves a newsletter the provider called spam to the Inbox once the spam check screens it out", async () => {
-		await subscribe(NEWSLETTER_SENDER);
-		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+	it("JavaScript Weekly (447wlxiqd47a3z4tb1nfdi3a9): checks initial-sync Junk and moves the newsletter out", async () => {
+		await subscribe("jsw@peterc.org");
+		await world.store.mailbox.update(
+			world.account.accountId,
+			world.junk.mailboxId,
+			{
+				initialSyncCompletedAt: 0,
+			},
+		);
+		const messageId = await arrive(JAVASCRIPT_WEEKLY, undefined, world.junk);
+		assert.equal(
+			(await world.store.message.get(messageId)).spamVerdict?.state,
+			"NotChecked",
+		);
+		assert.equal(
+			(
+				await readSenderPlacement(
+					world.store.address,
+					world.account.accountConfigId,
+					"jsw@peterc.org",
+				)
+			).senderTrust,
+			SenderTrust.Unknown,
+		);
 
 		await sync(bodySync(false), [messageId], world.junk);
 
 		await assertMovedToInbox(messageId);
 		const row = await world.store.message.get(messageId);
+		assert.deepEqual(row.spamVerdict, {
+			state: "ScreenedOut",
+			screen: { rule: "Newsletter" },
+		});
 		assert.equal(
 			row.placementVerdict?.confidence,
 			PlacementConfidence.Confident,
@@ -696,6 +746,21 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		await sync(bodySync(false, false, CALIBRATED), [messageId], world.junk);
 
 		await assertLeftInJunk(messageId);
+	});
+
+	it("JavaScript Weekly: qualifying newsletter history changes Unknown trust to Wellknown", async () => {
+		const service = bodySync(false);
+		for (let i = 0; i < 3; i++) {
+			const messageId = await arrive(JAVASCRIPT_WEEKLY);
+			await sync(service, [messageId]);
+		}
+		const sender = await readSenderPlacement(
+			world.store.address,
+			world.account.accountConfigId,
+			"jsw@peterc.org",
+		);
+		assert.equal(sender.inboundCount, 3);
+		assert.equal(sender.senderTrust, SenderTrust.Wellknown);
 	});
 
 	it("keeps a freemail pitch in Junk however often the sender writes there", async () => {
@@ -766,19 +831,35 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		});
 	}
 
-	it("judges mail that sat in Junk before the first sync there like the next arrival", async () => {
-		await subscribe(NEWSLETTER_SENDER);
+	it("Node Weekly (4vkcztyz50hjbisqz9ppvpx02): places ScreenedOut Newsletter backlog despite Unknown trust", async () => {
+		await subscribe("node@cooperpress.com");
+		assert.equal(
+			(
+				await readSenderPlacement(
+					world.store.address,
+					world.account.accountConfigId,
+					"node@cooperpress.com",
+				)
+			).senderTrust,
+			SenderTrust.Unknown,
+		);
 		const backlog = await arrive(
-			JUNK_NEWSLETTER,
+			NODE_WEEKLY,
 			new Date(world.junk.createdAt - 60_000),
 			world.junk,
 		);
-		const arrival = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+		const arrival = await arrive(NODE_WEEKLY, undefined, world.junk);
 
 		await sync(bodySync(false), [backlog, arrival], world.junk);
 
 		await assertMovedToInbox(backlog);
 		await assertMovedToInbox(arrival);
+		const row = await world.store.message.get(backlog);
+		assert.deepEqual(row.spamVerdict, {
+			state: "ScreenedOut",
+			screen: { rule: "Newsletter" },
+		});
+		assert.deepEqual(row.placementVerdict?.reasons, ["spam=clean"]);
 	});
 
 	const placedInJunk = [
