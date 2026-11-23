@@ -11,6 +11,7 @@ import {
 } from "./account-settings.js";
 import {
 	type MailboxNameCandidate,
+	mailboxLeafName,
 	resolveMailboxByLeafName,
 } from "./mailbox-name.js";
 
@@ -103,22 +104,59 @@ export const ROLE_SPECIAL_USE: Partial<
 };
 
 /**
- * Weak name hints, ordered best-first and lower case: the last resort for a
- * provider that advertises no SPECIAL-USE and whose user has appointed
- * nothing. Deliberately small — a guess that seeds a proposal, never a
- * substitute for server truth or for what the user chose.
+ * Conventional names, ordered best-first, in lower case and NFC. An exact
+ * match is detected only when unique in the account and at the root or directly
+ * under INBOX; otherwise the best-ranked match remains a proposal.
  */
 export const ROLE_NAME_HINTS: Partial<
 	Record<CanonicalMailboxRoleValue, readonly string[]>
 > = {
-	[CanonicalMailboxRole.Drafts]: ["drafts", "draft", "concepten"],
+	[CanonicalMailboxRole.Drafts]: [
+		"drafts",
+		"draft",
+		"concepten",
+		"entwürfe",
+		"brouillons",
+		"borradores",
+		"bozze",
+		"rascunhos",
+	],
 	[CanonicalMailboxRole.Sent]: [
 		"sent",
 		"sent items",
 		"sent messages",
 		"sent mail",
+		"verzonden",
+		"verzonden items",
+		"verzonden berichten",
+		"gesendet",
+		"gesendete elemente",
+		"gesendete objekte",
+		"gesendete nachrichten",
+		"envoyés",
+		"éléments envoyés",
+		"messages envoyés",
+		"enviados",
+		"elementos enviados",
+		"mensajes enviados",
+		"posta inviata",
+		"inviati",
+		"messaggi inviati",
+		"itens enviados",
+		"mensagens enviadas",
 	],
-	[CanonicalMailboxRole.Archive]: ["archive", "archives", "all mail"],
+	[CanonicalMailboxRole.Archive]: [
+		"archive",
+		"archives",
+		"archief",
+		"archiv",
+		"archivo",
+		"archivos",
+		"archivio",
+		"archivi",
+		"arquivo",
+		"arquivos",
+	],
 	[CanonicalMailboxRole.Junk]: [
 		"junk",
 		"spam",
@@ -130,43 +168,48 @@ export const ROLE_NAME_HINTS: Partial<
 	// keeps mail in, and a wrong guess here files deletes into a folder the
 	// user never meant as Trash. Gmail's en-GB "Bin" and its "[Gmail]/Trash"
 	// both advertise \Trash, so the flag already covers them (#837).
-	[CanonicalMailboxRole.Trash]: ["trash", "deleted items", "deleted messages"],
+	[CanonicalMailboxRole.Trash]: [
+		"trash",
+		"deleted items",
+		"deleted messages",
+		"prullenbak",
+		"verwijderde items",
+		"verwijderde berichten",
+		"papierkorb",
+		"gelöschte elemente",
+		"gelöschte objekte",
+		"gelöschte nachrichten",
+		"corbeille",
+		"éléments supprimés",
+		"messages supprimés",
+		"papelera",
+		"elementos eliminados",
+		"mensajes eliminados",
+		"cestino",
+		"posta eliminata",
+		"messaggi eliminati",
+		"lixeira",
+		"lixo",
+		"itens excluídos",
+		"mensagens excluídas",
+		"itens eliminados",
+		"mensagens eliminadas",
+	],
 	[CanonicalMailboxRole.All]: ["all mail", "all"],
 };
 
 /**
- * The role a folder's own leaf name is most conventionally for. A name that
- * several roles list goes to the role that ranks it highest, so `All Mail` is
- * an All folder rather than a lookalike of Archive.
- *
- * `name` is the leaf segment, lower case.
- */
-export const roleForFolderName = (
-	name: string,
-): CanonicalMailboxRoleValue | undefined => {
-	let best: { role: CanonicalMailboxRoleValue; rank: number } | undefined;
-	for (const role of CANONICAL_ROLES) {
-		const rank = ROLE_NAME_HINTS[role]?.indexOf(name) ?? -1;
-		if (rank < 0) continue;
-		if (!best || rank < best.rank) best = { role, rank };
-	}
-	return best?.role;
-};
-
-/**
- * Whether the mailbox sweep would read a folder with this leaf name as a
- * duplicate of a role's canonical folder — and so delete its row, and under D8
- * the mail in it, as soon as another folder carries the role's SPECIAL-USE
- * flag. It is the sweep's own predicate, so a rename refused on it and a folder
- * reaped by it can never disagree (docs/architecture/folder-rename-and-delete.md
- * D5).
- *
- * A role with no flag to be a duplicate of is not reserved: nothing reaps a
- * folder for it.
+ * Conventional system-folder names protected by label creation and MCP
+ * deletion. This is not a projection filter or a rename restriction: every
+ * selectable folder stays listed, even beside a flagged folder for the role.
  */
 export const isReservedFolderName = (name: string): boolean => {
-	const role = roleForFolderName(name.toLowerCase());
-	return role !== undefined && ROLE_SPECIAL_USE[role] !== undefined;
+	const normalized = name.normalize("NFC").toLowerCase();
+	return CANONICAL_ROLES.some(
+		(role) =>
+			ROLE_SPECIAL_USE[role] !== undefined &&
+			ROLE_NAME_HINTS[role]?.includes(normalized),
+	);
 };
 
 /**
@@ -195,8 +238,9 @@ export const NO_TRASH_FOLDER_REASON = `This account has no Trash folder, so noth
 export const STALE_TRASH_FOLDER_REASON = `The folder appointed as this account's Trash is no longer on the mail server, so nothing was deleted. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
 
 /**
- * A folder matches the Trash name hint and nothing else — enough to file a
- * delete somewhere retrievable, never enough to erase what is already in it.
+ * Multiple folders match the Trash name hints (or the match is nested outside
+ * INBOX) — enough to file a delete somewhere retrievable, never enough to
+ * erase what is already in it.
  * Emptying that folder and deleting a message already inside it both land here
  * (#876), so the sentence names neither verb: "nothing was deleted" is true of
  * both, the way its two siblings above are.
@@ -231,6 +275,7 @@ export interface RoleMailboxCandidate extends MailboxNameCandidate {
 export type UnappointedRoleResolution<T> =
 	| { kind: "flagged"; mailbox: T }
 	| { kind: "reserved"; mailbox: T }
+	| { kind: "detected"; mailbox: T }
 	| { kind: "proposed"; mailbox: T }
 	| { kind: "none" };
 
@@ -272,7 +317,21 @@ const resolveWithoutAppointment = <T extends RoleMailboxCandidate>(
 	const hints = ROLE_NAME_HINTS[role];
 	if (!hints) return { kind: "none" };
 	const proposed = resolveMailboxByLeafName(mailboxes, hints);
-	return proposed ? { kind: "proposed", mailbox: proposed } : { kind: "none" };
+	if (!proposed) return { kind: "none" };
+	const candidates = mailboxes.filter((m) =>
+		hints.includes(mailboxLeafName(m).normalize("NFC").toLowerCase()),
+	);
+	const parts = proposed.hierarchyDelimiter
+		? proposed.fullPath.split(proposed.hierarchyDelimiter)
+		: [proposed.fullPath];
+	const conventionalLocation =
+		parts.length === 1 ||
+		(parts.length === 2 && parts[0]?.toUpperCase() === "INBOX");
+	return {
+		kind:
+			candidates.length === 1 && conventionalLocation ? "detected" : "proposed",
+		mailbox: proposed,
+	};
 };
 
 /**
@@ -286,9 +345,8 @@ const resolveWithoutAppointment = <T extends RoleMailboxCandidate>(
  * 4. a conventional name, matched on the folder's own leaf segment so it
  *    resolves at any depth under any prefix.
  *
- * The last of those is a guess: a folder named `Deleted` is not evidence that
- * the user means it as Trash. Use it only where being wrong misfiles a message
- * a user can move back — never where it destroys mail.
+ * A unique exact name at the root or directly under INBOX is detected. Multiple
+ * candidates or other locations remain proposals, never expunge evidence.
  */
 export const resolveRoleForAccount = <T extends RoleMailboxCandidate>(
 	role: CanonicalMailboxRoleValue,
@@ -309,7 +367,7 @@ export const resolveRoleForAccount = <T extends RoleMailboxCandidate>(
 
 /**
  * How much evidence a Trash verb demands. `confirmed` is what an expunge
- * requires: somebody designated this folder, either the user or the server.
+ * requires: an appointment, a server flag, or an unambiguous detected name.
  * `resolved` additionally accepts the name guess, for filing mail somewhere the
  * user can retrieve it from. Trash only, deliberately — no other role and no
  * other verb weighs its evidence, and a matrix over eight roles would be five
@@ -320,8 +378,8 @@ export type TrashAssuranceLevel = "confirmed" | "resolved";
 /**
  * Why a canonical role names no folder an action may act on. `none`: the
  * account has no candidate at all. `stale`: the folder the user appointed is
- * gone from the server. `unconfirmed`: a folder matches by name, but nobody —
- * neither the user nor the server's own flag — ever said it holds the role.
+ * gone from the server. `unconfirmed`: only an ambiguous or unconventionally
+ * nested name matches; no appointment, flag or unambiguous detection applies.
  * These three and no others; a target that is merely unsettled is a different
  * refusal under its own code.
  */
@@ -344,6 +402,7 @@ export const trashMailboxAt = <T>(
 	switch (resolution.kind) {
 		case "appointed":
 		case "flagged":
+		case "detected":
 			return { allowed: true, mailbox: resolution.mailbox };
 		case "proposed":
 			return level === "resolved"
@@ -372,6 +431,7 @@ const RESOLUTION_FOR_SOURCE: Record<
 	[FolderAppointmentSource.Appointed]: { kind: "appointed", mailbox: null },
 	[FolderAppointmentSource.Flagged]: { kind: "flagged", mailbox: null },
 	[FolderAppointmentSource.Reserved]: { kind: "reserved", mailbox: null },
+	[FolderAppointmentSource.Detected]: { kind: "detected", mailbox: null },
 	[FolderAppointmentSource.Proposed]: { kind: "proposed", mailbox: null },
 	[FolderAppointmentSource.Stale]: {
 		kind: "appointment_stale",
@@ -388,7 +448,7 @@ const RESOLUTION_FOR_SOURCE: Record<
  *
  * It runs that switch rather than restating it. A hand-written mirror gets
  * `Reserved` wrong: it reads as designated, and the gate accepts only the user's
- * appointment and the server's flag.
+ * appointment, server flag and unique detected name.
  */
 export const trashSourceMeetsAssurance = (
 	source: FolderAppointmentSourceValue,
@@ -396,12 +456,9 @@ export const trashSourceMeetsAssurance = (
 ): boolean => meetsTrashAssurance(RESOLUTION_FOR_SOURCE[source], level);
 
 /**
- * The mailbox a role is CONFIRMED to hold: the one the user appointed, or the
- * one the server flagged (RFC 6154). No name guessing — `null` here means
- * nobody has said which folder this is, only that a folder happens to be named
- * something plausible. An operation that destroys mail resolves through this
- * and refuses when it comes back empty; `resolveMailboxForRole` adds the guess
- * on top for the operations where being wrong only misfiles a message.
+ * The mailbox confirmed by appointment, server flag, reserved INBOX or a
+ * unique conventional name at the root or directly under INBOX. Ambiguous
+ * proposals do not authorize destructive operations.
  *
  * An appointment naming a mailbox this account does not hold — deleted,
  * renamed, or carried in from elsewhere — is stale, and answers `null` here
@@ -417,6 +474,7 @@ export const resolveConfirmedMailboxForRole = <T extends RoleMailboxCandidate>(
 	switch (resolution.kind) {
 		case "appointed":
 		case "flagged":
+		case "detected":
 		case "reserved":
 			return resolution.mailbox;
 		default:

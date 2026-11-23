@@ -87,12 +87,15 @@ describe("changeFolderPath refuses a rename no retry could satisfy", () => {
 		);
 	});
 
-	it("keeps a system folder's conventional name free", async () => {
+	it("allows a conventional role name as a rename target", async () => {
 		const folder = await seedMailbox(store, account, "Receipts");
 
-		assert.deepEqual(
-			refusalOf(await rename(folder, "Projects/Trash")),
-			invalid("“Trash” is reserved for a system folder. Pick another name."),
+		const outcome = await rename(folder, "Projects/Trash");
+		assert.equal(outcome.ok, true);
+		assert.equal(
+			(await store.mailbox.get(account.accountId, folder.mailboxId))
+				.pendingPath,
+			"Projects/Trash",
 		);
 	});
 

@@ -22,6 +22,7 @@ import { namedTrashImapLane } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
 import {
 	appendMessages,
+	createServerMailbox,
 	deleteServerMailbox,
 	describeServerMailboxes,
 	listServerMailboxes,
@@ -141,16 +142,17 @@ test.describe("A delete whose appointed Trash folder is gone", () => {
 	});
 });
 
-test.describe("A delete that would expunge inside a Trash matched by name", () => {
+test.describe("A delete that would expunge inside an ambiguous name-matched Trash", () => {
 	const subject = `Named trash expunge ${STAMP}`;
 	const barrierSubject = `Named trash barrier ${STAMP}`;
+	const otherTrash = "INBOX/Prullenbak";
 	let run: IsolatedRun;
 	let api: ApiClient;
 
 	test.beforeAll(async () => {
 		test.setTimeout(240_000);
 		// The lane that flags no folder \Trash: reader files this account's
-		// deletes in NAMED_TRASH because of its name, and nothing else says so.
+		// deletes in NAMED_TRASH, but a second name candidate makes it Proposed.
 		run = await provisionIsolatedRun(
 			"E2E Folder Role Refusal Unconfirmed",
 			[],
@@ -159,12 +161,13 @@ test.describe("A delete that would expunge inside a Trash matched by name", () =
 			},
 		);
 		api = new ApiClient(run);
+		await createServerMailbox(run.imapUser, otherTrash);
 		await appendMessages(run.imapUser, [{ subject }], NAMED_TRASH);
 		await appendMessages(run.imapUser, [{ subject: barrierSubject }]);
 		await api.triggerSync(run.accountId);
 	});
 
-	test("refuses, and the message is still on the server afterwards", async () => {
+	test("refuses an ambiguous Trash and expunges once its name is unique", async () => {
 		test.setTimeout(240_000);
 
 		// The fixture is only worth something if the server really advertises no
@@ -177,7 +180,10 @@ test.describe("A delete that would expunge inside a Trash matched by name", () =
 
 		const mailboxes = await waitFor(
 			() => api.listMailboxes(run.accountId),
-			(list) => list.some((box) => box.fullPath === NAMED_TRASH),
+			(list) =>
+				[NAMED_TRASH, otherTrash].every((path) =>
+					list.some((box) => box.fullPath === path),
+				),
 			{ timeoutMs: 90_000, what: `${NAMED_TRASH} to sync` },
 		);
 		const namedTrash = mailboxes.find((box) => box.fullPath === NAMED_TRASH);
@@ -227,6 +233,30 @@ test.describe("A delete that would expunge inside a Trash matched by name", () =
 		expect(
 			await serverUidsForSubject(run.imapUser, NAMED_TRASH, subject),
 		).toEqual(uidsBefore);
+
+		// Removing the other candidate makes the same folder Detected, so a
+		// delete in place may now expunge the message without an appointment.
+		await deleteServerMailbox(run.imapUser, otherTrash);
+		await api.triggerSync(run.accountId);
+		await waitFor(
+			() => api.listFolderAppointments(run.accountId),
+			(roles) =>
+				roles.some(
+					(role) => role.role === "Trash" && role.source === "Detected",
+				),
+			{ timeoutMs: 90_000, what: "the unique Trash to become Detected" },
+		);
+		const detectedDelete = await api.attemptDeleteMessages([messageId]);
+		expect(detectedDelete.status).toBe(200);
+		await waitForServerMailbox(
+			run.imapUser,
+			NAMED_TRASH,
+			(subjects) => !subjects.includes(subject),
+			{
+				timeoutMs: 90_000,
+				what: "the message in Detected Trash to be expunged",
+			},
+		);
 	});
 });
 

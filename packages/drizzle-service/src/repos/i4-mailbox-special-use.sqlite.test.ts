@@ -306,12 +306,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 			(await repo.findTrashMailbox(accountId))?.mailboxId,
 			trash.mailboxId,
 		);
-		// Resolving the name widens where a delete FILES mail, never what an
-		// Empty Trash may expunge (#846): that still needs the flag or an
-		// appointment.
+		// A unique conventional name directly under INBOX is detected and
+		// trusted for expunge as well as filing (#1693).
 		assert.equal(
 			meetsTrashAssurance(await repo.resolveTrashRole(accountId), "confirmed"),
-			false,
+			true,
 		);
 	});
 

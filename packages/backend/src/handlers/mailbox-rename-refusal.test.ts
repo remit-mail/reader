@@ -115,12 +115,6 @@ describe("applyMailboxPatch — renames that can never succeed (D4, D5)", () => 
 		assert.equal(renames.length, 0);
 	});
 
-	/**
-	 * The sweep reads a folder whose leaf name is a role's conventional name but
-	 * which lacks the server's flag as a duplicate, and deletes its row — under
-	 * D8, with the folder's mail — as soon as another folder holds the flag. A
-	 * rename to one of those settles `synced` and is then reaped.
-	 */
 	for (const [name, leaf] of [
 		["Archive", "Archive"],
 		["Trash", "Trash"],
@@ -128,16 +122,13 @@ describe("applyMailboxPatch — renames that can never succeed (D4, D5)", () => 
 		["Sent", "Sent"],
 		["Junk", "Spam"],
 	] as const) {
-		it(`refuses a rename to the reserved ${name} name`, async () => {
+		it(`allows a rename to a conventional ${name} name`, async () => {
 			const { client, renames } = clientOver(mailbox());
 
-			await assert.rejects(
-				patch(client, { fullPath: `Work/${leaf}` }),
-				refusedWith(
-					`“${leaf}” is reserved for a system folder. Pick another name.`,
-				),
-			);
-			assert.equal(renames.length, 0);
+			await patch(client, { fullPath: `Work/${leaf}` });
+			assert.deepEqual(renames, [
+				{ mailboxId: "mbx-1", newPath: `Work/${leaf}` },
+			]);
 		});
 	}
 

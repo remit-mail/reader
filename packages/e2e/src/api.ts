@@ -80,6 +80,7 @@ const SYNC_IN_PROGRESS = new Set([
  */
 export interface FolderAppointment {
 	role: string;
+	source: string;
 	mailboxId?: string;
 }
 

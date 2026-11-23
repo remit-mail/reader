@@ -140,10 +140,11 @@ describe("Empty Trash", () => {
 		assert.deepEqual(await visible(a), [true, true]);
 	});
 
-	it("expunges nothing when the Trash role no longer rests on confirmed evidence", async () => {
+	it("expunges nothing when the Trash role becomes an ambiguous proposal", async () => {
 		const a = await arrange();
 		const event = await emptyTrash(a);
 		await a.w.client.mailboxSpecialUse.deleteByMailboxId(a.trash.mailboxId);
+		await a.w.folder("INBOX/Prullenbak");
 
 		await run(a, event);
 

@@ -190,7 +190,7 @@ test.describe("Renaming a folder", () => {
 		expect(settled.some((box) => box.fullPath === before)).toBe(false);
 	});
 
-	test("refuses to rename or delete INBOX, or to take a reserved name", async () => {
+	test("refuses to rename or delete INBOX, or to take the INBOX name", async () => {
 		test.setTimeout(240_000);
 
 		const subject = `Inbox stays put ${STAMP}`;
@@ -216,7 +216,7 @@ test.describe("Renaming a folder", () => {
 		const reserved = await api.attemptRenameMailbox(
 			run.accountId,
 			folder.mailboxId,
-			"Archive",
+			"inbox",
 		);
 		expect(reserved.status).toBe(400);
 		expect(await reserved.text()).toContain("reserved");

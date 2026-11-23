@@ -345,10 +345,9 @@ export class MessageMoveService {
 
 		// A message already sitting in the folder resolved as Trash deletes by
 		// expunging it, not by moving it — the same unrecoverable act Empty
-		// Trash performs, so it demands the same confirmed evidence. The name
-		// guess ("resolved") is enough to file mail into; it is never enough to
-		// destroy mail that is already there. Checked once, before any local
-		// write, so a batch that touches such a message is refused whole rather
+		// Trash performs: appointment, flag or a unique detected name. An
+		// ambiguous proposal ("resolved") only permits filing retrievable mail.
+		// Checked once, before any local write, so a batch that touches such a message is refused whole rather
 		// than partially expunged.
 		if (!wantsPermanentDelete && trashResolution && trashMailbox) {
 			const deletesInPlace = messages.some(
@@ -1019,9 +1018,8 @@ export class MessageMoveService {
 	/**
 	 * Empty the Trash mailbox: an EXPUNGE of everything in it, with no undo.
 	 *
-	 * Demands confirmed evidence: the folder the user appointed or the one the
-	 * server flagged \Trash — never one that merely reads like a trash folder,
-	 * and never the fallback behind an appointment that went missing. A user
+	 * Demands confirmed evidence: an appointed, detected or server-flagged folder.
+	 * Never an ambiguous proposal or the fallback behind a stale appointment. A user
 	 * with an ordinary folder called `Deleted` would otherwise lose its contents
 	 * permanently. Each of the three ways that evidence can be absent refuses
 	 * under its own reason, so the surface can name the remedy instead of

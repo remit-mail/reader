@@ -69,7 +69,7 @@ describe("resolveFolderAppointments", () => {
 		);
 	});
 
-	it("tells a folder the user chose from one reader guessed by name", () => {
+	it("tells an appointed folder from one detected by name", () => {
 		const persisted = new Map<string, PersistedFolderAppointment>([
 			[CanonicalMailboxRole.Drafts, { mailboxId: "mb-concepten" }],
 		]);
@@ -81,7 +81,7 @@ describe("resolveFolderAppointments", () => {
 		const proposed = resolveFolderAppointments(new Map(), folders);
 		const guess = roleIn(proposed, CanonicalMailboxRole.Drafts);
 		assert.equal(guess?.mailboxId, "mb-concepten");
-		assert.equal(guess?.source, FolderAppointmentSource.Proposed);
+		assert.equal(guess?.source, FolderAppointmentSource.Detected);
 	});
 
 	it("marks the server's own flag and the reserved INBOX name as such", () => {

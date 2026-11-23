@@ -4,8 +4,6 @@ import type {
 	IMailboxRepository,
 	MailboxItem,
 } from "@remit/data-ports";
-import { isReservedFolderName } from "@remit/data-ports/folder-role";
-import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { carriesIntent, folderInFlight } from "./mailbox-intent.js";
 import type { MailboxQueueService } from "./mailbox-queue.js";
@@ -70,19 +68,6 @@ const renameTargetRefusal = async (
 	}
 	if (target.toUpperCase() === "INBOX") {
 		return invalid("“INBOX” is reserved for the inbox.");
-	}
-
-	// The mailbox sweep reads an unflagged folder under a role's conventional
-	// name as a duplicate and reaps it, with its mail, once another folder holds
-	// the flag.
-	const leaf = mailboxLeafName({
-		fullPath: target,
-		hierarchyDelimiter: before.hierarchyDelimiter,
-	});
-	if (isReservedFolderName(leaf)) {
-		return invalid(
-			`“${leaf}” is reserved for a system folder. Pick another name.`,
-		);
 	}
 
 	// A path a pending rename is heading for is as taken as one a folder sits

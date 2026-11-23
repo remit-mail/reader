@@ -40,7 +40,13 @@ import {
 	syncFolder,
 } from "./test-helpers/test-store.js";
 
-type TrashSetup = "flagged" | "named" | "none" | "appointed" | "stale";
+type TrashSetup =
+	| "flagged"
+	| "detected"
+	| "proposed"
+	| "none"
+	| "appointed"
+	| "stale";
 
 let store: Store;
 let capture: RecordingQueue;
@@ -84,8 +90,10 @@ const world = async (setup: TrashSetup = "flagged") => {
 			specialUse: "Trash",
 		});
 	}
-	if (setup === "named") {
+	if (setup === "proposed" || setup === "detected") {
 		trash = await seedMailbox(store, account, "Trash");
+		if (setup === "proposed")
+			await seedMailbox(store, account, "INBOX/Prullenbak");
 	}
 	if (setup === "appointed") {
 		await seedMailbox(store, account, "Deleted");
@@ -390,7 +398,7 @@ describe("deleting a message", () => {
 	});
 
 	it("files into a Trash that resolves by name alone", async () => {
-		await world("named");
+		await world("proposed");
 		const messageId = await rowIn(inbox, 5);
 
 		await remove([messageId]);
@@ -444,8 +452,18 @@ describe("deleting a message", () => {
 		);
 	});
 
-	it("refuses to expunge from a Trash that only resolves by name", async () => {
-		await world("named");
+	it("expunges a message already in a Detected Trash", async () => {
+		await world("detected");
+		const messageId = await rowIn(trash as MailboxItem, 5);
+		await remove([messageId]);
+		assert.deepEqual(
+			queue.map((event) => event.body.operation),
+			["permanent_delete"],
+		);
+	});
+
+	it("refuses to expunge from an ambiguous Proposed Trash", async () => {
+		await world("proposed");
 		const messageId = await rowIn(trash as MailboxItem, 5);
 
 		await assert.rejects(
@@ -708,7 +726,7 @@ describe("emptying the Trash", () => {
 
 	for (const [setup, error, reason] of [
 		["none", NoTrashMailboxError, "none"],
-		["named", UnconfirmedTrashMailboxError, "unconfirmed"],
+		["proposed", UnconfirmedTrashMailboxError, "unconfirmed"],
 		["stale", StaleTrashAppointmentError, "stale"],
 	] as const) {
 		it(`refuses when the Trash is ${reason}`, async () => {
