@@ -10,6 +10,7 @@ export interface FilterConfigDeps {
 	messageLabelService: IMessageLabelRepository;
 	mailboxService: FilterConfig["mailboxService"];
 	labelMailboxService: FilterConfig["labelMailboxService"];
+	mailboxSpecialUseService: FilterConfig["mailboxSpecialUseService"];
 	placementMoveService: PlacementMoveService;
 }
 
@@ -22,5 +23,6 @@ export const buildFilterConfig = (deps: FilterConfigDeps): FilterConfig => ({
 	messageLabelService: deps.messageLabelService,
 	mailboxService: deps.mailboxService,
 	labelMailboxService: deps.labelMailboxService,
+	mailboxSpecialUseService: deps.mailboxSpecialUseService,
 	placementMoveService: deps.placementMoveService,
 });

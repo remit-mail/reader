@@ -100,7 +100,11 @@ const repositoriesWithFilter = (
 				uid: 1,
 				internalDate: 2_000,
 			}),
-			update: async (_messageId: string, _input: UpdateMessageInput) => {},
+			update: async (messageId: string, input: UpdateMessageInput) => ({
+				messageId,
+				mailboxId: "mb-inbox",
+				...input,
+			}),
 			setSearchText: async () => {},
 		},
 		threadMessage: {
@@ -125,7 +129,13 @@ const repositoriesWithFilter = (
 		},
 		envelope: { listBodyParts: async () => [] },
 		placementMove: {},
-		mailboxSpecialUse: {},
+		mailboxSpecialUse: {
+			findJunkMailbox: async () => null,
+			findInboxMailbox: async () => ({
+				mailboxId: "mb-inbox",
+				fullPath: "INBOX",
+			}),
+		},
 		labelMailbox: { listByLabel: async () => [] },
 	}) as unknown as RemitClientRepositories;
 

@@ -213,6 +213,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 					messageLabelService: store.messageLabel,
 					mailboxService: store.mailbox,
 					labelMailboxService: store.labelMailbox,
+					mailboxSpecialUseService: store.mailboxSpecialUse,
 					placementMoveService,
 				}
 			: undefined,

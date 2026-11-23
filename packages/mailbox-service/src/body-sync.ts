@@ -1606,7 +1606,11 @@ export class BodySyncService {
 		accountConfigId: string,
 		accountId: string,
 	): BatchLookups {
-		const { placementConfig, filterPipeline, classifierConfig } = this;
+		const { placementConfig, filterConfig, filterPipeline, classifierConfig } =
+			this;
+		const folderLookup =
+			placementConfig?.mailboxSpecialUseService ??
+			filterConfig?.mailboxSpecialUseService;
 		const filterService =
 			this.filterConfig?.filterService ?? this.calendarConfig?.filterService;
 		const activeFilters = once(async () =>
@@ -1619,11 +1623,8 @@ export class BodySyncService {
 		);
 		return {
 			roleMailboxes: once(async () =>
-				placementConfig
-					? resolveFolderRoleMailboxes(
-							placementConfig.mailboxSpecialUseService,
-							accountId,
-						)
+				folderLookup
+					? resolveFolderRoleMailboxes(folderLookup, accountId)
 					: { junkMailbox: null, inboxMailbox: null },
 			),
 			activeFilters,

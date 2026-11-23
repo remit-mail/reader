@@ -334,6 +334,7 @@ export const buildReadPathFilterConfig = (
 		messageLabelService: repositories.messageLabel,
 		mailboxService: repositories.mailbox,
 		labelMailboxService: repositories.labelMailbox,
+		mailboxSpecialUseService: repositories.mailboxSpecialUse,
 		placementMoveService: new PlacementMoveService({
 			messageService: repositories.message,
 			threadMessageService: repositories.threadMessage,

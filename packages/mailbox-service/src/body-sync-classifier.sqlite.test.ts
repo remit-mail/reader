@@ -178,6 +178,7 @@ const bodySync = (
 	classifier = true,
 	filters = false,
 	spamPipeline: SpamPipeline = DEFAULT_SPAM_PIPELINE,
+	placement = true,
 ): BodySyncService => {
 	const { store } = world;
 	const placementMoveService = new PlacementMoveService({
@@ -198,13 +199,19 @@ const bodySync = (
 		new SyncWarningService(store.syncWarning),
 		{ ...spamConfigFor(store), spamPipeline },
 		silentLog,
-		{ mailboxSpecialUseService: store.mailboxSpecialUse, placementMoveService },
+		placement
+			? {
+					mailboxSpecialUseService: store.mailboxSpecialUse,
+					placementMoveService,
+				}
+			: undefined,
 		filters
 			? {
 					filterService: store.filter,
 					messageLabelService: store.messageLabel,
 					mailboxService: store.mailbox,
 					labelMailboxService: store.labelMailbox,
+					mailboxSpecialUseService: store.mailboxSpecialUse,
 					placementMoveService,
 				}
 			: undefined,
@@ -782,7 +789,7 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		assert.notEqual(sender?.flags?.wellknown?.value, true);
 	});
 
-	for (const filing of ["classifier", "filter"] as const) {
+	for (const filing of ["classifier", "filter", "filter-only"] as const) {
 		it(`repeated Inbox-to-Junk ${filing} moves cannot establish newsletter trust`, async () => {
 			const senderEmail = "bulk-spam@example.com";
 			// A phisher can add list headers; DMARC none must not earn screening.
@@ -796,7 +803,7 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 			);
 			await saveProvider();
 			world.reply = decision([[ClassificationLabel.Spam, 0.95]]);
-			if (filing === "filter") {
+			if (filing !== "classifier") {
 				await world.store.filter.create({
 					accountConfigId: world.account.accountConfigId,
 					name: "File bulk spam in Junk",
@@ -813,7 +820,12 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 					actionMailboxId: world.junk.mailboxId,
 				});
 			}
-			const service = bodySync(true, filing === "filter");
+			const service = bodySync(
+				true,
+				filing !== "classifier",
+				DEFAULT_SPAM_PIPELINE,
+				filing !== "filter-only",
+			);
 			for (let i = 0; i < 4; i++) {
 				const messageId = await arrive(raw);
 				await sync(service, [messageId]);

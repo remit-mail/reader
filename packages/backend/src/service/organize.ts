@@ -724,6 +724,7 @@ export const backApplyFilter = async (
 		messageLabelService: client.messageLabel,
 		mailboxService: client.mailbox,
 		labelMailboxService: client.labelMailbox,
+		mailboxSpecialUseService: client.mailboxSpecialUse,
 		placementMoveService: moveService,
 	});
 	const pipeline = new FilterPipeline(config, logger);
