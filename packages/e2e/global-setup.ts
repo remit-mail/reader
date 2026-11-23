@@ -26,9 +26,9 @@ const PRE_FLAGGED_SUBJECT = "Flagged before you ever saw it";
 
 /**
  * The seeded INBOX message whose DKIM signature names a domain its From address
- * does not, so `authenticity.dkimMismatch` comes back true and the reading pane
- * renders the danger banner with its "Why?" link. The mid-width spec works from
- * this.
+ * does not, so `authenticity.dkimMismatch` comes back true. The mid-width
+ * spec verifies this evidence does not itself open the intelligence drawer or
+ * raise a warning: the spam verdict owns the banner.
  *
  * Folded onto a message the inbox already held rather than appended as one
  * more: every seeding budget in the suite is sized against the inbox count, and
