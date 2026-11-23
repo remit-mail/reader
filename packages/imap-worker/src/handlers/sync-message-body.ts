@@ -200,6 +200,7 @@ export const syncMessageBody = async (
 				storage,
 				threadMessageService,
 				addressService,
+				mailboxSpecialUseRepository,
 				envelopeService,
 				new SyncWarningService(syncWarningRepository),
 				spam,

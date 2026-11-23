@@ -98,8 +98,10 @@ describe("AddressRepo", () => {
 		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
 	});
 
-	test("three inbound messages promote a person-shaped sender to wellknown", async () => {
-		const addr = await repo.createAddress(makeAddressInput(randomId()));
+	test("JavaScript Weekly: three qualifying newsletter arrivals establish wellknown trust", async () => {
+		const addr = await repo.createAddress(
+			makeAddressInput(randomId(), "jsw@peterc.org"),
+		);
 		const now = Date.now();
 
 		for (let i = 0; i < 3; i++) {
@@ -107,32 +109,33 @@ describe("AddressRepo", () => {
 				addr.accountConfigId,
 				addr.addressId,
 				now,
-				false,
 			);
 		}
 
 		const updated = await repo.getAddress(addr.accountConfigId, addr.addressId);
+		assert.equal(updated.inboundCount, 3);
+		assert.equal(updated.replyCount, 0);
 		assert.equal(updated.flags?.wellknown?.value, true);
 
 		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
 	});
 
-	test("a bulk sender never reaches wellknown on inbound volume alone", async () => {
-		const addr = await repo.createAddress(makeAddressInput(randomId()));
+	test("Node Weekly: existing qualifying history promotes on the next newsletter arrival", async () => {
 		const now = Date.now();
+		// Bulk arrivals were counted even before their promotion was allowed.
+		const addr = await repo.createAddress({
+			...makeAddressInput(randomId(), "node@cooperpress.com"),
+			inboundCount: 12,
+			lastInboundAt: now - 86_400_000,
+		});
+		assert.equal(addr.flags?.wellknown, undefined);
 
-		for (let i = 0; i < 5; i++) {
-			await repo.incrementInboundCount(
-				addr.accountConfigId,
-				addr.addressId,
-				now,
-				true,
-			);
-		}
+		await repo.incrementInboundCount(addr.accountConfigId, addr.addressId, now);
 
 		const updated = await repo.getAddress(addr.accountConfigId, addr.addressId);
-		assert.equal(updated.inboundCount, 5);
-		assert.equal(updated.flags?.wellknown, undefined);
+		assert.equal(updated.inboundCount, 13);
+		assert.equal(updated.flags?.wellknown?.value, true);
+		assert.equal(updated.flags?.wellknown?.setBy, "auto-engagement");
 
 		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
 	});
