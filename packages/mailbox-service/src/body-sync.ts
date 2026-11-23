@@ -35,6 +35,7 @@ import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
+	FromPlacement,
 	QuarantineFailureStage,
 	SyncWarningStage,
 } from "@remit/domain-enums";
@@ -96,6 +97,7 @@ import {
 	decideSpamVerdict,
 	type SpamConfig,
 	type SpamPlacement,
+	spamClearsJunk,
 	spamPlacementOf,
 } from "./spam/index.js";
 import type { SyncWarningService } from "./sync-warning.js";
@@ -868,25 +870,26 @@ export class BodySyncService {
 				senderPlacement,
 			);
 
-		const spamVerdict = arrival.folderSynced
-			? await decideSpamVerdict(
-					this.spamConfig,
-					this.addressService,
-					spamArrivalOf({
-						account: { accountId, accountConfigId },
-						parsed,
-						raw: body,
-						internalDate: arrival.internalDate,
-						sender: await senderPlacement(),
-						filterDecision,
-						classifierScores,
-						classification,
-						classifier: this.classifierConfig,
-						gate: await lookups.classifierGate(),
-						ownAddresses: await lookups.ownAddresses(),
-					}),
-				)
-			: undefined;
+		const spamVerdict =
+			arrival.folderSynced || arrival.placement === FromPlacement.Junk
+				? await decideSpamVerdict(
+						this.spamConfig,
+						this.addressService,
+						spamArrivalOf({
+							account: { accountId, accountConfigId },
+							parsed,
+							raw: body,
+							internalDate: arrival.internalDate,
+							sender: await senderPlacement(),
+							filterDecision,
+							classifierScores,
+							classification,
+							classifier: this.classifierConfig,
+							gate: await lookups.classifierGate(),
+							ownAddresses: await lookups.ownAddresses(),
+						}),
+					)
+				: undefined;
 		const spamPlacement = spamVerdict
 			? spamPlacementOf(spamVerdict, await lookups.spamSettings())
 			: NO_SPAM_PLACEMENT;
@@ -992,10 +995,15 @@ export class BodySyncService {
 						roles: await lookups.roleMailboxes(),
 						sender: await senderPlacement(),
 						move: !filterDecision.move,
-						junkExit:
-							arrival.internalDate <= arrival.folderCreatedAt
-								? { state: "Rescue", clean: false }
-								: { state: "Arrival" },
+						junkExit: {
+							state:
+								arrival.internalDate <= arrival.folderCreatedAt
+									? "Rescue"
+									: "Arrival",
+							clean:
+								spamVerdict !== undefined &&
+								spamClearsJunk(spamVerdict, this.spamConfig.spamPipeline),
+						},
 					}
 				: undefined,
 		});

@@ -162,30 +162,32 @@ export const classifyPlacement = (
 export type PlacementDestination = "inbox" | "archive" | "junk";
 
 /**
- * How a message may leave Junk. `Arrival`: new mail, where the provider's
- * Junk folder is no verdict. `Rescue`: mail that sat in Junk before Remit
- * judged it (mail older than the folder's first sync, a rescan), which leaves
- * only for a trusted sender whose From passed DMARC or did not report it, or,
- * when `clean`, a spam verdict a judge called clean.
+ * How a message may leave Junk (issue #1428). `Arrival`: new mail. `Rescue`:
+ * mail that sat in Junk before Remit judged it (mail older than the folder's
+ * first sync, a rescan), which may also bring back mail Remit filed in Junk.
+ * Either way the provider's Junk folder is no verdict, and the message leaves
+ * only when `clean`: Remit's spam check ran and said it is not spam, and its
+ * From did not fail DMARC.
  */
-export type JunkExit =
-	| { state: "Arrival" }
-	| { state: "Rescue"; clean: boolean };
+export interface JunkExit {
+	state: "Arrival" | "Rescue";
+	clean: boolean;
+}
 
-const rescueReason = (
+const junkExitReason = (
 	message: MessageItem,
 	senderTrust: SenderTrustValue,
 	senderOverride: SenderOverrideValue,
 	clean: boolean,
 ): PlacementReasonValue | undefined => {
-	if (clean) return PlacementReason.SpamClean;
+	if (!clean) return undefined;
 	if (message.authResult?.dmarc === AuthResultVerdict.Fail) return undefined;
 	if (senderOverride === SenderOverride.NeverSpam)
 		return PlacementReason.SenderNeverSpam;
 	if (senderTrust === SenderTrust.Vip) return PlacementReason.SenderVip;
 	if (senderTrust === SenderTrust.Wellknown)
 		return PlacementReason.SenderWellknown;
-	return undefined;
+	return PlacementReason.SpamClean;
 };
 
 const filedIntoJunkByRemit = (message: MessageItem): boolean =>
@@ -212,12 +214,12 @@ export interface PlacementDecision {
  *
  * A message in Junk is judged as if it had arrived in the Inbox: the
  * provider's spam folder is not a signal. One that verdict would demote stays
- * in Junk, recorded as `move-to-junk`. Every other one leaves Junk whatever
- * the confidence, since `unsure` is not junk. A Junk message somebody already
- * placed is never touched (issue #383): a spam report and a user move
- * (`originalMailboxId`) each mean the folder is a decision, not the
- * provider's arrival. A rescue leaves only for the reasons {@link JunkExit}
- * names.
+ * in Junk, recorded as `move-to-junk`. Every other one leaves Junk only when
+ * Remit's spam check cleared it ({@link JunkExit}); without that it stays,
+ * since no confident signal is no verdict (issue #1428). A Junk message
+ * somebody already placed is never touched (issue #383): a spam report and a
+ * user move (`originalMailboxId`) each mean the folder is a decision, not the
+ * provider's arrival.
  *
  * Outside Junk only a confident actionable verdict moves; an unsure one is
  * recorded.
@@ -285,37 +287,27 @@ export const decidePlacement = (
 	if (asInbox.action === "move-to-junk") {
 		return { verdict: asInbox, destination: undefined };
 	}
-	if (junkExit.state === "Rescue") {
-		const reason = rescueReason(
-			message,
-			senderTrust,
-			senderOverride,
-			junkExit.clean,
-		);
-		if (!reason) {
-			return {
-				verdict: {
-					action: "leave",
-					confidence: "unsure",
-					reasons: [PlacementReason.JunkNotRescued],
-				},
-				destination: undefined,
-			};
-		}
+	const reason = junkExitReason(
+		message,
+		senderTrust,
+		senderOverride,
+		junkExit.clean,
+	);
+	if (!reason) {
 		return {
 			verdict: {
-				action: "move-to-inbox",
-				confidence: "confident",
-				reasons: [reason],
+				action: "leave",
+				confidence: "unsure",
+				reasons: [PlacementReason.JunkNotRescued],
 			},
-			destination: autoArchive ? "archive" : "inbox",
+			destination: undefined,
 		};
 	}
 	return {
 		verdict: {
 			action: "move-to-inbox",
-			confidence: asInbox.confidence,
-			reasons: asInbox.reasons,
+			confidence: "confident",
+			reasons: [reason],
 		},
 		destination: autoArchive ? "archive" : "inbox",
 	};

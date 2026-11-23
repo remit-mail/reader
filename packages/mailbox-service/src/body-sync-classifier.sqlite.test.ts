@@ -253,6 +253,15 @@ const sync = async (
 		{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
 	);
 
+const subscribe = async (email: string): Promise<void> => {
+	await flagSender(email, {});
+	await world.store.address.incrementInboundCount(
+		world.account.accountConfigId,
+		deriveAddressId(world.account.accountConfigId, email),
+		1,
+	);
+};
+
 const flagSender = async (
 	email: string,
 	flags: Parameters<Store["address"]["updateAddress"]>[2]["flags"],
@@ -615,17 +624,34 @@ const assertKeptInJunk = async (messageId: string): Promise<void> => {
 };
 
 describe("body sync judges a Junk arrival as an Inbox arrival", () => {
-	it("moves an unknown newsletter the provider called spam to the Inbox", async () => {
+	it("moves a newsletter the provider called spam to the Inbox once the spam check screens it out", async () => {
+		await subscribe(NEWSLETTER_SENDER);
 		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
 
 		await sync(bodySync(false), [messageId], world.junk);
 
 		await assertMovedToInbox(messageId);
 		const row = await world.store.message.get(messageId);
-		assert.equal(row.placementVerdict?.confidence, PlacementConfidence.Unsure);
+		assert.equal(
+			row.placementVerdict?.confidence,
+			PlacementConfidence.Confident,
+		);
+		assert.deepEqual(row.placementVerdict?.reasons, ["spam=clean"]);
+	});
+
+	it("keeps an unknown sender in Junk while no spam judge called it clean", async () => {
+		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+
+		await sync(bodySync(false), [messageId], world.junk);
+
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.mailboxId, world.junk.mailboxId);
+		assert.equal(row.spamVerdict?.state, "Checked");
+		assert.equal(row.placementVerdict, undefined);
 	});
 
 	it("moves to the Inbox when the classifier gives no answer", async () => {
+		await subscribe(NEWSLETTER_SENDER);
 		await saveProvider();
 		world.reply = { status: 503, body: "{}" };
 		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
@@ -652,7 +678,8 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 		});
 	}
 
-	it("leaves an unknown sender's mail that sat in Junk before the first sync there and judges the next arrival", async () => {
+	it("judges mail that sat in Junk before the first sync there like the next arrival", async () => {
+		await subscribe(NEWSLETTER_SENDER);
 		const backlog = await arrive(
 			JUNK_NEWSLETTER,
 			new Date(world.junk.createdAt - 60_000),
@@ -662,9 +689,7 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 
 		await sync(bodySync(false), [backlog, arrival], world.junk);
 
-		const row = await world.store.message.get(backlog);
-		assert.equal(row.mailboxId, world.junk.mailboxId);
-		assert.equal(row.placementVerdict, undefined);
+		await assertMovedToInbox(backlog);
 		await assertMovedToInbox(arrival);
 	});
 

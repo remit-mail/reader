@@ -21,7 +21,8 @@ import {
 	resolveSenderPlacement,
 } from "./classifyPlacement.js";
 
-const ARRIVAL: JunkExit = { state: "Arrival" };
+const ARRIVAL: JunkExit = { state: "Arrival", clean: false };
+const ARRIVAL_CLEAN: JunkExit = { state: "Arrival", clean: true };
 const RESCUE: JunkExit = { state: "Rescue", clean: false };
 const RESCUE_CLEAN: JunkExit = { state: "Rescue", clean: true };
 
@@ -207,7 +208,7 @@ describe("decidePlacement", () => {
 				SenderOverride.None,
 				true,
 				false,
-				ARRIVAL,
+				ARRIVAL_CLEAN,
 			);
 			assert.equal(decision.verdict.action, "move-to-inbox");
 			assert.equal(decision.destination, "inbox");
@@ -222,7 +223,7 @@ describe("decidePlacement", () => {
 			SenderOverride.None,
 			false,
 			true,
-			ARRIVAL,
+			ARRIVAL_CLEAN,
 		);
 		assert.equal(decision.verdict.action, "move-to-inbox");
 		assert.equal(decision.destination, "archive");
@@ -285,7 +286,7 @@ describe("decidePlacement rescuing Junk mail", () => {
 		[SenderTrust.Unknown, SenderOverride.NeverSpam, "sender=never-spam"],
 	] as const) {
 		it(`moves a ${reason} message to the Inbox`, () => {
-			assert.deepEqual(rescue(baseMessage(), trust, override, RESCUE), {
+			assert.deepEqual(rescue(baseMessage(), trust, override, RESCUE_CLEAN), {
 				verdict: {
 					action: "move-to-inbox",
 					confidence: "confident",
@@ -307,6 +308,23 @@ describe("decidePlacement rescuing Junk mail", () => {
 		assert.deepEqual(decision.verdict.reasons, ["spam=clean"]);
 	});
 
+	for (const [trust, override, junkExit] of [
+		[SenderTrust.Unknown, SenderOverride.None, ARRIVAL],
+		[SenderTrust.Vip, SenderOverride.None, ARRIVAL],
+		[SenderTrust.Unknown, SenderOverride.NeverSpam, RESCUE],
+	] as const) {
+		it(`keeps a ${trust} ${override} ${junkExit.state} in Junk until the spam check clears it`, () => {
+			assert.deepEqual(rescue(baseMessage(), trust, override, junkExit), {
+				verdict: {
+					action: "leave",
+					confidence: "unsure",
+					reasons: ["junk-not-rescued"],
+				},
+				destination: undefined,
+			});
+		});
+	}
+
 	it("leaves an unknown sender's unscored message in Junk", () => {
 		const decision = rescue(
 			baseMessage(),
@@ -323,7 +341,7 @@ describe("decidePlacement rescuing Junk mail", () => {
 			baseMessage({ authResult: { dmarc: "Fail" } } as Partial<MessageItem>),
 			SenderTrust.Vip,
 			SenderOverride.NeverSpam,
-			RESCUE,
+			RESCUE_CLEAN,
 		);
 		assert.equal(decision.verdict.action, "leave");
 		assert.equal(decision.destination, undefined);
@@ -377,7 +395,7 @@ describe("decidePlacement rescuing Junk mail", () => {
 			}),
 			SenderTrust.Wellknown,
 			SenderOverride.None,
-			RESCUE,
+			RESCUE_CLEAN,
 		);
 		assert.equal(decision.destination, "inbox");
 	});

@@ -616,9 +616,10 @@ describe("placement follows the sender's flags", () => {
 		assert.equal((await messageRow(messageId)).mailboxId, world.junk.mailboxId);
 	});
 
-	it("files an autoArchive sender's Junk arrival to Archive", async () => {
+	it("files a cleared autoArchive sender's Junk arrival to Archive", async () => {
 		await flagSender("someone@example.com", {
 			autoArchive: { value: true, setAt: 1_000 },
+			neverSpam: { value: true, setAt: 1_000 },
 		});
 		const messageId = await arrive(SPAM_FLAGGED_DMARC_PASS, world.junk);
 

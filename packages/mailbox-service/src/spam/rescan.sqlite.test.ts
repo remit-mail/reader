@@ -184,6 +184,7 @@ describe("rescan", () => {
 				messageId: screened,
 				verdict: { state: "ScreenedOut", screen: { rule: "NeverSpam" } },
 				labels: [],
+				moved: false,
 			},
 		]);
 		assert.deepEqual(result.failed, [

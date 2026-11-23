@@ -39,16 +39,28 @@ const deciderOf = (verdict: Checked, pipeline: SpamPipeline): Decider => {
 };
 
 /**
- * A checked verdict scored below the clean threshold the deciding judge sets.
- * While that judge's thresholds are unset nothing is clean.
+ * Whether Remit's spam check says a message is not spam, the one ground for
+ * taking it out of Junk (issue #1428). Screening clears a sender the owner
+ * trusts, knows, or has had a newsletter from, but not a reported sender or a
+ * filter match. A checked verdict clears when rspamd or a judge with set
+ * thresholds decided `None`; while thresholds are unset nothing is decided.
  */
-export const isConfidentlyClean = (
+export const spamClearsJunk = (
 	verdict: MessageSpamVerdict,
 	pipeline: SpamPipeline,
 ): boolean => {
-	if (verdict.state !== "Checked") return false;
+	if (verdict.state === "ScreenedOut") {
+		return (
+			verdict.screen.rule !== SpamSenderScreenRule.ReportedSender &&
+			verdict.screen.rule !== "Filter"
+		);
+	}
+	if (verdict.state !== "Checked" || verdict.action !== SpamAction.None) {
+		return false;
+	}
 	const decider = deciderOf(verdict, pipeline);
-	if (decider.by !== "Score") return false;
+	if (decider.by === "Rspamd") return true;
+	if (decider.by === "Unknown") return false;
 	const { action, decided } = byThresholds(verdict.score, decider.thresholds);
 	return decided && action === SpamAction.None;
 };
