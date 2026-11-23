@@ -1000,9 +1000,13 @@ export class BodySyncService {
 								arrival.internalDate <= arrival.folderCreatedAt
 									? "Rescue"
 									: "Arrival",
-							clean:
-								spamVerdict !== undefined &&
-								spamClearsJunk(spamVerdict, this.spamConfig.spamPipeline),
+							cleared: spamVerdict
+								? spamClearsJunk(
+										spamVerdict,
+										this.spamConfig.spamPipeline,
+										classification.authResult?.dmarc,
+									)
+								: undefined,
 						},
 					}
 				: undefined,
@@ -1057,13 +1061,17 @@ export class BodySyncService {
 		await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");
 
-		// From-Address engagement counter (Address entity, not Message).
-		await this.incrementInboundCount(
-			messageId,
-			accountConfigId,
-			parsed,
-			classification,
-		);
+		// From-Address engagement counter (Address entity, not Message). Mail
+		// that stays in Junk is no engagement: counting it would let a sender
+		// earn Wellknown or a Newsletter screen-out from Junk alone (#1428).
+		if (arrival.placement !== FromPlacement.Junk || update.movedByRemit) {
+			await this.incrementInboundCount(
+				messageId,
+				accountConfigId,
+				parsed,
+				classification,
+			);
+		}
 
 		return parsed;
 	}

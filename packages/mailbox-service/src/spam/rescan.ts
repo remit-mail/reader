@@ -286,7 +286,11 @@ export class RescanService {
 							move: true,
 							junkExit: {
 								state: "Rescue",
-								clean: spamClearsJunk(verdict, deps.spam.spamPipeline),
+								cleared: spamClearsJunk(
+									verdict,
+									deps.spam.spamPipeline,
+									classification.authResult?.dmarc,
+								),
 							},
 						}
 					: undefined,

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type {
-	AccountItem,
-	FilterTestItem,
-	MailboxItem,
+import {
+	type AccountItem,
+	DEFAULT_SPAM_PIPELINE,
+	type FilterTestItem,
+	type MailboxItem,
+	type SpamPipeline,
 } from "@remit/data-ports";
 import {
 	type ClassificationDeploymentDefault,
@@ -170,7 +172,11 @@ const saveProvider = (
 		enabled,
 	);
 
-const bodySync = (classifier = true, filters = false): BodySyncService => {
+const bodySync = (
+	classifier = true,
+	filters = false,
+	spamPipeline: SpamPipeline = DEFAULT_SPAM_PIPELINE,
+): BodySyncService => {
 	const { store } = world;
 	const placementMoveService = new PlacementMoveService({
 		messageService: store.message,
@@ -188,7 +194,7 @@ const bodySync = (classifier = true, filters = false): BodySyncService => {
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
-		spamConfigFor(store),
+		{ ...spamConfigFor(store), spamPipeline },
 		silentLog,
 		{ mailboxSpecialUseService: store.mailboxSpecialUse, placementMoveService },
 		filters
@@ -607,6 +613,35 @@ const JUNK_NEWSLETTER = eml(
 
 const NEWSLETTER_SENDER = "news@dutchcyclingweekly.nl";
 
+const PITCH_SENDER = "growth.partner.88@gmail.com";
+
+const JUNK_PITCH = eml(
+	{
+		From: `Dana <${PITCH_SENDER}>`,
+		Subject: "Quick question about your website",
+		"Authentication-Results": "mx.example.com; dmarc=pass",
+		...PROVIDER_SPAM_HEADERS,
+	},
+	"I can get your site to page one of Google within 30 days. Interested?",
+);
+
+const JUNK_PHISHING = eml(
+	{
+		From: "Microsoft 365 <alert@micros0ft-secure-login.com>",
+		Subject: "Your mailbox is full",
+		"Authentication-Results": "mx.example.com; dmarc=fail",
+		...PROVIDER_SPAM_HEADERS,
+	},
+	"Verify your account now: https://micros0ft-secure-login.com/verify",
+);
+
+const CALIBRATED: SpamPipeline = [
+	{
+		name: "Inline",
+		thresholds: { state: "Set", cleanBelow: 0.4, spamAt: 0.9 },
+	},
+];
+
 const assertMovedToInbox = async (messageId: string): Promise<void> => {
 	const row = await world.store.message.get(messageId);
 	assert.equal(row.mailboxId, world.inbox.mailboxId);
@@ -621,6 +656,12 @@ const assertKeptInJunk = async (messageId: string): Promise<void> => {
 	assert.notEqual(row.movedByRemit, true);
 	assert.equal(row.placementVerdict?.action, PlacementAction.MoveToJunk);
 	assert.equal(row.placementVerdict?.fromPlacement, "junk");
+};
+
+const assertLeftInJunk = async (messageId: string): Promise<void> => {
+	const row = await world.store.message.get(messageId);
+	assert.equal(row.mailboxId, world.junk.mailboxId);
+	assert.notEqual(row.movedByRemit, true);
 };
 
 describe("body sync judges a Junk arrival as an Inbox arrival", () => {
@@ -644,10 +685,57 @@ describe("body sync judges a Junk arrival as an Inbox arrival", () => {
 
 		await sync(bodySync(false), [messageId], world.junk);
 
+		await assertLeftInJunk(messageId);
 		const row = await world.store.message.get(messageId);
-		assert.equal(row.mailboxId, world.junk.mailboxId);
 		assert.equal(row.spamVerdict?.state, "Checked");
-		assert.equal(row.placementVerdict, undefined);
+	});
+
+	it("keeps phishing in Junk", async () => {
+		const messageId = await arrive(JUNK_PHISHING, undefined, world.junk);
+
+		await sync(bodySync(false, false, CALIBRATED), [messageId], world.junk);
+
+		await assertLeftInJunk(messageId);
+	});
+
+	it("keeps a freemail pitch in Junk however often the sender writes there", async () => {
+		const pitches: string[] = [];
+		for (let i = 0; i < 4; i++) {
+			pitches.push(await arrive(JUNK_PITCH, undefined, world.junk));
+		}
+
+		await sync(bodySync(false), pitches, world.junk);
+
+		for (const messageId of pitches) await assertLeftInJunk(messageId);
+		const sender = await world.store.address.getAddress(
+			world.account.accountConfigId,
+			deriveAddressId(world.account.accountConfigId, PITCH_SENDER),
+		);
+		assert.notEqual(sender?.flags?.wellknown?.value, true);
+	});
+
+	it("moves mail from a sender the owner wrote to out of Junk", async () => {
+		await flagSender(NEWSLETTER_SENDER, {});
+		await world.store.address.incrementOutboundCount(
+			world.account.accountConfigId,
+			deriveAddressId(world.account.accountConfigId, NEWSLETTER_SENDER),
+			1,
+		);
+		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+
+		await sync(bodySync(false), [messageId], world.junk);
+
+		await assertMovedToInbox(messageId);
+	});
+
+	it("moves an unknown sender out of Junk once a calibrated judge scores it clean", async () => {
+		const messageId = await arrive(JUNK_NEWSLETTER, undefined, world.junk);
+
+		await sync(bodySync(false, false, CALIBRATED), [messageId], world.junk);
+
+		await assertMovedToInbox(messageId);
+		const row = await world.store.message.get(messageId);
+		assert.equal(row.spamVerdict?.state, "Checked");
 	});
 
 	it("moves to the Inbox when the classifier gives no answer", async () => {

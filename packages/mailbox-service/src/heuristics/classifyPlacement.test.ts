@@ -21,10 +21,10 @@ import {
 	resolveSenderPlacement,
 } from "./classifyPlacement.js";
 
-const ARRIVAL: JunkExit = { state: "Arrival", clean: false };
-const ARRIVAL_CLEAN: JunkExit = { state: "Arrival", clean: true };
-const RESCUE: JunkExit = { state: "Rescue", clean: false };
-const RESCUE_CLEAN: JunkExit = { state: "Rescue", clean: true };
+const ARRIVAL: JunkExit = { state: "Arrival", cleared: undefined };
+const ARRIVAL_CLEAN: JunkExit = { state: "Arrival", cleared: "spam=clean" };
+const RESCUE: JunkExit = { state: "Rescue", cleared: undefined };
+const RESCUE_CLEAN: JunkExit = { state: "Rescue", cleared: "spam=clean" };
 
 const baseMessage = (overrides: Partial<MessageItem> = {}): MessageItem =>
 	({
@@ -280,32 +280,21 @@ describe("decidePlacement rescuing Junk mail", () => {
 			junkExit,
 		);
 
-	for (const [trust, override, reason] of [
-		[SenderTrust.Vip, SenderOverride.None, "sender=vip"],
-		[SenderTrust.Wellknown, SenderOverride.None, "sender=wellknown"],
-		[SenderTrust.Unknown, SenderOverride.NeverSpam, "sender=never-spam"],
-	] as const) {
-		it(`moves a ${reason} message to the Inbox`, () => {
-			assert.deepEqual(rescue(baseMessage(), trust, override, RESCUE_CLEAN), {
+	it("moves a message the spam check cleared to the Inbox with its reason", () => {
+		assert.deepEqual(
+			rescue(baseMessage(), SenderTrust.Vip, SenderOverride.None, {
+				state: "Rescue",
+				cleared: "sender=vip",
+			}),
+			{
 				verdict: {
 					action: "move-to-inbox",
 					confidence: "confident",
-					reasons: [reason],
+					reasons: ["sender=vip"],
 				},
 				destination: "inbox",
-			});
-		});
-	}
-
-	it("moves an unknown sender's message with a clean verdict to the Inbox", () => {
-		const decision = rescue(
-			baseMessage(),
-			SenderTrust.Unknown,
-			SenderOverride.None,
-			RESCUE_CLEAN,
+			},
 		);
-		assert.equal(decision.destination, "inbox");
-		assert.deepEqual(decision.verdict.reasons, ["spam=clean"]);
 	});
 
 	for (const [trust, override, junkExit] of [
@@ -331,17 +320,6 @@ describe("decidePlacement rescuing Junk mail", () => {
 			SenderTrust.Unknown,
 			SenderOverride.None,
 			RESCUE,
-		);
-		assert.equal(decision.verdict.action, "leave");
-		assert.equal(decision.destination, undefined);
-	});
-
-	it("leaves a trusted sender's message in Junk when its From failed DMARC", () => {
-		const decision = rescue(
-			baseMessage({ authResult: { dmarc: "Fail" } } as Partial<MessageItem>),
-			SenderTrust.Vip,
-			SenderOverride.NeverSpam,
-			RESCUE_CLEAN,
 		);
 		assert.equal(decision.verdict.action, "leave");
 		assert.equal(decision.destination, undefined);

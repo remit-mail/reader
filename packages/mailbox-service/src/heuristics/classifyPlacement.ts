@@ -1,6 +1,5 @@
 import type { MessageItem, UpdateMessageInput } from "@remit/data-ports";
 import {
-	AuthResultVerdict,
 	FromPlacement,
 	PlacementAction as PlacementActionValue,
 	PlacementConfidence,
@@ -166,29 +165,12 @@ export type PlacementDestination = "inbox" | "archive" | "junk";
  * mail that sat in Junk before Remit judged it (mail older than the folder's
  * first sync, a rescan), which may also bring back mail Remit filed in Junk.
  * Either way the provider's Junk folder is no verdict, and the message leaves
- * only when `clean`: Remit's spam check ran and said it is not spam, and its
- * From did not fail DMARC.
+ * only with `cleared`: the reason Remit's spam check said it is not spam.
  */
 export interface JunkExit {
 	state: "Arrival" | "Rescue";
-	clean: boolean;
+	cleared: PlacementReasonValue | undefined;
 }
-
-const junkExitReason = (
-	message: MessageItem,
-	senderTrust: SenderTrustValue,
-	senderOverride: SenderOverrideValue,
-	clean: boolean,
-): PlacementReasonValue | undefined => {
-	if (!clean) return undefined;
-	if (message.authResult?.dmarc === AuthResultVerdict.Fail) return undefined;
-	if (senderOverride === SenderOverride.NeverSpam)
-		return PlacementReason.SenderNeverSpam;
-	if (senderTrust === SenderTrust.Vip) return PlacementReason.SenderVip;
-	if (senderTrust === SenderTrust.Wellknown)
-		return PlacementReason.SenderWellknown;
-	return PlacementReason.SpamClean;
-};
 
 const filedIntoJunkByRemit = (message: MessageItem): boolean =>
 	message.movedByRemit === true &&
@@ -287,12 +269,7 @@ export const decidePlacement = (
 	if (asInbox.action === "move-to-junk") {
 		return { verdict: asInbox, destination: undefined };
 	}
-	const reason = junkExitReason(
-		message,
-		senderTrust,
-		senderOverride,
-		junkExit.clean,
-	);
+	const reason = junkExit.cleared;
 	if (!reason) {
 		return {
 			verdict: {

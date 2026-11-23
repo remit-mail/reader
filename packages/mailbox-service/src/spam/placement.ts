@@ -6,6 +6,8 @@ import type {
 	SpamThresholds,
 } from "@remit/data-ports";
 import {
+	AuthResultVerdict,
+	PlacementReason,
 	SpamAction,
 	SpamJudgeName,
 	SpamKind,
@@ -38,31 +40,54 @@ const deciderOf = (verdict: Checked, pipeline: SpamPipeline): Decider => {
 	return { by: "Score", thresholds: judge.thresholds };
 };
 
-/**
- * Whether Remit's spam check says a message is not spam, the one ground for
- * taking it out of Junk (issue #1428). Screening clears a sender the owner
- * trusts, knows, or has had a newsletter from, but not a reported sender or a
- * filter match. A checked verdict clears when rspamd or a judge with set
- * thresholds decided `None`; while thresholds are unset nothing is decided.
- */
-export const spamClearsJunk = (
-	verdict: MessageSpamVerdict,
+type PlacementReasonValue =
+	(typeof PlacementReason)[keyof typeof PlacementReason];
+
+type AuthVerdict = (typeof AuthResultVerdict)[keyof typeof AuthResultVerdict];
+
+type ScreenRule = Extract<
+	MessageSpamVerdict,
+	{ state: "ScreenedOut" }
+>["screen"]["rule"];
+
+const SCREEN_REASON: Partial<Record<ScreenRule, PlacementReasonValue>> = {
+	[SpamSenderScreenRule.NeverSpam]: PlacementReason.SenderNeverSpam,
+	[SpamSenderScreenRule.Vip]: PlacementReason.SenderVip,
+	[SpamSenderScreenRule.WellKnown]: PlacementReason.SenderWellknown,
+	[SpamSenderScreenRule.KnownSender]: PlacementReason.SpamClean,
+	[SpamSenderScreenRule.Newsletter]: PlacementReason.SpamClean,
+};
+
+const isClean = (
+	verdict: Extract<MessageSpamVerdict, { state: "Checked" }>,
 	pipeline: SpamPipeline,
 ): boolean => {
-	if (verdict.state === "ScreenedOut") {
-		return (
-			verdict.screen.rule !== SpamSenderScreenRule.ReportedSender &&
-			verdict.screen.rule !== "Filter"
-		);
-	}
-	if (verdict.state !== "Checked" || verdict.action !== SpamAction.None) {
-		return false;
-	}
+	if (verdict.action !== SpamAction.None) return false;
 	const decider = deciderOf(verdict, pipeline);
 	if (decider.by === "Rspamd") return true;
 	if (decider.by === "Unknown") return false;
 	const { action, decided } = byThresholds(verdict.score, decider.thresholds);
 	return decided && action === SpamAction.None;
+};
+
+/**
+ * Why Remit's spam check takes a message out of Junk, or `undefined` when it
+ * stays (issue #1428). Screening clears a sender the owner trusts or knows,
+ * and a newsletter, but not a reported sender or a filter match. A checked
+ * verdict clears when rspamd or a judge with set thresholds decided `None`;
+ * while thresholds are unset nothing is decided. A From that failed DMARC
+ * never leaves.
+ */
+export const spamClearsJunk = (
+	verdict: MessageSpamVerdict,
+	pipeline: SpamPipeline,
+	dmarc: AuthVerdict | undefined,
+): PlacementReasonValue | undefined => {
+	if (dmarc === AuthResultVerdict.Fail) return undefined;
+	if (verdict.state === "ScreenedOut")
+		return SCREEN_REASON[verdict.screen.rule];
+	if (verdict.state !== "Checked") return undefined;
+	return isClean(verdict, pipeline) ? PlacementReason.SpamClean : undefined;
 };
 
 /**
