@@ -133,7 +133,6 @@ describe("the Microsoft OAuth callback", () => {
 			{
 				accountConfigId,
 				nonce: "nonce",
-				timestamp: Date.now(),
 				services: [AccountService.Mail],
 			},
 			CLIENT_SECRET,

@@ -5,7 +5,7 @@
  * handler business logic through pure function calls, without booting DynamoDB
  * or making real AWS API calls. The handlers themselves are tested via
  * integration / end-to-end tests; here we focus on the critical security
- * paths (state signing, expiry, token handling).
+ * paths (state signing, legacy compatibility, token handling).
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -32,7 +32,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -47,7 +46,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -73,7 +71,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -89,7 +86,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -112,7 +108,6 @@ describe("HMAC state signing", () => {
 			{
 				accountConfigId: "acc-config-1",
 				nonce: "deadbeef",
-				timestamp: Date.now(),
 			} as OAuthState,
 			SECRET,
 		);
@@ -127,7 +122,6 @@ describe("HMAC state signing", () => {
 			{
 				accountConfigId: "acc-config-1",
 				nonce: "deadbeef",
-				timestamp: Date.now(),
 				services: [],
 			},
 			SECRET,
@@ -144,7 +138,6 @@ describe("HMAC state signing", () => {
 			{
 				accountConfigId: "acc-config-1",
 				nonce: "deadbeef",
-				timestamp: Date.now(),
 				services: [AccountService.Mail, AccountService.Calendar],
 			},
 			SECRET,
@@ -156,30 +149,17 @@ describe("HMAC state signing", () => {
 		]);
 	});
 
-	it("accepts a slow authorization after a day", async () => {
-		const expired: OAuthState = {
+	it("accepts a legacy signed state from a day ago", async () => {
+		const legacy: OAuthState & { timestamp: number } = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now() - 24 * 60 * 60 * 1000, // 1 second past expiry
+			timestamp: Date.now() - 24 * 60 * 60 * 1000,
 			services: [AccountService.Mail],
 		};
 
-		const state = await signState(expired, SECRET);
+		const state = await signState(legacy, SECRET);
 
-		assert.deepEqual(await verifyState(state, SECRET), expired);
-	});
-
-	it("accepts a state after ten minutes", async () => {
-		const almostExpired: OAuthState = {
-			accountConfigId: "acc-config-1",
-			nonce: "deadbeef",
-			timestamp: Date.now() - 10 * 60 * 1000, // 2 seconds before expiry
-			services: [AccountService.Mail],
-		};
-
-		const state = await signState(almostExpired, SECRET);
-		const verified = await verifyState(state, SECRET);
-		assert.equal(verified.accountConfigId, "acc-config-1");
+		assert.deepEqual(await verifyState(state, SECRET), legacy);
 	});
 });
 

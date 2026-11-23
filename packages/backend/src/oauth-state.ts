@@ -5,7 +5,6 @@ import { AccountService } from "@remit/domain-enums";
 export interface OAuthState {
 	accountConfigId: string;
 	nonce: string;
-	timestamp: number;
 	services: AccountServiceName[];
 }
 
