@@ -15,7 +15,6 @@ import {
 	createPeopleDirectory,
 	type PeopleAdmin,
 	resetIdentifierOf,
-	type StepUpAction,
 } from "./people.js";
 
 const ORIGIN = "http://localhost:3000";
@@ -86,21 +85,6 @@ const rows = (statement: string, ...params: SqliteValue[]): unknown[] =>
 
 const run = (statement: string, ...params: SqliteValue[]): void => {
 	file.sqlite.prepare(statement).run(...params);
-};
-
-const stepUp = async (
-	targetId: string,
-	action: StepUpAction,
-): Promise<string> => {
-	const granted = await people.createStepUp({
-		callerId: operatorId,
-		clientIp: PEER,
-		targetId,
-		action,
-		password: PASSWORD,
-	});
-	assert.ok(granted.ok, JSON.stringify(granted));
-	return granted.value.stepUpToken;
 };
 
 const codeOf = async (response: Response): Promise<string | undefined> =>
@@ -183,7 +167,6 @@ describe("a disabled account", () => {
 			operatorGrant: false,
 			targetId: userId,
 			status: "Disabled",
-			stepUpToken: await stepUp(userId, "Disable"),
 		});
 		assert.ok(disabled.ok);
 		assert.equal(disabled.value.status, "Disabled");
@@ -255,7 +238,6 @@ describe("a password reset link", () => {
 			clientIp: PEER,
 			operatorGrant: false,
 			targetId: userId,
-			stepUpToken: await stepUp(userId, "ResetPassword"),
 		});
 		assert.ok(issued.ok);
 		assert.equal(

@@ -162,20 +162,10 @@ const createStepUp = (
 		callerOf(caller, config),
 	);
 
-const stepUpToken = async (
-	caller: string,
-	userId: string,
-	action: Action,
-): Promise<string> => {
-	const granted = await createStepUp(caller, userId, action);
-	assert.equal(refusalOf(granted), undefined, JSON.stringify(granted));
-	return (granted as { stepUpToken: string }).stepUpToken;
-};
-
 const signOut = (
 	caller: string,
 	userId: string,
-	token: string,
+	token?: string,
 	config = closedConfig,
 	origin = ORIGIN,
 ) =>
@@ -188,7 +178,7 @@ const update = (
 	caller: string,
 	userId: string,
 	status: "Active" | "Disabled",
-	token: string,
+	token?: string,
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_updatePerson(
@@ -199,7 +189,7 @@ const update = (
 const reset = (
 	caller: string,
 	userId: string,
-	token: string,
+	token?: string,
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_createPasswordReset(
@@ -336,18 +326,15 @@ describe("the People operations", () => {
 			status: "Active" as const,
 			isCaller: false,
 		};
-		const withoutStepUp = (stepUpToken: string | null | undefined) => {
-			assert.equal(stepUpToken, undefined);
-			return { ok: true as const, value: person };
-		};
+		const withoutStepUp = () => ({ ok: true as const, value: person });
 		const hostedDirectory: PeopleDirectory = {
 			...people,
-			signOutPerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
-			updatePerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
-			createPasswordReset: async ({ stepUpToken }) => ({
+			signOutPerson: async () => withoutStepUp(),
+			updatePerson: async () => withoutStepUp(),
+			createPasswordReset: async () => ({
 				ok: true,
 				value: {
-					person: withoutStepUp(stepUpToken).value,
+					person: withoutStepUp().value,
 					resetUrl: "https://login.remit.test/reset",
 					expiresAt: 1,
 				},
@@ -373,7 +360,7 @@ describe("the People operations", () => {
 	});
 
 	it("allows People actions without a grant and ignores legacy tokens", async () => {
-		for (const token of ["", "expired-or-forged"]) {
+		for (const token of [undefined, "", "expired-or-forged"]) {
 			assert.equal(refusalOf(await signOut(alice, carol, token)), undefined);
 			assert.equal(
 				refusalOf(await update(alice, carol, "Disabled", token)),
@@ -385,6 +372,22 @@ describe("the People operations", () => {
 			);
 			assert.equal(refusalOf(await reset(alice, carol, token)), undefined);
 		}
+		const body = { status: "Active", stepUpToken: "ignored-legacy-body-token" };
+		const validate = requestValidators.PeopleOperations_updatePerson?.[0];
+		assert.ok(validate);
+		assert.equal(
+			validate({ path: { userId: carol }, header: {}, requestBody: body }),
+			true,
+		);
+		assert.equal(
+			refusalOf(
+				await PeopleOperations.PeopleOperations_updatePerson(
+					contextOf({ userId: carol }, body),
+					callerOf(alice),
+				),
+			),
+			undefined,
+		);
 		assert.equal(auditCount("action = 'StepUpPassed'"), 0);
 	});
 
@@ -408,12 +411,7 @@ describe("the People operations", () => {
 	});
 
 	it("refuse to let a caller disable themselves, and record it", async () => {
-		const answer = await update(
-			alice,
-			alice,
-			"Disabled",
-			await stepUpToken(alice, alice, "Disable"),
-		);
+		const answer = await update(alice, alice, "Disabled");
 		assert.deepEqual(refusalOf(answer), [409, "cannot_disable_self"]);
 		assert.equal(auditCount("actor = ? AND outcome = 'RefusedSelf'", alice), 1);
 		assert.equal(
@@ -427,20 +425,14 @@ describe("the People operations", () => {
 	});
 
 	it("refuse a disabled caller on all five, and the second of two users disabling each other", async () => {
-		const bobsDisable = await stepUpToken(bob, alice, "Disable");
-		const disabled = await update(
-			alice,
-			bob,
-			"Disabled",
-			await stepUpToken(alice, bob, "Disable"),
-		);
+		const disabled = await update(alice, bob, "Disabled");
 		assert.equal((disabled as { status: string }).status, "Disabled");
 
 		const answers = [
 			await listPeople(bob),
 			await createStepUp(bob, alice, "Disable"),
 			await signOut(bob, alice, "token"),
-			await update(bob, alice, "Disabled", bobsDisable),
+			await update(bob, alice, "Disabled"),
 			await reset(bob, alice, "token"),
 		];
 		for (const answer of answers) {
@@ -467,12 +459,7 @@ describe("the People operations", () => {
 		insertFeed(erin, "erin-feed");
 		insertFeed(carol, "carol-feed");
 
-		await update(
-			alice,
-			erin,
-			"Disabled",
-			await stepUpToken(alice, erin, "Disable"),
-		);
+		await update(alice, erin, "Disabled");
 
 		assert.deepEqual(
 			rows("SELECT feed_token_id AS id FROM calendar_feed_token"),
@@ -485,7 +472,7 @@ describe("the People operations", () => {
 			"INSERT INTO identity_audit_event (audit_event_id, occurred_at, actor, target, action, outcome, client_ip) VALUES ('ancient', ?, 'env', 'all', 'KillSwitchOn', 'Succeeded', 'host')",
 			Date.now() - 91 * 24 * 60 * 60 * 1000,
 		);
-		await stepUpToken(alice, carol, "SignOut");
+		await signOut(alice, carol);
 		assert.equal(auditCount("audit_event_id = 'ancient'"), 0);
 	});
 });

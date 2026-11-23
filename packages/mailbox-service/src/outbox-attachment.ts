@@ -3,6 +3,7 @@ import type {
 	IOutboxMessageRepository,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
+	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
 import { ConflictError } from "@remit/data-ports/errors";
@@ -172,6 +173,47 @@ export class OutboxAttachmentService {
 		},
 	});
 
+	private renew = (row: OutboxAttachmentItem) =>
+		this.attachments.renew(
+			{
+				accountConfigId: row.accountConfigId,
+				outboxMessageId: row.outboxMessageId,
+				outboxAttachmentId: row.outboxAttachmentId,
+				reservationExpiresAt: this.now() + UPLOAD_URL_TTL_SECONDS,
+			},
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds: this.now(),
+			},
+		);
+
+	private reservationRefusal = (
+		result:
+			| Exclude<ReserveOutboxAttachmentResult, { outcome: "Reserved" }>
+			| { outcome: "Missing" },
+		filename: string,
+		sizeBytes: number,
+	): Refused => {
+		if (result.outcome === "Missing")
+			return this.reject(
+				OutboxAttachmentRejectionReason.ReservationExpired,
+				"This upload reservation was released because it was abandoned.",
+				0,
+			);
+		if (result.outcome === "OverCountCap")
+			return this.reject(
+				OutboxAttachmentRejectionReason.TooManyAttachments,
+				`This message already carries ${OUTBOX_ATTACHMENT_MAX_COUNT} files, the most one message can hold. Remove one to attach "${filename}".`,
+				result.usedBytes,
+			);
+		return this.reject(
+			OutboxAttachmentRejectionReason.MessageTooLarge,
+			`"${filename}" is ${formatBytes(sizeBytes)} and this message already carries ${formatBytes(result.usedBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} it can send.`,
+			result.usedBytes,
+		);
+	};
+
 	/**
 	 * Room on a draft for one file, and somewhere to put it.
 	 *
@@ -188,6 +230,7 @@ export class OutboxAttachmentService {
 			input.outboxMessageId,
 		);
 
+		let renewing: OutboxAttachmentItem | undefined;
 		if (input.outboxAttachmentId) {
 			const row = await this.attachments.get(
 				input.accountConfigId,
@@ -201,6 +244,7 @@ export class OutboxAttachmentService {
 					"Only a pending upload on this draft can be renewed.",
 				);
 			}
+			renewing = row;
 			// The reservation owns the metadata; renewal cannot swap the file's size.
 			input = {
 				...input,
@@ -245,39 +289,29 @@ export class OutboxAttachmentService {
 			outboxAttachmentId,
 		);
 
-		const reserved = await this.attachments.reserve(
-			{
-				outboxAttachmentId,
-				outboxMessageId: input.outboxMessageId,
-				accountId: outbox.accountId,
-				accountConfigId: input.accountConfigId,
-				filename,
-				contentType: normalizeAttachmentContentType(input.contentType),
-				sizeBytes: input.sizeBytes,
-				storageKey,
-				reservationExpiresAt,
-			},
-			{
-				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
-				nowSeconds,
-			},
-		);
+		const reserved = renewing
+			? await this.renew(renewing)
+			: await this.attachments.reserve(
+					{
+						outboxAttachmentId,
+						outboxMessageId: input.outboxMessageId,
+						accountId: outbox.accountId,
+						accountConfigId: input.accountConfigId,
+						filename,
+						contentType: normalizeAttachmentContentType(input.contentType),
+						sizeBytes: input.sizeBytes,
+						storageKey,
+						reservationExpiresAt,
+					},
+					{
+						maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+						maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+						nowSeconds,
+					},
+				);
 
-		if (reserved.outcome === "OverCountCap") {
-			return this.reject(
-				OutboxAttachmentRejectionReason.TooManyAttachments,
-				`This message already carries ${OUTBOX_ATTACHMENT_MAX_COUNT} files, the most one message can hold. Remove one to attach "${filename}".`,
-				reserved.usedBytes,
-			);
-		}
-		if (reserved.outcome === "OverByteCap") {
-			return this.reject(
-				OutboxAttachmentRejectionReason.MessageTooLarge,
-				`"${filename}" is ${formatBytes(input.sizeBytes)} and this message already carries ${formatBytes(reserved.usedBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} it can send.`,
-				reserved.usedBytes,
-			);
-		}
+		if (reserved.outcome !== "Reserved")
+			return this.reservationRefusal(reserved, filename, input.sizeBytes);
 
 		const target = await this.storage.createOutboxAttachmentUploadUrl({
 			accountConfigId: input.accountConfigId,
@@ -348,8 +382,9 @@ export class OutboxAttachmentService {
 		}
 
 		if (!holdsRoom(row, nowSeconds)) {
-			const renewed = await this.mint({ ...row });
-			if (renewed.outcome === "Rejected") return renewed;
+			const renewed = await this.renew(row);
+			if (renewed.outcome !== "Reserved")
+				return this.reservationRefusal(renewed, row.filename, row.sizeBytes);
 		}
 
 		const stored = await this.storage.statOutboxAttachment(
@@ -539,9 +574,12 @@ export class OutboxAttachmentService {
 		}
 		for (const item of held) {
 			if (keep.has(item.outboxAttachmentId) && item.state === "Pending") {
-				const renewed = await this.mint({ ...item });
-				if (renewed.outcome === "Rejected")
-					throw new ConflictError(renewed.rejection.message);
+				const renewed = await this.renew(item);
+				if (renewed.outcome !== "Reserved")
+					throw new ConflictError(
+						this.reservationRefusal(renewed, item.filename, item.sizeBytes)
+							.rejection.message,
+					);
 			}
 		}
 	};

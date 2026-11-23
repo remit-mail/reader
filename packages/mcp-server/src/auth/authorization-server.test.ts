@@ -1238,21 +1238,6 @@ describe("the People operations reach the connector (#1519)", () => {
 		);
 	};
 
-	const stepUp = async (
-		targetId: string,
-		action: "SignOut" | "Disable",
-	): Promise<string> => {
-		const granted = await people.createStepUp({
-			callerId: userIdOf(EMAIL),
-			clientIp: PEER,
-			targetId,
-			action,
-			password: PASSWORD,
-		});
-		assert.ok(granted.ok, JSON.stringify(granted));
-		return granted.value.stepUpToken;
-	};
-
 	it("refuses an MCP access token once its user is signed out everywhere", async () => {
 		const signedIn = await signInFrom("203.0.113.151", EMAIL, PASSWORD);
 		const cookie = cookiesOf(signedIn);
@@ -1269,7 +1254,6 @@ describe("the People operations reach the connector (#1519)", () => {
 			clientIp: PEER,
 			operatorGrant: false,
 			targetId: ownerId,
-			stepUpToken: await stepUp(ownerId, "SignOut"),
 		});
 		assert.ok(signedOut.ok);
 
@@ -1290,7 +1274,6 @@ describe("the People operations reach the connector (#1519)", () => {
 			operatorGrant: false,
 			targetId: userIdOf(email),
 			status: "Disabled",
-			stepUpToken: await stepUp(userIdOf(email), "Disable"),
 		});
 		assert.ok(disabled.ok);
 

@@ -6,7 +6,7 @@ import type {
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
-import { and, eq, gt, gte, lt, or, sum } from "drizzle-orm";
+import { and, eq, gt, gte, lt, lte, ne, or, sql, sum } from "drizzle-orm";
 import type { WriteBatch } from "../batch.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import { NotFoundError } from "../error.js";
@@ -83,14 +83,6 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 					createdAt: now,
 					updatedAt: now,
 				})
-				.onConflictDoUpdate({
-					target: outboxAttachmentTable.outboxAttachmentId,
-					set: {
-						reservationExpiresAt: input.reservationExpiresAt,
-						updatedAt: now,
-					},
-					where: and(draft, eq(outboxAttachmentTable.state, "Pending")),
-				})
 				.returning(),
 			this.db.select().from(outboxAttachmentTable).where(draft),
 			this.db
@@ -134,6 +126,81 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 			return { outcome: "OverCountCap", usedBytes };
 		}
 		return { outcome: "OverByteCap", usedBytes };
+	}
+
+	async renew(
+		input: Pick<
+			CreateOutboxAttachmentInput,
+			| "accountConfigId"
+			| "outboxMessageId"
+			| "outboxAttachmentId"
+			| "reservationExpiresAt"
+		>,
+		cap: OutboxAttachmentCap,
+	): Promise<ReserveOutboxAttachmentResult | { outcome: "Missing" }> {
+		const draft = and(
+			eq(outboxAttachmentTable.accountConfigId, input.accountConfigId),
+			eq(outboxAttachmentTable.outboxMessageId, input.outboxMessageId),
+		);
+		const others = and(
+			draft,
+			ne(outboxAttachmentTable.outboxAttachmentId, input.outboxAttachmentId),
+			or(
+				eq(outboxAttachmentTable.state, "Stored"),
+				gte(outboxAttachmentTable.reservationExpiresAt, cap.nowSeconds),
+			),
+		);
+		const total = this.db
+			.select({ bytes: sum(outboxAttachmentTable.sizeBytes) })
+			.from(outboxAttachmentTable)
+			.where(others);
+		const [rows, updated] = await this.batch([
+			this.db.select().from(outboxAttachmentTable).where(draft),
+			this.db
+				.update(outboxAttachmentTable)
+				.set({
+					reservationExpiresAt: input.reservationExpiresAt,
+					updatedAt: Date.now(),
+				})
+				.where(
+					and(
+						draft,
+						eq(
+							outboxAttachmentTable.outboxAttachmentId,
+							input.outboxAttachmentId,
+						),
+						eq(outboxAttachmentTable.state, "Pending"),
+						lt(this.db.$count(outboxAttachmentTable, others), cap.maxCount),
+						lte(
+							sql`coalesce((${total}), 0) + ${outboxAttachmentTable.sizeBytes}`,
+							cap.maxTotalBytes,
+						),
+					),
+				)
+				.returning(),
+		] as const);
+		const [row] = updated;
+		if (row) return { outcome: "Reserved", item: rowToOutboxAttachment(row) };
+		if (
+			!rows.some(
+				(item) =>
+					item.outboxAttachmentId === input.outboxAttachmentId &&
+					item.state === "Pending",
+			)
+		)
+			return { outcome: "Missing" };
+		const held = rows
+			.map(rowToOutboxAttachment)
+			.filter(
+				(item) =>
+					item.outboxAttachmentId !== input.outboxAttachmentId &&
+					holdsRoom(item, cap.nowSeconds),
+			);
+		const usedBytes = held.reduce((total, item) => total + item.sizeBytes, 0);
+		return {
+			outcome: held.length >= cap.maxCount ? "OverCountCap" : "OverByteCap",
+			usedBytes,
+		};
 	}
 
 	async get(

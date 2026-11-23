@@ -43,8 +43,7 @@ export type ReserveOutboxAttachmentResult =
 
 export interface IOutboxAttachmentRepository {
 	/**
-	 * Claim room on a draft, or renew its existing Pending reservation by id.
-	 * Renewal rechecks the same caps atomically, including after a lapse.
+	 * Claim room on a draft, or report why there is none.
 	 *
 	 * **The invariant an implementation owes its callers:** of two reservations
 	 * for the same draft running concurrently, at most one may observe a total
@@ -77,6 +76,18 @@ export interface IOutboxAttachmentRepository {
 		input: CreateOutboxAttachmentInput,
 		cap: OutboxAttachmentCap,
 	): Promise<ReserveOutboxAttachmentResult>;
+
+	/** Atomically renew an existing Pending row under the same caps. Never recreates a row deleted by cleanup. */
+	renew(
+		input: Pick<
+			CreateOutboxAttachmentInput,
+			| "accountConfigId"
+			| "outboxMessageId"
+			| "outboxAttachmentId"
+			| "reservationExpiresAt"
+		>,
+		cap: OutboxAttachmentCap,
+	): Promise<ReserveOutboxAttachmentResult | { outcome: "Missing" }>;
 
 	/** One attachment, scoped to its tenant. Throws NotFound when it is gone. */
 	get(

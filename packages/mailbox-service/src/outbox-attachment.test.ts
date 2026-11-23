@@ -136,9 +136,6 @@ describe("reserving room on a draft", () => {
 		assert.equal(first.outcome, "Minted");
 		if (first.outcome !== "Minted") return;
 		now += UPLOAD_URL_TTL_SECONDS - 1;
-		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
-			first.reservation.outboxAttachmentId,
-		]);
 		const renewed = await service.mint({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			outboxMessageId: draftId,
@@ -548,6 +545,26 @@ describe("retainOnly, which is what attachmentIds drives", () => {
 		}
 		return [first.reservation, second.reservation] as const;
 	};
+
+	it("a save renews the named pending file beyond its original deadline", async () => {
+		let now = 3_000_000;
+		const { service } = await build(OutboxMessageStatus.draft, () => now);
+		const [keep, drop] = await mintTwo(service);
+		now += UPLOAD_URL_TTL_SECONDS - 1;
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
+			keep.outboxAttachmentId,
+		]);
+		assert.equal(
+			(await rowOf(keep.outboxAttachmentId)).reservationExpiresAt,
+			now + UPLOAD_URL_TTL_SECONDS,
+		);
+		now += 2;
+		assert.deepEqual(
+			await service.reapAndListLive(ACCOUNT_CONFIG_ID, draftId),
+			[keep.outboxAttachmentId],
+		);
+		assert.ok(!(await ids()).includes(drop.outboxAttachmentId));
+	});
 
 	it("keeps everything named and removes everything else, bytes included", async () => {
 		const { service, storage } = await build();

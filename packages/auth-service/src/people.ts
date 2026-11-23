@@ -69,7 +69,6 @@ export interface PersonRequest extends PeopleRequest {
 
 export interface TargetedRequest extends PersonRequest {
 	operatorGrant: boolean;
-	stepUpToken?: string | null;
 }
 
 export interface InviteRequest extends PeopleRequest {

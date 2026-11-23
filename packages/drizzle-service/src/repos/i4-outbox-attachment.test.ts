@@ -182,3 +182,111 @@ describe("OutboxAttachmentRepo deletion", () => {
 		assert.strictEqual((await repo.listByOutboxMessage(cfg, kept)).length, 1);
 	});
 });
+
+describe("OutboxAttachmentRepo.renew", () => {
+	test("never recreates a reservation cleanup deleted, even from a stale read", async () => {
+		const cfg = randomId();
+		const draft = randomId();
+		const reservation = input(cfg, draft, 100, CAP.nowSeconds - 1);
+		await repo.reserve(reservation, {
+			...CAP,
+			nowSeconds: CAP.nowSeconds - 10,
+		});
+		const stale = await repo.get(cfg, reservation.outboxAttachmentId);
+		await repo.deleteLapsedReservations(cfg, draft, CAP.nowSeconds);
+		assert.deepStrictEqual(
+			await repo.renew(
+				{ ...stale, reservationExpiresAt: CAP.nowSeconds + 900 },
+				CAP,
+			),
+			{ outcome: "Missing" },
+		);
+		assert.strictEqual(
+			await repo.markStored(cfg, stale.outboxAttachmentId, 100),
+			null,
+		);
+		assert.deepStrictEqual(await repo.listByOutboxMessage(cfg, draft), []);
+	});
+
+	test("rechecks bytes and count without deleting a lapsed reservation", async () => {
+		const cfg = randomId();
+		const draft = randomId();
+		const reservation = input(cfg, draft, 800, CAP.nowSeconds - 1);
+		await repo.reserve(reservation, {
+			...CAP,
+			nowSeconds: CAP.nowSeconds - 10,
+		});
+		await repo.reserve(input(cfg, draft, 300), CAP);
+		const renew = {
+			...reservation,
+			reservationExpiresAt: CAP.nowSeconds + 900,
+		};
+		assert.deepStrictEqual(await repo.renew(renew, CAP), {
+			outcome: "OverByteCap",
+			usedBytes: 300,
+		});
+		assert.deepStrictEqual(await repo.renew(renew, { ...CAP, maxCount: 1 }), {
+			outcome: "OverCountCap",
+			usedBytes: 300,
+		});
+		assert.strictEqual(
+			(await repo.get(cfg, reservation.outboxAttachmentId))
+				.reservationExpiresAt,
+			reservation.reservationExpiresAt,
+		);
+	});
+
+	test("concurrent renewals cannot reclaim the same quota twice", async () => {
+		const cfg = randomId();
+		const draft = randomId();
+		const first = input(cfg, draft, 600, CAP.nowSeconds - 2);
+		const second = input(cfg, draft, 600, CAP.nowSeconds - 1);
+		await repo.reserve(first, { ...CAP, nowSeconds: CAP.nowSeconds - 10 });
+		await repo.reserve(second, { ...CAP, nowSeconds: CAP.nowSeconds - 1 });
+		const renewed = await Promise.all(
+			[first, second].map((item) =>
+				repo.renew(
+					{ ...item, reservationExpiresAt: CAP.nowSeconds + 900 },
+					CAP,
+				),
+			),
+		);
+		assert.strictEqual(
+			renewed.filter((result) => result.outcome === "Reserved").length,
+			1,
+		);
+		assert.strictEqual(
+			renewed.filter((result) => result.outcome === "OverByteCap").length,
+			1,
+		);
+	});
+
+	test("renews only the existing tenant/draft Pending row", async () => {
+		const cfg = randomId();
+		const draft = randomId();
+		const reservation = input(cfg, draft, 100);
+		await repo.reserve(reservation, CAP);
+		const renew = {
+			...reservation,
+			reservationExpiresAt: CAP.nowSeconds + 1800,
+		};
+		assert.deepStrictEqual(
+			await repo.renew({ ...renew, accountConfigId: randomId() }, CAP),
+			{ outcome: "Missing" },
+		);
+		assert.deepStrictEqual(
+			await repo.renew({ ...renew, outboxMessageId: randomId() }, CAP),
+			{ outcome: "Missing" },
+		);
+		assert.strictEqual((await repo.renew(renew, CAP)).outcome, "Reserved");
+		assert.strictEqual(
+			(await repo.get(cfg, reservation.outboxAttachmentId))
+				.reservationExpiresAt,
+			renew.reservationExpiresAt,
+		);
+		await repo.markStored(cfg, reservation.outboxAttachmentId, 100);
+		assert.deepStrictEqual(await repo.renew(renew, CAP), {
+			outcome: "Missing",
+		});
+	});
+});

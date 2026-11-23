@@ -140,6 +140,19 @@ const createAttachmentRepository = (
 			rows.set(item.outboxAttachmentId, item);
 			return { outcome: "Reserved", item };
 		},
+		renew: async (input) => {
+			const row = rows.get(input.outboxAttachmentId);
+			if (
+				!row ||
+				row.accountConfigId !== input.accountConfigId ||
+				row.outboxMessageId !== input.outboxMessageId ||
+				row.state !== "Pending"
+			)
+				return { outcome: "Missing" };
+			const item = { ...row, reservationExpiresAt: input.reservationExpiresAt };
+			rows.set(item.outboxAttachmentId, item);
+			return { outcome: "Reserved", item };
+		},
 		get: async (accountConfigId, outboxAttachmentId) => {
 			const row = rows.get(outboxAttachmentId);
 			if (!row || row.accountConfigId !== accountConfigId) {
