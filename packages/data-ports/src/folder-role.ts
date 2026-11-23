@@ -199,32 +199,17 @@ export const ROLE_NAME_HINTS: Partial<
 };
 
 /**
- * The role a folder's own leaf name is most conventionally for. A name that
- * several roles list goes to the role that ranks it highest, so `All Mail` is
- * an All folder rather than a lookalike of Archive.
- *
- * `name` is the leaf segment, lower case.
- */
-export const roleForFolderName = (
-	name: string,
-): CanonicalMailboxRoleValue | undefined => {
-	let best: { role: CanonicalMailboxRoleValue; rank: number } | undefined;
-	for (const role of CANONICAL_ROLES) {
-		const rank = ROLE_NAME_HINTS[role]?.indexOf(name) ?? -1;
-		if (rank < 0) continue;
-		if (!best || rank < best.rank) best = { role, rank };
-	}
-	return best?.role;
-};
-
-/**
  * Conventional system-folder names protected by label creation and MCP
  * deletion. This is not a projection filter or a rename restriction: every
  * selectable folder stays listed, even beside a flagged folder for the role.
  */
 export const isReservedFolderName = (name: string): boolean => {
-	const role = roleForFolderName(name.normalize("NFC").toLowerCase());
-	return role !== undefined && ROLE_SPECIAL_USE[role] !== undefined;
+	const normalized = name.normalize("NFC").toLowerCase();
+	return CANONICAL_ROLES.some(
+		(role) =>
+			ROLE_SPECIAL_USE[role] !== undefined &&
+			ROLE_NAME_HINTS[role]?.includes(normalized),
+	);
 };
 
 /**

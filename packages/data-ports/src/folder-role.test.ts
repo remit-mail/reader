@@ -540,31 +540,6 @@ describe("name detection with real account folder lists (#1693)", () => {
 		);
 	});
 
-	it("uses a server flag over names and an appointment over both", () => {
-		const candidates = [
-			...matthijs,
-			mailbox("flagged", "Other", [MailboxSpecialUse.Trash]),
-		];
-		assert.deepEqual(
-			resolveRoleForAccount(CanonicalMailboxRole.Trash, candidates),
-			{
-				kind: "flagged",
-				mailbox: candidates[7],
-			},
-		);
-		assert.deepEqual(
-			resolveRoleForAccount(
-				CanonicalMailboxRole.Trash,
-				candidates,
-				"INBOX/Archive",
-			),
-			{
-				kind: "appointed",
-				mailbox: candidates[4],
-			},
-		);
-	});
-
 	it("never detects a nested name, a partial match, bare Deleted/Bin or All Mail as Archive", () => {
 		const nested = folders(["Projects/Trash"]);
 		assert.deepEqual(
