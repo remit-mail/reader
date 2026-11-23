@@ -145,6 +145,31 @@ after(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
+describe("an active browser session", () => {
+	it("renews on use and works past its original expiry", async (t) => {
+		const userId = await signUp("rolling@remit.test");
+		const signedIn = await signInFrom("198.51.100.71")("rolling@remit.test");
+		assert.equal(signedIn.status, 200);
+		const cookie = cookiesOf(signedIn);
+		const issuedAt = Date.now();
+		t.mock.timers.enable({
+			apis: ["Date"],
+			now: issuedAt + 89 * 24 * 60 * 60 * 1000,
+		});
+		assert.equal(await tokenStatus(cookie), 200);
+		t.mock.timers.setTime(issuedAt + 91 * 24 * 60 * 60 * 1000);
+		assert.equal(await tokenStatus(cookie), 200);
+		assert.ok(
+			(
+				rows(
+					"SELECT expires_at FROM auth_session WHERE user_id = ?",
+					userId,
+				) as { expires_at: number }[]
+			).some((row) => row.expires_at * 1000 > Date.now()),
+		);
+	});
+});
+
 describe("a disabled account", () => {
 	const signIn = signInFrom("198.51.100.31");
 	const EMAIL = "disabled@remit.test";

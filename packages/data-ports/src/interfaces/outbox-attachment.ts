@@ -43,7 +43,8 @@ export type ReserveOutboxAttachmentResult =
 
 export interface IOutboxAttachmentRepository {
 	/**
-	 * Claim room on a draft, or report why there is none.
+	 * Claim room on a draft, or renew its existing Pending reservation by id.
+	 * Renewal rechecks the same caps atomically, including after a lapse.
 	 *
 	 * **The invariant an implementation owes its callers:** of two reservations
 	 * for the same draft running concurrently, at most one may observe a total

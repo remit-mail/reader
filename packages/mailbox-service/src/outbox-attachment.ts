@@ -75,6 +75,7 @@ export type CompleteOutboxAttachmentOutcome =
 	| Refused;
 
 export interface MintOutboxAttachmentInput {
+	outboxAttachmentId?: string;
 	accountConfigId: string;
 	outboxMessageId: string;
 	filename: string;
@@ -187,6 +188,28 @@ export class OutboxAttachmentService {
 			input.outboxMessageId,
 		);
 
+		if (input.outboxAttachmentId) {
+			const row = await this.attachments.get(
+				input.accountConfigId,
+				input.outboxAttachmentId,
+			);
+			if (
+				row.outboxMessageId !== input.outboxMessageId ||
+				row.state !== "Pending"
+			) {
+				throw new ConflictError(
+					"Only a pending upload on this draft can be renewed.",
+				);
+			}
+			// The reservation owns the metadata; renewal cannot swap the file's size.
+			input = {
+				...input,
+				filename: row.filename,
+				contentType: row.contentType,
+				sizeBytes: row.sizeBytes,
+			};
+		}
+
 		const filename = sanitizeAttachmentFilename(input.filename);
 		if (filename === null) {
 			return this.reject(
@@ -214,7 +237,7 @@ export class OutboxAttachmentService {
 		const reservationExpiresAt = nowSeconds + UPLOAD_URL_TTL_SECONDS;
 		// The id is the row's own, and the key is built from it after the fact, so
 		// there is exactly one place an attachment's identity comes from.
-		const outboxAttachmentId = base36uuid();
+		const outboxAttachmentId = input.outboxAttachmentId ?? base36uuid();
 		const storageKey = buildOutboxAttachmentKey(
 			input.accountConfigId,
 			outbox.accountId,
@@ -310,10 +333,10 @@ export class OutboxAttachmentService {
 		const row = held.find(
 			(item) => item.outboxAttachmentId === input.outboxAttachmentId,
 		);
-		if (!row || !holdsRoom(row, nowSeconds)) {
+		if (!row) {
 			return this.reject(
 				OutboxAttachmentRejectionReason.ReservationExpired,
-				"That upload took too long and its reservation has lapsed. Attach the file again.",
+				"This upload reservation was released because it was abandoned.",
 				usedBytes,
 			);
 		}
@@ -322,6 +345,11 @@ export class OutboxAttachmentService {
 		// the first was.
 		if (row.state === "Stored") {
 			return { outcome: "Completed", attachment: row };
+		}
+
+		if (!holdsRoom(row, nowSeconds)) {
+			const renewed = await this.mint({ ...row });
+			if (renewed.outcome === "Rejected") return renewed;
 		}
 
 		const stored = await this.storage.statOutboxAttachment(
@@ -480,7 +508,6 @@ export class OutboxAttachmentService {
 		);
 		const keep = new Set(keepIds);
 		const drop = held.filter((item) => !keep.has(item.outboxAttachmentId));
-		if (drop.length === 0) return;
 
 		// Bytes first, rows second — the same order as `discardAll`, and for the
 		// same reason: while a row exists its object is accounted for, so a
@@ -509,6 +536,13 @@ export class OutboxAttachmentService {
 				failures,
 				`Could not delete ${failures.length} of ${drop.length} attachment objects; their rows are gone and the sweep will collect them`,
 			);
+		}
+		for (const item of held) {
+			if (keep.has(item.outboxAttachmentId) && item.state === "Pending") {
+				const renewed = await this.mint({ ...item });
+				if (renewed.outcome === "Rejected")
+					throw new ConflictError(renewed.rejection.message);
+			}
 		}
 	};
 

@@ -129,6 +129,77 @@ describe("reserving room on a draft", () => {
 		);
 	});
 
+	it("renews a held file's reservation and URL without changing its size or id", async () => {
+		let now = 3_000_000;
+		const { service } = await build(OutboxMessageStatus.draft, () => now);
+		const first = await mint(service);
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		now += UPLOAD_URL_TTL_SECONDS - 1;
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
+			first.reservation.outboxAttachmentId,
+		]);
+		const renewed = await service.mint({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+			filename: "changed.txt",
+			contentType: "text/plain",
+			sizeBytes: 999,
+		});
+		assert.equal(renewed.outcome, "Minted");
+		if (renewed.outcome !== "Minted") return;
+		assert.equal(
+			renewed.reservation.outboxAttachmentId,
+			first.reservation.outboxAttachmentId,
+		);
+		assert.equal(renewed.reservation.sizeBytes, first.reservation.sizeBytes);
+		assert.equal(renewed.reservation.filename, first.reservation.filename);
+		assert.equal(
+			renewed.reservation.uploadExpiresAt,
+			now + UPLOAD_URL_TTL_SECONDS,
+		);
+		assert.equal((await rows()).length, 1);
+		now += UPLOAD_URL_TTL_SECONDS + 1;
+		assert.deepEqual(
+			await service.reapAndListLive(ACCOUNT_CONFIG_ID, draftId),
+			[],
+		);
+	});
+
+	it("rechecks quota when a lapsed upload completes after its room was taken", async () => {
+		let now = 3_000_000;
+		const { service, storage } = await build(
+			OutboxMessageStatus.draft,
+			() => now,
+		);
+		const first = await mint(service, {
+			sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+		});
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		await uploadFor(
+			storage,
+			first.reservation.outboxAttachmentId,
+			first.reservation.sizeBytes,
+		);
+		now += UPLOAD_URL_TTL_SECONDS + 1;
+		assert.equal(
+			(await mint(service, { sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES }))
+				.outcome,
+			"Minted",
+		);
+		const completed = await service.complete({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+		});
+		assert.equal(
+			completed.outcome === "Rejected" && completed.rejection.reason,
+			OutboxAttachmentRejectionReason.MessageTooLarge,
+		);
+	});
+
 	it("refuses a declared size over the cap", async () => {
 		const { service } = await build();
 
@@ -396,7 +467,7 @@ describe("completing an attachment", () => {
 		);
 	});
 
-	it("refuses a completion once the reservation has lapsed", async () => {
+	it("renews a slow upload before completion", async () => {
 		const clock = { seconds: 3_000_000 };
 		const { service, storage } = await build(
 			OutboxMessageStatus.draft,
@@ -415,10 +486,7 @@ describe("completing an attachment", () => {
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		});
 
-		assert.equal(
-			completed.outcome === "Rejected" && completed.rejection.reason,
-			OutboxAttachmentRejectionReason.ReservationExpired,
-		);
+		assert.equal(completed.outcome, "Completed");
 	});
 });
 

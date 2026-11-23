@@ -224,6 +224,7 @@ export const mintOutboxAttachmentFor = async (
 	const result = await client.outboxAttachment.mint({
 		accountConfigId,
 		outboxMessageId,
+		outboxAttachmentId: input.outboxAttachmentId,
 		filename: input.filename,
 		contentType: input.contentType,
 		sizeBytes: input.sizeBytes,

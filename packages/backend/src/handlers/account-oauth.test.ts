@@ -10,12 +10,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AccountService } from "@remit/domain-enums";
-import {
-	type OAuthState,
-	STATE_TTL_MS,
-	signState,
-	verifyState,
-} from "../oauth-state.js";
+import { type OAuthState, signState, verifyState } from "../oauth-state.js";
 import { getWebOrigin, parseJwtClaims } from "./account-oauth.js";
 
 function makeJwtToken(claims: Record<string, unknown>): string {
@@ -161,24 +156,24 @@ describe("HMAC state signing", () => {
 		]);
 	});
 
-	it("rejects an expired state (timestamp > 10 minutes ago)", async () => {
+	it("accepts a slow authorization after a day", async () => {
 		const expired: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now() - STATE_TTL_MS - 1000, // 1 second past expiry
+			timestamp: Date.now() - 24 * 60 * 60 * 1000, // 1 second past expiry
 			services: [AccountService.Mail],
 		};
 
 		const state = await signState(expired, SECRET);
 
-		await assert.rejects(() => verifyState(state, SECRET), /State has expired/);
+		assert.deepEqual(await verifyState(state, SECRET), expired);
 	});
 
-	it("accepts a state right at the TTL boundary", async () => {
+	it("accepts a state after ten minutes", async () => {
 		const almostExpired: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now() - STATE_TTL_MS + 2000, // 2 seconds before expiry
+			timestamp: Date.now() - 10 * 60 * 1000, // 2 seconds before expiry
 			services: [AccountService.Mail],
 		};
 

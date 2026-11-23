@@ -87,6 +87,9 @@ model OutboxAttachment {
 
 @doc("What the client intends to attach, before any bytes move")
 model MintOutboxAttachmentInput {
+  @doc("Renew this file reservation and upload URL while the composer still holds the file.")
+  outboxAttachmentId?: UUID;
+
   @doc("Filename as the sender picked it. Sanitized server-side.")
   filename: String256;
 

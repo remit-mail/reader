@@ -106,57 +106,65 @@ export const deviceLogin = async (
 	const clientId = registration.value.client_id;
 	const resource = `${origin}/mcp`;
 
-	const authorization = await read(
-		await io.fetch(metadata.value.device_authorization_endpoint, {
-			method: "POST",
-			headers: { "content-type": "application/x-www-form-urlencoded" },
-			body: new URLSearchParams({
-				client_id: clientId,
-				scope: MCP_SCOPES.join(" "),
-				resource,
-			}),
-		}),
-		deviceAuthorizationSchema,
-		"The device authorization request",
-	);
-	if (!authorization.ok) return authorization;
-	const grant = authorization.value;
-
-	io.print(
-		`Open ${grant.verification_uri} and enter the code ${grant.user_code}`,
-	);
-	io.print(`or go straight to ${grant.verification_uri_complete}`);
-	io.print(`The code expires in ${Math.round(grant.expires_in / 60)} minutes.`);
-
-	let intervalSeconds = grant.interval;
 	for (;;) {
-		await io.sleep(intervalSeconds * 1000);
-		const polled = await read(
-			await io.fetch(metadata.value.token_endpoint, {
+		const authorization = await read(
+			await io.fetch(metadata.value.device_authorization_endpoint, {
 				method: "POST",
 				headers: { "content-type": "application/x-www-form-urlencoded" },
 				body: new URLSearchParams({
-					grant_type: DEVICE_CODE_GRANT_TYPE,
-					device_code: grant.device_code,
 					client_id: clientId,
+					scope: MCP_SCOPES.join(" "),
 					resource,
 				}),
 			}),
-			tokenSchema,
-			"The token endpoint",
+			deviceAuthorizationSchema,
+			"The device authorization request",
 		);
-		if (polled.ok) {
-			return {
-				ok: true,
-				accessToken: polled.value.access_token,
-				command: claudeMcpAddCommand(origin, polled.value.access_token),
-			};
+		if (!authorization.ok) return authorization;
+		const grant = authorization.value;
+
+		io.print(
+			`Open ${grant.verification_uri} and enter the code ${grant.user_code}`,
+		);
+		io.print(`or go straight to ${grant.verification_uri_complete}`);
+		io.print(
+			`The code expires in ${Math.round(grant.expires_in / 60)} minutes.`,
+		);
+
+		let intervalSeconds = grant.interval;
+		for (;;) {
+			await io.sleep(intervalSeconds * 1000);
+			const polled = await read(
+				await io.fetch(metadata.value.token_endpoint, {
+					method: "POST",
+					headers: { "content-type": "application/x-www-form-urlencoded" },
+					body: new URLSearchParams({
+						grant_type: DEVICE_CODE_GRANT_TYPE,
+						device_code: grant.device_code,
+						client_id: clientId,
+						resource,
+					}),
+				}),
+				tokenSchema,
+				"The token endpoint",
+			);
+			if (polled.ok) {
+				return {
+					ok: true,
+					accessToken: polled.value.access_token,
+					command: claudeMcpAddCommand(origin, polled.value.access_token),
+				};
+			}
+			if (polled.error === "authorization_pending") continue;
+			if (polled.error === "slow_down") {
+				intervalSeconds += SLOW_DOWN_STEP_SECONDS;
+				continue;
+			}
+			if (polled.error === "expired_token") {
+				io.print("Pairing expired. Requesting a new code.");
+				break;
+			}
+			return polled;
 		}
-		if (polled.error === "authorization_pending") continue;
-		if (polled.error === "slow_down") {
-			intervalSeconds += SLOW_DOWN_STEP_SECONDS;
-			continue;
-		}
-		return polled;
 	}
 };

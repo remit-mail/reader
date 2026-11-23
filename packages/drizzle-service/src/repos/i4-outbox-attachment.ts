@@ -83,6 +83,14 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 					createdAt: now,
 					updatedAt: now,
 				})
+				.onConflictDoUpdate({
+					target: outboxAttachmentTable.outboxAttachmentId,
+					set: {
+						reservationExpiresAt: input.reservationExpiresAt,
+						updatedAt: now,
+					},
+					where: and(draft, eq(outboxAttachmentTable.state, "Pending")),
+				})
 				.returning(),
 			this.db.select().from(outboxAttachmentTable).where(draft),
 			this.db

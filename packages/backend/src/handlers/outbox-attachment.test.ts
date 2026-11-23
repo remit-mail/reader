@@ -119,7 +119,11 @@ const createAttachmentRepository = (
 			const live = forDraft(
 				input.accountConfigId,
 				input.outboxMessageId,
-			).filter((row) => holdsRoom(row, cap.nowSeconds));
+			).filter(
+				(row) =>
+					row.outboxAttachmentId !== input.outboxAttachmentId &&
+					holdsRoom(row, cap.nowSeconds),
+			);
 			const usedBytes = live.reduce((total, row) => total + row.sizeBytes, 0);
 			if (live.length >= cap.maxCount) {
 				return { outcome: "OverCountCap", usedBytes };

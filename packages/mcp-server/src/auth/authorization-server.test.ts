@@ -386,13 +386,10 @@ type AccessClaims = {
 	exp: number;
 };
 
-const claimsOf = (accessToken: string): AccessClaims => {
-	const [, payload] = accessToken.split(".");
-	assert.ok(payload, "the access token is not a JWT");
-	return JSON.parse(
-		Buffer.from(payload, "base64url").toString(),
-	) as AccessClaims;
-};
+const claimsOf = async (accessToken: string): Promise<AccessClaims> =>
+	auth.api.remitMcpVerifyAccessToken({
+		body: { token: accessToken },
+	}) as unknown as Promise<AccessClaims>;
 
 const listTools = (bearer: string | undefined): Promise<Response> =>
 	call("/mcp", {
@@ -460,7 +457,7 @@ describe("the MCP authorization server", () => {
 		assert.equal(status, 200, JSON.stringify(body));
 		assert.ok(body.access_token && body.refresh_token);
 		accessToken = body.access_token;
-		const claims = claimsOf(accessToken);
+		const claims = await claimsOf(accessToken);
 		assert.equal(claims.exp - claims.iat, BROWSER_TOKEN_TTL_SECONDS);
 		refreshToken = body.refresh_token;
 
@@ -486,7 +483,113 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(sharedRows(), shared);
 	});
 
-	it("rotates the refresh token and refuses the spent one", async () => {
+	it("completes a login left open past ten minutes through a fresh authorize", async (t) => {
+		const previousAddress = callerAddress;
+		callerAddress = "203.0.113.61";
+		t.after(() => {
+			callerAddress = previousAddress;
+		});
+		const id = await registerClient();
+		const login = locationOf(await call(authorizeUrl(id, pkce().challenge)));
+		t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 11 * 60 * 1000 });
+		const signedIn = await form("/login", {
+			email: EMAIL,
+			password: PASSWORD,
+			oauth_query: login.search.slice(1),
+		});
+		const restart = locationOf(signedIn);
+		assert.equal(restart.pathname, "/auth/oauth2/authorize");
+		assert.equal(restart.searchParams.has("sig"), false);
+		const cookie = cookiesOf(signedIn);
+		const next = locationOf(
+			await call(restart.pathname + restart.search, { headers: { cookie } }),
+		);
+		const callback = await consent(next, cookie);
+		assert.equal(callback.origin + callback.pathname, CALLBACK);
+	});
+
+	it("restarts stale consent without accepting an unsigned decision", async (t) => {
+		const previousAddress = callerAddress;
+		callerAddress = "203.0.113.62";
+		t.after(() => {
+			callerAddress = previousAddress;
+		});
+		const id = await registerClient();
+		const next = locationOf(
+			await call(authorizeUrl(id, pkce().challenge), {
+				headers: { cookie: mcpSessionCookie },
+			}),
+		);
+		assert.equal(next.pathname, "/consent");
+		t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 11 * 60 * 1000 });
+		const restart = locationOf(
+			await form(
+				"/consent",
+				{ accept: "true", oauth_query: next.search.slice(1) },
+				mcpSessionCookie,
+			),
+		);
+		assert.equal(restart.pathname, "/auth/oauth2/authorize");
+		const fresh = locationOf(
+			await call(restart.pathname + restart.search, {
+				headers: { cookie: mcpSessionCookie },
+			}),
+		);
+		assert.equal(fresh.pathname, "/consent");
+		const callback = await consent(fresh, mcpSessionCookie);
+		assert.equal(callback.origin + callback.pathname, CALLBACK);
+	});
+
+	it("rejects forged and unsigned unexpired continuations", async () => {
+		for (const raw of [
+			`client_id=forged&exp=${Date.now() / 1000 + 600}`,
+			`client_id=forged&sig=forged&exp=${Date.now() / 1000 + 600}`,
+		]) {
+			const response = await auth.handler(
+				new Request(`${MCP_ORIGIN}/auth/oauth2/consent`, {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+						origin: MCP_ORIGIN,
+						cookie: mcpSessionCookie,
+					},
+					body: JSON.stringify({ accept: true, oauth_query: raw }),
+				}),
+			);
+			assert.equal(response.status, 400);
+			assert.match(await response.text(), /invalid_signature/);
+		}
+	});
+
+	it("reuses unchanged consent even with prompt=consent, but asks for wider scopes", async () => {
+		const query = authorizeUrl(clientId, pkce().challenge);
+		const same = locationOf(
+			await call(`${query}&prompt=consent`, {
+				headers: { cookie: mcpSessionCookie },
+			}),
+		);
+		assert.equal(same.origin + same.pathname, CALLBACK);
+		const wider = new URL(query, MCP_ORIGIN);
+		wider.searchParams.set("scope", "mail:read mail:send offline_access");
+		const next = locationOf(
+			await call(wider.pathname + wider.search, {
+				headers: { cookie: mcpSessionCookie },
+			}),
+		);
+		assert.equal(next.pathname, "/consent");
+		assert.equal(next.searchParams.get("scope")?.includes("operator"), false);
+	});
+
+	it("renews the refresh token and its session on use, and refuses the spent one", async (t) => {
+		const before = database.sqlite
+			.prepare(
+				"SELECT max(expires_at) AS expiry FROM mcp_oauth_refresh_token WHERE client_id = ?",
+			)
+			.get(clientId) as { expiry: number };
+		t.mock.timers.enable({
+			apis: ["Date"],
+			now: Date.now() + 31 * 24 * 60 * 60 * 1000,
+		});
 		const rotated = await token({
 			grant_type: "refresh_token",
 			client_id: clientId,
@@ -496,6 +599,13 @@ describe("the MCP authorization server", () => {
 		assert.ok(rotated.body.access_token);
 		assert.ok(rotated.body.refresh_token);
 		assert.notEqual(rotated.body.refresh_token, refreshToken);
+		const after = database.sqlite
+			.prepare(
+				"SELECT max(expires_at) AS expiry FROM mcp_oauth_refresh_token WHERE client_id = ?",
+			)
+			.get(clientId) as { expiry: number };
+		assert.ok(after.expiry > before.expiry + 30 * 24 * 60 * 60 * 1000);
+
 		assert.equal((await listTools(rotated.body.access_token)).status, 200);
 
 		const replayed = await token({
@@ -589,11 +699,7 @@ describe("the MCP authorization server", () => {
 		const { status, body } = await exchange(clientId, code, verifier, false);
 		assert.equal(status, 200, JSON.stringify(body));
 		assert.ok(body.access_token);
-		const [, payload] = body.access_token.split(".");
-		assert.ok(payload, "the access token is not a JWT");
-		const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
-			aud: string | string[];
-		};
+		const claims = await claimsOf(body.access_token);
 		assert.ok([claims.aud].flat().includes(RESOURCE));
 		assert.equal((await listTools(body.access_token)).status, 200);
 	});
@@ -775,11 +881,11 @@ describe("a host that authenticates the browser itself", () => {
 		assert.equal(anonymous.status, 401);
 	});
 
-	it("offers the operator grant only to an operator", async () => {
+	it("offers operator access only when requested by an operator", async () => {
 		const hostedClientId = await registerClient();
 		const query = new URLSearchParams({
 			client_id: hostedClientId,
-			scope: "mail:read",
+			scope: "mail:read operator",
 		});
 		const page = (operator: boolean) =>
 			hosted(false, operator).handle(
@@ -790,6 +896,11 @@ describe("a host that authenticates the browser itself", () => {
 		assert.match(await (await page(true)).text(), /Grant operator access/);
 		assert.doesNotMatch(
 			await (await page(false)).text(),
+			/Grant operator access/,
+		);
+		query.set("scope", "mail:read");
+		assert.doesNotMatch(
+			await (await page(true)).text(),
 			/Grant operator access/,
 		);
 	});
@@ -868,7 +979,9 @@ describe("device authorization (RFC 8628)", () => {
 			},
 			print: (line) => lines.push(line),
 			sleep: async (ms) => {
-				const userCode = /enter the code (\S+)$/.exec(lines[0] ?? "")?.[1];
+				const userCode = /enter the code (\S+)$/.exec(
+					[...lines].reverse().find((line) => line.startsWith("Open ")) ?? "",
+				)?.[1];
 				assert.ok(userCode, `no user code in ${JSON.stringify(lines)}`);
 				round += 1;
 				await onSleep(userCode, round, ms);
@@ -905,7 +1018,7 @@ describe("device authorization (RFC 8628)", () => {
 			userCode,
 		);
 
-	it("approves a device code, issues an MCP token and serves tools/list", async () => {
+	it("approves a device code and renews its token on use past the original expiry", async (t) => {
 		const peer = "203.0.113.21";
 		const io = deviceIo(peer, async (userCode, round, ms) => {
 			if (round === 1) return;
@@ -933,7 +1046,7 @@ describe("device authorization (RFC 8628)", () => {
 			result.command,
 			`claude mcp add --transport http --header "Authorization: Bearer ${result.accessToken}" remit ${MCP_ORIGIN}/mcp`,
 		);
-		const claims = claimsOf(result.accessToken);
+		const claims = await claimsOf(result.accessToken);
 		assert.ok([claims.aud].flat().includes(RESOURCE));
 		assert.equal(
 			claims.scope,
@@ -947,6 +1060,14 @@ describe("device authorization (RFC 8628)", () => {
 			result: { tools: { name: string }[] };
 		};
 		assert.ok(rpc.result.tools.some((tool) => tool.name === "list_threads"));
+		const issuedAt = Date.now();
+		t.mock.timers.enable({
+			apis: ["Date"],
+			now: issuedAt + 89 * 24 * 60 * 60 * 1000,
+		});
+		assert.equal((await listTools(result.accessToken)).status, 200);
+		t.mock.timers.setTime(issuedAt + 91 * 24 * 60 * 60 * 1000);
+		assert.equal((await listTools(result.accessToken)).status, 200);
 	});
 
 	it("lists a device login as its own client and refuses its token once revoked", async () => {
@@ -959,7 +1080,7 @@ describe("device authorization (RFC 8628)", () => {
 		const result = await deviceLogin(MCP_ORIGIN, io);
 		assert.ok(result.ok, JSON.stringify(result));
 		assert.equal((await listTools(result.accessToken)).status, 200);
-		const deviceClientId = claimsOf(result.accessToken).azp;
+		const deviceClientId = (await claimsOf(result.accessToken)).azp;
 
 		const signedIn = await app(
 			new Request(`${MCP_ORIGIN}/auth/mcp/sign-in`, {
@@ -1024,20 +1145,29 @@ describe("device authorization (RFC 8628)", () => {
 		assert.deepEqual(result.ok ? "issued" : result.error, "access_denied");
 	});
 
-	it("refuses an expired device code, at approval and at the token endpoint", async () => {
+	it("restarts pairing after expiry and accepts the new code", async () => {
 		const peer = "203.0.113.23";
-		const io = deviceIo(peer, async (userCode) => {
-			updateDeviceCode(
-				"UPDATE mcp_device_code SET expires_at = ? WHERE user_code = ?",
-				Date.now() - 1000,
-				userCode,
-			);
-			const approved = await decide(peer, userCode, "approve");
-			assert.equal(approved.status, 400);
-			assert.doesNotMatch(await approved.text(), /Device connected/);
+		let expiredCode: string | undefined;
+		const io = deviceIo(peer, async (userCode, _round, ms) => {
+			if (!expiredCode) {
+				expiredCode = userCode;
+				updateDeviceCode(
+					"UPDATE mcp_device_code SET expires_at = ? WHERE user_code = ?",
+					Date.now() - 1000,
+					userCode,
+				);
+				const refused = await decide(peer, userCode, "approve");
+				assert.equal(refused.status, 400);
+				assert.match(await refused.text(), /expired/i);
+			} else {
+				assert.notEqual(userCode, expiredCode);
+				assert.equal((await decide(peer, userCode, "approve")).status, 200);
+				elapse(userCode, ms);
+			}
 		});
 		const result = await deviceLogin(MCP_ORIGIN, io);
-		assert.deepEqual(result.ok ? "issued" : result.error, "expired_token");
+		assert.ok(result.ok, JSON.stringify(result));
+		assert.ok(io.lines.includes("Pairing expired. Requesting a new code."));
 	});
 
 	it("refuses a device code for an unregistered client", async () => {

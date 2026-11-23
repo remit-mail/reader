@@ -133,13 +133,11 @@ const targetOf = (context: Context): string =>
 const targetedRequest = (
 	guarded: Guarded,
 	targetId: string,
-	stepUpToken: string | null,
 ): TargetedRequest => ({
 	callerId: guarded.callerId,
 	clientIp: guarded.clientIp,
 	operatorGrant: guarded.operatorGrant,
 	targetId,
-	stepUpToken,
 });
 
 export const PeopleOperations: Record<
@@ -226,11 +224,8 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const stepUpToken = headerOf(context, "x-remit-step-up") ?? null;
 		return answer(
-			await guarded.directory.signOutPerson(
-				targetedRequest(guarded, targetId, stepUpToken),
-			),
+			await guarded.directory.signOutPerson(targetedRequest(guarded, targetId)),
 		);
 	},
 
@@ -242,10 +237,9 @@ export const PeopleOperations: Record<
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
 		const { status } = context.request.requestBody as UpdatePersonInput;
-		const stepUpToken = headerOf(context, "x-remit-step-up") ?? null;
 		return answer(
 			await guarded.directory.updatePerson({
-				...targetedRequest(guarded, targetId, stepUpToken),
+				...targetedRequest(guarded, targetId),
 				status,
 			}),
 		);
@@ -258,10 +252,9 @@ export const PeopleOperations: Record<
 		const targetId = targetOf(context);
 		const guarded = guard(context, ctx, targetId, true);
 		if (!isGuarded(guarded)) return guarded;
-		const stepUpToken = headerOf(context, "x-remit-step-up") ?? null;
 		return answer(
 			await guarded.directory.createPasswordReset(
-				targetedRequest(guarded, targetId, stepUpToken),
+				targetedRequest(guarded, targetId),
 			),
 		);
 	},

@@ -336,8 +336,8 @@ describe("the People operations", () => {
 			status: "Active" as const,
 			isCaller: false,
 		};
-		const withoutStepUp = (stepUpToken: string | null) => {
-			assert.equal(stepUpToken, null);
+		const withoutStepUp = (stepUpToken: string | null | undefined) => {
+			assert.equal(stepUpToken, undefined);
 			return { ok: true as const, value: person };
 		};
 		const hostedDirectory: PeopleDirectory = {
@@ -372,62 +372,20 @@ describe("the People operations", () => {
 		}
 	});
 
-	it("refuse every sensitive operation without a matching, unspent, unexpired step-up", async () => {
-		const operations: Array<{
-			action: Action;
-			act: (caller: string, token: string) => Promise<unknown>;
-		}> = [
-			{
-				action: "SignOut",
-				act: (caller, token) => signOut(caller, carol, token),
-			},
-			{
-				action: "Disable",
-				act: (caller, token) => update(caller, carol, "Disabled", token),
-			},
-			{
-				action: "ResetPassword",
-				act: (caller, token) => reset(caller, carol, token),
-			},
-		];
-		for (const { action, act } of operations) {
-			const expired = await stepUpToken(alice, carol, action);
-			run("UPDATE identity_step_up SET expires_at = ?", Date.now() - 1000);
-			const spent = await stepUpToken(alice, carol, action);
-			assert.equal(refusalOf(await act(alice, spent)), undefined);
-			const bobs = await stepUpToken(bob, carol, action);
-			const otherAction = await stepUpToken(
-				alice,
-				carol,
-				action === "SignOut" ? "Enable" : "SignOut",
+	it("allows People actions without a grant and ignores legacy tokens", async () => {
+		for (const token of ["", "expired-or-forged"]) {
+			assert.equal(refusalOf(await signOut(alice, carol, token)), undefined);
+			assert.equal(
+				refusalOf(await update(alice, carol, "Disabled", token)),
+				undefined,
 			);
-			const otherTarget = await stepUpToken(alice, bob, action);
-
-			for (const [label, caller, token] of [
-				["no token", alice, ""],
-				["an expired token", alice, expired],
-				["a spent token", alice, spent],
-				["another caller's token", alice, bobs],
-				["a token for another action", alice, otherAction],
-				["a token for another person", alice, otherTarget],
-			] as const) {
-				const answer = await act(caller, token);
-				assert.deepEqual(
-					refusalOf(answer),
-					[403, "step_up_required"],
-					`${action} with ${label}`,
-				);
-				assert.ok(!JSON.stringify(answer).includes("resetUrl"));
-			}
-			if (action === "Disable") {
-				await update(
-					alice,
-					carol,
-					"Active",
-					await stepUpToken(alice, carol, "Enable"),
-				);
-			}
+			assert.equal(
+				refusalOf(await update(alice, carol, "Active", token)),
+				undefined,
+			);
+			assert.equal(refusalOf(await reset(alice, carol, token)), undefined);
 		}
+		assert.equal(auditCount("action = 'StepUpPassed'"), 0);
 	});
 
 	it("count parallel wrong step-up passwords before checking them", async () => {
@@ -447,21 +405,6 @@ describe("the People operations", () => {
 			5,
 		);
 		assert.equal(auditCount("actor = ? AND action = 'StepUpFailed'", dave), 5);
-	});
-
-	it("refuse a step-up its holder earned before being signed out", async () => {
-		const earned = await stepUpToken(bob, carol, "SignOut");
-		const signedOut = await signOut(
-			alice,
-			bob,
-			await stepUpToken(alice, bob, "SignOut"),
-		);
-		assert.equal((signedOut as { sessionCount: number }).sessionCount, 0);
-
-		assert.deepEqual(refusalOf(await signOut(bob, carol, earned)), [
-			403,
-			"step_up_required",
-		]);
 	});
 
 	it("refuse to let a caller disable themselves, and record it", async () => {

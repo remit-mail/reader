@@ -198,6 +198,12 @@ const createAttachmentRepository = (
 			rows.set(item.outboxAttachmentId, item);
 			return { outcome: "Reserved", item };
 		},
+		get: async (accountConfigId: string, outboxAttachmentId: string) => {
+			const row = rows.get(outboxAttachmentId);
+			if (!row || row.accountConfigId !== accountConfigId)
+				throw new NotFoundError("gone");
+			return row;
+		},
 		listByOutboxMessage: async (
 			_accountConfigId: string,
 			outboxMessageId: string,

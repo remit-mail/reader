@@ -253,7 +253,11 @@ export const createAuth = async (
 				},
 			},
 		},
-		session: { modelName: "auth_session" },
+		session: {
+			modelName: "auth_session",
+			expiresIn: 90 * 24 * 60 * 60,
+			updateAge: 24 * 60 * 60,
+		},
 		account: { modelName: "auth_account" },
 		verification: {
 			modelName: "auth_verification",
