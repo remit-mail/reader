@@ -148,10 +148,18 @@ describe("resolveConfirmedMailboxForRole", () => {
 		mailbox("mb-gmail-trash", "[Gmail]/Trash"),
 	];
 
-	it("refuses a folder that only matches by name", () => {
+	it("refuses a name match nested outside INBOX", () => {
 		assert.equal(
 			resolveConfirmedMailboxForRole(CanonicalMailboxRole.Trash, mailboxes),
 			null,
+		);
+	});
+
+	it("accepts a unique detected name", () => {
+		const detected = mailbox("mb-trash", "INBOX/Deleted Messages");
+		assert.equal(
+			resolveConfirmedMailboxForRole(CanonicalMailboxRole.Trash, [detected]),
+			detected,
 		);
 	});
 
@@ -198,28 +206,14 @@ describe("resolveRoleForAccount", () => {
 		);
 	});
 
-	it("answers none when nothing names a Trash folder", () => {
-		// #887 Done item 4: an account whose folders happen to include a Dutch
-		// "Prullenbak" has no Trash reader may act on — no flag, no appointment,
-		// and "prullenbak" is not a hint.
-		const mailboxes = [
-			mailbox("mb-inbox", "INBOX"),
-			mailbox("mb-werk", "Werk"),
-			mailbox("mb-prullenbak", "Prullenbak"),
-		];
-		assert.deepEqual(
-			resolveRoleForAccount(CanonicalMailboxRole.Trash, mailboxes),
-			{ kind: "none" },
-		);
-	});
-
-	it("proposes a folder named Trash, and that is not enough to empty it", () => {
+	it("keeps an ambiguous Trash proposed, which is not enough to empty it", () => {
 		// #887 Done item 1: the name is a guess. It files a delete somewhere
 		// retrievable; it never authorises an expunge.
 		const mailboxes = [
 			mailbox("mb-inbox", "INBOX"),
 			mailbox("mb-werk", "Werk"),
 			mailbox("mb-trash", "Trash"),
+			mailbox("mb-deleted-items", "Deleted Items"),
 		];
 		const resolution = resolveRoleForAccount(
 			CanonicalMailboxRole.Trash,
@@ -319,6 +313,7 @@ describe("the adapters over resolveRoleForAccount", () => {
 		const unflagged = [
 			mailbox("mb-inbox", "INBOX"),
 			mailbox("mb-bak", "Trash"),
+			mailbox("mb-other-trash", "Deleted Items"),
 		];
 		assert.equal(
 			resolveConfirmedMailboxForRole(CanonicalMailboxRole.Trash, unflagged),
@@ -332,7 +327,7 @@ describe("the adapters over resolveRoleForAccount", () => {
 });
 
 describe("trashSourceMeetsAssurance", () => {
-	it("confirms the user's appointment and the server's flag, and nothing else", () => {
+	it("confirms appointments, flags and unambiguous detection", () => {
 		// The set a client may word an expunge from. `Reserved` reads as
 		// designated and is not: it is the INBOX name rule, which nobody chose.
 		const confirmed = Object.values(FolderAppointmentSource).filter((source) =>
@@ -341,6 +336,7 @@ describe("trashSourceMeetsAssurance", () => {
 		assert.deepEqual(confirmed, [
 			FolderAppointmentSource.Appointed,
 			FolderAppointmentSource.Flagged,
+			FolderAppointmentSource.Detected,
 		]);
 	});
 
@@ -351,6 +347,7 @@ describe("trashSourceMeetsAssurance", () => {
 		assert.deepEqual(resolved, [
 			FolderAppointmentSource.Appointed,
 			FolderAppointmentSource.Flagged,
+			FolderAppointmentSource.Detected,
 			FolderAppointmentSource.Proposed,
 		]);
 	});
@@ -385,13 +382,6 @@ describe("the appointment name and its label sibling", () => {
 });
 
 describe("isReservedFolderName", () => {
-	/**
-	 * The sweep's own predicate. A folder whose leaf name is a role's
-	 * conventional name but which lacks the server's flag is read as a duplicate
-	 * and its row is deleted — under D8, with the folder's mail — as soon as
-	 * another folder holds the flag. A rename to one of these settles `synced`
-	 * and is then reaped, which is why the API refuses it (D5).
-	 */
 	for (const name of [
 		"archive",
 		"Archive",
@@ -412,11 +402,201 @@ describe("isReservedFolderName", () => {
 	/**
 	 * #843 dropped a bare "Deleted" and "Bin" from the Trash hints precisely
 	 * because they are ordinary folder names a user keeps mail in. Reserving
-	 * them here would refuse a rename nothing would ever have reaped.
+	 * them here would protect names that do not identify a role.
 	 */
 	for (const name of ["Deleted", "Bin", "Receipts", "Work", "Inbox 2024"]) {
 		it(`leaves "${name}" alone`, () => {
 			assert.equal(isReservedFolderName(name), false);
 		});
 	}
+});
+
+// These are account-local LIST projections, with only the server's Junk flag.
+describe("name detection with real account folder lists (#1693)", () => {
+	const folders = (paths: string[]) =>
+		paths.map((path) =>
+			mailbox(
+				path,
+				path,
+				path === "INBOX/Spam" ? [MailboxSpecialUse.Junk] : [],
+			),
+		);
+	const matthijs = folders([
+		"INBOX/Sent",
+		"INBOX/Sent Messages",
+		"INBOX/Drafts",
+		"INBOX/Concepten",
+		"INBOX/Archive",
+		"INBOX/Spam",
+		"INBOX/Deleted Messages",
+	]);
+	const info = folders([
+		"INBOX/Prullenbak",
+		"INBOX/Trash",
+		"INBOX/Deleted Messages",
+		"INBOX/Spam",
+	]);
+
+	for (const [role, kind, path] of [
+		[CanonicalMailboxRole.Trash, "detected", "INBOX/Deleted Messages"],
+		[CanonicalMailboxRole.Archive, "detected", "INBOX/Archive"],
+		[CanonicalMailboxRole.Junk, "flagged", "INBOX/Spam"],
+		[CanonicalMailboxRole.Sent, "proposed", "INBOX/Sent"],
+		[CanonicalMailboxRole.Drafts, "proposed", "INBOX/Drafts"],
+	] as const) {
+		it(`matthijs@: ${role} is ${kind}`, () => {
+			assert.deepEqual(resolveRoleForAccount(role, matthijs), {
+				kind,
+				mailbox: matthijs.find((m) => m.fullPath === path),
+			});
+		});
+	}
+
+	it("keeps the three info@ candidates ambiguous and independent of matthijs@", () => {
+		assert.deepEqual(resolveRoleForAccount(CanonicalMailboxRole.Trash, info), {
+			kind: "proposed",
+			mailbox: info[1],
+		});
+		assert.deepEqual(resolveRoleForAccount(CanonicalMailboxRole.Junk, info), {
+			kind: "flagged",
+			mailbox: info[3],
+		});
+		assert.deepEqual(
+			resolveRoleForAccount(CanonicalMailboxRole.Trash, matthijs),
+			{
+				kind: "detected",
+				mailbox: matthijs[6],
+			},
+		);
+	});
+
+	for (const path of [
+		"Trash",
+		"INBOX/Prullenbak",
+		"Verwijderde items",
+		"Papierkorb",
+		"Corbeille",
+		"Papelera",
+		"Cestino",
+		"Lixeira",
+		"INBOX/VERWIJDERDE BERICHTEN",
+	]) {
+		it(`detects the unique Trash ${path}`, () => {
+			const candidates = folders([path]);
+			const resolution = resolveRoleForAccount(
+				CanonicalMailboxRole.Trash,
+				candidates,
+			);
+			assert.deepEqual(resolution, {
+				kind: "detected",
+				mailbox: candidates[0],
+			});
+			assert.equal(meetsTrashAssurance(resolution, "confirmed"), true);
+		});
+	}
+
+	for (const [role, path] of [
+		[CanonicalMailboxRole.Trash, "INBOX/E\u0301LE\u0301MENTS SUPPRIME\u0301S"],
+		[CanonicalMailboxRole.Sent, "Envoyés"],
+		[CanonicalMailboxRole.Drafts, "INBOX/Entwürfe"],
+		[CanonicalMailboxRole.Archive, "Archief"],
+	] as const) {
+		it(`detects the normalized ${role} name ${path}`, () => {
+			const candidates = folders([path]);
+			assert.deepEqual(resolveRoleForAccount(role, candidates), {
+				kind: "detected",
+				mailbox: candidates[0],
+			});
+		});
+	}
+
+	it("uses the server's delimiter for detected INBOX and flat names", () => {
+		for (const [path, delimiter] of [
+			["inbox.Prullenbak", "."],
+			["Trash", ""],
+		]) {
+			const candidate = mailbox("trash", path, [], delimiter);
+			assert.deepEqual(
+				resolveRoleForAccount(CanonicalMailboxRole.Trash, [candidate]),
+				{
+					kind: "detected",
+					mailbox: candidate,
+				},
+			);
+		}
+	});
+
+	it("counts canonically equivalent names as separate mailbox candidates", () => {
+		const candidates = folders([
+			"Éléments supprimés",
+			"INBOX/E\u0301le\u0301ments supprime\u0301s",
+		]);
+		assert.deepEqual(
+			resolveRoleForAccount(CanonicalMailboxRole.Trash, candidates),
+			{
+				kind: "proposed",
+				mailbox: candidates[0],
+			},
+		);
+	});
+
+	it("uses a server flag over names and an appointment over both", () => {
+		const candidates = [
+			...matthijs,
+			mailbox("flagged", "Other", [MailboxSpecialUse.Trash]),
+		];
+		assert.deepEqual(
+			resolveRoleForAccount(CanonicalMailboxRole.Trash, candidates),
+			{
+				kind: "flagged",
+				mailbox: candidates[7],
+			},
+		);
+		assert.deepEqual(
+			resolveRoleForAccount(
+				CanonicalMailboxRole.Trash,
+				candidates,
+				"INBOX/Archive",
+			),
+			{
+				kind: "appointed",
+				mailbox: candidates[4],
+			},
+		);
+	});
+
+	it("never detects a nested name, a partial match, bare Deleted/Bin or All Mail as Archive", () => {
+		const nested = folders(["Projects/Trash"]);
+		assert.deepEqual(
+			resolveRoleForAccount(CanonicalMailboxRole.Trash, nested),
+			{
+				kind: "proposed",
+				mailbox: nested[0],
+			},
+		);
+		assert.deepEqual(
+			resolveRoleForAccount(
+				CanonicalMailboxRole.Trash,
+				folders(["Deleted", "Bin", "My Trash", "Trash 2025"]),
+			),
+			{ kind: "none" },
+		);
+		assert.deepEqual(
+			resolveRoleForAccount(
+				CanonicalMailboxRole.Archive,
+				folders(["All Mail"]),
+			),
+			{ kind: "none" },
+		);
+	});
+
+	it("withholds a stale appointment even when its fallback is detected", () => {
+		const resolution = resolveRoleForAccount(
+			CanonicalMailboxRole.Trash,
+			matthijs,
+			"gone",
+		);
+		assert.equal(meetsTrashAssurance(resolution, "confirmed"), false);
+		assert.equal(meetsTrashAssurance(resolution, "resolved"), false);
+	});
 });

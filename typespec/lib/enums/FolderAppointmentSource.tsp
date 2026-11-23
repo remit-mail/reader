@@ -11,7 +11,10 @@ enum FolderAppointmentSource {
   @doc("The reserved INBOX name (RFC 3501), for the Inbox role only.")
   Reserved: "Reserved",
 
-  @doc("A guess from the folder's conventional leaf name. Nobody confirmed it, and an operation that destroys mail refuses to act on it.")
+  @doc("Exactly one mailbox in this account matches the role's conventional name at the root or directly under INBOX, with no appointment or server flag. Trusted for destructive operations.")
+  Detected: "Detected",
+
+  @doc("A conventional name proposal: multiple candidates match, or the match is outside the root and INBOX. Carries the best-ranked candidate as a preselection; operations that destroy mail refuse it.")
   Proposed: "Proposed",
 
   @doc("The user appointed a mailbox this account no longer holds — deleted, or renamed by another client. `staleAppointmentMailboxId` names it and `staleAppointmentPath` carries the path it last had; `mailboxId` is whatever resolution falls back to.")

@@ -164,12 +164,13 @@ export const writeFolderRoleAppointment = async (
 };
 
 const SOURCE_BY_KIND: Record<
-	"appointed" | "flagged" | "reserved" | "proposed",
+	"appointed" | "flagged" | "reserved" | "detected" | "proposed",
 	FolderAppointment["source"]
 > = {
 	appointed: FolderAppointmentSource.Appointed,
 	flagged: FolderAppointmentSource.Flagged,
 	reserved: FolderAppointmentSource.Reserved,
+	detected: FolderAppointmentSource.Detected,
 	proposed: FolderAppointmentSource.Proposed,
 };
 

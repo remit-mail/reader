@@ -30,19 +30,19 @@ A client that loses the compare-and-set gets **409** naming the intent already i
 
 ### D4. A refusal that can never succeed is 400, a race is 409, an unready target is 422
 
-400: deleting INBOX, renaming INBOX, renaming a folder to a path that canonicalizes to INBOX or to a reserved leaf name (D5), deleting a folder that has child folders, deleting a folder that durable references are bound to (D16). None become possible by retrying the same request.
+400: deleting INBOX, renaming INBOX, renaming a folder to a path that canonicalizes to INBOX (D5), deleting a folder that has child folders, deleting a folder that durable references are bound to (D16). None become possible by retrying the same request.
 
 409: only a lost compare-and-set on the folder being mutated.
 
 422: a write that binds to a folder whose own mutation has not settled (D12, first row). The error body carries no machine-readable code, so the status is the only thing a client can branch on, and "something else is already changing this folder" and "the folder you are pointing at is not ready yet" need different copy.
 
-### D5. Renaming INBOX is refused, and so is renaming to a reserved leaf name
+### D5. Renaming INBOX or renaming to INBOX is refused
 
 The server would move INBOX's messages to the new name and leave INBOX behind, empty. That strands the account's inbox appointment on the renamed row, and the moved messages get new UIDs under a different `UIDVALIDITY`, voiding the row's cursor.
 
-Renaming *to* a reserved leaf name is refused because the sweep decides duplicate special-use folders on the leaf segment (`trash`, `bin`, `drafts`, `sent`, `junk`, `spam`, `archive` and their variants). A rename to any of those settles, and then the next sweep deletes the row — without its mail — whenever another folder holds the corresponding flag. The refusal uses the sweep's own predicate, so the two cannot disagree.
+Conventional role names are allowed rename targets. The sweep retains every selectable folder, including unflagged name candidates beside a server-flagged folder. Name matching resolves roles; it never suppresses or deletes a real folder from the projection. Exactly one name candidate at the root or directly under INBOX is `Detected`; multiple candidates remain `Proposed`, with the best-ranked candidate preselected. Archive names do not include All Mail.
 
-A user who wants either outcome moves the mail.
+A user who wants to move INBOX's mail moves the mail.
 
 ### D6. A subtree rename is one intent recorded over N rows, in one transaction
 

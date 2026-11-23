@@ -199,14 +199,26 @@ describe("a lookalike of a flagged folder", () => {
 		assert.deepEqual(await paths(), ["Bin", "Deleted", "INBOX", "Trash"]);
 	});
 
-	it("hides the unflagged twin of a folder the server flagged", async () => {
+	it("keeps every localized candidate beside a flagged folder on repeated sweeps", async () => {
 		imap.addFolder("INBOX");
 		imap.addFolder("[Gmail]/Trash", { attributes: ["\\Trash"] });
-		imap.addFolder("Trash");
-
+		const candidates = [
+			"Trash",
+			"INBOX/Prullenbak",
+			"Verwijderde items",
+			"Papierkorb",
+			"Corbeille",
+		];
+		for (const path of candidates) imap.addFolder(path);
 		await sweep();
-
-		assert.deepEqual(await paths(), ["[Gmail]/Trash", "INBOX"]);
+		const result = await sweep();
+		assert.equal(result.deleted, 0);
+		assert.deepEqual(
+			await paths(),
+			["[Gmail]/Trash", "INBOX", ...candidates].sort((a, b) =>
+				a.localeCompare(b),
+			),
+		);
 	});
 
 	it("keeps a folder that holds a role of its own", async () => {

@@ -11,10 +11,6 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import {
-	ROLE_SPECIAL_USE,
-	roleForFolderName,
-} from "@remit/data-ports/folder-role";
-import {
 	MailboxCursorState,
 	type MailboxSpecialUse,
 	MailboxSyncStatus,
@@ -157,13 +153,6 @@ export class MailboxSyncService {
 			namespaces,
 		);
 
-		// Build a map of special-use designations claimed by mailboxes with IMAP attributes.
-		// Used to:
-		//  1. Skip duplicate folders (e.g., "Trash" vs "[Gmail]/Trash") at sync time.
-		//  2. Skip duplicate localized folders (e.g., "Sent" vs "Verzonden items") when one
-		//     of them carries the IMAP \Sent flag — issue #194.
-		const claimedSpecialUse = this.buildSpecialUseMap(remoteMailboxes);
-
 		// Track which paths we've seen from remote
 		const seenPaths = new Set<string>();
 
@@ -182,9 +171,7 @@ export class MailboxSyncService {
 					// documented. The state check goes before the delete, through the
 					// same predicate the rest of the sweep asks.
 					if (existing && !isFolderMutationInFlight(existing)) {
-						// The duplicate-special-use branch below clears the special-use
-						// entries too; this one skipped them, orphaning a row per
-						// deleted mailbox.
+						// Remove special-use entries alongside the non-selectable row.
 						await this.specialUseService.deleteByMailboxId(existing.mailboxId);
 						await this.mailboxService.delete(
 							account.accountId,
@@ -203,29 +190,7 @@ export class MailboxSyncService {
 					return;
 				}
 
-				// Skip duplicate special-use folders (e.g., "Trash" when "[Gmail]/Trash" exists)
-				if (this.isDuplicateSpecialUse(mailboxInfo, claimedSpecialUse)) {
-					seenPaths.add(mailboxInfo.fullPath);
-					const existing = existingByPath.get(mailboxInfo.fullPath);
-					if (existing && !isFolderMutationInFlight(existing)) {
-						await this.specialUseService.deleteByMailboxId(existing.mailboxId);
-						await this.mailboxService.delete(
-							account.accountId,
-							existing.mailboxId,
-						);
-						this.log.info(
-							{
-								mailboxId: existing.mailboxId,
-								fullPath: existing.fullPath,
-								reason: "duplicate-special-use",
-							},
-							"Deleted mailbox",
-						);
-						result.deleted++;
-					}
-					return;
-				}
-
+				// Every selectable folder is real, even beside a flagged role candidate.
 				seenPaths.add(mailboxInfo.fullPath);
 				const existing = existingByPath.get(mailboxInfo.fullPath);
 
@@ -675,79 +640,5 @@ export class MailboxSyncService {
 				"Synced special-use",
 			);
 		}
-	};
-
-	/**
-	 * Build a map of special-use designations to mailbox paths.
-	 * Only includes mailboxes that have the IMAP special-use attribute.
-	 */
-	private buildSpecialUseMap = (
-		mailboxes: FlatMailboxInfo[],
-	): Map<MailboxSpecialUseValue, string> => {
-		const map = new Map<MailboxSpecialUseValue, string>();
-
-		for (const mailbox of mailboxes) {
-			const parsed = parseImapAttributes(mailbox.attributes);
-			for (const specialUse of parsed.specialUse) {
-				// First mailbox with this special-use wins (usually the canonical one)
-				if (!map.has(specialUse)) {
-					map.set(specialUse, mailbox.fullPath);
-				}
-			}
-		}
-
-		return map;
-	};
-
-	/**
-	 * Check if a mailbox is a duplicate special-use folder.
-	 * A folder is considered duplicate if:
-	 * 1. Its name matches a common special-use folder name (e.g., "Trash")
-	 * 2. It does NOT have the IMAP special-use attribute
-	 * 3. Another folder already claimed that special-use designation
-	 */
-	private isDuplicateSpecialUse = (
-		mailbox: FlatMailboxInfo,
-		claimedSpecialUse: Map<MailboxSpecialUseValue, string>,
-	): boolean => {
-		// Get the folder name (last segment of path)
-		const folderName = mailbox.fullPath.split(mailbox.delimiter).pop() ?? "";
-		const normalizedName = folderName.toLowerCase();
-
-		// Check if this folder name is a conventional name for a role
-		const role = roleForFolderName(normalizedName);
-		if (!role) {
-			return false; // Not a special-use folder name
-		}
-
-		const expectedSpecialUse = ROLE_SPECIAL_USE[role];
-		if (!expectedSpecialUse) {
-			return false; // The role has no SPECIAL-USE flag to be a duplicate of
-		}
-
-		// Check if this mailbox has the special-use attribute
-		const parsed = parseImapAttributes(mailbox.attributes);
-		if (parsed.specialUse.some((use) => use === expectedSpecialUse)) {
-			return false; // This IS the canonical folder
-		}
-
-		// Check if another folder already claimed this special-use
-		const claimed = [...claimedSpecialUse].find(
-			([specialUse]) => specialUse === expectedSpecialUse,
-		);
-		if (!claimed) {
-			return false; // No other folder has this special-use
-		}
-
-		// This is a duplicate - another folder has the attribute
-		this.log.debug(
-			{
-				fullPath: mailbox.fullPath,
-				claimedPath: claimed[1],
-				specialUse: expectedSpecialUse,
-			},
-			"Skipping duplicate folder",
-		);
-		return true;
 	};
 }
