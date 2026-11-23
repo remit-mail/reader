@@ -84,9 +84,7 @@ test.describe("Intelligence where the rail does not fit", () => {
 			state: "Checked",
 			action: "None",
 		});
-		await expect(
-			page.getByRole("button", { name: "Why", exact: true }),
-		).toHaveCount(0);
+		await expect(page.getByRole("button", { name: /^Why\??$/ })).toHaveCount(0);
 		await expect(intelligenceDrawer(page)).toHaveCount(0);
 		await expect(page.getByRole("button", { name: SHOW_INFO })).toBeEnabled();
 	});
