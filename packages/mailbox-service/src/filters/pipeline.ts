@@ -11,7 +11,6 @@ import {
 	FilterState,
 	MailboxSyncStatus,
 } from "@remit/domain-enums";
-import type { FolderPlacementLookup } from "../folder-placement.js";
 import type { FolderPlacement } from "../heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
@@ -40,7 +39,6 @@ export interface FilterConfig {
 	mailboxService: Pick<IMailboxRepository, "resolveAccountId" | "get">;
 	/** The folder each label maps to in each account (RFC 040). */
 	labelMailboxService: Pick<ILabelMailboxRepository, "listByLabel">;
-	mailboxSpecialUseService: FolderPlacementLookup;
 	placementMoveService: PlacementMoveService;
 }
 

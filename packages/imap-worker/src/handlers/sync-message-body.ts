@@ -192,7 +192,6 @@ export const syncMessageBody = async (
 				messageLabelService,
 				mailboxService,
 				labelMailboxService: ctx.client.labelMailbox,
-				mailboxSpecialUseService: ctx.client.mailboxSpecialUse,
 				placementMoveService,
 			});
 
@@ -201,6 +200,7 @@ export const syncMessageBody = async (
 				storage,
 				threadMessageService,
 				addressService,
+				mailboxSpecialUseRepository,
 				envelopeService,
 				new SyncWarningService(syncWarningRepository),
 				spam,

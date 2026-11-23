@@ -50,7 +50,6 @@ const repos = (): FilterConfigDeps => ({
 	messageLabelService: store.messageLabel,
 	mailboxService: store.mailbox,
 	labelMailboxService: store.labelMailbox,
-	mailboxSpecialUseService: store.mailboxSpecialUse,
 	placementMoveService: new PlacementMoveService({
 		messageService: store.message,
 		threadMessageService: store.threadMessage,

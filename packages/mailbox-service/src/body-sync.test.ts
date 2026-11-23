@@ -197,6 +197,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		wiring.storage ?? store.storage(),
 		store.threadMessage,
 		store.address,
+		store.mailboxSpecialUse,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
 		spamConfigFor(store),
@@ -213,7 +214,6 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 					messageLabelService: store.messageLabel,
 					mailboxService: store.mailbox,
 					labelMailboxService: store.labelMailbox,
-					mailboxSpecialUseService: store.mailboxSpecialUse,
 					placementMoveService,
 				}
 			: undefined,

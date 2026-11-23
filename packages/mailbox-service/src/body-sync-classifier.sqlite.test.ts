@@ -195,6 +195,7 @@ const bodySync = (
 		store.storage(),
 		store.threadMessage,
 		store.address,
+		store.mailboxSpecialUse,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
 		{ ...spamConfigFor(store), spamPipeline },
@@ -211,7 +212,6 @@ const bodySync = (
 					messageLabelService: store.messageLabel,
 					mailboxService: store.mailbox,
 					labelMailboxService: store.labelMailbox,
-					mailboxSpecialUseService: store.mailboxSpecialUse,
 					placementMoveService,
 				}
 			: undefined,

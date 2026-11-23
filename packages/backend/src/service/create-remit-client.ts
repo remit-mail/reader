@@ -334,7 +334,6 @@ export const buildReadPathFilterConfig = (
 		messageLabelService: repositories.messageLabel,
 		mailboxService: repositories.mailbox,
 		labelMailboxService: repositories.labelMailbox,
-		mailboxSpecialUseService: repositories.mailboxSpecialUse,
 		placementMoveService: new PlacementMoveService({
 			messageService: repositories.message,
 			threadMessageService: repositories.threadMessage,
@@ -508,6 +507,7 @@ export const composeReadPathServices = (
 			core.storage,
 			core.threadMessage,
 			core.address,
+			core.mailboxSpecialUse,
 			core.envelope,
 			new SyncWarningService(core.syncWarning),
 			core.spam,

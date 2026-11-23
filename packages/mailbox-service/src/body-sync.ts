@@ -78,6 +78,7 @@ import {
 import type { FilterMessage } from "./filters/rule.js";
 import type { FlagQueueService } from "./flag-queue.js";
 import {
+	type FolderPlacementLookup,
 	type FolderRoleMailboxes,
 	resolveFolderRoleMailboxes,
 } from "./folder-placement.js";
@@ -373,6 +374,7 @@ export class BodySyncService {
 		private storageService: StorageService,
 		private threadMessageService: IThreadMessageRepository,
 		private addressService: IAddressRepository,
+		private readonly folderLookup: FolderPlacementLookup,
 		private envelopeService: IEnvelopeRepository,
 		private readonly syncWarningService: SyncWarningService,
 		private readonly spamConfig: SpamConfig,
@@ -1064,12 +1066,7 @@ export class BodySyncService {
 		// the resulting folder, including classifier/spam and filter moves:
 		// mail left or filed in Junk cannot earn sender trust (#1428).
 		const { junkMailbox } = await lookups.roleMailboxes();
-		const junkMailboxId =
-			junkMailbox?.mailboxId ??
-			(arrival.placement === FromPlacement.Junk
-				? decidedRow.mailboxId
-				: undefined);
-		if (storedMessage.mailboxId !== junkMailboxId) {
+		if (storedMessage.mailboxId !== junkMailbox?.mailboxId) {
 			await this.incrementInboundCount(messageId, accountConfigId, parsed);
 		}
 
@@ -1606,11 +1603,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		accountId: string,
 	): BatchLookups {
-		const { placementConfig, filterConfig, filterPipeline, classifierConfig } =
-			this;
-		const folderLookup =
-			placementConfig?.mailboxSpecialUseService ??
-			filterConfig?.mailboxSpecialUseService;
+		const { filterPipeline, classifierConfig } = this;
 		const filterService =
 			this.filterConfig?.filterService ?? this.calendarConfig?.filterService;
 		const activeFilters = once(async () =>
@@ -1622,10 +1615,8 @@ export class BodySyncService {
 				: [],
 		);
 		return {
-			roleMailboxes: once(async () =>
-				folderLookup
-					? resolveFolderRoleMailboxes(folderLookup, accountId)
-					: { junkMailbox: null, inboxMailbox: null },
+			roleMailboxes: once(() =>
+				resolveFolderRoleMailboxes(this.folderLookup, accountId),
 			),
 			activeFilters,
 			usableFilters: once(async () => {
