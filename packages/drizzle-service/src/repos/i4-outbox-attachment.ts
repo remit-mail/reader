@@ -240,8 +240,8 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 	}
 
 	/**
-	 * Only a Pending row that has not lapsed may become Stored, and the update
-	 * says so in its WHERE rather than in a preceding read — two completions for
+	 * Only a Pending row may become Stored; the service renews lapsed reservations
+	 * before verifying their bytes. The update names Pending in its WHERE — two completions for
 	 * the same upload cannot both believe they were the one that confirmed it.
 	 */
 	async markStored(

@@ -128,8 +128,9 @@ export interface IOutboxAttachmentRepository {
 	 * A `Pending` row past its expiry already stops holding room, but until it is
 	 * gone it still names an object — which is enough for the sweep to treat that
 	 * object as accounted for and leave it. So the row has to go, and the sweep
-	 * collects the bytes on the same pass. `complete` refuses a lapsed row, so
-	 * nothing is racing this.
+	 * collects the bytes on the same pass. Renewal must update an existing row:
+	 * if this delete wins, renewal returns Missing and cannot recreate a row
+	 * whose bytes the sweep may already have selected for deletion.
 	 */
 	deleteLapsedReservations(
 		accountConfigId: string,
