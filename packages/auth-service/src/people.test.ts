@@ -129,6 +129,31 @@ after(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
+describe("the legacy People password check", () => {
+	it("keeps the password limit without persisting a grant", async () => {
+		const request = {
+			callerId: operatorId,
+			targetId: operatorId,
+			clientIp: PEER,
+			action: "SignOut" as const,
+			password: PASSWORD,
+		};
+		const checked = await people.createStepUp(request);
+		assert.ok(checked.ok, JSON.stringify(checked));
+		assert.deepEqual(rows("SELECT digest FROM identity_step_up"), []);
+		for (let attempt = 0; attempt < 5; attempt++) {
+			assert.deepEqual(
+				await people.createStepUp({ ...request, password: "wrong password" }),
+				{ ok: false, refusal: "wrong_password" },
+			);
+		}
+		assert.deepEqual(await people.createStepUp(request), {
+			ok: false,
+			refusal: "step_up_locked",
+		});
+	});
+});
+
 describe("an active browser session", () => {
 	it("renews on use and works past its original expiry", async (t) => {
 		const userId = await signUp("rolling@remit.test");
