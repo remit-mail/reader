@@ -9,7 +9,7 @@ import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { encryptRefreshToken } from "@remit/mailbox-service/account-credentials";
 import { MailConnectionError } from "@remit/mailbox-service/types";
 import type { SyncMailboxesEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/test-world.js";
+import { openStore } from "../test-helpers/test-world.js";
 import { syncMailboxes } from "./sync-mailboxes.js";
 
 const discoveryEvent = (accountId: string): SyncMailboxesEvent => ({
@@ -19,20 +19,6 @@ const discoveryEvent = (accountId: string): SyncMailboxesEvent => ({
 	accountId,
 	explicitRequest: true,
 });
-
-const seedOAuthCredential = async ({
-	account,
-	client,
-}: World): Promise<void> => {
-	await client.account.update(account.accountId, {
-		authType: AccountAuthType.OauthMicrosoft,
-		oauthRefreshTokenHash: await encryptRefreshToken(
-			"refresh-token",
-			client.secrets,
-		),
-		lastError: "An earlier sync failed",
-	});
-};
 
 describe("mailbox discovery round identity", () => {
 	for (const { name, seed, phase } of [
@@ -118,7 +104,14 @@ describe("mailbox discovery round identity", () => {
 		const world = await store.world();
 		const { accountId } = world.account;
 		const event = discoveryEvent(accountId);
-		await seedOAuthCredential(world);
+		await world.client.account.update(accountId, {
+			authType: AccountAuthType.OauthMicrosoft,
+			oauthRefreshTokenHash: await encryptRefreshToken(
+				"refresh-token",
+				world.client.secrets,
+			),
+			lastError: "An earlier sync failed",
+		});
 
 		await syncMailboxes(
 			event,
@@ -148,7 +141,14 @@ describe("mailbox discovery round identity", () => {
 		const world = await store.world();
 		const { accountId } = world.account;
 		const event = discoveryEvent(accountId);
-		await seedOAuthCredential(world);
+		await world.client.account.update(accountId, {
+			authType: AccountAuthType.OauthMicrosoft,
+			oauthRefreshTokenHash: await encryptRefreshToken(
+				"refresh-token",
+				world.client.secrets,
+			),
+			lastError: "An earlier sync failed",
+		});
 		const refusal = "IMAP authentication rejected";
 		const pool = world.connectVia(() => ({
 			getConnection: async () => {
