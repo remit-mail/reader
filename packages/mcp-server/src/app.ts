@@ -422,11 +422,7 @@ export const createMcpApp = (config: McpAppConfig): McpRequestHandler => {
 		if (!bearer) return challenge(config, "unauthorized");
 		const verification = await config.verifier.verify(bearer);
 		if (!verification.ok)
-			return challenge(
-				config,
-				"invalid_token",
-				verification.description ?? "The access token is invalid",
-			);
+			return challenge(config, "invalid_token", verification.description);
 		return createMcpHandler(
 			verification.principal,
 			config.deps,

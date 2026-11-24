@@ -881,26 +881,23 @@ export const createBetterAuthTokenVerifier = (
 				typeof description === "string" &&
 				safeReasons.includes(description)
 			) {
-				return { ok: false, reason: "invalid_token", description };
+				return { ok: false, description };
 			}
 			// The provider does not distinguish expired tokens from invalid ones.
 			return {
 				ok: false,
-				reason: "invalid_token",
 				description: "The access token is invalid or expired",
 			};
 		}
 		if (!audienceOf(payload.aud).includes(mcpResource(origin))) {
 			return {
 				ok: false,
-				reason: "wrong_audience",
 				description: "The access token is for a different resource",
 			};
 		}
 		if (typeof payload.sub !== "string" || payload.sub.length === 0) {
 			return {
 				ok: false,
-				reason: "no_subject",
 				description: "The access token has no subject",
 			};
 		}
