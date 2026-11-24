@@ -8,7 +8,6 @@ import {
 	auth_session,
 	auth_user,
 	identity_audit_event,
-	identity_step_up,
 } from "./schema/auth-schema-sqlite.js";
 
 export const HOST_CLIENT_IP = "host";
@@ -193,9 +192,6 @@ export const revokeUser = (store: IdentityStore, userId: string): void => {
 		)
 		.run();
 	db.delete(mcp_session).where(eq(mcp_session.userId, userId)).run();
-	db.delete(identity_step_up)
-		.where(eq(identity_step_up.callerUserId, userId))
-		.run();
 };
 
 const revokeEveryone = (store: IdentityStore): void => {
@@ -212,7 +208,6 @@ const revokeEveryone = (store: IdentityStore): void => {
 		.where(isNull(mcp_oauth_refresh_token.revoked))
 		.run();
 	db.delete(mcp_session).run();
-	db.delete(identity_step_up).run();
 };
 
 export const applySignInSwitch = (

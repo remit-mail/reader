@@ -200,7 +200,7 @@ export interface OutboxAttachmentRejectionResponse {
 	body: OutboxAttachmentRejection;
 }
 
-const refuseAttachment = (
+export const refuseAttachment = (
 	detail: OutboxAttachmentRejectionDetail,
 ): OutboxAttachmentRejectionResponse => ({
 	statusCode: TOO_LARGE.has(detail.reason) ? 413 : 400,

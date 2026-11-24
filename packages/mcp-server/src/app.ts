@@ -122,7 +122,11 @@ const consentScopes = (query: string, granted: boolean): string => {
 	const scopes = (params.get("scope") ?? "")
 		.split(" ")
 		.filter((scope) => scope.length > 0 && scope !== MCP_OPERATOR_SCOPE);
-	if (granted) scopes.push(MCP_OPERATOR_SCOPE);
+	if (
+		granted &&
+		(params.get("scope") ?? "").split(" ").includes(MCP_OPERATOR_SCOPE)
+	)
+		scopes.push(MCP_OPERATOR_SCOPE);
 	return scopes.join(" ");
 };
 
@@ -264,7 +268,8 @@ export const createMcpPages = ({
 				url.search.slice(1),
 				clientName,
 				scopes.filter((scope) => scope !== MCP_OPERATOR_SCOPE),
-				await authRoutes.operatorOf(request.headers),
+				scopes.includes(MCP_OPERATOR_SCOPE) &&
+					(await authRoutes.operatorOf(request.headers)),
 			);
 		}
 		const form = await request.formData();
@@ -280,19 +285,6 @@ export const createMcpPages = ({
 		);
 	};
 
-	const invalidCode = (userCode: string): Response =>
-		deviceView(
-			{
-				kind: "enter",
-				userCode,
-				error: pageError(
-					"That code is not valid or has expired.",
-					"Run remit mcp login again and enter the new code.",
-				),
-			},
-			400,
-		);
-
 	const device = async (request: Request): Promise<Response> => {
 		const url = new URL(request.url);
 		const session = await authRoutes.sessionOf(request.headers);
@@ -303,17 +295,46 @@ export const createMcpPages = ({
 		if (request.method === "GET") {
 			const userCode = (url.searchParams.get("user_code") ?? "").trim();
 			if (!userCode) return deviceView({ kind: "enter", userCode: "" });
-			if (!(await authRoutes.claimDeviceCode(request.headers, userCode))) {
-				return invalidCode(userCode);
-			}
+			const claimed = await authRoutes.claimDeviceCode(
+				request.headers,
+				userCode,
+			);
+			if (!claimed.ok)
+				return deviceView(
+					{
+						kind: "enter",
+						userCode,
+						error: pageError(
+							await failureOf(claimed),
+							"Use the new code shown by the CLI if pairing expired.",
+						),
+					},
+					claimed.status,
+				);
+			const state = (await claimed.json()) as { status: string };
+			if (state.status !== "pending")
+				return deviceView({
+					kind: state.status === "approved" ? "approved" : "denied",
+				});
 			return deviceView({ kind: "confirm", userCode });
 		}
 		const form = await request.formData();
 		const userCode = formString(form, "user_code");
 		const approve = formString(form, "action") === "approve";
-		if (!(await authRoutes.claimDeviceCode(request.headers, userCode))) {
-			return invalidCode(userCode);
-		}
+		const claimed = await authRoutes.claimDeviceCode(request.headers, userCode);
+		if (!claimed.ok)
+			return deviceView(
+				{
+					kind: "enter",
+					userCode,
+					error: pageError(
+						await failureOf(claimed),
+						"Use the new code shown by the CLI if pairing expired.",
+					),
+				},
+				claimed.status,
+			);
+		await claimed.body?.cancel();
 		const response = await authRoutes.decideDeviceCode(
 			request.headers,
 			userCode,
@@ -331,7 +352,7 @@ export const createMcpPages = ({
 					userCode,
 					error: pageError(
 						await failureOf(response),
-						"Run remit mcp login again and enter the new code.",
+						"Use the new code shown by the CLI if pairing expired.",
 					),
 				},
 				response.status,

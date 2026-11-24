@@ -5,17 +5,12 @@
  * handler business logic through pure function calls, without booting DynamoDB
  * or making real AWS API calls. The handlers themselves are tested via
  * integration / end-to-end tests; here we focus on the critical security
- * paths (state signing, expiry, token handling).
+ * paths (state signing, legacy compatibility, token handling).
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AccountService } from "@remit/domain-enums";
-import {
-	type OAuthState,
-	STATE_TTL_MS,
-	signState,
-	verifyState,
-} from "../oauth-state.js";
+import { type OAuthState, signState, verifyState } from "../oauth-state.js";
 import { getWebOrigin, parseJwtClaims } from "./account-oauth.js";
 
 function makeJwtToken(claims: Record<string, unknown>): string {
@@ -37,7 +32,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -52,7 +46,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -78,7 +71,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -94,7 +86,6 @@ describe("HMAC state signing", () => {
 		const payload: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now(),
 			services: [AccountService.Mail],
 		};
 
@@ -117,7 +108,6 @@ describe("HMAC state signing", () => {
 			{
 				accountConfigId: "acc-config-1",
 				nonce: "deadbeef",
-				timestamp: Date.now(),
 			} as OAuthState,
 			SECRET,
 		);
@@ -132,7 +122,6 @@ describe("HMAC state signing", () => {
 			{
 				accountConfigId: "acc-config-1",
 				nonce: "deadbeef",
-				timestamp: Date.now(),
 				services: [],
 			},
 			SECRET,
@@ -149,7 +138,6 @@ describe("HMAC state signing", () => {
 			{
 				accountConfigId: "acc-config-1",
 				nonce: "deadbeef",
-				timestamp: Date.now(),
 				services: [AccountService.Mail, AccountService.Calendar],
 			},
 			SECRET,
@@ -161,30 +149,17 @@ describe("HMAC state signing", () => {
 		]);
 	});
 
-	it("rejects an expired state (timestamp > 10 minutes ago)", async () => {
-		const expired: OAuthState = {
+	it("accepts a legacy signed state from a day ago", async () => {
+		const legacy: OAuthState & { timestamp: number } = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
-			timestamp: Date.now() - STATE_TTL_MS - 1000, // 1 second past expiry
+			timestamp: Date.now() - 24 * 60 * 60 * 1000,
 			services: [AccountService.Mail],
 		};
 
-		const state = await signState(expired, SECRET);
+		const state = await signState(legacy, SECRET);
 
-		await assert.rejects(() => verifyState(state, SECRET), /State has expired/);
-	});
-
-	it("accepts a state right at the TTL boundary", async () => {
-		const almostExpired: OAuthState = {
-			accountConfigId: "acc-config-1",
-			nonce: "deadbeef",
-			timestamp: Date.now() - STATE_TTL_MS + 2000, // 2 seconds before expiry
-			services: [AccountService.Mail],
-		};
-
-		const state = await signState(almostExpired, SECRET);
-		const verified = await verifyState(state, SECRET);
-		assert.equal(verified.accountConfigId, "acc-config-1");
+		assert.deepEqual(await verifyState(state, SECRET), legacy);
 	});
 });
 

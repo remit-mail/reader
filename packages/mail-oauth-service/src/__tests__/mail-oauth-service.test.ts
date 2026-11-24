@@ -381,7 +381,7 @@ describe("mail-oauth-service", () => {
 		);
 		assert.equal(url.searchParams.get("state"), "random-state");
 		assert.equal(url.searchParams.get("access_type"), "offline");
-		assert.equal(url.searchParams.get("prompt"), "consent");
+		assert.equal(url.searchParams.get("prompt"), null);
 		assert.equal(url.searchParams.get("login_hint"), "user@example.com");
 	});
 

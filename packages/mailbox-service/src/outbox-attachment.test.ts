@@ -129,6 +129,109 @@ describe("reserving room on a draft", () => {
 		);
 	});
 
+	it("renews a held file's reservation and URL without changing its size or id", async () => {
+		let now = 3_000_000;
+		const { service } = await build(OutboxMessageStatus.draft, () => now);
+		const first = await mint(service);
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		now += UPLOAD_URL_TTL_SECONDS - 1;
+		const renewed = await service.renew({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+		});
+		assert.equal(renewed.outcome, "Minted");
+		if (renewed.outcome !== "Minted") return;
+		assert.equal(
+			renewed.reservation.outboxAttachmentId,
+			first.reservation.outboxAttachmentId,
+		);
+		assert.equal(renewed.reservation.sizeBytes, first.reservation.sizeBytes);
+		assert.equal(renewed.reservation.filename, first.reservation.filename);
+		assert.equal(
+			renewed.reservation.uploadExpiresAt,
+			now + UPLOAD_URL_TTL_SECONDS,
+		);
+		assert.equal((await rows()).length, 1);
+		now += UPLOAD_URL_TTL_SECONDS + 1;
+		assert.deepEqual(
+			await service.reapAndListLive(ACCOUNT_CONFIG_ID, draftId),
+			[],
+		);
+	});
+
+	it("refuses renewal for another draft or a Stored attachment", async () => {
+		const { service } = await build();
+		const first = await mint(service);
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		const input = {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+		};
+		const other = await store.outboxMessage.create({
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			fromAddress: "me@example.com",
+			toAddresses: ["them@example.com"],
+			messageIdValue: "<other@example.com>",
+			status: OutboxMessageStatus.draft,
+		});
+		await assert.rejects(
+			() => service.renew({ ...input, outboxMessageId: other.outboxMessageId }),
+			/Only a pending upload on this draft/,
+		);
+		await store.outboxAttachment.markStored(
+			ACCOUNT_CONFIG_ID,
+			input.outboxAttachmentId,
+			first.reservation.sizeBytes,
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds: Math.floor(Date.now() / 1000),
+			},
+		);
+		await assert.rejects(
+			() => service.renew(input),
+			/Only a pending upload on this draft/,
+		);
+	});
+
+	it("rechecks quota when a lapsed upload completes after its room was taken", async () => {
+		let now = 3_000_000;
+		const { service, storage } = await build(
+			OutboxMessageStatus.draft,
+			() => now,
+		);
+		const first = await mint(service, {
+			sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+		});
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		await uploadFor(
+			storage,
+			first.reservation.outboxAttachmentId,
+			first.reservation.sizeBytes,
+		);
+		now += UPLOAD_URL_TTL_SECONDS + 1;
+		assert.equal(
+			(await mint(service, { sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES }))
+				.outcome,
+			"Minted",
+		);
+		const completed = await service.complete({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+		});
+		assert.equal(
+			completed.outcome === "Rejected" && completed.rejection.reason,
+			OutboxAttachmentRejectionReason.MessageTooLarge,
+		);
+	});
+
 	it("refuses a declared size over the cap", async () => {
 		const { service } = await build();
 
@@ -396,7 +499,42 @@ describe("completing an attachment", () => {
 		);
 	});
 
-	it("refuses a completion once the reservation has lapsed", async () => {
+	it("refuses completion if storage verification outlasts the reservation and quota is taken", async () => {
+		let now = 3_000_000;
+		const { service, storage } = await build(
+			OutboxMessageStatus.draft,
+			() => now,
+		);
+		const first = await mint(service, { sizeBytes: 64 });
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		await uploadFor(storage, first.reservation.outboxAttachmentId, 64);
+		const stat = storage.statOutboxAttachment.bind(storage);
+		storage.statOutboxAttachment = async (...args) => {
+			now += UPLOAD_URL_TTL_SECONDS + 1;
+			assert.equal(
+				(await mint(service, { sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES }))
+					.outcome,
+				"Minted",
+			);
+			return stat(...args);
+		};
+		const result = await service.complete({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+		});
+		assert.equal(
+			result.outcome === "Rejected" && result.rejection.reason,
+			OutboxAttachmentRejectionReason.MessageTooLarge,
+		);
+		assert.equal(
+			(await rowOf(first.reservation.outboxAttachmentId)).state,
+			"Pending",
+		);
+	});
+
+	it("renews a slow upload before completion", async () => {
 		const clock = { seconds: 3_000_000 };
 		const { service, storage } = await build(
 			OutboxMessageStatus.draft,
@@ -415,10 +553,7 @@ describe("completing an attachment", () => {
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		});
 
-		assert.equal(
-			completed.outcome === "Rejected" && completed.rejection.reason,
-			OutboxAttachmentRejectionReason.ReservationExpired,
-		);
+		assert.equal(completed.outcome, "Completed");
 	});
 });
 
@@ -480,6 +615,26 @@ describe("retainOnly, which is what attachmentIds drives", () => {
 		}
 		return [first.reservation, second.reservation] as const;
 	};
+
+	it("a save renews the named pending file beyond its original deadline", async () => {
+		let now = 3_000_000;
+		const { service } = await build(OutboxMessageStatus.draft, () => now);
+		const [keep, drop] = await mintTwo(service);
+		now += UPLOAD_URL_TTL_SECONDS - 1;
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
+			keep.outboxAttachmentId,
+		]);
+		assert.equal(
+			(await rowOf(keep.outboxAttachmentId)).reservationExpiresAt,
+			now + UPLOAD_URL_TTL_SECONDS,
+		);
+		now += 2;
+		assert.deepEqual(
+			await service.reapAndListLive(ACCOUNT_CONFIG_ID, draftId),
+			[keep.outboxAttachmentId],
+		);
+		assert.ok(!(await ids()).includes(drop.outboxAttachmentId));
+	});
 
 	it("keeps everything named and removes everything else, bytes included", async () => {
 		const { service, storage } = await build();

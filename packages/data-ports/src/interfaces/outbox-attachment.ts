@@ -77,6 +77,18 @@ export interface IOutboxAttachmentRepository {
 		cap: OutboxAttachmentCap,
 	): Promise<ReserveOutboxAttachmentResult>;
 
+	/** Atomically renew an existing Pending row under the same caps. Never recreates a row deleted by cleanup. */
+	renew(
+		input: Pick<
+			CreateOutboxAttachmentInput,
+			| "accountConfigId"
+			| "outboxMessageId"
+			| "outboxAttachmentId"
+			| "reservationExpiresAt"
+		>,
+		cap: OutboxAttachmentCap,
+	): Promise<ReserveOutboxAttachmentResult | { outcome: "Missing" }>;
+
 	/** One attachment, scoped to its tenant. Throws NotFound when it is gone. */
 	get(
 		accountConfigId: string,
@@ -94,13 +106,14 @@ export interface IOutboxAttachmentRepository {
 
 	/**
 	 * Move a reservation to Stored at the size storage actually holds. Returns
-	 * null when the row is gone or no longer Pending, so a caller can tell a
-	 * lapsed reservation from a confirmed one without a second read.
+	 * null when the row is gone, no longer Pending, or no longer fits the caps.
+	 * The Pending-to-Stored transition must enforce quota atomically.
 	 */
 	markStored(
 		accountConfigId: string,
 		outboxAttachmentId: string,
 		sizeBytes: number,
+		cap: OutboxAttachmentCap,
 	): Promise<OutboxAttachmentItem | null>;
 
 	/** Drop specific attachments from a draft. */
@@ -116,8 +129,9 @@ export interface IOutboxAttachmentRepository {
 	 * A `Pending` row past its expiry already stops holding room, but until it is
 	 * gone it still names an object — which is enough for the sweep to treat that
 	 * object as accounted for and leave it. So the row has to go, and the sweep
-	 * collects the bytes on the same pass. `complete` refuses a lapsed row, so
-	 * nothing is racing this.
+	 * collects the bytes on the same pass. Renewal must update an existing row:
+	 * if this delete wins, renewal returns Missing and cannot recreate a row
+	 * whose bytes the sweep may already have selected for deletion.
 	 */
 	deleteLapsedReservations(
 		accountConfigId: string,

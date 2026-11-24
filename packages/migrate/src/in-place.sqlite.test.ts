@@ -551,7 +551,6 @@ const NEW_TABLES: ReadonlyMap<string, string> = new Map([
 	["sync_warning", "entities 0042"],
 	["calendar_task", "app 0001"],
 	["identity_audit_event", "app 0002"],
-	["identity_step_up", "app 0002"],
 	["message_search_text", "mail 0001"],
 	["outbox_scheduling_part", "mail 0006"],
 	["label_mailbox", "mail 0011"],

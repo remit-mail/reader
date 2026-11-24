@@ -452,7 +452,6 @@ export const MicrosoftOAuthOperations = {
 		const statePayload: OAuthState = {
 			accountConfigId,
 			nonce,
-			timestamp: Date.now(),
 			services,
 		};
 

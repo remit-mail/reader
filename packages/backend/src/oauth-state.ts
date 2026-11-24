@@ -5,7 +5,6 @@ import { AccountService } from "@remit/domain-enums";
 export interface OAuthState {
 	accountConfigId: string;
 	nonce: string;
-	timestamp: number;
 	services: AccountServiceName[];
 }
 
@@ -18,8 +17,6 @@ const isServiceList = (value: unknown): value is AccountServiceName[] =>
 		(service) =>
 			typeof service === "string" && ACCOUNT_SERVICES.includes(service),
 	);
-
-export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Derive a signing key from the client secret, namespaced to avoid reuse.
@@ -75,10 +72,6 @@ export async function verifyState(
 	const payload = JSON.parse(
 		base64urlDecode(payloadEncoded).toString("utf8"),
 	) as OAuthState;
-
-	if (Date.now() - payload.timestamp > STATE_TTL_MS) {
-		throw new Error("State has expired");
-	}
 
 	if (payload.services === undefined) {
 		return { ...payload, services: [AccountService.Mail] };

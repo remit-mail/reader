@@ -120,7 +120,9 @@ const buildOAuthOptions = (origin: string): OAuthOptions<Scope[]> => {
 		// A refreshable token stays short; the device flow, which a static
 		// header carries and nothing refreshes, gets the long default. Every
 		// browser authorization is made refreshable by the authorize hook.
+		// Rotation starts a fresh inactivity window for every refresh token.
 		accessTokenExpiresIn: DEVICE_TOKEN_TTL_SECONDS,
+		refreshTokenExpiresIn: DEVICE_TOKEN_TTL_SECONDS,
 		scopeExpirations: {
 			[OFFLINE_ACCESS_SCOPE]: `${BROWSER_TOKEN_TTL_SECONDS}s`,
 		},
@@ -159,13 +161,6 @@ const withOfflineAccess = (query: Record<string, unknown>) => {
 	const scopes = query.scope.split(" ").filter((scope) => scope.length > 0);
 	if (scopes.includes(OFFLINE_ACCESS_SCOPE)) return query;
 	return { ...query, scope: [...scopes, OFFLINE_ACCESS_SCOPE].join(" ") };
-};
-
-const withScope = (query: Record<string, unknown>, scope: string) => {
-	if (typeof query.scope !== "string") return query;
-	const scopes = query.scope.split(" ").filter((value) => value.length > 0);
-	if (scopes.includes(scope)) return query;
-	return { ...query, scope: [...scopes, scope].join(" ") };
 };
 
 const userCodeOf = (body: unknown): string | undefined => {
@@ -249,7 +244,7 @@ const signInEndpoint = (
 			body: z.object({
 				email: z.string(),
 				password: z.string(),
-				oauth_query: z.string(),
+				oauth_query: z.string().optional(),
 			}),
 		},
 		async (ctx) => {
@@ -270,7 +265,14 @@ const signInEndpoint = (
 			}
 			const session = await ctx.context.internalAdapter.createSession(user.id);
 			await setSessionCookie(ctx, { session, user });
-			return ctx.json({ redirect: false });
+			return ctx.json(
+				ctx.query?.remitRestart
+					? {
+							redirect: true,
+							url: `${ctx.context.baseURL}/oauth2/authorize?${ctx.query.remitRestart}`,
+						}
+					: { redirect: false },
+			);
 		},
 	);
 
@@ -374,6 +376,39 @@ const remitMcpBridge = (
 							error_description: "The account is disabled",
 						});
 					}
+					if (
+						!(typeof payload.scope === "string" ? payload.scope : "")
+							.split(" ")
+							.includes(OFFLINE_ACCESS_SCOPE)
+					) {
+						const token = await getOAuthProviderApi(
+							ctx,
+							oauthOptions,
+						).hashToken(ctx.body.token, "access_token");
+						await ctx.context.adapter.updateMany({
+							model: "oauthAccessToken",
+							where: [
+								{ field: "token", value: token },
+								{ field: "revoked", value: null },
+							],
+							update: {
+								expiresAt: new Date(
+									Date.now() + DEVICE_TOKEN_TTL_SECONDS * 1000,
+								),
+							},
+						});
+					}
+					if (typeof payload.sid === "string") {
+						await ctx.context.adapter.update({
+							model: "session",
+							where: [{ field: "id", value: payload.sid }],
+							update: {
+								expiresAt: new Date(
+									Date.now() + DEVICE_TOKEN_TTL_SECONDS * 1000,
+								),
+							},
+						});
+					}
 					return ctx.json(payload);
 				},
 			),
@@ -445,19 +480,14 @@ const remitMcpBridge = (
 				{
 					matcher: (ctx) => ctx.path === "/oauth2/authorize",
 					handler: createAuthMiddleware(async (ctx) => {
-						const session = await getSessionFromCtx(ctx);
-						const consentDecision =
-							typeof ctx.body === "object" &&
-							ctx.body !== null &&
-							"accept" in ctx.body;
-						const offeredOperator =
-							!consentDecision &&
-							session &&
-							(await identity.isOperator(session.user.id));
-						const requested = offeredOperator
-							? withScope(ctx.query ?? {}, MCP_OPERATOR_SCOPE)
-							: (ctx.query ?? {});
-						const query = withOfflineAccess(requested);
+						const query = withOfflineAccess(ctx.query ?? {});
+						// The provider still checks recorded consent, scopes and resources.
+						if (typeof query.prompt === "string") {
+							query.prompt = query.prompt
+								.split(" ")
+								.filter((value) => value !== "consent")
+								.join(" ");
+						}
 						return {
 							context: {
 								query: hasResource(query) ? query : { ...query, resource },
@@ -525,6 +555,34 @@ const remitMcpBridge = (
 			],
 			after: [
 				{
+					matcher: (ctx) =>
+						ctx.path === "/oauth2/token" &&
+						ctx.body?.grant_type === "refresh_token",
+					handler: createAuthMiddleware(async (ctx) => {
+						if (isAPIError(ctx.context.returned)) return;
+						const token = await getOAuthProviderApi(
+							ctx,
+							oauthOptions,
+						).hashToken(ctx.body.refresh_token, "refresh_token");
+						const refresh = await ctx.context.adapter.findOne<{
+							sessionId: string | null;
+						}>({
+							model: "oauthRefreshToken",
+							where: [{ field: "token", value: token }],
+						});
+						if (!refresh?.sessionId) return;
+						await ctx.context.adapter.update({
+							model: "session",
+							where: [{ field: "id", value: refresh.sessionId }],
+							update: {
+								expiresAt: new Date(
+									Date.now() + DEVICE_TOKEN_TTL_SECONDS * 1000,
+								),
+							},
+						});
+					}),
+				},
+				{
 					matcher: (ctx) => ctx.path === DEVICE_APPROVE_PATH,
 					handler: createAuthMiddleware(async (ctx) => {
 						if (isAPIError(ctx.context.returned)) return;
@@ -566,11 +624,65 @@ const remitMcpBridge = (
  */
 const signInGate = (signInEnabled: boolean) =>
 	createAuthMiddleware(async (ctx) => {
-		if (signInEnabled || isAlwaysServed(ctx.path)) return;
+		if (signInEnabled || isAlwaysServed(ctx.path)) {
+			const raw = ctx.body?.oauth_query;
+			if (typeof raw !== "string" || !raw) return;
+			const query = new URLSearchParams(raw);
+			const exp = query.get("exp");
+			if (
+				exp === null ||
+				!Number.isFinite(Number(exp)) ||
+				Number(exp) * 1000 >= Date.now()
+			)
+				return;
+			for (const key of ["sig", "exp", "ba_iat", "ba_pl", "ba_param"])
+				query.delete(key);
+			const url = `${ctx.context.baseURL}/oauth2/authorize?${query}`;
+			delete ctx.body.oauth_query;
+			if (ctx.path === "/oauth2/consent")
+				return ctx.json({ redirect: true, url });
+			return {
+				context: { query: { ...ctx.query, remitRestart: query.toString() } },
+			};
+		}
 		throw new APIError("FORBIDDEN", { ...SIGN_IN_DISABLED });
 	});
 
-export const buildMcpAuthOptions = (
+export // Only the static CLI bearer needs a stored expiry that can move on use.
+// Keep the provider's device-code validation and atomic redemption unchanged.
+const renewableDeviceAuthorization = (origin: string) => {
+	const plugin = oauthDeviceAuthorization({
+		schema: { deviceCode: { modelName: "mcp_device_code" } },
+		verificationUri: `${origin}${DEVICE_PATH}`,
+	});
+	return {
+		...plugin,
+		init(ctx: Parameters<typeof plugin.init>[0]) {
+			plugin.init(ctx);
+			const provider = ctx.getPlugin("oauth-provider");
+			const extension = provider?.options.extensions?.find(
+				(value) => value.grants?.[DEVICE_CODE_GRANT_TYPE],
+			);
+			const grant = extension?.grants?.[DEVICE_CODE_GRANT_TYPE];
+			if (!grant || !extension?.grants)
+				throw new Error("OAuth device grant is missing");
+			extension.grants[DEVICE_CODE_GRANT_TYPE] = (input) =>
+				grant({
+					...input,
+					provider: {
+						...input.provider,
+						issueTokens: getOAuthProviderApi(
+							input.ctx,
+							{ ...input.opts, disableJwtPlugin: true },
+							input.grantType,
+						).issueTokens,
+					},
+				});
+		},
+	};
+};
+
+const buildMcpAuthOptions = (
 	config: McpAuthConfig,
 	database: BetterAuthOptions["database"],
 	identity: McpIdentity,
@@ -592,7 +704,12 @@ export const buildMcpAuthOptions = (
 			enabled: true,
 			customRules: { [SIGN_IN_PATH]: { window: 60, max: 5 } },
 		},
-		session: { modelName: "mcp_session", storeSessionInDatabase: true },
+		session: {
+			modelName: "mcp_session",
+			storeSessionInDatabase: true,
+			expiresIn: DEVICE_TOKEN_TTL_SECONDS,
+			updateAge: 24 * 60 * 60,
+		},
 		verification: { modelName: "mcp_verification" },
 		plugins: [
 			jwt({
@@ -601,10 +718,7 @@ export const buildMcpAuthOptions = (
 				jwt: { issuer: config.origin, audience: mcpResource(config.origin) },
 			}),
 			oauthProvider(oauthOptions),
-			oauthDeviceAuthorization({
-				schema: { deviceCode: { modelName: "mcp_device_code" } },
-				verificationUri: `${config.origin}${DEVICE_PATH}`,
-			}),
+			renewableDeviceAuthorization(config.origin),
 			remitMcpBridge(
 				identity,
 				mcpResource(config.origin),
@@ -664,7 +778,7 @@ export interface McpAuthRoutes {
 		body: { accept: boolean; oauth_query: string; scope: string },
 	): Promise<Response>;
 	clientName(headers: Headers, clientId: string): Promise<string | undefined>;
-	claimDeviceCode(headers: Headers, userCode: string): Promise<boolean>;
+	claimDeviceCode(headers: Headers, userCode: string): Promise<Response>;
 	decideDeviceCode(
 		headers: Headers,
 		userCode: string,
@@ -815,15 +929,14 @@ const createMcpAuthRoutes = (
 		if (!client) return undefined;
 		return client.client_name ?? clientId;
 	},
-	claimDeviceCode: async (headers, userCode) => {
-		const response = await auth.api.deviceVerify({
-			query: { user_code: userCode },
-			headers,
-			asResponse: true,
-		});
-		await response.body?.cancel();
-		return response.ok;
-	},
+	claimDeviceCode: (headers, userCode) =>
+		auth.api
+			.deviceVerify({
+				query: { user_code: userCode },
+				headers,
+				asResponse: true,
+			})
+			.catch(refusalResponse),
 	decideDeviceCode: (headers, userCode, approve) =>
 		(approve
 			? auth.api.deviceApprove({

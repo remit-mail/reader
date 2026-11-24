@@ -15,7 +15,6 @@ import {
 	createPeopleDirectory,
 	type PeopleAdmin,
 	resetIdentifierOf,
-	type StepUpAction,
 } from "./people.js";
 
 const ORIGIN = "http://localhost:3000";
@@ -88,21 +87,6 @@ const run = (statement: string, ...params: SqliteValue[]): void => {
 	file.sqlite.prepare(statement).run(...params);
 };
 
-const stepUp = async (
-	targetId: string,
-	action: StepUpAction,
-): Promise<string> => {
-	const granted = await people.createStepUp({
-		callerId: operatorId,
-		clientIp: PEER,
-		targetId,
-		action,
-		password: PASSWORD,
-	});
-	assert.ok(granted.ok, JSON.stringify(granted));
-	return granted.value.stepUpToken;
-};
-
 const codeOf = async (response: Response): Promise<string | undefined> =>
 	((await response.json()) as { code?: string }).code;
 
@@ -145,6 +129,55 @@ after(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
+describe("the legacy People password check", () => {
+	it("keeps the password limit without persisting a grant", async () => {
+		const request = {
+			callerId: operatorId,
+			targetId: operatorId,
+			clientIp: PEER,
+			action: "SignOut" as const,
+			password: PASSWORD,
+		};
+		const checked = await people.createStepUp(request);
+		assert.ok(checked.ok, JSON.stringify(checked));
+		for (let attempt = 0; attempt < 5; attempt++) {
+			assert.deepEqual(
+				await people.createStepUp({ ...request, password: "wrong password" }),
+				{ ok: false, refusal: "wrong_password" },
+			);
+		}
+		assert.deepEqual(await people.createStepUp(request), {
+			ok: false,
+			refusal: "step_up_locked",
+		});
+	});
+});
+
+describe("an active browser session", () => {
+	it("renews on use and works past its original expiry", async (t) => {
+		const userId = await signUp("rolling@remit.test");
+		const signedIn = await signInFrom("198.51.100.71")("rolling@remit.test");
+		assert.equal(signedIn.status, 200);
+		const cookie = cookiesOf(signedIn);
+		const issuedAt = Date.now();
+		t.mock.timers.enable({
+			apis: ["Date"],
+			now: issuedAt + 89 * 24 * 60 * 60 * 1000,
+		});
+		assert.equal(await tokenStatus(cookie), 200);
+		t.mock.timers.setTime(issuedAt + 91 * 24 * 60 * 60 * 1000);
+		assert.equal(await tokenStatus(cookie), 200);
+		assert.ok(
+			(
+				rows(
+					"SELECT expires_at FROM auth_session WHERE user_id = ?",
+					userId,
+				) as { expires_at: number }[]
+			).some((row) => row.expires_at * 1000 > Date.now()),
+		);
+	});
+});
+
 describe("a disabled account", () => {
 	const signIn = signInFrom("198.51.100.31");
 	const EMAIL = "disabled@remit.test";
@@ -155,10 +188,8 @@ describe("a disabled account", () => {
 		const disabled = await people.updatePerson({
 			callerId: operatorId,
 			clientIp: PEER,
-			operatorGrant: false,
 			targetId: userId,
 			status: "Disabled",
-			stepUpToken: await stepUp(userId, "Disable"),
 		});
 		assert.ok(disabled.ok);
 		assert.equal(disabled.value.status, "Disabled");
@@ -228,9 +259,7 @@ describe("a password reset link", () => {
 		const issued = await people.createPasswordReset({
 			callerId: operatorId,
 			clientIp: PEER,
-			operatorGrant: false,
 			targetId: userId,
-			stepUpToken: await stepUp(userId, "ResetPassword"),
 		});
 		assert.ok(issued.ok);
 		assert.equal(

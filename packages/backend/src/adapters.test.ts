@@ -102,7 +102,6 @@ const throughFetch = async (request: Sent): Promise<Answer> => {
 		client: async () => client,
 		identity: async () => (request.signedIn ? USER : { kind: "anonymous" }),
 		operator: async () => true,
-		operatorGrant: async () => false,
 		peopleDirectory: async () => null,
 	};
 	const response = await served.handleFetch(

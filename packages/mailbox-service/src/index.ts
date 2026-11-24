@@ -315,6 +315,7 @@ export {
 	type OutboxAttachmentRejectionReasonValue,
 	type OutboxAttachmentReservation,
 	OutboxAttachmentService,
+	type RenewOutboxAttachmentInput,
 } from "./outbox-attachment.js";
 export {
 	FALLBACK_CONTENT_TYPE,

@@ -14,16 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, it } from "node:test";
-import type {
-	CreateOutboxMessageInput,
-	IOutboxAttachmentRepository,
-	IOutboxMessageRepository,
-	OutboxAttachmentItem,
-	OutboxMessageItem,
-	UpdateOutboxMessageInput,
-} from "@remit/data-ports";
-import { holdsRoom } from "@remit/data-ports";
-import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
+import type { OutboxMessageItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	OutboxAttachmentRejectionReason,
@@ -33,6 +24,10 @@ import {
 	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
 	OutboxAttachmentService,
 } from "@remit/mailbox-service";
+import {
+	openStore,
+	type Store,
+} from "@remit/mailbox-service/test-helpers/test-store";
 import {
 	type StorageService,
 	UPLOAD_ROUTE_PREFIX,
@@ -61,133 +56,17 @@ const SUB = "cognito-sub-679";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 const OTHER_ACCOUNT_CONFIG_ID = deriveAccountConfigId("cognito-sub-stranger");
 const ACCOUNT_ID = "acc-679";
-const DRAFT_ID = "a1b2c3d4e5f6g7h8i9j0k1l2m";
+let draftId: string;
 const ORIGIN = "https://mail.example.test";
 const SECRET = "a-signing-secret-of-at-least-32-characters";
-
-const createOutboxRepository = (
-	rows: Map<string, OutboxMessageItem>,
-): IOutboxMessageRepository =>
-	({
-		get: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			mode?: "read" | "act",
-		) => {
-			const row = rows.get(outboxMessageId);
-			if (!row) throw new NotFoundError(`No outbox message ${outboxMessageId}`);
-			if (row.accountConfigId !== accountConfigId) {
-				// Mirrors the real repository: an action verb denies, a read feigns
-				// absence.
-				if (mode === "act") {
-					throw new ForbiddenError(
-						`Outbox message ${outboxMessageId} not in account config`,
-					);
-				}
-				throw new NotFoundError(`No outbox message ${outboxMessageId}`);
-			}
-			return row;
-		},
-		create: async (input: CreateOutboxMessageInput) =>
-			input as OutboxMessageItem,
-		update: async (
-			_accountConfigId: string,
-			outboxMessageId: string,
-			input: UpdateOutboxMessageInput,
-		) => ({ ...rows.get(outboxMessageId), ...input }) as OutboxMessageItem,
-	}) as unknown as IOutboxMessageRepository;
 
 interface Installed {
 	storage: StorageService;
 	basePath: string;
-	rows: Map<string, OutboxAttachmentItem>;
 }
 
-/** The row store the cap and the sweep both read. */
-const createAttachmentRepository = (
-	rows: Map<string, OutboxAttachmentItem>,
-): IOutboxAttachmentRepository => {
-	const forDraft = (accountConfigId: string, outboxMessageId: string) =>
-		[...rows.values()].filter(
-			(row) =>
-				row.accountConfigId === accountConfigId &&
-				row.outboxMessageId === outboxMessageId,
-		);
-
-	return {
-		reserve: async (input, cap) => {
-			const live = forDraft(
-				input.accountConfigId,
-				input.outboxMessageId,
-			).filter((row) => holdsRoom(row, cap.nowSeconds));
-			const usedBytes = live.reduce((total, row) => total + row.sizeBytes, 0);
-			if (live.length >= cap.maxCount) {
-				return { outcome: "OverCountCap", usedBytes };
-			}
-			if (usedBytes + input.sizeBytes > cap.maxTotalBytes) {
-				return { outcome: "OverByteCap", usedBytes };
-			}
-			const item = {
-				...input,
-				state: "Pending",
-				createdAt: 0,
-				updatedAt: 0,
-			} as OutboxAttachmentItem;
-			rows.set(item.outboxAttachmentId, item);
-			return { outcome: "Reserved", item };
-		},
-		get: async (accountConfigId, outboxAttachmentId) => {
-			const row = rows.get(outboxAttachmentId);
-			if (!row || row.accountConfigId !== accountConfigId) {
-				throw new NotFoundError("gone");
-			}
-			return row;
-		},
-		listByOutboxMessage: async (accountConfigId, outboxMessageId) =>
-			forDraft(accountConfigId, outboxMessageId),
-		markStored: async (_accountConfigId, outboxAttachmentId, sizeBytes) => {
-			const row = rows.get(outboxAttachmentId);
-			if (!row || row.state !== "Pending") return null;
-			const next = {
-				...row,
-				state: "Stored",
-				sizeBytes,
-				reservationExpiresAt: 0,
-			} as OutboxAttachmentItem;
-			rows.set(outboxAttachmentId, next);
-			return next;
-		},
-		deleteLapsedReservations: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			nowSeconds: number,
-		) => {
-			const gone: string[] = [];
-			for (const row of [...rows.values()]) {
-				if (
-					row.accountConfigId === accountConfigId &&
-					row.outboxMessageId === outboxMessageId &&
-					row.state === "Pending" &&
-					row.reservationExpiresAt < nowSeconds
-				) {
-					rows.delete(row.outboxAttachmentId);
-					gone.push(row.outboxAttachmentId);
-				}
-			}
-			return gone;
-		},
-		deleteMany: async (_accountConfigId, ids) => {
-			for (const id of ids) rows.delete(id);
-		},
-		deleteByOutboxMessage: async (accountConfigId, outboxMessageId) => {
-			for (const row of forDraft(accountConfigId, outboxMessageId)) {
-				rows.delete(row.outboxAttachmentId);
-			}
-		},
-	};
-};
-
 const temporaryRoots: string[] = [];
+const attachmentStores: Store[] = [];
 
 const install = async (
 	overrides: Partial<OutboxMessageItem> = {},
@@ -196,36 +75,35 @@ const install = async (
 	const basePath = await mkdtemp(join(process.cwd(), ".tmp-attachments-"));
 	temporaryRoots.push(basePath);
 
-	const rows = new Map<string, OutboxMessageItem>([
-		[
-			DRAFT_ID,
-			{
-				outboxMessageId: DRAFT_ID,
-				accountId: ACCOUNT_ID,
-				accountConfigId,
-				status: OutboxMessageStatus.draft,
-				...overrides,
-			} as OutboxMessageItem,
-		],
-	]);
-	const outboxMessage = createOutboxRepository(rows);
 	const storage = createFilesystemStorageService(basePath, {
 		origin: ORIGIN,
 		signingSecret: SECRET,
 	});
 
-	const attachmentRows = new Map<string, OutboxAttachmentItem>();
+	const attachmentStore = await openStore();
+	attachmentStores.push(attachmentStore);
+	const { outboxMessage } = attachmentStore;
+	const draft = await outboxMessage.create({
+		accountId: ACCOUNT_ID,
+		accountConfigId,
+		fromAddress: "sender@example.com",
+		toAddresses: [],
+		messageIdValue: "<draft@example.com>",
+		status: OutboxMessageStatus.draft,
+		...overrides,
+	});
+	draftId = draft.outboxMessageId;
 	client = {
 		outboxMessage,
 		storage,
 		outboxAttachment: new OutboxAttachmentService({
 			outboxMessageService: outboxMessage,
-			outboxAttachmentService: createAttachmentRepository(attachmentRows),
+			outboxAttachmentService: attachmentStore.outboxAttachment,
 			storage,
 		}),
 	} as unknown as RemitClient;
 
-	return { storage, basePath, rows: attachmentRows };
+	return { storage, basePath };
 };
 
 const caller = (): HandlerContext => ({
@@ -241,7 +119,7 @@ const caller = (): HandlerContext => ({
 
 const mintContext = (
 	body: Record<string, unknown>,
-	outboxMessageId = DRAFT_ID,
+	outboxMessageId = draftId,
 ): Context =>
 	({
 		request: { params: { outboxMessageId }, requestBody: body },
@@ -249,7 +127,7 @@ const mintContext = (
 
 const completeContext = (
 	outboxAttachmentId: string,
-	outboxMessageId = DRAFT_ID,
+	outboxMessageId = draftId,
 ): Context =>
 	({
 		request: { params: { outboxMessageId, outboxAttachmentId } },
@@ -272,7 +150,7 @@ const parse = (response: APIGatewayProxyResult): Record<string, unknown> =>
 
 const mint = (
 	body: Record<string, unknown>,
-	outboxMessageId = DRAFT_ID,
+	outboxMessageId = draftId,
 ): Promise<APIGatewayProxyResult> =>
 	respond(() =>
 		mintOutboxAttachment(mintContext(body, outboxMessageId), caller()),
@@ -280,7 +158,7 @@ const mint = (
 
 const complete = (
 	outboxAttachmentId: string,
-	outboxMessageId = DRAFT_ID,
+	outboxMessageId = draftId,
 ): Promise<APIGatewayProxyResult> =>
 	respond(() =>
 		completeOutboxAttachment(
@@ -322,6 +200,7 @@ const mintedBody = (
 
 afterEach(async () => {
 	_resetForTest();
+	for (const store of attachmentStores.splice(0)) await store.close();
 	for (const root of temporaryRoots.splice(0)) {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -339,7 +218,7 @@ describe("reserving room on a draft (#679)", () => {
 
 		assert.equal(response.statusCode, 200);
 		const body = parse(response);
-		assert.equal(body.outboxMessageId, DRAFT_ID);
+		assert.equal(body.outboxMessageId, draftId);
 		assert.equal(body.filename, "invoice.pdf");
 		assert.equal(body.contentType, "application/pdf");
 		assert.equal(body.sizeBytes, 2048);
@@ -348,7 +227,7 @@ describe("reserving room on a draft (#679)", () => {
 		const url = new URL(String(body.uploadUrl));
 		assert.equal(url.origin, ORIGIN);
 		assert.ok(url.pathname.includes(String(body.outboxAttachmentId)));
-		assert.ok(url.pathname.includes(DRAFT_ID));
+		assert.ok(url.pathname.includes(draftId));
 		assert.equal(url.searchParams.get("max"), "2048");
 		assert.ok((url.searchParams.get("sig") ?? "").length > 0);
 	});
@@ -452,7 +331,7 @@ describe("reserving room on a draft (#679)", () => {
 			await storage.listOutboxAttachments(
 				OTHER_ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 			),
 			[],
 		);
@@ -510,7 +389,7 @@ describe("uploading to a minted URL (#679)", () => {
 		const stat = await storage.statOutboxAttachment(
 			ACCOUNT_CONFIG_ID,
 			ACCOUNT_ID,
-			DRAFT_ID,
+			draftId,
 			outboxAttachmentId,
 		);
 		assert.equal(stat?.sizeBytes, content.length);
@@ -535,7 +414,7 @@ describe("uploading to a minted URL (#679)", () => {
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				outboxAttachmentId,
 			),
 			null,
@@ -591,7 +470,7 @@ describe("uploading to a minted URL (#679)", () => {
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				second.outboxAttachmentId,
 			),
 			null,
@@ -620,7 +499,7 @@ describe("uploading to a minted URL (#679)", () => {
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				outboxAttachmentId,
 			),
 			null,
@@ -643,7 +522,7 @@ describe("uploading to a minted URL (#679)", () => {
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				outboxAttachmentId,
 			),
 			null,
@@ -713,7 +592,7 @@ describe("completing an attachment (#679)", () => {
 		await storage.storeOutboxAttachment({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
-			outboxMessageId: DRAFT_ID,
+			outboxMessageId: draftId,
 			outboxAttachmentId,
 			content: Buffer.alloc(9),
 		});
@@ -729,7 +608,7 @@ describe("completing an attachment (#679)", () => {
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				outboxAttachmentId,
 			),
 			null,
@@ -737,8 +616,8 @@ describe("completing an attachment (#679)", () => {
 	});
 });
 
-describe("the mint route through the whole request pipeline", () => {
-	it("reaches its handler with the real built spec in front of it", async () => {
+describe("mint and renewal through the whole request pipeline", () => {
+	it("routes creation and bodyless renewal with the real built spec", async () => {
 		await install();
 		const handleApiEvent = (await import("../api-fixture.js")).lambdaHandler(
 			async () => client,
@@ -752,7 +631,7 @@ describe("the mint route through the whole request pipeline", () => {
 		});
 		const event = {
 			httpMethod: "POST",
-			path: `/outbox/${DRAFT_ID}/attachments`,
+			path: `/outbox/${draftId}/attachments`,
 			body,
 			headers: { "content-type": "application/json" },
 			requestContext: {
@@ -766,6 +645,25 @@ describe("the mint route through the whole request pipeline", () => {
 		);
 
 		assert.equal(result.statusCode, 200);
-		assert.equal(parse(result).filename, "routed.txt");
+		const created = parse(result);
+		assert.equal(created.filename, "routed.txt");
+		const renewed = await handleApiEvent(
+			{
+				...event,
+				path: `/outbox/${draftId}/attachments/${created.outboxAttachmentId}/renew`,
+				body: null,
+			} as unknown as APIGatewayProxyEvent,
+			{ awsRequestId: "renew-route-test" } as LambdaContext,
+		);
+		assert.equal(renewed.statusCode, 200);
+		assert.equal(parse(renewed).outboxAttachmentId, created.outboxAttachmentId);
+		const reservation = parse(renewed);
+		assert.equal(reservation.filename, "routed.txt");
+		assert.equal(reservation.contentType, "text/plain");
+		assert.equal(reservation.sizeBytes, 18);
+		assert.equal(
+			new URL(String(reservation.uploadUrl)).searchParams.get("max"),
+			"18",
+		);
 	});
 });

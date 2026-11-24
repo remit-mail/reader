@@ -143,18 +143,3 @@ export const identity_audit_event = sqliteTable(
 		index("identity_audit_event_occurred_at_idx").on(table.occurredAt),
 	],
 );
-
-export const identity_step_up = sqliteTable(
-	"identity_step_up",
-	{
-		digest: text("digest").notNull(),
-		callerUserId: text("caller_user_id").notNull(),
-		action: text("action").notNull(),
-		targetUserId: text("target_user_id").notNull(),
-		expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-	},
-	(table) => [
-		uniqueIndex("identity_step_up_digest_idx").on(table.digest),
-		index("identity_step_up_caller_idx").on(table.callerUserId),
-	],
-);

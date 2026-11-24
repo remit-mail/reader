@@ -136,7 +136,6 @@ export function createMailOAuthService(
 			url.searchParams.set("redirect_uri", redirectUri);
 			url.searchParams.set("state", state);
 			url.searchParams.set("access_type", "offline"); // Google compat
-			url.searchParams.set("prompt", "consent"); // reliably get refresh token
 			if (loginHint) {
 				url.searchParams.set("login_hint", loginHint);
 			}

@@ -1402,6 +1402,21 @@ namespace RemitApi {
 
   @route("/outbox/{outboxMessageId}/attachments/{outboxAttachmentId}")
   namespace OutboxAttachmentOperations {
+    @doc("Renew a pending file reservation and upload URL using its stored metadata")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/renew")
+    op renewOutboxAttachment(
+      @path outboxMessageId: UUID,
+      @path outboxAttachmentId: UUID,
+    ):
+      | MintOutboxAttachmentResponse
+      | OutboxAttachmentRejected
+      | ConflictError
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
+
     @doc("Confirm an uploaded file against the object storage now holds")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post

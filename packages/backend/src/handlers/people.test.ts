@@ -162,20 +162,10 @@ const createStepUp = (
 		callerOf(caller, config),
 	);
 
-const stepUpToken = async (
-	caller: string,
-	userId: string,
-	action: Action,
-): Promise<string> => {
-	const granted = await createStepUp(caller, userId, action);
-	assert.equal(refusalOf(granted), undefined, JSON.stringify(granted));
-	return (granted as { stepUpToken: string }).stepUpToken;
-};
-
 const signOut = (
 	caller: string,
 	userId: string,
-	token: string,
+	token?: string,
 	config = closedConfig,
 	origin = ORIGIN,
 ) =>
@@ -188,7 +178,7 @@ const update = (
 	caller: string,
 	userId: string,
 	status: "Active" | "Disabled",
-	token: string,
+	token?: string,
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_updatePerson(
@@ -199,7 +189,7 @@ const update = (
 const reset = (
 	caller: string,
 	userId: string,
-	token: string,
+	token?: string,
 	config = closedConfig,
 ) =>
 	PeopleOperations.PeopleOperations_createPasswordReset(
@@ -331,33 +321,7 @@ describe("the People operations", () => {
 				JSON.stringify(validate.errors),
 			);
 		}
-		const person = {
-			userId: carol,
-			email: "carol@remit.test",
-			createdAt: 0,
-			lastSignInAt: 0,
-			sessionCount: 0,
-			status: "Active" as const,
-			isCaller: false,
-		};
-		const withoutStepUp = (stepUpToken: string | null) => {
-			assert.equal(stepUpToken, null);
-			return { ok: true as const, value: person };
-		};
-		const hostedDirectory: PeopleDirectory = {
-			...people,
-			signOutPerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
-			updatePerson: async ({ stepUpToken }) => withoutStepUp(stepUpToken),
-			createPasswordReset: async ({ stepUpToken }) => ({
-				ok: true,
-				value: {
-					person: withoutStepUp(stepUpToken).value,
-					resetUrl: "https://login.remit.test/reset",
-					expiresAt: 1,
-				},
-			}),
-		};
-		const caller = callerOf(alice, hostedConfig, true, hostedDirectory);
+		const caller = callerOf(alice, hostedConfig, true);
 		for (const answer of [
 			await PeopleOperations.PeopleOperations_signOutPerson(
 				contextOf({ userId: carol }, undefined),
@@ -373,65 +337,59 @@ describe("the People operations", () => {
 			),
 		]) {
 			assert.equal(refusalOf(answer), undefined);
+			assert.ok(
+				(answer && "userId" in answer) || (answer && "resetUrl" in answer),
+			);
+			if (answer && "resetUrl" in answer) {
+				assert.match(answer.resetUrl, /\/reset-password\/\S+/);
+				assert.ok(answer.expiresAt > Date.now());
+			} else if (answer && "sessionCount" in answer)
+				assert.equal(answer.sessionCount, 0);
 		}
+		const person = await people.listPeople({ callerId: alice, clientIp: PEER });
+		assert.ok(person.ok);
+		assert.equal(
+			person.value.find((entry) => entry.userId === carol)?.status,
+			"Disabled",
+		);
+		await people.updatePerson({
+			callerId: alice,
+			clientIp: PEER,
+			targetId: carol,
+			status: "Active",
+		});
 	});
 
-	it("refuse every sensitive operation without a matching, unspent, unexpired step-up", async () => {
-		const operations: Array<{
-			action: Action;
-			act: (caller: string, token: string) => Promise<unknown>;
-		}> = [
-			{
-				action: "SignOut",
-				act: (caller, token) => signOut(caller, carol, token),
-			},
-			{
-				action: "Disable",
-				act: (caller, token) => update(caller, carol, "Disabled", token),
-			},
-			{
-				action: "ResetPassword",
-				act: (caller, token) => reset(caller, carol, token),
-			},
-		];
-		for (const { action, act } of operations) {
-			const expired = await stepUpToken(alice, carol, action);
-			run("UPDATE identity_step_up SET expires_at = ?", Date.now() - 1000);
-			const spent = await stepUpToken(alice, carol, action);
-			assert.equal(refusalOf(await act(alice, spent)), undefined);
-			const bobs = await stepUpToken(bob, carol, action);
-			const otherAction = await stepUpToken(
-				alice,
-				carol,
-				action === "SignOut" ? "Enable" : "SignOut",
+	it("allows People actions without a grant and ignores legacy tokens", async () => {
+		for (const token of [undefined, "", "expired-or-forged"]) {
+			assert.equal(refusalOf(await signOut(alice, carol, token)), undefined);
+			assert.equal(
+				refusalOf(await update(alice, carol, "Disabled", token)),
+				undefined,
 			);
-			const otherTarget = await stepUpToken(alice, bob, action);
-
-			for (const [label, caller, token] of [
-				["no token", alice, ""],
-				["an expired token", alice, expired],
-				["a spent token", alice, spent],
-				["another caller's token", alice, bobs],
-				["a token for another action", alice, otherAction],
-				["a token for another person", alice, otherTarget],
-			] as const) {
-				const answer = await act(caller, token);
-				assert.deepEqual(
-					refusalOf(answer),
-					[403, "step_up_required"],
-					`${action} with ${label}`,
-				);
-				assert.ok(!JSON.stringify(answer).includes("resetUrl"));
-			}
-			if (action === "Disable") {
-				await update(
-					alice,
-					carol,
-					"Active",
-					await stepUpToken(alice, carol, "Enable"),
-				);
-			}
+			assert.equal(
+				refusalOf(await update(alice, carol, "Active", token)),
+				undefined,
+			);
+			assert.equal(refusalOf(await reset(alice, carol, token)), undefined);
 		}
+		const body = { status: "Active", stepUpToken: "ignored-legacy-body-token" };
+		const validate = requestValidators.PeopleOperations_updatePerson?.[0];
+		assert.ok(validate);
+		assert.equal(
+			validate({ path: { userId: carol }, header: {}, requestBody: body }),
+			true,
+		);
+		assert.equal(
+			refusalOf(
+				await PeopleOperations.PeopleOperations_updatePerson(
+					contextOf({ userId: carol }, body),
+					callerOf(alice),
+				),
+			),
+			undefined,
+		);
+		assert.equal(auditCount("action = 'StepUpPassed'"), 0);
 	});
 
 	it("count parallel wrong step-up passwords before checking them", async () => {
@@ -453,28 +411,8 @@ describe("the People operations", () => {
 		assert.equal(auditCount("actor = ? AND action = 'StepUpFailed'", dave), 5);
 	});
 
-	it("refuse a step-up its holder earned before being signed out", async () => {
-		const earned = await stepUpToken(bob, carol, "SignOut");
-		const signedOut = await signOut(
-			alice,
-			bob,
-			await stepUpToken(alice, bob, "SignOut"),
-		);
-		assert.equal((signedOut as { sessionCount: number }).sessionCount, 0);
-
-		assert.deepEqual(refusalOf(await signOut(bob, carol, earned)), [
-			403,
-			"step_up_required",
-		]);
-	});
-
 	it("refuse to let a caller disable themselves, and record it", async () => {
-		const answer = await update(
-			alice,
-			alice,
-			"Disabled",
-			await stepUpToken(alice, alice, "Disable"),
-		);
+		const answer = await update(alice, alice, "Disabled");
 		assert.deepEqual(refusalOf(answer), [409, "cannot_disable_self"]);
 		assert.equal(auditCount("actor = ? AND outcome = 'RefusedSelf'", alice), 1);
 		assert.equal(
@@ -488,20 +426,14 @@ describe("the People operations", () => {
 	});
 
 	it("refuse a disabled caller on all five, and the second of two users disabling each other", async () => {
-		const bobsDisable = await stepUpToken(bob, alice, "Disable");
-		const disabled = await update(
-			alice,
-			bob,
-			"Disabled",
-			await stepUpToken(alice, bob, "Disable"),
-		);
+		const disabled = await update(alice, bob, "Disabled");
 		assert.equal((disabled as { status: string }).status, "Disabled");
 
 		const answers = [
 			await listPeople(bob),
 			await createStepUp(bob, alice, "Disable"),
 			await signOut(bob, alice, "token"),
-			await update(bob, alice, "Disabled", bobsDisable),
+			await update(bob, alice, "Disabled"),
 			await reset(bob, alice, "token"),
 		];
 		for (const answer of answers) {
@@ -528,12 +460,7 @@ describe("the People operations", () => {
 		insertFeed(erin, "erin-feed");
 		insertFeed(carol, "carol-feed");
 
-		await update(
-			alice,
-			erin,
-			"Disabled",
-			await stepUpToken(alice, erin, "Disable"),
-		);
+		await update(alice, erin, "Disabled");
 
 		assert.deepEqual(
 			rows("SELECT feed_token_id AS id FROM calendar_feed_token"),
@@ -546,7 +473,7 @@ describe("the People operations", () => {
 			"INSERT INTO identity_audit_event (audit_event_id, occurred_at, actor, target, action, outcome, client_ip) VALUES ('ancient', ?, 'env', 'all', 'KillSwitchOn', 'Succeeded', 'host')",
 			Date.now() - 91 * 24 * 60 * 60 * 1000,
 		);
-		await stepUpToken(alice, carol, "SignOut");
+		await signOut(alice, carol);
 		assert.equal(auditCount("audit_event_id = 'ancient'"), 0);
 	});
 });

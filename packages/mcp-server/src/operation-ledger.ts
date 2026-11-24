@@ -90,6 +90,8 @@ export const operationLedger = {
 	OrganizeOperations_previewOrganize: "preview_organize",
 	OutboxAttachmentOperations_completeOutboxAttachment:
 		"complete_outbox_attachment",
+	OutboxAttachmentOperations_renewOutboxAttachment:
+		"browser upload renewal stays in the API; MCP uploads inline",
 	OutboxDetailOperations_deleteOutboxMessage: "delete_outbox_message",
 	OutboxDetailOperations_getOutboxMessage: "get_outbox_message",
 	OutboxDetailOperations_mintOutboxAttachment: "mint_outbox_attachment",

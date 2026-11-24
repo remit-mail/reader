@@ -9,7 +9,7 @@ import type {
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import { calendarFeedTokens } from "@remit/drizzle-sqlite-schema";
-import { and, asc, count, desc, eq, gt, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, sql } from "drizzle-orm";
 import type { Auth } from "./auth.js";
 import {
 	applySignInSwitch,
@@ -25,7 +25,6 @@ import {
 	auth_user,
 	auth_verification,
 	identity_audit_event,
-	identity_step_up,
 } from "./schema/auth-schema-sqlite.js";
 
 export type {
@@ -68,11 +67,6 @@ export interface PersonRequest extends PeopleRequest {
 	targetId: string;
 }
 
-export interface TargetedRequest extends PersonRequest {
-	operatorGrant: boolean;
-	stepUpToken: string | null;
-}
-
 export interface InviteRequest extends PeopleRequest {
 	email: string;
 }
@@ -96,12 +90,12 @@ export interface PeopleDirectory {
 	): Promise<PeopleOutcome<PersonInviteResponse>>;
 	resetPersonFactors(request: PersonRequest): Promise<PeopleOutcome<Person>>;
 	createStepUp(request: StepUpRequest): Promise<PeopleOutcome<StepUpGrant>>;
-	signOutPerson(request: TargetedRequest): Promise<PeopleOutcome<Person>>;
+	signOutPerson(request: PersonRequest): Promise<PeopleOutcome<Person>>;
 	updatePerson(
-		request: TargetedRequest & { status: PersonStatus },
+		request: PersonRequest & { status: PersonStatus },
 	): Promise<PeopleOutcome<Person>>;
 	createPasswordReset(
-		request: TargetedRequest,
+		request: PersonRequest,
 	): Promise<PeopleOutcome<PasswordReset>>;
 	recordRefusal(
 		request: PeopleRequest & { targetId: string; outcome: GuardRefusal },
@@ -121,7 +115,6 @@ export interface PeopleConfig {
 	baseURL: string;
 }
 
-const STEP_UP_TTL_MS = 5 * 60 * 1000;
 const STEP_UP_WINDOW_MS = 15 * 60 * 1000;
 const STEP_UP_MAX_FAILURES = 5;
 const RESET_TTL_MS = 24 * 60 * 60 * 1000;
@@ -213,39 +206,6 @@ const callerRefusal = (
 		clientIp: request.clientIp,
 	});
 	return refused(PeopleErrorCode.CallerDisabled);
-};
-
-const stepUpRefusal = (
-	store: IdentityStore,
-	request: TargetedRequest,
-	action: StepUpAction,
-): Refused | undefined => {
-	if (request.operatorGrant) return undefined;
-	const spent =
-		request.stepUpToken === null
-			? []
-			: store.db
-					.delete(identity_step_up)
-					.where(
-						and(
-							eq(identity_step_up.digest, digestOf(request.stepUpToken)),
-							eq(identity_step_up.callerUserId, request.callerId),
-							eq(identity_step_up.action, action),
-							eq(identity_step_up.targetUserId, request.targetId),
-							gt(identity_step_up.expiresAt, new Date()),
-						),
-					)
-					.returning({ digest: identity_step_up.digest })
-					.all();
-	if (spent.length === 1) return undefined;
-	store.audit({
-		actor: request.callerId,
-		target: request.targetId,
-		action: "PeopleRequestRefused",
-		outcome: "RefusedStepUp",
-		clientIp: request.clientIp,
-	});
-	return refused(PeopleErrorCode.StepUpRequired);
 };
 
 const issueReset = (
@@ -367,7 +327,7 @@ export const createPeopleDirectory = async (
 			);
 		});
 
-	const grantStepUp = (
+	const finishPasswordCheck = (
 		request: StepUpRequest,
 		auditEventId: string,
 	): PeopleOutcome<StepUpGrant> =>
@@ -375,8 +335,9 @@ export const createPeopleDirectory = async (
 			const callerRefused = callerRefusal(store, request, request.targetId);
 			if (callerRefused) return callerRefused;
 			const now = new Date();
-			const stepUpToken = newSecret();
-			const expiresAt = new Date(now.getTime() + STEP_UP_TTL_MS);
+			// Kept for older clients; People actions no longer consume a grant.
+			const stepUpToken = "unused";
+			const expiresAt = now;
 			store.relabel(auditEventId, {
 				actor: request.callerId,
 				target: request.targetId,
@@ -384,20 +345,6 @@ export const createPeopleDirectory = async (
 				outcome: "Succeeded",
 				clientIp: request.clientIp,
 			});
-			store.db
-				.delete(identity_step_up)
-				.where(lte(identity_step_up.expiresAt, now))
-				.run();
-			store.db
-				.insert(identity_step_up)
-				.values({
-					digest: digestOf(stepUpToken),
-					callerUserId: request.callerId,
-					action: request.action,
-					targetUserId: request.targetId,
-					expiresAt,
-				})
-				.run();
 			return ok({ stepUpToken, expiresAt: expiresAt.getTime() });
 		});
 
@@ -452,14 +399,12 @@ export const createPeopleDirectory = async (
 			if (!(await passwordMatches(request.callerId, request.password))) {
 				return refused(PeopleErrorCode.WrongPassword);
 			}
-			return grantStepUp(request, attempt.value);
+			return finishPasswordCheck(request, attempt.value);
 		},
 
 		signOutPerson: async (request) =>
 			store.immediate(() => {
-				const refusal =
-					callerRefusal(store, request, request.targetId) ??
-					stepUpRefusal(store, request, "SignOut");
+				const refusal = callerRefusal(store, request, request.targetId);
 				if (refusal) return refusal;
 				if (!findUser(store, request.targetId)) return refused("not_found");
 				revokeUser(store, request.targetId);
@@ -488,12 +433,6 @@ export const createPeopleDirectory = async (
 					});
 					return refused(PeopleErrorCode.CannotDisableSelf);
 				}
-				const stepUpRefused = stepUpRefusal(
-					store,
-					request,
-					disabling ? "Disable" : "Enable",
-				);
-				if (stepUpRefused) return stepUpRefused;
 				if (!findUser(store, request.targetId)) return refused("not_found");
 				if (disabling) disable(store, request.targetId);
 				else enable(store, request.targetId);
@@ -511,9 +450,7 @@ export const createPeopleDirectory = async (
 			const scrambled = await scrambledHash();
 			const issued = store.immediate(
 				(): PeopleOutcome<{ token: string; expiresAt: Date }> => {
-					const refusal =
-						callerRefusal(store, request, request.targetId) ??
-						stepUpRefusal(store, request, "ResetPassword");
+					const refusal = callerRefusal(store, request, request.targetId);
 					if (refusal) return refusal;
 					if (!findUser(store, request.targetId)) return refused("not_found");
 					const reset = issueReset(store, request.targetId, scrambled);

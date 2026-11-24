@@ -3,6 +3,7 @@ import type {
 	IOutboxMessageRepository,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
+	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
 import { ConflictError } from "@remit/data-ports/errors";
@@ -82,11 +83,13 @@ export interface MintOutboxAttachmentInput {
 	sizeBytes: number;
 }
 
-export interface CompleteOutboxAttachmentInput {
+export interface RenewOutboxAttachmentInput {
 	accountConfigId: string;
 	outboxMessageId: string;
 	outboxAttachmentId: string;
 }
+
+export type CompleteOutboxAttachmentInput = RenewOutboxAttachmentInput;
 
 export interface OutboxAttachmentConfig {
 	outboxMessageService: IOutboxMessageRepository;
@@ -171,6 +174,47 @@ export class OutboxAttachmentService {
 		},
 	});
 
+	private renewReservation = (row: OutboxAttachmentItem) =>
+		this.attachments.renew(
+			{
+				accountConfigId: row.accountConfigId,
+				outboxMessageId: row.outboxMessageId,
+				outboxAttachmentId: row.outboxAttachmentId,
+				reservationExpiresAt: this.now() + UPLOAD_URL_TTL_SECONDS,
+			},
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds: this.now(),
+			},
+		);
+
+	private reservationRefusal = (
+		result:
+			| Exclude<ReserveOutboxAttachmentResult, { outcome: "Reserved" }>
+			| { outcome: "Missing" },
+		filename: string,
+		sizeBytes: number,
+	): Refused => {
+		if (result.outcome === "Missing")
+			return this.reject(
+				OutboxAttachmentRejectionReason.ReservationExpired,
+				"This upload reservation was released because it was abandoned.",
+				0,
+			);
+		if (result.outcome === "OverCountCap")
+			return this.reject(
+				OutboxAttachmentRejectionReason.TooManyAttachments,
+				`This message already carries ${OUTBOX_ATTACHMENT_MAX_COUNT} files, the most one message can hold. Remove one to attach "${filename}".`,
+				result.usedBytes,
+			);
+		return this.reject(
+			OutboxAttachmentRejectionReason.MessageTooLarge,
+			`"${filename}" is ${formatBytes(sizeBytes)} and this message already carries ${formatBytes(result.usedBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} it can send.`,
+			result.usedBytes,
+		);
+	};
+
 	/**
 	 * Room on a draft for one file, and somewhere to put it.
 	 *
@@ -241,41 +285,56 @@ export class OutboxAttachmentService {
 			},
 		);
 
-		if (reserved.outcome === "OverCountCap") {
-			return this.reject(
-				OutboxAttachmentRejectionReason.TooManyAttachments,
-				`This message already carries ${OUTBOX_ATTACHMENT_MAX_COUNT} files, the most one message can hold. Remove one to attach "${filename}".`,
-				reserved.usedBytes,
-			);
-		}
-		if (reserved.outcome === "OverByteCap") {
-			return this.reject(
-				OutboxAttachmentRejectionReason.MessageTooLarge,
-				`"${filename}" is ${formatBytes(input.sizeBytes)} and this message already carries ${formatBytes(reserved.usedBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} it can send.`,
-				reserved.usedBytes,
-			);
-		}
+		if (reserved.outcome !== "Reserved")
+			return this.reservationRefusal(reserved, filename, input.sizeBytes);
 
+		return this.uploadReservation(reserved.item);
+	};
+
+	renew = async (
+		input: RenewOutboxAttachmentInput,
+	): Promise<MintOutboxAttachmentOutcome> => {
+		await this.getWritableDraft(input.accountConfigId, input.outboxMessageId);
+		const row = await this.attachments.get(
+			input.accountConfigId,
+			input.outboxAttachmentId,
+		);
+		if (
+			row.outboxMessageId !== input.outboxMessageId ||
+			row.state !== "Pending"
+		) {
+			throw new ConflictError(
+				"Only a pending upload on this draft can be renewed.",
+			);
+		}
+		const renewed = await this.renewReservation(row);
+		if (renewed.outcome !== "Reserved")
+			return this.reservationRefusal(renewed, row.filename, row.sizeBytes);
+		return this.uploadReservation(renewed.item);
+	};
+
+	private uploadReservation = async (
+		row: OutboxAttachmentItem,
+	): Promise<MintOutboxAttachmentOutcome> => {
 		const target = await this.storage.createOutboxAttachmentUploadUrl({
-			accountConfigId: input.accountConfigId,
-			accountId: outbox.accountId,
-			outboxMessageId: input.outboxMessageId,
-			outboxAttachmentId: reserved.item.outboxAttachmentId,
-			sizeBytes: input.sizeBytes,
-			expiresAt: reservationExpiresAt,
+			accountConfigId: row.accountConfigId,
+			accountId: row.accountId,
+			outboxMessageId: row.outboxMessageId,
+			outboxAttachmentId: row.outboxAttachmentId,
+			sizeBytes: row.sizeBytes,
+			expiresAt: row.reservationExpiresAt,
 		});
-
 		return {
 			outcome: "Minted",
 			reservation: {
-				outboxAttachmentId: reserved.item.outboxAttachmentId,
-				outboxMessageId: input.outboxMessageId,
-				filename: reserved.item.filename,
-				contentType: reserved.item.contentType,
-				sizeBytes: reserved.item.sizeBytes,
-				contentId: outboxAttachmentContentId(reserved.item.outboxAttachmentId),
+				outboxAttachmentId: row.outboxAttachmentId,
+				outboxMessageId: row.outboxMessageId,
+				filename: row.filename,
+				contentType: row.contentType,
+				sizeBytes: row.sizeBytes,
+				contentId: outboxAttachmentContentId(row.outboxAttachmentId),
 				uploadUrl: target.uploadUrl,
-				uploadExpiresAt: reservationExpiresAt,
+				uploadExpiresAt: row.reservationExpiresAt,
 			},
 		};
 	};
@@ -310,10 +369,10 @@ export class OutboxAttachmentService {
 		const row = held.find(
 			(item) => item.outboxAttachmentId === input.outboxAttachmentId,
 		);
-		if (!row || !holdsRoom(row, nowSeconds)) {
+		if (!row) {
 			return this.reject(
 				OutboxAttachmentRejectionReason.ReservationExpired,
-				"That upload took too long and its reservation has lapsed. Attach the file again.",
+				"This upload reservation was released because it was abandoned.",
 				usedBytes,
 			);
 		}
@@ -360,6 +419,11 @@ export class OutboxAttachmentService {
 			input.accountConfigId,
 			input.outboxAttachmentId,
 			stored.sizeBytes,
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds: this.now(),
+			},
 		);
 		if (confirmed === null) {
 			// Another completion moved it between the read and the update. Read it
@@ -368,6 +432,12 @@ export class OutboxAttachmentService {
 				input.accountConfigId,
 				input.outboxAttachmentId,
 			);
+			if (settled.state !== "Stored")
+				return this.reject(
+					OutboxAttachmentRejectionReason.MessageTooLarge,
+					"This draft no longer has room to complete this upload. Remove another attachment and retry.",
+					await this.usedBytesOn(input.accountConfigId, input.outboxMessageId),
+				);
 			return { outcome: "Completed", attachment: settled };
 		}
 
@@ -480,7 +550,6 @@ export class OutboxAttachmentService {
 		);
 		const keep = new Set(keepIds);
 		const drop = held.filter((item) => !keep.has(item.outboxAttachmentId));
-		if (drop.length === 0) return;
 
 		// Bytes first, rows second — the same order as `discardAll`, and for the
 		// same reason: while a row exists its object is accounted for, so a
@@ -509,6 +578,16 @@ export class OutboxAttachmentService {
 				failures,
 				`Could not delete ${failures.length} of ${drop.length} attachment objects; their rows are gone and the sweep will collect them`,
 			);
+		}
+		for (const item of held) {
+			if (keep.has(item.outboxAttachmentId) && item.state === "Pending") {
+				const renewed = await this.renewReservation(item);
+				if (renewed.outcome !== "Reserved")
+					throw new ConflictError(
+						this.reservationRefusal(renewed, item.filename, item.sizeBytes)
+							.rejection.message,
+					);
+			}
 		}
 	};
 

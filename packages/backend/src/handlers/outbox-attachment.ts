@@ -3,6 +3,7 @@ import type { Context } from "openapi-backend";
 import {
 	completeOutboxAttachmentFor,
 	mintOutboxAttachmentFor,
+	refuseAttachment,
 	toOutboxAttachmentResponse,
 } from "../service/outbox-operations.js";
 import type { HandlerContext } from "../types.js";
@@ -20,6 +21,24 @@ export const mintOutboxAttachment = async (
 		(context.request.params as { outboxMessageId: string }).outboxMessageId,
 		context.request.requestBody as MintOutboxAttachmentInput,
 	);
+
+export const renewOutboxAttachment = async (
+	context: Context,
+	ctx: HandlerContext,
+) => {
+	const { outboxMessageId, outboxAttachmentId } = context.request.params as {
+		outboxMessageId: string;
+		outboxAttachmentId: string;
+	};
+	const result = await ctx.client.outboxAttachment.renew({
+		accountConfigId: ctx.identity.accountConfigId,
+		outboxMessageId,
+		outboxAttachmentId,
+	});
+	return result.outcome === "Rejected"
+		? refuseAttachment(result.rejection)
+		: result.reservation;
+};
 
 export const completeOutboxAttachment = async (
 	context: Context,
