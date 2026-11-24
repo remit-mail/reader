@@ -28,6 +28,7 @@ import {
 import pMap from "p-map";
 import {
 	isAccountDeleted,
+	isAccountReauthRequired,
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
@@ -94,14 +95,11 @@ export const syncMailboxes = async (
 		return;
 	}
 
-	if (isMailSyncDisabled(account, log)) {
-		return;
-	}
-
-	// A reserved/never-resolvable IMAP host (RFC 2606) can never connect, so a
-	// sync attempt would retry and dead-letter forever. Skip cleanly — ack the
-	// event without connecting or throwing.
-	if (isUnsyncableHost(account, log)) {
+	if (isMailSyncDisabled(account, log) || isUnsyncableHost(account, log)) {
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.complete,
+			syncRequestedAt: event.timestamp,
+		});
 		return;
 	}
 
@@ -118,12 +116,30 @@ export const syncMailboxes = async (
 		return;
 	}
 
-	// withOAuthLifecycle owns the reauth/ACK contract (skip-if-reauth, flip on
-	// terminal auth failure, rethrow transient). The inner try/catch only
-	// records the terminal non-auth error phase before letting the wrapper
-	// rethrow for SQS retry/DLQ.
+	if (isAccountReauthRequired(account, log)) {
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.error,
+			syncRequestedAt: event.timestamp,
+		});
+		return;
+	}
+
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService, ctx.oauth),
+		{
+			...buildLifecycleDeps(secrets, accountService, ctx.oauth),
+			updateConnectionState: async (accountId, connectionState, lastError) => {
+				await accountService.update(
+					accountId,
+					{
+						connectionState,
+						lastError,
+						syncPhase: SyncPhase.error,
+						syncRequestedAt: event.timestamp,
+					},
+					lastError === undefined ? ["lastError"] : undefined,
+				);
+			},
+		},
 		account,
 		log,
 		async (credentials) => {
@@ -143,9 +159,7 @@ export const syncMailboxes = async (
 					ctx.config.mailboxFreshnessMs,
 				);
 			} catch (err) {
-				// Auth failures are handled by the wrapper — rethrow untouched so it
-				// flips the account to reauth_required rather than recording an error
-				// phase.
+				// Let the lifecycle handle auth failures and stamp terminal flips.
 				if (
 					err instanceof RefreshTokenError ||
 					(err instanceof MailConnectionError && err.kind === "auth")
