@@ -1,11 +1,6 @@
 import type { OutboxAttachmentItem } from "../types.js";
 
-/**
- * Whether an attachment is spoken for: uploaded and confirmed, or reserved and
- * not yet lapsed. The cap counts these and nothing else. The SQLite repository
- * states the same rule as the `WHERE` of the delete that refuses an over-cap
- * reservation, and the two must agree exactly.
- */
+/** Whether an attachment holds room: Stored or reserved and not yet expired. */
 export const holdsRoom = (
 	item: OutboxAttachmentItem,
 	nowSeconds: number,
@@ -24,11 +19,7 @@ export interface CreateOutboxAttachmentInput {
 	reservationExpiresAt: number;
 }
 
-/**
- * The numbers the reservation must fit inside. They come from the caller — the
- * cap is a business rule and belongs with the rest of them — but they are
- * applied here, where the count and the insert can happen together.
- */
+/** Caller-supplied limits enforced atomically by the repository. */
 export interface OutboxAttachmentCap {
 	maxTotalBytes: number;
 	maxCount: number;
@@ -42,36 +33,7 @@ export type ReserveOutboxAttachmentResult =
 	| { outcome: "OverCountCap"; usedBytes: number };
 
 export interface IOutboxAttachmentRepository {
-	/**
-	 * Claim room on a draft, or report why there is none.
-	 *
-	 * **The invariant an implementation owes its callers:** of two reservations
-	 * for the same draft running concurrently, at most one may observe a total
-	 * that does not include the other. Either one of them sees the other's row,
-	 * or one of them fails. Both being told there was room is a breach, and the
-	 * consequence is a message that cannot be sent — phase 4 builds a MIME body
-	 * from these rows and the receiving server rejects it.
-	 *
-	 * A count-then-insert only satisfies that under serializable isolation or an
-	 * external lock. **The drizzle/SQLite implementation gets it from one
-	 * batch:** the insert, a read of the draft's rows and a delete of the new row
-	 * when the draft's live rows then break the cap commit as a unit, and
-	 * batches are serialized, so the later of two reservations sees the earlier
-	 * one's row. A row holds room while {@link holdsRoom} says so: stored, or a
-	 * reservation not yet expired.
-	 *
-	 * **An adapter without serializable isolation must not do a
-	 * read-then-write.** On DynamoDB in particular, a Query followed by a
-	 * PutItem breaches this silently and is the failure mode that matters: it is
-	 * the deployment that actually scales horizontally. Use a conditional write
-	 * on a per-draft aggregate instead — an `UpdateItem` that adds the size and
-	 * carries a `ConditionExpression` bounding the running total, decided on
-	 * whether the condition held — and derive `usedBytes` for the rejection from
-	 * the same item.
-	 *
-	 * Either way the caller supplies the limits: the cap is a business rule and
-	 * lives with the rest of them. What is delegated here is only the atomicity.
-	 */
+	/** Atomically claim room on a draft under the supplied caps, counting rows that satisfy holdsRoom. */
 	reserve(
 		input: CreateOutboxAttachmentInput,
 		cap: OutboxAttachmentCap,
@@ -95,20 +57,13 @@ export interface IOutboxAttachmentRepository {
 		outboxAttachmentId: string,
 	): Promise<OutboxAttachmentItem>;
 
-	/**
-	 * Everything a draft holds, lapsed reservations included. Callers that care
-	 * about what is live filter on state and `reservationExpiresAt`.
-	 */
+	/** Everything a draft holds, including lapsed reservations. */
 	listByOutboxMessage(
 		accountConfigId: string,
 		outboxMessageId: string,
 	): Promise<OutboxAttachmentItem[]>;
 
-	/**
-	 * Move a reservation to Stored at the size storage actually holds. Returns
-	 * null when the row is gone, no longer Pending, or no longer fits the caps.
-	 * The Pending-to-Stored transition must enforce quota atomically.
-	 */
+	/** Atomically mark a Pending row Stored at its actual size under the caps; return null if missing, not Pending, or over cap. */
 	markStored(
 		accountConfigId: string,
 		outboxAttachmentId: string,
@@ -122,17 +77,7 @@ export interface IOutboxAttachmentRepository {
 		outboxAttachmentIds: string[],
 	): Promise<void>;
 
-	/**
-	 * Drop the draft's reservations that lapsed without ever being confirmed, and
-	 * report which ids went.
-	 *
-	 * A `Pending` row past its expiry already stops holding room, but until it is
-	 * gone it still names an object — which is enough for the sweep to treat that
-	 * object as accounted for and leave it. So the row has to go, and the sweep
-	 * collects the bytes on the same pass. Renewal must update an existing row:
-	 * if this delete wins, renewal returns Missing and cannot recreate a row
-	 * whose bytes the sweep may already have selected for deletion.
-	 */
+	/** Delete the draft's expired Pending rows and return their ids. */
 	deleteLapsedReservations(
 		accountConfigId: string,
 		outboxMessageId: string,

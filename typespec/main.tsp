@@ -241,7 +241,7 @@ namespace RemitApi {
       | PeopleForbiddenError
       | NotFoundError;
 
-    @doc("Trade the caller's current password for a single-use token that allows one action on one person for five minutes. Five wrong passwords in 15 minutes refuse further step-ups with 429. Absent (404) while self sign-up is open, or when the person does not exist.")
+    @doc("Deprecated password-check compatibility endpoint: check the caller's current password. The legacy response is kept for compatibility and ignored by People actions. Five wrong passwords in 15 minutes refuse further password checks with 429. Absent (404) while self sign-up is open, or when the person does not exist.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/step-up")
@@ -252,26 +252,29 @@ namespace RemitApi {
       | NotFoundError
       | StepUpLockedError;
 
-    @doc("Sign the person out of every browser session and MCP connection. Self-host browser sessions need a `SignOut` step-up for this person; a hosted operator grant does not. A JWT already minted works until it expires, at most 15 minutes.")
+    @doc("Sign the person out of every browser session and MCP connection. The legacy `X-Remit-Step-Up` header is kept for compatibility and ignored. A JWT already minted works until it expires, at most 15 minutes.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/{userId}/sign-out")
     op signOutPerson(
       @path userId: string,
-      @header("X-Remit-Step-Up") stepUpToken?: string,
-    ):
-      | Person
-      | UnauthorizedError
-      | PeopleForbiddenError
-      | NotFoundError;
 
-    @doc("Disable or enable the person. Self-host browser sessions need a `Disable` or `Enable` step-up for this person; a hosted operator grant does not. Refused with 409 `cannot_disable_self` when the caller disables themselves.")
+      @doc("Legacy compatibility header; ignored by this action.")
+      @header("X-Remit-Step-Up")
+      stepUpToken?: string,
+    ): Person | UnauthorizedError | PeopleForbiddenError | NotFoundError;
+
+    @doc("Disable or enable the person. The legacy `X-Remit-Step-Up` header is kept for compatibility and ignored. Refused with 409 `cannot_disable_self` when the caller disables themselves.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: false })
     @route("/{userId}")
     op updatePerson(
       @path userId: string,
-      @header("X-Remit-Step-Up") stepUpToken?: string,
+
+      @doc("Legacy compatibility header; ignored by this action.")
+      @header("X-Remit-Step-Up")
+      stepUpToken?: string,
+
       @body body: UpdatePersonInput,
     ):
       | Person
@@ -280,13 +283,16 @@ namespace RemitApi {
       | NotFoundError
       | CannotDisableSelfError;
 
-    @doc("Issue a single-use password reset link for the person, valid 24 hours. Self-host browser sessions need a `ResetPassword` step-up for this person; a hosted operator grant does not. The person's old password stops working and their sessions are revoked.")
+    @doc("Issue a single-use password reset link for the person, valid 24 hours. The legacy `X-Remit-Step-Up` header is kept for compatibility and ignored. The person's old password stops working and their sessions are revoked.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/{userId}/password-reset")
     op createPasswordReset(
       @path userId: string,
-      @header("X-Remit-Step-Up") stepUpToken?: string,
+
+      @doc("Legacy compatibility header; ignored by this action.")
+      @header("X-Remit-Step-Up")
+      stepUpToken?: string,
     ):
       | PasswordResetResponse
       | UnauthorizedError

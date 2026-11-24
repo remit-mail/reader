@@ -40,7 +40,7 @@ model PeopleListResponse {
   people: Person[];
 }
 
-@doc("The operation a step-up token is spent on. `updatePerson` maps `Disabled` to `Disable` and `Active` to `Enable`.")
+@doc("The action identified by the legacy password check; People actions do not require a grant. `updatePerson` maps `Disabled` to `Disable` and `Active` to `Enable`.")
 enum StepUpAction {
   SignOut,
   Disable,
@@ -48,22 +48,23 @@ enum StepUpAction {
   ResetPassword,
 }
 
-@doc("The caller's current password, and the one action on one person the token will allow.")
+@doc("The caller's current password and the action and person identified by the legacy password check.")
 model StepUpInput {
   @doc("The caller's own current password.")
   password: string;
 
   action: StepUpAction;
 
-  @doc("The person the token will act on.")
+  @doc("The person identified by the legacy password check.")
   userId: string;
 }
 
-@doc("A single-use token for one action on one person. Spend it at once; it is never stored by the client.")
+@doc("Legacy password-check response kept for compatibility and ignored by People actions.")
 model StepUpResponse {
+  @doc("Legacy token kept for compatibility and ignored by People actions.")
   stepUpToken: string;
 
-  @doc("When the token stops working, epoch milliseconds.")
+  @doc("Legacy expiry timestamp in epoch milliseconds; ignored by People actions.")
   expiresAt: int64;
 }
 
@@ -122,7 +123,7 @@ model PeopleForbiddenError {
     | "forbidden";
 }
 
-@doc("Too many wrong step-up passwords.")
+@doc("Too many wrong passwords in legacy password checks.")
 model StepUpLockedError {
   @statusCode statusCode: 429;
   ...OmitProperties<ApiError, "code">;
