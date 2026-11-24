@@ -84,6 +84,7 @@ const buildServer = (
 	principal: McpPrincipal,
 	deps: McpDeps,
 	isOperator: boolean,
+	identityManagement: boolean,
 ): McpServer => {
 	const server = new McpServer(
 		{ name: "remit-reader", version: "1.0.0" },
@@ -137,7 +138,11 @@ const buildServer = (
 		registerMailTools(server, deps, deriveAccountConfigId(principal.userId));
 	}
 	if (principal.scopes.includes(MCP_OPERATOR_SCOPE) && isOperator) {
-		registerOperatorTools(server, deps.operatorClient(principal.userId));
+		registerOperatorTools(
+			server,
+			deps.operatorClient(principal.userId),
+			identityManagement,
+		);
 	}
 	return server;
 };
@@ -147,6 +152,7 @@ export const createMcpHandler =
 		principal: McpPrincipal,
 		deps: McpDeps,
 		isOperator: boolean,
+		{ identityManagement = true }: { identityManagement?: boolean } = {},
 	): McpRequestHandler =>
 	async (request) => {
 		const bounded = await boundedRequest(request);
@@ -158,7 +164,7 @@ export const createMcpHandler =
 				},
 				{ status: 413 },
 			);
-		const server = buildServer(principal, deps, isOperator);
+		const server = buildServer(principal, deps, isOperator, identityManagement);
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			sessionIdGenerator: undefined,
 			enableJsonResponse: true,

@@ -42,6 +42,7 @@ export type OperatorClient = NonNullable<
 export const registerOperatorTools = (
 	server: McpServer,
 	client: OperatorClient,
+	identityManagement: boolean,
 ): void => {
 	server.registerTool(
 		"get_classification_default",
@@ -144,6 +145,7 @@ export const registerOperatorTools = (
 			),
 	);
 
+	if (!identityManagement) return;
 	server.registerTool(
 		"list_people",
 		{

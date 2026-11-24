@@ -237,9 +237,15 @@ describe("the read tools behind mail:read", () => {
 
 describe("the operator tools", () => {
 	it("registers them only when the scope and current operator check both hold", async () => {
-		const names = async (scopes: string[], operator: boolean) => {
+		const names = async (
+			scopes: string[],
+			operator: boolean,
+			identityManagement?: boolean,
+		) => {
 			const body = await rpc(
-				createMcpHandler({ userId: USER_ID, scopes }, deps, operator),
+				createMcpHandler({ userId: USER_ID, scopes }, deps, operator, {
+					identityManagement,
+				}),
 				"tools/list",
 			);
 			return (
@@ -264,6 +270,14 @@ describe("the operator tools", () => {
 			"revoke_invite",
 			"set_classification_default",
 			"sign_out_person",
+			"update_tenant_settings",
+		]);
+		assert.deepEqual(await names([MCP_OPERATOR_SCOPE], true, false), [
+			"clear_classification_default",
+			"clear_tenant_classification",
+			"get_classification_default",
+			"get_tenant_settings",
+			"set_classification_default",
 			"update_tenant_settings",
 		]);
 	});
