@@ -79,6 +79,7 @@ describe("POST /accounts/{accountId}/sync", () => {
 		assert.equal(queue.sent[0]?.body.accountId, accountId);
 		assert.equal(queue.sent[0]?.body.explicitRequest, true);
 		const { requestedAt } = await response.json();
+		assert.ok(typeof requestedAt === "number");
 		assert.equal(requestedAt, queue.sent[0].body.timestamp);
 
 		const beforeDiscovery = await getStatus();

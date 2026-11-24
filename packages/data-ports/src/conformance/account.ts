@@ -49,6 +49,7 @@ const everyUpdatableField: Required<UpdateAccountInput> = {
 	lastSyncAt: 1_700_000_000_004,
 	lastError: "refused",
 	syncPhase: SyncPhase.complete,
+	syncRequestedAt: 1_700_000_000_005,
 	mailboxCountTotal: 7,
 	mailboxCountSynced: 3,
 };
