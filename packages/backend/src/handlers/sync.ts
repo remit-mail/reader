@@ -2,15 +2,12 @@ import type { QueueName } from "../service/queues.js";
 import {
 	getSyncStatusFor,
 	triggerSyncFor,
-	triggerSyncSafe,
 } from "../service/sync-operations.js";
 import type {
 	HandlerContext,
 	OperationHandler,
 	SyncOperationIds,
 } from "../types.js";
-
-export { triggerSyncSafe };
 
 export const SyncOperations = {
 	SyncOperations_triggerSync: async (context, ctx: HandlerContext<"sync">) =>

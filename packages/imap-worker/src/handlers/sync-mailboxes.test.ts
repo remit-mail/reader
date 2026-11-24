@@ -1,8 +1,53 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { SyncPhase } from "@remit/domain-enums";
 import { resolveMailboxFreshnessMs } from "../config-env.js";
 import { DEFAULT_MAILBOX_FRESHNESS_MS } from "../context.js";
-import { emitSyncMessagesEvents, splitInboxFirst } from "./sync-mailboxes.js";
+import { openStore } from "../test-helpers/test-world.js";
+import {
+	emitSyncMessagesEvents,
+	splitInboxFirst,
+	syncMailboxes,
+} from "./sync-mailboxes.js";
+
+it("advances lastSyncAt when mailbox discovery records an error", async (t) => {
+	const store = await openStore();
+	t.after(store.close);
+	const world = await store.world();
+	const { accountId } = world.account;
+	const lastSyncAt = 1_700_000_000_000;
+	await world.client.account.update(accountId, { lastSyncAt });
+
+	const failure = new Error("IMAP LIST failed");
+	const connection = world.imap.connection();
+	connection.listMailboxes = async () => {
+		throw failure;
+	};
+
+	await assert.rejects(
+		syncMailboxes(
+			{
+				type: "SYNC_MAILBOXES",
+				accountId,
+				eventId: "failed-discovery",
+				timestamp: Date.now(),
+				explicitRequest: true,
+			},
+			world.ctx({
+				pool: world.connectVia(() => ({
+					...world.scope(),
+					getConnection: async () => connection,
+				})),
+			}),
+		),
+		failure,
+	);
+
+	const account = await world.client.account.get(accountId);
+	assert.equal(account.syncPhase, SyncPhase.error);
+	assert.equal(account.lastError, failure.message);
+	assert.ok(account.lastSyncAt > lastSyncAt);
+});
 
 describe("resolveMailboxFreshnessMs", () => {
 	it("defaults to the production window when unset", () => {

@@ -157,6 +157,7 @@ export const syncMailboxes = async (
 				const message = err instanceof Error ? err.message : String(err);
 				await accountService.update(accountId, {
 					syncPhase: SyncPhase.error,
+					lastSyncAt: Date.now(),
 					lastError: message,
 				});
 				throw err;
