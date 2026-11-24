@@ -1,4 +1,3 @@
-import { logger } from "@remit/logger";
 import { ownedAccount } from "@remit/mailbox-service";
 import { toMailboxSyncProgress } from "../handlers/sync-progress.js";
 import type { RemitClient } from "./data-client.js";
@@ -12,16 +11,11 @@ export const triggerSyncFor = async (
 ) => {
 	const account = await client.account.get(accountId);
 	unwrap(ownedAccount(account, accountConfigId, "act"));
-	const { eventId } = await triggerAccountSync({
+	await triggerAccountSync({
 		queue: client.queues.sync,
 		accountId: account.accountId,
 		explicitRequest: true,
 	});
-	// biome-ignore lint/plugin/no-logger-info: records the account and event for a successful sync request
-	logger.info(
-		{ accountId: account.accountId, eventId },
-		"Sync triggered - enqueued SYNC_MAILBOXES event",
-	);
 	return {
 		triggered: true,
 		message: `Sync triggered for account ${accountId}`,
