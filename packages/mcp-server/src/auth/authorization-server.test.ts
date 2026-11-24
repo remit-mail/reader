@@ -489,7 +489,7 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(sharedRows(), shared);
 	});
 
-	it("names an expired access token without echoing it", async (t) => {
+	it("keeps the provider refusal for an expired token without echoing it", async (t) => {
 		t.mock.timers.enable({
 			apis: ["Date"],
 			now: Date.now() + (BROWSER_TOKEN_TTL_SECONDS + 1) * 1000,
@@ -499,12 +499,12 @@ describe("the MCP authorization server", () => {
 			assert.equal(response.status, 401);
 			assert.deepEqual(await response.json(), {
 				error: "invalid_token",
-				error_description: "The access token has expired",
+				error_description: "The access token is invalid or expired",
 				resource: RESOURCE,
 			});
 			assert.match(
 				response.headers.get("www-authenticate") ?? "",
-				/error_description="The access token has expired"/,
+				/error_description="The access token is invalid or expired"/,
 			);
 		} finally {
 			t.mock.timers.reset();

@@ -30,7 +30,6 @@ import {
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { jwt } from "better-auth/plugins";
-import { createLocalJWKSet, errors as joseErrors, jwtVerify } from "jose";
 import { z } from "zod";
 import {
 	MCP_OPERATOR_SCOPE,
@@ -884,27 +883,11 @@ export const createBetterAuthTokenVerifier = (
 			) {
 				return { ok: false, reason: "invalid_token", description };
 			}
-			// The provider collapses JWT expiry into "Invalid access token".
-			// Verify again only to recover that reason; this never admits a token.
-			try {
-				await jwtVerify(bearer, createLocalJWKSet(await auth.api.getJwks()), {
-					issuer: origin,
-					audience: mcpResource(origin),
-				});
-			} catch (error) {
-				if (error instanceof joseErrors.JWTExpired) {
-					return {
-						ok: false,
-						reason: "invalid_token",
-						description: "The access token has expired",
-					};
-				}
-				if (!(error instanceof joseErrors.JOSEError)) throw error;
-			}
+			// The provider does not distinguish expired tokens from invalid ones.
 			return {
 				ok: false,
 				reason: "invalid_token",
-				description: "The access token is invalid",
+				description: "The access token is invalid or expired",
 			};
 		}
 		if (!audienceOf(payload.aud).includes(mcpResource(origin))) {

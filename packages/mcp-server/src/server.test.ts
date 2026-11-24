@@ -3,7 +3,12 @@ import { after, before, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
-import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
+import { OutboxMessageStatus } from "@remit/domain-enums";
+import {
+	BodySyncService,
+	OutboxAttachmentService,
+	SyncWarningService,
+} from "@remit/mailbox-service";
 import {
 	eml,
 	FakeImapServer,
@@ -461,27 +466,24 @@ describe("mint_outbox_attachment upload refusals", () => {
 	];
 	for (const { name, body, status, expected, headers } of cases) {
 		it(name, async (t) => {
-			const uploadUrl = "https://storage.test/upload?sig=secret";
+			const draft = await store.outboxMessage.create({
+				accountId: mine.account.accountId,
+				accountConfigId: mine.account.accountConfigId,
+				fromAddress: "mine@example.com",
+				toAddresses: ["recipient@example.com"],
+				messageIdValue: "<draft@example.com>",
+				status: OutboxMessageStatus.draft,
+			});
 			const client = {
 				...deps.client,
-				outboxAttachment: {
-					mint: async () => ({
-						outcome: "Minted" as const,
-						reservation: {
-							outboxAttachmentId: "attachment",
-							outboxMessageId: "a123456789012345678901234",
-							filename: "attachment.txt",
-							contentType: "text/plain",
-							sizeBytes: 1,
-							contentId: "attachment@remit.test",
-							uploadUrl,
-							uploadExpiresAt: 123,
-						},
-					}),
-				} as unknown as McpDeps["client"]["outboxAttachment"],
+				outboxAttachment: new OutboxAttachmentService({
+					outboxMessageService: store.outboxMessage,
+					outboxAttachmentService: store.outboxAttachment,
+					storage,
+				}),
 			};
 			t.mock.method(globalThis, "fetch", async (url: string) => {
-				assert.equal(url, uploadUrl);
+				assert.ok(new URL(url).searchParams.has("sig"));
 				return new Response(body, { status, headers });
 			});
 			const handler = createMcpHandler(
@@ -493,7 +495,7 @@ describe("mint_outbox_attachment upload refusals", () => {
 				await rpc(handler, "tools/call", {
 					name: "mint_outbox_attachment",
 					arguments: {
-						outboxMessageId: "a123456789012345678901234",
+						outboxMessageId: draft.outboxMessageId,
 						filename: "attachment.txt",
 						contentType: "text/plain",
 						contentBase64: "YQ==",
