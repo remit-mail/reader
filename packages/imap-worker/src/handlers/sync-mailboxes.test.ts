@@ -19,10 +19,7 @@ it("advances lastSyncAt when mailbox discovery records an error", async (t) => {
 	await world.client.account.update(accountId, { lastSyncAt });
 
 	const failure = new Error("IMAP LIST failed");
-	const connection = world.imap.connection();
-	connection.listMailboxes = async () => {
-		throw failure;
-	};
+	world.imap.failNext.LIST = failure;
 
 	await assert.rejects(
 		syncMailboxes(
@@ -33,12 +30,7 @@ it("advances lastSyncAt when mailbox discovery records an error", async (t) => {
 				timestamp: Date.now(),
 				explicitRequest: true,
 			},
-			world.ctx({
-				pool: world.connectVia(() => ({
-					...world.scope(),
-					getConnection: async () => connection,
-				})),
-			}),
+			world.ctx(),
 		),
 		failure,
 	);

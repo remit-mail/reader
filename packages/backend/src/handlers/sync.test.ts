@@ -10,7 +10,7 @@ import { serveApi } from "../serve.js";
 import type { RemitClient } from "../service/data-client.js";
 import { SyncOperations } from "./sync.js";
 
-const accountId = "8f14e45f-ceea-467a-9c9e-9c9e9e9c9e9c";
+const accountId = "0".repeat(25);
 const accountConfigId = "config-1";
 const api = serveApi<"sync">({ handlers: SyncOperations, publicHandlers: {} });
 
