@@ -55,6 +55,7 @@ describe("OutboxAttachmentRepo.reserve", () => {
 		const over = await repo.reserve(input(cfg, draft, 300), CAP);
 		assert.strictEqual(over.outcome, "OverByteCap");
 		assert.strictEqual(over.outcome === "OverByteCap" && over.usedBytes, 800);
+		assert.strictEqual((await repo.listByOutboxMessage(cfg, draft)).length, 1);
 	});
 
 	test("refuses past the file-count ceiling", async () => {
@@ -68,7 +69,8 @@ describe("OutboxAttachmentRepo.reserve", () => {
 		}
 
 		const over = await repo.reserve(input(cfg, draft, 1), CAP);
-		assert.strictEqual(over.outcome, "OverCountCap");
+		assert.deepStrictEqual(over, { outcome: "OverCountCap", usedBytes: 3 });
+		assert.strictEqual((await repo.listByOutboxMessage(cfg, draft)).length, 3);
 	});
 
 	test("holds the cap when reservations arrive together", async () => {

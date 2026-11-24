@@ -5,17 +5,16 @@ import type {
 	OutboxAttachmentItem,
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
-import { holdsRoom } from "@remit/data-ports";
 import {
 	and,
 	count,
 	eq,
-	gt,
 	gte,
 	lt,
 	lte,
 	ne,
 	or,
+	type SQLWrapper,
 	sql,
 	sum,
 } from "drizzle-orm";
@@ -56,89 +55,93 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 		this.batch = store.batch;
 	}
 
-	/**
-	 * The per-message cap. The insert, the read of the draft's live rows and a
-	 * delete of the new row when it breaks the cap run as one batch, which
-	 * commits as a unit and serializes against every other batch. Of two
-	 * concurrent reservations the later one sees the earlier one's row, so it
-	 * is the one removed when the two together do not fit.
-	 */
+	private quota(
+		accountConfigId: string,
+		outboxMessageId: string | SQLWrapper,
+		outboxAttachmentId: string,
+		sizeBytes: number | SQLWrapper,
+		cap: OutboxAttachmentCap,
+	) {
+		const other = alias(outboxAttachmentTable, "other_attachment");
+		const liveOthers = and(
+			eq(other.accountConfigId, accountConfigId),
+			eq(other.outboxMessageId, outboxMessageId),
+			ne(other.outboxAttachmentId, outboxAttachmentId),
+			or(
+				eq(other.state, "Stored"),
+				gte(other.reservationExpiresAt, cap.nowSeconds),
+			),
+		);
+		const usedCount = sql<number>`(${this.db.select({ count: count() }).from(other).where(liveOthers)})`;
+		const total = this.db
+			.select({ bytes: sum(other.sizeBytes) })
+			.from(other)
+			.where(liveOthers);
+		const usedBytes = sql<number>`coalesce((${total}), 0)`;
+		return {
+			summary: { usedCount, usedBytes },
+			fits: and(
+				lt(usedCount, cap.maxCount),
+				lte(sql`${usedBytes} + ${sizeBytes}`, cap.maxTotalBytes),
+			),
+		};
+	}
+
+	/** The quota summary and guarded insert run in one atomic batch. */
 	async reserve(
 		input: CreateOutboxAttachmentInput,
 		cap: OutboxAttachmentCap,
 	): Promise<ReserveOutboxAttachmentResult> {
 		const now = Date.now();
-		const draft = and(
-			eq(outboxAttachmentTable.accountConfigId, input.accountConfigId),
-			eq(outboxAttachmentTable.outboxMessageId, input.outboxMessageId),
+		const quota = this.quota(
+			input.accountConfigId,
+			input.outboxMessageId,
+			input.outboxAttachmentId,
+			input.sizeBytes,
+			cap,
 		);
-		const live = and(
-			draft,
-			or(
-				eq(outboxAttachmentTable.state, "Stored"),
-				gte(outboxAttachmentTable.reservationExpiresAt, cap.nowSeconds),
-			),
-		);
-		const [inserted, rows, removed] = await this.batch([
+		const [summaries, inserted] = await this.batch([
+			this.db.select(quota.summary).from(sql`(select 1)`),
 			this.db
 				.insert(outboxAttachmentTable)
-				.values({
-					outboxAttachmentId: input.outboxAttachmentId,
-					outboxMessageId: input.outboxMessageId,
-					accountId: input.accountId,
-					accountConfigId: input.accountConfigId,
-					filename: input.filename,
-					contentType: input.contentType,
-					sizeBytes: input.sizeBytes,
-					state: "Pending",
-					storageKey: input.storageKey,
-					reservationExpiresAt: input.reservationExpiresAt,
-					createdAt: now,
-					updatedAt: now,
-				})
-				.returning(),
-			this.db.select().from(outboxAttachmentTable).where(draft),
-			this.db
-				.delete(outboxAttachmentTable)
-				.where(
-					and(
-						eq(
-							outboxAttachmentTable.outboxAttachmentId,
-							input.outboxAttachmentId,
-						),
-						or(
-							gt(this.db.$count(outboxAttachmentTable, live), cap.maxCount),
-							gt(
-								this.db
-									.select({ total: sum(outboxAttachmentTable.sizeBytes) })
-									.from(outboxAttachmentTable)
-									.where(live),
-								cap.maxTotalBytes,
+				.select(
+					this.db
+						.select({
+							outboxAttachmentId: sql<string>`${input.outboxAttachmentId}`.as(
+								"outboxAttachmentId",
 							),
-						),
-					),
+							outboxMessageId: sql<string>`${input.outboxMessageId}`.as(
+								"outboxMessageId",
+							),
+							accountId: sql<string>`${input.accountId}`.as("accountId"),
+							accountConfigId: sql<string>`${input.accountConfigId}`.as(
+								"accountConfigId",
+							),
+							filename: sql<string>`${input.filename}`.as("filename"),
+							contentType: sql<string>`${input.contentType}`.as("contentType"),
+							sizeBytes: sql<number>`${input.sizeBytes}`.as("sizeBytes"),
+							state: sql<string>`'Pending'`.as("state"),
+							storageKey: sql<string>`${input.storageKey}`.as("storageKey"),
+							reservationExpiresAt:
+								sql<number>`${input.reservationExpiresAt}`.as(
+									"reservationExpiresAt",
+								),
+							createdAt: sql<number>`${now}`.as("createdAt"),
+							updatedAt: sql<number>`${now}`.as("updatedAt"),
+						})
+						.from(sql`(select 1)`)
+						.where(quota.fits),
 				)
-				.returning({
-					outboxAttachmentId: outboxAttachmentTable.outboxAttachmentId,
-				}),
+				.returning(),
 		] as const);
-
-		const others = rows
-			.map(rowToOutboxAttachment)
-			.filter(
-				(item) =>
-					item.outboxAttachmentId !== input.outboxAttachmentId &&
-					holdsRoom(item, cap.nowSeconds),
-			);
-		const usedBytes = others.reduce((total, item) => total + item.sizeBytes, 0);
 		const [row] = inserted;
-		if (removed.length === 0 && row) {
-			return { outcome: "Reserved", item: rowToOutboxAttachment(row) };
-		}
-		if (others.length >= cap.maxCount) {
-			return { outcome: "OverCountCap", usedBytes };
-		}
-		return { outcome: "OverByteCap", usedBytes };
+		if (row) return { outcome: "Reserved", item: rowToOutboxAttachment(row) };
+		const [summary] = summaries;
+		return {
+			outcome:
+				summary.usedCount >= cap.maxCount ? "OverCountCap" : "OverByteCap",
+			usedBytes: summary.usedBytes,
+		};
 	}
 
 	async renew(
@@ -155,24 +158,16 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 			eq(outboxAttachmentTable.accountConfigId, input.accountConfigId),
 			eq(outboxAttachmentTable.outboxMessageId, input.outboxMessageId),
 		);
-		const others = and(
-			draft,
-			ne(outboxAttachmentTable.outboxAttachmentId, input.outboxAttachmentId),
-			or(
-				eq(outboxAttachmentTable.state, "Stored"),
-				gte(outboxAttachmentTable.reservationExpiresAt, cap.nowSeconds),
-			),
+		const quota = this.quota(
+			input.accountConfigId,
+			input.outboxMessageId,
+			input.outboxAttachmentId,
+			outboxAttachmentTable.sizeBytes,
+			cap,
 		);
-		const total = this.db
-			.select({ bytes: sum(outboxAttachmentTable.sizeBytes) })
-			.from(outboxAttachmentTable)
-			.where(others);
 		const [summaries, updated] = await this.batch([
 			this.db
-				.select({
-					usedCount: this.db.$count(outboxAttachmentTable, others),
-					usedBytes: sql<number>`coalesce((${total}), 0)`,
-				})
+				.select(quota.summary)
 				.from(outboxAttachmentTable)
 				.where(
 					and(
@@ -199,11 +194,7 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 							input.outboxAttachmentId,
 						),
 						eq(outboxAttachmentTable.state, "Pending"),
-						lt(this.db.$count(outboxAttachmentTable, others), cap.maxCount),
-						lte(
-							sql`coalesce((${total}), 0) + ${outboxAttachmentTable.sizeBytes}`,
-							cap.maxTotalBytes,
-						),
+						quota.fits,
 					),
 				)
 				.returning(),
@@ -267,20 +258,13 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 		sizeBytes: number,
 		cap: OutboxAttachmentCap,
 	): Promise<OutboxAttachmentItem | null> {
-		const other = alias(outboxAttachmentTable, "other_attachment");
-		const liveOthers = and(
-			eq(other.accountConfigId, accountConfigId),
-			eq(other.outboxMessageId, outboxAttachmentTable.outboxMessageId),
-			ne(other.outboxAttachmentId, outboxAttachmentId),
-			or(
-				eq(other.state, "Stored"),
-				gte(other.reservationExpiresAt, cap.nowSeconds),
-			),
+		const quota = this.quota(
+			accountConfigId,
+			outboxAttachmentTable.outboxMessageId,
+			outboxAttachmentId,
+			sizeBytes,
+			cap,
 		);
-		const total = this.db
-			.select({ bytes: sum(other.sizeBytes) })
-			.from(other)
-			.where(liveOthers);
 		const [row] = await this.db
 			.update(outboxAttachmentTable)
 			.set({
@@ -296,11 +280,7 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 					eq(outboxAttachmentTable.accountConfigId, accountConfigId),
 					eq(outboxAttachmentTable.outboxAttachmentId, outboxAttachmentId),
 					eq(outboxAttachmentTable.state, "Pending"),
-					lt(
-						this.db.select({ count: count() }).from(other).where(liveOthers),
-						cap.maxCount,
-					),
-					lte(sql`coalesce((${total}), 0) + ${sizeBytes}`, cap.maxTotalBytes),
+					quota.fits,
 				),
 			)
 			.returning();
