@@ -9,7 +9,7 @@ import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { encryptRefreshToken } from "@remit/mailbox-service/account-credentials";
 import { MailConnectionError } from "@remit/mailbox-service/types";
 import type { SyncMailboxesEvent } from "../events.js";
-import { openStore } from "../test-helpers/test-world.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { syncMailboxes } from "./sync-mailboxes.js";
 
 const discoveryEvent = (accountId: string): SyncMailboxesEvent => ({
@@ -19,6 +19,20 @@ const discoveryEvent = (accountId: string): SyncMailboxesEvent => ({
 	accountId,
 	explicitRequest: true,
 });
+
+const seedOAuthCredential = async ({
+	account,
+	client,
+}: World): Promise<void> => {
+	await client.account.update(account.accountId, {
+		authType: AccountAuthType.OauthMicrosoft,
+		oauthRefreshTokenHash: await encryptRefreshToken(
+			"refresh-token",
+			client.secrets,
+		),
+		lastError: "An earlier sync failed",
+	});
+};
 
 describe("mailbox discovery round identity", () => {
 	for (const { name, seed, phase } of [
@@ -59,7 +73,7 @@ describe("mailbox discovery round identity", () => {
 		});
 	}
 
-	it("leaves a deleted account unstamped", async (t) => {
+	it("leaves a deleted account out of sync round tracking", async (t) => {
 		const store = await openStore();
 		t.after(store.close);
 		const world = await store.world();
@@ -98,62 +112,71 @@ describe("mailbox discovery round identity", () => {
 		assert.equal(world.imap.connections, 0);
 	});
 
-	for (const failure of ["OAuth refresh", "IMAP authentication"] as const) {
-		it(`stamps error when ${failure} requires reauth`, async (t) => {
-			const store = await openStore();
-			t.after(store.close);
-			const world = await store.world();
-			const { accountId } = world.account;
-			const event = discoveryEvent(accountId);
-			await world.client.account.update(accountId, {
-				authType: AccountAuthType.OauthMicrosoft,
-				oauthRefreshTokenHash: await encryptRefreshToken(
-					"refresh-token",
-					world.client.secrets,
-				),
-				lastError: "An earlier sync failed",
-			});
-			const refusal = "IMAP authentication rejected";
-			const pool = world.connectVia(() => ({
-				getConnection: async () => {
-					assert.equal(failure, "IMAP authentication");
-					throw new MailConnectionError("auth", refusal);
-				},
-				disconnect: async () => {},
-			}));
+	it("stamps error when OAuth refresh requires reauth", async (t) => {
+		const store = await openStore();
+		t.after(store.close);
+		const world = await store.world();
+		const { accountId } = world.account;
+		const event = discoveryEvent(accountId);
+		await seedOAuthCredential(world);
 
-			await syncMailboxes(
-				event,
-				world.ctx({
-					pool,
-					oauth: {
-						getAccessToken: async () => {
-							if (failure === "OAuth refresh") {
-								throw new RefreshTokenError({
-									kind: "reauth-required",
-									code: "invalid_grant",
-								});
-							}
-							return {
-								accessToken: "access-token",
-								expiresAt: 0,
-								grantedScopes: [],
-							};
-						},
+		await syncMailboxes(
+			event,
+			world.ctx({
+				oauth: {
+					getAccessToken: async () => {
+						throw new RefreshTokenError({
+							kind: "reauth-required",
+							code: "invalid_grant",
+						});
 					},
-				}),
-			);
+				},
+			}),
+		);
 
-			const stored = await world.client.account.get(accountId);
-			assert.equal(stored.syncRequestedAt, event.timestamp);
-			assert.equal(stored.syncPhase, SyncPhase.error);
-			assert.equal(stored.connectionState, ConnectionState.ReauthRequired);
-			assert.equal(
-				stored.lastError,
-				failure === "IMAP authentication" ? refusal : undefined,
-			);
-		});
-	}
+		const stored = await world.client.account.get(accountId);
+		assert.equal(stored.syncRequestedAt, event.timestamp);
+		assert.equal(stored.syncPhase, SyncPhase.error);
+		assert.equal(stored.connectionState, ConnectionState.ReauthRequired);
+		assert.equal(stored.lastError, undefined);
+		assert.equal(world.imap.connections, 0);
+	});
+
+	it("stamps error when IMAP rejects OAuth authentication", async (t) => {
+		const store = await openStore();
+		t.after(store.close);
+		const world = await store.world();
+		const { accountId } = world.account;
+		const event = discoveryEvent(accountId);
+		await seedOAuthCredential(world);
+		const refusal = "IMAP authentication rejected";
+		const pool = world.connectVia(() => ({
+			getConnection: async () => {
+				throw new MailConnectionError("auth", refusal);
+			},
+			disconnect: async () => {},
+		}));
+
+		await syncMailboxes(
+			event,
+			world.ctx({
+				pool,
+				oauth: {
+					getAccessToken: async () => ({
+						accessToken: "access-token",
+						expiresAt: 0,
+						grantedScopes: [],
+					}),
+				},
+			}),
+		);
+
+		const stored = await world.client.account.get(accountId);
+		assert.equal(stored.syncRequestedAt, event.timestamp);
+		assert.equal(stored.syncPhase, SyncPhase.error);
+		assert.equal(stored.connectionState, ConnectionState.ReauthRequired);
+		assert.equal(stored.lastError, refusal);
+	});
 
 	it("records the event timestamp with the discovering phase", async (t) => {
 		const store = await openStore();

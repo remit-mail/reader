@@ -124,21 +124,15 @@ export const syncMailboxes = async (
 		return;
 	}
 
+	const lifecycle = buildLifecycleDeps(secrets, accountService, ctx.oauth);
 	await withOAuthLifecycle(
 		{
-			...buildLifecycleDeps(secrets, accountService, ctx.oauth),
-			updateConnectionState: async (accountId, connectionState, lastError) => {
-				await accountService.update(
-					accountId,
-					{
-						connectionState,
-						lastError,
-						syncPhase: SyncPhase.error,
-						syncRequestedAt: event.timestamp,
-					},
-					lastError === undefined ? ["lastError"] : undefined,
-				);
-			},
+			...lifecycle,
+			updateConnectionState: (accountId, connectionState, lastError) =>
+				lifecycle.updateConnectionState(accountId, connectionState, lastError, {
+					syncPhase: SyncPhase.error,
+					syncRequestedAt: event.timestamp,
+				}),
 		},
 		account,
 		log,
@@ -159,7 +153,7 @@ export const syncMailboxes = async (
 					ctx.config.mailboxFreshnessMs,
 				);
 			} catch (err) {
-				// Let the lifecycle handle auth failures and stamp terminal flips.
+				// The lifecycle decides which auth failures are terminal.
 				if (
 					err instanceof RefreshTokenError ||
 					(err instanceof MailConnectionError && err.kind === "auth")
