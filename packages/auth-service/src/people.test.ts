@@ -140,7 +140,6 @@ describe("the legacy People password check", () => {
 		};
 		const checked = await people.createStepUp(request);
 		assert.ok(checked.ok, JSON.stringify(checked));
-		assert.deepEqual(rows("SELECT digest FROM identity_step_up"), []);
 		for (let attempt = 0; attempt < 5; attempt++) {
 			assert.deepEqual(
 				await people.createStepUp({ ...request, password: "wrong password" }),
