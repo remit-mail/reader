@@ -200,7 +200,7 @@ export interface OutboxAttachmentRejectionResponse {
 	body: OutboxAttachmentRejection;
 }
 
-const refuseAttachment = (
+export const refuseAttachment = (
 	detail: OutboxAttachmentRejectionDetail,
 ): OutboxAttachmentRejectionResponse => ({
 	statusCode: TOO_LARGE.has(detail.reason) ? 413 : 400,
@@ -227,24 +227,6 @@ export const mintOutboxAttachmentFor = async (
 		filename: input.filename,
 		contentType: input.contentType,
 		sizeBytes: input.sizeBytes,
-	});
-	return result.outcome === "Rejected"
-		? refuseAttachment(result.rejection)
-		: result.reservation;
-};
-
-export const renewOutboxAttachmentFor = async (
-	client: RemitClient<never>,
-	accountConfigId: string,
-	outboxMessageId: string,
-	outboxAttachmentId: string,
-): Promise<
-	MintOutboxAttachmentResponse | OutboxAttachmentRejectionResponse
-> => {
-	const result = await client.outboxAttachment.renew({
-		accountConfigId,
-		outboxMessageId,
-		outboxAttachmentId,
 	});
 	return result.outcome === "Rejected"
 		? refuseAttachment(result.rejection)
