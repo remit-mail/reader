@@ -89,6 +89,7 @@ const app = (request: Request, clientIp: string): Promise<Response> => {
 let mainSessionToken: string;
 let ownerId: string;
 let mainJwt: string;
+let connectedAccessToken: string;
 
 const sharedRows = (): unknown[] => {
 	return [
@@ -510,8 +511,8 @@ describe("the MCP authorization server", () => {
 		}
 	});
 
-	it("keeps a disabled-account reason and never forwards unknown error text", async (t) => {
-		let description = "The account is disabled";
+	it("never forwards unknown token verification error text", async (t) => {
+		const description = "Rejected credential: rejected-secret-token";
 		t.mock.method(auth.api, "remitMcpVerifyAccessToken", async () => {
 			throw new APIError("UNAUTHORIZED", {
 				error: "invalid_token",
@@ -519,14 +520,6 @@ describe("the MCP authorization server", () => {
 			});
 		});
 		try {
-			const disabled = await listTools("rejected-secret-token");
-			assert.equal(disabled.status, 401);
-			assert.deepEqual(await disabled.json(), {
-				error: "invalid_token",
-				error_description: "The account is disabled",
-				resource: RESOURCE,
-			});
-			description = "Rejected credential: rejected-secret-token";
 			const unknown = await listTools("rejected-secret-token");
 			assert.equal(unknown.status, 401);
 			assert.ok(!(await unknown.text()).includes("rejected-secret-token"));
@@ -732,6 +725,7 @@ describe("the MCP authorization server", () => {
 		const otherClientId = await registerClient();
 		const revoked = await mint(clientId);
 		const spared = await mint(otherClientId);
+		connectedAccessToken = spared.access;
 		assert.equal((await listTools(revoked.access)).status, 200);
 		assert.equal((await listTools(spared.access)).status, 200);
 
@@ -867,6 +861,25 @@ describe("a host that authenticates the browser itself", () => {
 		assert.ok((await appsOf(ownerId)).length > 0);
 		assert.deepEqual(await appsOf("host-user-b"), []);
 		assert.ok((await appsOf(ownerId)).length > 0);
+	});
+
+	it("refuses a real issued token when the host reports its account disabled", async () => {
+		assert.equal((await listTools(connectedAccessToken)).status, 200);
+		const response = await hosted(true).handle(
+			new Request(`${MCP_ORIGIN}/mcp`, {
+				headers: { authorization: `Bearer ${connectedAccessToken}` },
+			}),
+		);
+		assert.equal(response.status, 401);
+		assert.deepEqual(await response.json(), {
+			error: "invalid_token",
+			error_description: "The account is disabled",
+			resource: RESOURCE,
+		});
+		assert.match(
+			response.headers.get("www-authenticate") ?? "",
+			/error_description="The account is disabled"/,
+		);
 	});
 
 	it("refuses a disabled subject and audits the refusal", async () => {

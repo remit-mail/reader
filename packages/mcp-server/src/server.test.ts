@@ -23,6 +23,7 @@ import {
 	MCP_ACCOUNT_SCOPE,
 	MCP_OPERATOR_SCOPE,
 	MCP_READ_SCOPE,
+	MCP_SEND_SCOPE,
 } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
@@ -432,6 +433,79 @@ describe("oversized MCP requests", () => {
 				error: "payload_too_large",
 				message: "Request body exceeds the maximum of 7056044 bytes",
 			});
+		});
+	}
+});
+
+describe("mint_outbox_attachment upload refusals", () => {
+	const cases = [
+		{
+			name: "names the self-hosted server's reason",
+			body: "size-mismatch",
+			status: 400,
+			expected: "The attachment size does not match its reservation",
+		},
+		{
+			name: "names storage's reason without echoing signed request details",
+			body: "<Error><Code>SignatureDoesNotMatch</Code><Message>Rejected credential: secret</Message><SignatureProvided>secret</SignatureProvided></Error>",
+			status: 403,
+			expected: "The upload URL signature is invalid",
+		},
+		{
+			name: "does not echo unrecognized response text or a reason header",
+			body: '{"message":"Rejected password: secret"}',
+			status: 403,
+			expected: "The storage server refused the upload",
+			headers: new Headers({ "x-remit-upload-reason": "rejected secret" }),
+		},
+	];
+	for (const { name, body, status, expected, headers } of cases) {
+		it(name, async (t) => {
+			const uploadUrl = "https://storage.test/upload?sig=secret";
+			const client = {
+				...deps.client,
+				outboxAttachment: {
+					mint: async () => ({
+						outcome: "Minted" as const,
+						reservation: {
+							outboxAttachmentId: "attachment",
+							outboxMessageId: "a123456789012345678901234",
+							filename: "attachment.txt",
+							contentType: "text/plain",
+							sizeBytes: 1,
+							contentId: "attachment@remit.test",
+							uploadUrl,
+							uploadExpiresAt: 123,
+						},
+					}),
+				} as unknown as McpDeps["client"]["outboxAttachment"],
+			};
+			t.mock.method(globalThis, "fetch", async (url: string) => {
+				assert.equal(url, uploadUrl);
+				return new Response(body, { status, headers });
+			});
+			const handler = createMcpHandler(
+				{ userId: USER_ID, scopes: [MCP_SEND_SCOPE] },
+				{ ...deps, client },
+				false,
+			);
+			const result = (
+				await rpc(handler, "tools/call", {
+					name: "mint_outbox_attachment",
+					arguments: {
+						outboxMessageId: "a123456789012345678901234",
+						filename: "attachment.txt",
+						contentType: "text/plain",
+						contentBase64: "YQ==",
+					},
+				})
+			).result as ToolResult;
+			assert.equal(result.isError, true);
+			assert.equal(
+				result.content[0].text,
+				`Attachment upload failed with status ${status}: ${expected}`,
+			);
+			assert.ok(!JSON.stringify(result).includes("secret"));
 		});
 	}
 });
