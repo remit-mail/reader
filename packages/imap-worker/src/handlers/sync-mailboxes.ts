@@ -157,6 +157,7 @@ export const syncMailboxes = async (
 				const message = err instanceof Error ? err.message : String(err);
 				await accountService.update(accountId, {
 					syncPhase: SyncPhase.error,
+					syncRequestedAt: event.timestamp,
 					lastError: message,
 				});
 				throw err;
@@ -189,6 +190,7 @@ const syncMailboxesForAccount = async (
 
 		await accountService.update(accountId, {
 			syncPhase: SyncPhase.discovering_mailboxes,
+			syncRequestedAt: event.timestamp,
 		});
 
 		const mailboxSyncService = new MailboxSyncService(

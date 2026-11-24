@@ -258,6 +258,10 @@ model Account {
   @visibility(Lifecycle.Read)
   syncPhase?: SyncPhase;
 
+  @doc("Mailbox discovery event timestamp in Unix milliseconds for the current sync round")
+  @visibility(Lifecycle.Read)
+  syncRequestedAt?: int64;
+
   @doc("Total number of mailboxes discovered during sync")
   @visibility(Lifecycle.Read)
   @minValue(0)
@@ -292,6 +296,9 @@ model SyncTriggerResponse {
 
   @doc("Message about sync status")
   message: string;
+
+  @doc("Timestamp of the enqueued mailbox discovery event in Unix milliseconds")
+  requestedAt: int64;
 }
 
 @doc("Per-mailbox progress entry in the sync-status response")
@@ -332,8 +339,11 @@ model AccountSyncStatusResponse {
   @doc("Number of mailboxes whose initial message sync has completed")
   mailboxCountSynced?: int32;
 
-  @doc("When the account's most recent sync round started, stamped once per round by the worker. A client that triggered a sync compares this against the reading it took before triggering, so it confirms only on a round of its own rather than one already in flight.")
+  @doc("When mailbox discovery most recently succeeded, in Unix milliseconds")
   lastSyncAt?: int64;
+
+  @doc("Mailbox discovery event timestamp in Unix milliseconds for the current sync round. A client can compare it with requestedAt from the trigger response to identify that round or a later one.")
+  syncRequestedAt?: int64;
 
   @doc("Per-mailbox sync progress")
   mailboxes: MailboxSyncProgress[];

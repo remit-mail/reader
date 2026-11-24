@@ -1,0 +1,1 @@
+ALTER TABLE `account` ADD `sync_requested_at` integer;
