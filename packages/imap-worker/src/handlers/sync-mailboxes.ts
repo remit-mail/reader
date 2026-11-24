@@ -14,12 +14,10 @@ import type {
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
-import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	type AdoptLabelFolderDeps,
 	MailboxQueueService,
 	MailboxSyncService,
-	MailConnectionError,
 	type MailCredentials,
 	type RemitRootDeps,
 	reconcileRemitFolders,
@@ -28,7 +26,6 @@ import {
 import pMap from "p-map";
 import {
 	isAccountDeleted,
-	isAccountReauthRequired,
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
@@ -116,24 +113,8 @@ export const syncMailboxes = async (
 		return;
 	}
 
-	if (isAccountReauthRequired(account, log)) {
-		await accountService.update(accountId, {
-			syncPhase: SyncPhase.error,
-			syncRequestedAt: event.timestamp,
-		});
-		return;
-	}
-
-	const lifecycle = buildLifecycleDeps(secrets, accountService, ctx.oauth);
-	await withOAuthLifecycle(
-		{
-			...lifecycle,
-			updateConnectionState: (accountId, connectionState, lastError) =>
-				lifecycle.updateConnectionState(accountId, connectionState, lastError, {
-					syncPhase: SyncPhase.error,
-					syncRequestedAt: event.timestamp,
-				}),
-		},
+	const ran = await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -153,15 +134,6 @@ export const syncMailboxes = async (
 					ctx.config.mailboxFreshnessMs,
 				);
 			} catch (err) {
-				// The lifecycle decides which auth failures are terminal.
-				if (
-					err instanceof RefreshTokenError ||
-					(err instanceof MailConnectionError && err.kind === "auth")
-				) {
-					throw err;
-				}
-				// Record the terminal error phase before crashing (let-it-crash:
-				// record state, then rethrow so the event is retried/DLQ'd).
 				const message = err instanceof Error ? err.message : String(err);
 				await accountService.update(accountId, {
 					syncPhase: SyncPhase.error,
@@ -172,6 +144,12 @@ export const syncMailboxes = async (
 			}
 		},
 	);
+	if (!ran) {
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.error,
+			syncRequestedAt: event.timestamp,
+		});
+	}
 };
 
 const syncMailboxesForAccount = async (

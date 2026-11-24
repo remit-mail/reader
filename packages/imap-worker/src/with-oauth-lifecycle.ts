@@ -73,17 +73,18 @@ export interface OAuthLifecycleDeps extends AccountCredentialsDeps {
  * Run `work` for an account under the shared OAuth reauth/ACK contract.
  *
  * `work` receives the resolved MailCredentials. Both credential resolution and
- * `work` run inside the same try/catch.
+ * `work` run inside the same try/catch. Returns true after `work` succeeds
+ * and false when the lifecycle ends the event early.
  */
 export const withOAuthLifecycle = async (
 	deps: OAuthLifecycleDeps,
 	account: AccountItem,
 	log: Logger,
 	work: (credentials: MailCredentials) => Promise<void>,
-): Promise<void> => {
+): Promise<boolean> => {
 	// Skip all IMAP traffic for accounts that already require reauth.
 	if (isAccountReauthRequired(account, log)) {
-		return;
+		return false;
 	}
 
 	const resolve = deps.resolveCredentials ?? resolveConnectionCredentials;
@@ -103,9 +104,10 @@ export const withOAuthLifecycle = async (
 				account.accountId,
 				resolution.terminalState,
 			);
-			return; // ACK — no retry can produce a credential
+			return false; // ACK — no retry can produce a credential
 		}
 		await work(resolution.credentials);
+		return true;
 	} catch (err) {
 		// Terminal OAuth failure: token revoked / consent withdrawn.
 		if (err instanceof RefreshTokenError) {
@@ -122,7 +124,7 @@ export const withOAuthLifecycle = async (
 					account.accountId,
 					ConnectionState.ReauthRequired,
 				);
-				return; // ACK — do not retry
+				return false; // ACK — do not retry
 			}
 			// transient or config: let-it-crash (SQS retry / DLQ)
 			throw err;
@@ -149,7 +151,7 @@ export const withOAuthLifecycle = async (
 				ConnectionState.ReauthRequired,
 				err.message,
 			);
-			return; // ACK — do not retry
+			return false; // ACK — do not retry
 		}
 
 		// Transient / network / unexpected: rethrow so SQS retries with backoff.
