@@ -10,8 +10,8 @@
     "test:typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@remit/ui": "0.0.244",
-    "@remit/web-client": "^0.0.343",
+    "@remit/ui": "0.0.245",
+    "@remit/web-client": "0.0.357",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

@@ -254,7 +254,7 @@ describe("the People operations", () => {
 		carol = await signUp("carol@remit.test");
 	});
 
-	it("do not exist while self sign-up is open", async () => {
+	it("explain their unavailability while self sign-up is open", async () => {
 		const open = testApiConfig({
 			auth: testSelfHostAuth({ selfSignUp: "Enabled" }),
 			corsAllowedOrigins: [ORIGIN],
@@ -269,6 +269,10 @@ describe("the People operations", () => {
 		];
 		for (const answer of answers) {
 			assert.deepEqual(refusalOf(answer), [404, "not_found"]);
+			assert.equal(
+				(answer as { body: { message: string } }).body.message,
+				"People management is unavailable while self-signup is enabled",
+			);
 		}
 	});
 

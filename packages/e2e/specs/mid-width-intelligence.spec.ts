@@ -1,15 +1,9 @@
 /**
- * Wherever the intelligence rail has no room, the drawer is the surface: the
- * whole phone tier, and the 1024-to-1280 band where the reading pane is mounted
- * and the rail is not. The authenticity banner's "Why?" link pointed at the rail
- * anyway, so pressing it flipped a flag and nothing appeared — a dead control on
- * the one message a reader has most reason to ask about.
- *
- * The drawer is modal, so the assertions below are as much about when it stays
- * shut: `intelligenceOpen` is the rail's persisted preference and the DKIM
- * auto-open sets it on every tier, so a drawer driven from that flag throws a
- * scrim over a message the moment one is selected — and the reader's next tap
- * lands on the scrim rather than on the control they aimed at (#778).
+ * The intelligence drawer is the surface below the rail's width, including
+ * phones. A header-derived DKIM mismatch alone no longer raises a banner: the
+ * spam verdict owns warnings, and this stack has no calibrated spam thresholds.
+ * Opening that message must leave reading and Back unobstructed; the toolbar
+ * must still reach the drawer, and dismissal must survive navigation.
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
@@ -68,26 +62,40 @@ test.describe("Intelligence where the rail does not fit", () => {
 		await listOnScreen(page, INBOX_LIST);
 	});
 
-	test("opening the warned message shows the banner and no scrim", async ({
+	test("a DKIM mismatch without a spam action leaves reading clear", async ({
 		page,
 		run,
+		api,
 	}) => {
 		await openMessage(page, run.dkimMismatchSubject);
 
-		await expect(
-			page.getByText(run.dkimMismatchFromDomain, { exact: true }),
-		).toBeVisible({ timeout: 15_000 });
+		const thread = (await api.listThreads(run.inboxId)).find(
+			(row) => row.subject === run.dkimMismatchSubject,
+		);
+		if (!thread) throw new Error("expected the mismatch fixture in the inbox");
+		const message = (await api.listThreadMessages(thread.threadId)).find(
+			(row) => row.subject === run.dkimMismatchSubject,
+		);
+		expect(message?.authenticity).toMatchObject({
+			fromDomain: run.dkimMismatchFromDomain,
+			dkimMismatch: true,
+		});
+		expect(message?.spamVerdict).toMatchObject({
+			state: "Checked",
+			action: "None",
+		});
+		await expect(page.getByRole("button", { name: /^Why\??$/ })).toHaveCount(0);
 		await expect(intelligenceDrawer(page)).toHaveCount(0);
 		await expect(page.getByRole("button", { name: SHOW_INFO })).toBeEnabled();
 	});
 
-	test("the banner's Why? opens the intelligence surface", async ({
+	test("the intelligence control opens the message details", async ({
 		page,
 		run,
 	}) => {
 		await openMessage(page, run.dkimMismatchSubject);
 
-		await page.getByRole("button", { name: "Why?", exact: true }).click();
+		await page.getByRole("button", { name: SHOW_INFO }).click();
 
 		const drawer = intelligenceDrawer(page);
 		await expect(drawer).toBeVisible({ timeout: 15_000 });
@@ -102,7 +110,7 @@ test.describe("Intelligence where the rail does not fit", () => {
 		run,
 	}) => {
 		await openMessage(page, run.dkimMismatchSubject);
-		await page.getByRole("button", { name: "Why?", exact: true }).click();
+		await page.getByRole("button", { name: SHOW_INFO }).click();
 		await expect(intelligenceDrawer(page)).toBeVisible({ timeout: 15_000 });
 
 		await closeControl(page).click();
@@ -183,7 +191,7 @@ test.describe("Intelligence where the rail does not fit", () => {
 test.describe("Intelligence on a phone", () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test("the warned message opens clear, and Back still leaves it", async ({
+	test("a message without a spam action opens clear, and Back still leaves it", async ({
 		page,
 		run,
 	}) => {
@@ -194,7 +202,9 @@ test.describe("Intelligence on a phone", () => {
 		await page.waitForURL(MAILBOX_THREAD_URL);
 
 		await expect(
-			page.getByText(run.dkimMismatchFromDomain, { exact: true }),
+			page
+				.getByRole("article")
+				.getByRole("heading", { name: run.dkimMismatchSubject, exact: true }),
 		).toBeVisible({ timeout: 15_000 });
 		await expect(intelligenceDrawer(page)).toHaveCount(0);
 
@@ -204,7 +214,7 @@ test.describe("Intelligence on a phone", () => {
 		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 	});
 
-	test("the banner's Why? opens the drawer, and dismissing it gives the message back", async ({
+	test("opening and dismissing intelligence gives the message back", async ({
 		page,
 		run,
 	}) => {
@@ -214,7 +224,7 @@ test.describe("Intelligence on a phone", () => {
 		await row.click();
 		await page.waitForURL(MAILBOX_THREAD_URL);
 
-		await page.getByRole("button", { name: "Why?", exact: true }).click();
+		await page.getByRole("button", { name: "Show intelligence panel" }).click();
 		await expect(intelligenceDrawer(page)).toBeVisible({ timeout: 15_000 });
 
 		await closeControl(page).click();
@@ -272,8 +282,10 @@ test.describe("Intelligence on the brief where the rail does not fit", () => {
 		);
 	});
 
-	test("the banner's Why? opens the same surface", async ({ page }) => {
-		await page.getByRole("button", { name: "Why?", exact: true }).click();
+	test("closing intelligence gives the brief message back", async ({
+		page,
+	}) => {
+		await page.getByRole("button", { name: SHOW_INFO }).click();
 
 		const drawer = intelligenceDrawer(page);
 		await expect(drawer).toBeVisible({ timeout: 15_000 });

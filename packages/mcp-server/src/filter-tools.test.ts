@@ -61,6 +61,7 @@ beforeEach(async () => {
 			storage,
 			store.threadMessage,
 			store.address,
+			store.mailboxSpecialUse,
 			store.envelope,
 			new SyncWarningService(store.syncWarning),
 			spamConfigFor(store),

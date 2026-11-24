@@ -108,12 +108,13 @@ api.register("validationFail", (c: OpenAPIContext) => {
 		},
 		"Validation failed",
 	);
+	const errors = validationDetails(c.validation.errors);
 	return {
 		statusCode: 400,
 		body: {
 			code: defaultErrorCode(400),
-			message: "Invalid request",
-			errors: validationDetails(c.validation.errors),
+			message: `Invalid request: ${errors.map(({ path, message }) => `${path || "/"}: ${message}`).join("; ")}`,
+			errors,
 		},
 	};
 });

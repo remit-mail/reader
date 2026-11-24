@@ -32,7 +32,6 @@ import {
 } from "@remit/data-ports/errors";
 import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
-import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
 	FromPlacement,
@@ -79,6 +78,7 @@ import {
 import type { FilterMessage } from "./filters/rule.js";
 import type { FlagQueueService } from "./flag-queue.js";
 import {
+	type FolderPlacementLookup,
 	type FolderRoleMailboxes,
 	resolveFolderRoleMailboxes,
 } from "./folder-placement.js";
@@ -374,6 +374,7 @@ export class BodySyncService {
 		private storageService: StorageService,
 		private threadMessageService: IThreadMessageRepository,
 		private addressService: IAddressRepository,
+		private readonly folderLookup: FolderPlacementLookup,
 		private envelopeService: IEnvelopeRepository,
 		private readonly syncWarningService: SyncWarningService,
 		private readonly spamConfig: SpamConfig,
@@ -1058,19 +1059,15 @@ export class BodySyncService {
 			...(filterMoved ? { movedByRemit: true } : {}),
 			...(filterMove ? { filterMove } : {}),
 		};
-		await this.messageService.update(messageId, update);
+		const storedMessage = await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");
 
-		// From-Address engagement counter (Address entity, not Message). Mail
-		// that stays in Junk is no engagement: counting it would let a sender
-		// earn Wellknown or a Newsletter screen-out from Junk alone (#1428).
-		if (arrival.placement !== FromPlacement.Junk || update.movedByRemit) {
-			await this.incrementInboundCount(
-				messageId,
-				accountConfigId,
-				parsed,
-				classification,
-			);
+		// From-Address engagement counter (Address entity, not Message). Use
+		// the resulting folder, including classifier/spam and filter moves:
+		// mail left or filed in Junk cannot earn sender trust (#1428).
+		const { junkMailbox } = await lookups.roleMailboxes();
+		if (storedMessage.mailboxId !== junkMailbox?.mailboxId) {
+			await this.incrementInboundCount(messageId, accountConfigId, parsed);
 		}
 
 		return parsed;
@@ -1377,7 +1374,6 @@ export class BodySyncService {
 		messageId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
-		classification: UpdateMessageInput,
 	): Promise<void> {
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) {
@@ -1389,15 +1385,10 @@ export class BodySyncService {
 		}
 
 		const addressId = deriveAddressId(accountConfigId, fromEmail);
-		const bulk = isBulkSender(
-			classification.category,
-			classification.hasListUnsubscribe ?? false,
-		);
 		await this.addressService.incrementInboundCount(
 			accountConfigId,
 			addressId,
 			Date.now(),
-			bulk,
 		);
 	}
 
@@ -1612,7 +1603,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		accountId: string,
 	): BatchLookups {
-		const { placementConfig, filterPipeline, classifierConfig } = this;
+		const { filterPipeline, classifierConfig } = this;
 		const filterService =
 			this.filterConfig?.filterService ?? this.calendarConfig?.filterService;
 		const activeFilters = once(async () =>
@@ -1624,13 +1615,8 @@ export class BodySyncService {
 				: [],
 		);
 		return {
-			roleMailboxes: once(async () =>
-				placementConfig
-					? resolveFolderRoleMailboxes(
-							placementConfig.mailboxSpecialUseService,
-							accountId,
-						)
-					: { junkMailbox: null, inboxMailbox: null },
+			roleMailboxes: once(() =>
+				resolveFolderRoleMailboxes(this.folderLookup, accountId),
 			),
 			activeFilters,
 			usableFilters: once(async () => {

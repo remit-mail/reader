@@ -507,6 +507,7 @@ export const composeReadPathServices = (
 			core.storage,
 			core.threadMessage,
 			core.address,
+			core.mailboxSpecialUse,
 			core.envelope,
 			new SyncWarningService(core.syncWarning),
 			core.spam,

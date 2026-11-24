@@ -14,6 +14,7 @@ import {
 	SenderOverride,
 	SenderTrust,
 } from "@remit/domain-enums";
+import { spamClearsJunk } from "../spam/placement.js";
 import {
 	classifyPlacement,
 	decidePlacement,
@@ -298,7 +299,6 @@ describe("decidePlacement rescuing Junk mail", () => {
 	});
 
 	for (const [trust, override, junkExit] of [
-		[SenderTrust.Unknown, SenderOverride.None, ARRIVAL],
 		[SenderTrust.Vip, SenderOverride.None, ARRIVAL],
 		[SenderTrust.Unknown, SenderOverride.NeverSpam, RESCUE],
 	] as const) {
@@ -314,13 +314,23 @@ describe("decidePlacement rescuing Junk mail", () => {
 		});
 	}
 
-	it("leaves an unknown sender's unscored message in Junk", () => {
-		const decision = rescue(
-			baseMessage(),
-			SenderTrust.Unknown,
-			SenderOverride.None,
-			RESCUE,
-		);
+	it("phishing a1z4h4naba48lumq32x7hj95a: an unchecked Unknown Junk arrival stays in Junk", () => {
+		// support@qserve.com.eg, DMARC none as reported in #1428; assume no
+		// list headers, earlier engagement, user overrides or classifier answer.
+		const message = baseMessage({
+			messageId: "a1z4h4naba48lumq32x7hj95a",
+			authResult: { dmarc: "None" },
+			spamVerdict: { state: "NotChecked" },
+		});
+		assert.ok(message.spamVerdict);
+		const decision = rescue(message, SenderTrust.Unknown, SenderOverride.None, {
+			state: "Arrival",
+			cleared: spamClearsJunk(
+				message.spamVerdict,
+				[],
+				message.authResult?.dmarc,
+			),
+		});
 		assert.equal(decision.verdict.action, "leave");
 		assert.equal(decision.destination, undefined);
 	});
