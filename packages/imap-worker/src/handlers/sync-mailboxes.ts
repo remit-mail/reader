@@ -14,12 +14,10 @@ import type {
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
-import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	type AdoptLabelFolderDeps,
 	MailboxQueueService,
 	MailboxSyncService,
-	MailConnectionError,
 	type MailCredentials,
 	type RemitRootDeps,
 	reconcileRemitFolders,
@@ -94,14 +92,11 @@ export const syncMailboxes = async (
 		return;
 	}
 
-	if (isMailSyncDisabled(account, log)) {
-		return;
-	}
-
-	// A reserved/never-resolvable IMAP host (RFC 2606) can never connect, so a
-	// sync attempt would retry and dead-letter forever. Skip cleanly — ack the
-	// event without connecting or throwing.
-	if (isUnsyncableHost(account, log)) {
+	if (isMailSyncDisabled(account, log) || isUnsyncableHost(account, log)) {
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.complete,
+			syncRequestedAt: event.timestamp,
+		});
 		return;
 	}
 
@@ -118,11 +113,7 @@ export const syncMailboxes = async (
 		return;
 	}
 
-	// withOAuthLifecycle owns the reauth/ACK contract (skip-if-reauth, flip on
-	// terminal auth failure, rethrow transient). The inner try/catch only
-	// records the terminal non-auth error phase before letting the wrapper
-	// rethrow for SQS retry/DLQ.
-	await withOAuthLifecycle(
+	const ran = await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
@@ -143,17 +134,6 @@ export const syncMailboxes = async (
 					ctx.config.mailboxFreshnessMs,
 				);
 			} catch (err) {
-				// Auth failures are handled by the wrapper — rethrow untouched so it
-				// flips the account to reauth_required rather than recording an error
-				// phase.
-				if (
-					err instanceof RefreshTokenError ||
-					(err instanceof MailConnectionError && err.kind === "auth")
-				) {
-					throw err;
-				}
-				// Record the terminal error phase before crashing (let-it-crash:
-				// record state, then rethrow so the event is retried/DLQ'd).
 				const message = err instanceof Error ? err.message : String(err);
 				await accountService.update(accountId, {
 					syncPhase: SyncPhase.error,
@@ -164,6 +144,12 @@ export const syncMailboxes = async (
 			}
 		},
 	);
+	if (!ran) {
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.error,
+			syncRequestedAt: event.timestamp,
+		});
+	}
 };
 
 const syncMailboxesForAccount = async (
