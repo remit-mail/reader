@@ -1,156 +1,85 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 import {
+	failingQueue,
 	type RecordingQueue,
 	recordingQueue,
 } from "@remit/data-ports/recording-queue";
-import { triggerSyncSafe } from "./sync.js";
+import {
+	openStore,
+	seedAccount,
+} from "@remit/mailbox-service/test-helpers/test-store";
+import { testApiConfig } from "../config/test-config.js";
+import { serveApi } from "../serve.js";
+import { createRemitClient } from "../service/create-remit-client.js";
+import { buildSharedDeps } from "../service/shared-deps.js";
+import { SyncOperations } from "./sync.js";
 
-interface LogCall {
-	fields: Record<string, unknown>;
-	message: string;
-}
+const api = serveApi<"sync">({ handlers: SyncOperations, publicHandlers: {} });
 
-const createLoggerSpy = () => {
-	const info: LogCall[] = [];
-	const error: LogCall[] = [];
-	const logger = {
-		info: (fields: Record<string, unknown>, message: string): void => {
-			info.push({ fields, message });
-		},
-		error: (fields: Record<string, unknown>, message: string): void => {
-			error.push({ fields, message });
-		},
-	};
-	return { info, error, logger };
-};
-
-/**
- * Reproduces the real smoke failure shape: the SQS send does NOT reject inline —
- * it rejects on a later microtask/timer, the way a socket ECONNREFUSED settles
- * after the AWS SDK's connect + retries. A try/catch that only guards the
- * synchronous call would miss it; only awaiting the actual promise contains it.
- */
-const deferredFailingQueue = (error: Error): RecordingQueue => {
-	const queue = recordingQueue();
-	queue.answer(
-		() =>
-			new Promise((_resolve, reject) => {
-				setImmediate(() => reject(error));
-			}),
-	);
-	return queue;
-};
-
-describe("triggerSyncSafe", () => {
-	it("enqueues a SYNC_MAILBOXES event and logs success", async () => {
-		const queue = recordingQueue();
-		const { logger, info, error } = createLoggerSpy();
-
-		await triggerSyncSafe("acc-a", "config-1", {
-			queue: queue.fifo,
-			logger,
-		});
-
-		assert.equal(queue.sent.length, 1);
-		assert.equal(info.length, 1);
-		assert.equal(error.length, 0);
+const postSync = async (t: TestContext, queue: RecordingQueue) => {
+	const store = await openStore();
+	t.after(store.close);
+	const { accountId, accountConfigId, email } = await seedAccount(store);
+	const client = createRemitClient({
+		...buildSharedDeps(
+			{
+				sync: queue.fifo,
+				accountFanout: queue,
+				smtp: queue,
+				messageManagement: queue,
+				body: queue,
+			},
+			{
+				get: async () => ({ value: { state: "None" }, source: "Config" }),
+				put: async () => {},
+				delete: async () => {},
+			},
+			[{ name: "Inline", thresholds: { state: "Unset" } }],
+		),
+		repositories: store,
+		storage: store.storage(),
 	});
+	const response = await api.handleFetch(
+		new Request(`https://reader.test/accounts/${accountId}/sync`, {
+			method: "POST",
+		}),
+		{
+			config: testApiConfig(),
+			client: async () => client,
+			identity: async () => ({
+				kind: "user",
+				accountConfigId,
+				sub: "user-1",
+				email,
+			}),
+			operator: async () => false,
+			peopleDirectory: async () => null,
+		},
+		"sync-test",
+	);
+	return { response, accountId };
+};
 
-	// The guarantee behind issue #37: POST /sync asks for a sync of this
-	// account by name, so the event it enqueues has to carry the mark that
-	// makes the worker's fan-out sync every mailbox rather than skip the fresh
-	// ones. Its callers are the refresh control, pull-to-refresh and the
-	// client's automatic poll — the poll is kept from abusing this by the
-	// interval floor in useStaleAccountSync, not by the server.
-	it("marks the event as an explicit request", async () => {
+describe("POST /accounts/{accountId}/sync", () => {
+	it("enqueues an explicit SYNC_MAILBOXES event", async (t) => {
 		const queue = recordingQueue();
-		const { logger } = createLoggerSpy();
 
-		await triggerSyncSafe("acc-a", "config-1", {
-			queue: queue.fifo,
-			logger,
-		});
+		const { response, accountId } = await postSync(t, queue);
 
+		assert.equal(response.status, 200);
+		assert.equal(queue.sent.length, 1);
+		assert.equal(queue.sent[0]?.body.type, "SYNC_MAILBOXES");
+		assert.equal(queue.sent[0]?.body.accountId, accountId);
 		assert.equal(queue.sent[0]?.body.explicitRequest, true);
 	});
 
-	it("does NOT reject when the SQS enqueue fails (POST /sync stays resilient)", async () => {
-		const econnrefused = Object.assign(new Error(""), {
-			name: "AggregateError",
-			code: "ECONNREFUSED",
-		});
-		const { logger } = createLoggerSpy();
+	it("answers 500 when the enqueue fails", async (t) => {
+		const queue = failingQueue(new Error("Queue unavailable"));
 
-		await assert.doesNotReject(
-			triggerSyncSafe("acc-a", "config-1", {
-				queue: deferredFailingQueue(econnrefused).fifo,
-				logger,
-			}),
-		);
-	});
+		const { response } = await postSync(t, queue);
 
-	it("logs the failure loudly with the alertable structured fields", async () => {
-		const econnrefused = Object.assign(new Error(""), {
-			name: "AggregateError",
-			code: "ECONNREFUSED",
-		});
-		const { logger, error } = createLoggerSpy();
-
-		await triggerSyncSafe("acc-a", "config-1", {
-			queue: deferredFailingQueue(econnrefused).fifo,
-			logger,
-		});
-
-		assert.equal(error.length, 1);
-		const call = error[0];
-		if (!call) throw new Error("expected an error log");
-		assert.equal(call.fields.alert, "sync_trigger_failed");
-		assert.equal(call.fields.source, "trigger_sync");
-		assert.equal(call.fields.accountId, "acc-a");
-		assert.equal(call.fields.accountConfigId, "config-1");
-		assert.equal(call.fields.errorCode, "ECONNREFUSED");
-	});
-
-	// The actual smoke-storm failure mode #746/#753 missed: POST /sync void-fires
-	// this trigger, the queue is unreachable, and a concurrent read is in flight on
-	// the same event loop. Before containment the escaped rejection landed on that
-	// read and 500'd it. The SQS send here rejects on a LATER tick (a real socket
-	// error never settles inline), which is exactly why a synchronous-only guard
-	// did not reproduce the failure. Assert nothing leaks onto the concurrent read.
-	it("void-fired with an unreachable queue leaks NO unhandled rejection onto a concurrent read", async () => {
-		const leaked: unknown[] = [];
-		const onUnhandled = (reason: unknown): void => {
-			leaked.push(reason);
-		};
-		process.on("unhandledRejection", onUnhandled);
-
-		const econnrefused = Object.assign(new Error(""), {
-			name: "AggregateError",
-			code: "ECONNREFUSED",
-		});
-		const { logger } = createLoggerSpy();
-
-		let readResolved = false;
-		try {
-			// Fire-and-forget exactly as SyncOperations_triggerSync does.
-			void triggerSyncSafe("acc-a", "config-1", {
-				queue: deferredFailingQueue(econnrefused).fifo,
-				logger,
-			});
-
-			// A concurrent "read" sharing the event loop, like /mailboxes or /outbox.
-			await new Promise((resolve) => setImmediate(resolve)).then(() => {
-				readResolved = true;
-			});
-			// Drain remaining microtasks so any escaped rejection would surface.
-			await new Promise((resolve) => setImmediate(resolve));
-			await new Promise((resolve) => setImmediate(resolve));
-		} finally {
-			process.off("unhandledRejection", onUnhandled);
-		}
-
-		assert.equal(readResolved, true);
-		assert.equal(leaked.length, 0);
+		assert.equal(response.status, 500);
+		assert.equal(queue.sent.length, 1);
 	});
 });
