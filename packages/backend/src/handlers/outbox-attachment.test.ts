@@ -656,8 +656,8 @@ describe("completing an attachment (#679)", () => {
 	});
 });
 
-describe("the mint route through the whole request pipeline", () => {
-	it("reaches its handler with the real built spec in front of it", async () => {
+describe("mint and renewal through the whole request pipeline", () => {
+	it("routes creation and bodyless renewal with the real built spec", async () => {
 		await install();
 		const handleApiEvent = (await import("../api-fixture.js")).lambdaHandler(
 			async () => client,
@@ -685,6 +685,25 @@ describe("the mint route through the whole request pipeline", () => {
 		);
 
 		assert.equal(result.statusCode, 200);
-		assert.equal(parse(result).filename, "routed.txt");
+		const created = parse(result);
+		assert.equal(created.filename, "routed.txt");
+		const renewed = await handleApiEvent(
+			{
+				...event,
+				path: `/outbox/${DRAFT_ID}/attachments/${created.outboxAttachmentId}/renew`,
+				body: null,
+			} as unknown as APIGatewayProxyEvent,
+			{ awsRequestId: "renew-route-test" } as LambdaContext,
+		);
+		assert.equal(renewed.statusCode, 200);
+		assert.equal(parse(renewed).outboxAttachmentId, created.outboxAttachmentId);
+		const reservation = parse(renewed);
+		assert.equal(reservation.filename, "routed.txt");
+		assert.equal(reservation.contentType, "text/plain");
+		assert.equal(reservation.sizeBytes, 18);
+		assert.equal(
+			new URL(String(reservation.uploadUrl)).searchParams.get("max"),
+			"18",
+		);
 	});
 });

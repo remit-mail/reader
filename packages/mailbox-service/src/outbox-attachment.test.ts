@@ -136,13 +136,10 @@ describe("reserving room on a draft", () => {
 		assert.equal(first.outcome, "Minted");
 		if (first.outcome !== "Minted") return;
 		now += UPLOAD_URL_TTL_SECONDS - 1;
-		const renewed = await service.mint({
+		const renewed = await service.renew({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			outboxMessageId: draftId,
 			outboxAttachmentId: first.reservation.outboxAttachmentId,
-			filename: "changed.txt",
-			contentType: "text/plain",
-			sizeBytes: 999,
 		});
 		assert.equal(renewed.outcome, "Minted");
 		if (renewed.outcome !== "Minted") return;
@@ -161,6 +158,44 @@ describe("reserving room on a draft", () => {
 		assert.deepEqual(
 			await service.reapAndListLive(ACCOUNT_CONFIG_ID, draftId),
 			[],
+		);
+	});
+
+	it("refuses renewal for another draft or a Stored attachment", async () => {
+		const { service } = await build();
+		const first = await mint(service);
+		assert.equal(first.outcome, "Minted");
+		if (first.outcome !== "Minted") return;
+		const input = {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: draftId,
+			outboxAttachmentId: first.reservation.outboxAttachmentId,
+		};
+		const other = await store.outboxMessage.create({
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			fromAddress: "me@example.com",
+			toAddresses: ["them@example.com"],
+			messageIdValue: "<other@example.com>",
+			status: OutboxMessageStatus.draft,
+		});
+		await assert.rejects(
+			() => service.renew({ ...input, outboxMessageId: other.outboxMessageId }),
+			/Only a pending upload on this draft/,
+		);
+		await store.outboxAttachment.markStored(
+			ACCOUNT_CONFIG_ID,
+			input.outboxAttachmentId,
+			first.reservation.sizeBytes,
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds: Math.floor(Date.now() / 1000),
+			},
+		);
+		await assert.rejects(
+			() => service.renew(input),
+			/Only a pending upload on this draft/,
 		);
 	});
 

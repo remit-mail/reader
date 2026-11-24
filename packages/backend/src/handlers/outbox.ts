@@ -22,6 +22,7 @@ import type {
 import {
 	completeOutboxAttachment,
 	mintOutboxAttachment,
+	renewOutboxAttachment,
 } from "./outbox-attachment.js";
 
 export const OutboxOperations = {
@@ -106,6 +107,7 @@ export const OutboxDetailOperations = {
 >;
 
 export const OutboxAttachmentOperations = {
+	OutboxAttachmentOperations_renewOutboxAttachment: renewOutboxAttachment,
 	OutboxAttachmentOperations_completeOutboxAttachment: completeOutboxAttachment,
 } satisfies Record<
 	OutboxAttachmentOperationIds,

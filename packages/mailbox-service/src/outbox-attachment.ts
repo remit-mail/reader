@@ -76,7 +76,6 @@ export type CompleteOutboxAttachmentOutcome =
 	| Refused;
 
 export interface MintOutboxAttachmentInput {
-	outboxAttachmentId?: string;
 	accountConfigId: string;
 	outboxMessageId: string;
 	filename: string;
@@ -84,11 +83,13 @@ export interface MintOutboxAttachmentInput {
 	sizeBytes: number;
 }
 
-export interface CompleteOutboxAttachmentInput {
+export interface RenewOutboxAttachmentInput {
 	accountConfigId: string;
 	outboxMessageId: string;
 	outboxAttachmentId: string;
 }
+
+export type CompleteOutboxAttachmentInput = RenewOutboxAttachmentInput;
 
 export interface OutboxAttachmentConfig {
 	outboxMessageService: IOutboxMessageRepository;
@@ -173,7 +174,7 @@ export class OutboxAttachmentService {
 		},
 	});
 
-	private renew = (row: OutboxAttachmentItem) =>
+	private renewReservation = (row: OutboxAttachmentItem) =>
 		this.attachments.renew(
 			{
 				accountConfigId: row.accountConfigId,
@@ -230,30 +231,6 @@ export class OutboxAttachmentService {
 			input.outboxMessageId,
 		);
 
-		let renewing: OutboxAttachmentItem | undefined;
-		if (input.outboxAttachmentId) {
-			const row = await this.attachments.get(
-				input.accountConfigId,
-				input.outboxAttachmentId,
-			);
-			if (
-				row.outboxMessageId !== input.outboxMessageId ||
-				row.state !== "Pending"
-			) {
-				throw new ConflictError(
-					"Only a pending upload on this draft can be renewed.",
-				);
-			}
-			renewing = row;
-			// The reservation owns the metadata; renewal cannot swap the file's size.
-			input = {
-				...input,
-				filename: row.filename,
-				contentType: row.contentType,
-				sizeBytes: row.sizeBytes,
-			};
-		}
-
 		const filename = sanitizeAttachmentFilename(input.filename);
 		if (filename === null) {
 			return this.reject(
@@ -281,7 +258,7 @@ export class OutboxAttachmentService {
 		const reservationExpiresAt = nowSeconds + UPLOAD_URL_TTL_SECONDS;
 		// The id is the row's own, and the key is built from it after the fact, so
 		// there is exactly one place an attachment's identity comes from.
-		const outboxAttachmentId = input.outboxAttachmentId ?? base36uuid();
+		const outboxAttachmentId = base36uuid();
 		const storageKey = buildOutboxAttachmentKey(
 			input.accountConfigId,
 			outbox.accountId,
@@ -289,50 +266,75 @@ export class OutboxAttachmentService {
 			outboxAttachmentId,
 		);
 
-		const reserved = renewing
-			? await this.renew(renewing)
-			: await this.attachments.reserve(
-					{
-						outboxAttachmentId,
-						outboxMessageId: input.outboxMessageId,
-						accountId: outbox.accountId,
-						accountConfigId: input.accountConfigId,
-						filename,
-						contentType: normalizeAttachmentContentType(input.contentType),
-						sizeBytes: input.sizeBytes,
-						storageKey,
-						reservationExpiresAt,
-					},
-					{
-						maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-						maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
-						nowSeconds,
-					},
-				);
+		const reserved = await this.attachments.reserve(
+			{
+				outboxAttachmentId,
+				outboxMessageId: input.outboxMessageId,
+				accountId: outbox.accountId,
+				accountConfigId: input.accountConfigId,
+				filename,
+				contentType: normalizeAttachmentContentType(input.contentType),
+				sizeBytes: input.sizeBytes,
+				storageKey,
+				reservationExpiresAt,
+			},
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds,
+			},
+		);
 
 		if (reserved.outcome !== "Reserved")
 			return this.reservationRefusal(reserved, filename, input.sizeBytes);
 
-		const target = await this.storage.createOutboxAttachmentUploadUrl({
-			accountConfigId: input.accountConfigId,
-			accountId: outbox.accountId,
-			outboxMessageId: input.outboxMessageId,
-			outboxAttachmentId: reserved.item.outboxAttachmentId,
-			sizeBytes: input.sizeBytes,
-			expiresAt: reservationExpiresAt,
-		});
+		return this.uploadReservation(reserved.item);
+	};
 
+	renew = async (
+		input: RenewOutboxAttachmentInput,
+	): Promise<MintOutboxAttachmentOutcome> => {
+		await this.getWritableDraft(input.accountConfigId, input.outboxMessageId);
+		const row = await this.attachments.get(
+			input.accountConfigId,
+			input.outboxAttachmentId,
+		);
+		if (
+			row.outboxMessageId !== input.outboxMessageId ||
+			row.state !== "Pending"
+		) {
+			throw new ConflictError(
+				"Only a pending upload on this draft can be renewed.",
+			);
+		}
+		const renewed = await this.renewReservation(row);
+		if (renewed.outcome !== "Reserved")
+			return this.reservationRefusal(renewed, row.filename, row.sizeBytes);
+		return this.uploadReservation(renewed.item);
+	};
+
+	private uploadReservation = async (
+		row: OutboxAttachmentItem,
+	): Promise<MintOutboxAttachmentOutcome> => {
+		const target = await this.storage.createOutboxAttachmentUploadUrl({
+			accountConfigId: row.accountConfigId,
+			accountId: row.accountId,
+			outboxMessageId: row.outboxMessageId,
+			outboxAttachmentId: row.outboxAttachmentId,
+			sizeBytes: row.sizeBytes,
+			expiresAt: row.reservationExpiresAt,
+		});
 		return {
 			outcome: "Minted",
 			reservation: {
-				outboxAttachmentId: reserved.item.outboxAttachmentId,
-				outboxMessageId: input.outboxMessageId,
-				filename: reserved.item.filename,
-				contentType: reserved.item.contentType,
-				sizeBytes: reserved.item.sizeBytes,
-				contentId: outboxAttachmentContentId(reserved.item.outboxAttachmentId),
+				outboxAttachmentId: row.outboxAttachmentId,
+				outboxMessageId: row.outboxMessageId,
+				filename: row.filename,
+				contentType: row.contentType,
+				sizeBytes: row.sizeBytes,
+				contentId: outboxAttachmentContentId(row.outboxAttachmentId),
 				uploadUrl: target.uploadUrl,
-				uploadExpiresAt: reservationExpiresAt,
+				uploadExpiresAt: row.reservationExpiresAt,
 			},
 		};
 	};
@@ -579,7 +581,7 @@ export class OutboxAttachmentService {
 		}
 		for (const item of held) {
 			if (keep.has(item.outboxAttachmentId) && item.state === "Pending") {
-				const renewed = await this.renew(item);
+				const renewed = await this.renewReservation(item);
 				if (renewed.outcome !== "Reserved")
 					throw new ConflictError(
 						this.reservationRefusal(renewed, item.filename, item.sizeBytes)

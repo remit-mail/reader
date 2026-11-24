@@ -224,10 +224,27 @@ export const mintOutboxAttachmentFor = async (
 	const result = await client.outboxAttachment.mint({
 		accountConfigId,
 		outboxMessageId,
-		outboxAttachmentId: input.outboxAttachmentId,
 		filename: input.filename,
 		contentType: input.contentType,
 		sizeBytes: input.sizeBytes,
+	});
+	return result.outcome === "Rejected"
+		? refuseAttachment(result.rejection)
+		: result.reservation;
+};
+
+export const renewOutboxAttachmentFor = async (
+	client: RemitClient<never>,
+	accountConfigId: string,
+	outboxMessageId: string,
+	outboxAttachmentId: string,
+): Promise<
+	MintOutboxAttachmentResponse | OutboxAttachmentRejectionResponse
+> => {
+	const result = await client.outboxAttachment.renew({
+		accountConfigId,
+		outboxMessageId,
+		outboxAttachmentId,
 	});
 	return result.outcome === "Rejected"
 		? refuseAttachment(result.rejection)
