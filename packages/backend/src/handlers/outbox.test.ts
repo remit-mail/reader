@@ -10,20 +10,12 @@
  *
  * Driven through the real handlers, the real OutboxQueueService and the real
  * error funnel, so what is asserted is the status code the browser receives.
- * The queue and message repository are stood in for; attachments use SQLite.
+ * The queue is stood in for; messages and attachments use SQLite.
  */
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import type {
-	CreateOutboxMessageInput,
-	IAccountRepository,
-	IOutboxMessageRepository,
-	OutboxMessageItem,
-	UpdateOutboxMessageInput,
-} from "@remit/data-ports";
-import { APPENDED_UID_NONE } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import type { IAccountRepository } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	failingQueue,
@@ -67,100 +59,6 @@ const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 const ACCOUNT_ID = "acc-604";
 const ACCOUNT_EMAIL = "sender@example.com";
 
-const createInMemoryOutboxRepository = (): IOutboxMessageRepository => {
-	const rows = new Map<string, OutboxMessageItem>();
-	let sequence = 0;
-
-	const mustGet = (outboxMessageId: string): OutboxMessageItem => {
-		const row = rows.get(outboxMessageId);
-		if (!row) throw new NotFoundError(`No outbox message ${outboxMessageId}`);
-		return row;
-	};
-
-	const repository = {
-		create: async (
-			input: CreateOutboxMessageInput,
-		): Promise<OutboxMessageItem> => {
-			sequence += 1;
-			const now = Date.now();
-			const row: OutboxMessageItem = {
-				...input,
-				ccAddresses: input.ccAddresses ?? [],
-				bccAddresses: input.bccAddresses ?? [],
-				references: input.references ?? [],
-				appendedUid: APPENDED_UID_NONE,
-				outboxMessageId: `outbox-${sequence}`,
-				createdAt: now,
-				updatedAt: now,
-			};
-			rows.set(row.outboxMessageId, row);
-			return row;
-		},
-		get: async (
-			_accountConfigId: string,
-			outboxMessageId: string | string[],
-		) =>
-			Array.isArray(outboxMessageId)
-				? outboxMessageId.map(mustGet)
-				: mustGet(outboxMessageId),
-		update: async (
-			_accountConfigId: string,
-			outboxMessageId: string,
-			input: UpdateOutboxMessageInput,
-		): Promise<OutboxMessageItem> => {
-			const row = {
-				...mustGet(outboxMessageId),
-				...input,
-				updatedAt: Date.now(),
-			};
-			rows.set(outboxMessageId, row);
-			return row;
-		},
-		updateStatus: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			status: OutboxMessageItem["status"],
-		) => repository.update(accountConfigId, outboxMessageId, { status }),
-		updateIfStatus: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			expected: OutboxMessageItem["status"],
-			input: UpdateOutboxMessageInput,
-		) => {
-			if (mustGet(outboxMessageId).status !== expected) return null;
-			return repository.update(accountConfigId, outboxMessageId, input);
-		},
-		markSent: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			fields: { sentAt: number; smtpMessageId?: string },
-		) =>
-			repository.update(accountConfigId, outboxMessageId, {
-				...fields,
-				status: OutboxMessageStatus.sent,
-			}),
-		delete: async (_accountConfigId: string, outboxMessageId: string) => {
-			rows.delete(outboxMessageId);
-		},
-		deleteMany: async (
-			_accountConfigId: string,
-			outboxMessageIds: string[],
-		) => {
-			for (const id of outboxMessageIds) rows.delete(id);
-		},
-		listByAccount: async () => ({
-			items: [...rows.values()],
-			continuationToken: null,
-		}),
-		listQueued: async () =>
-			[...rows.values()].filter(
-				(row) => row.status === OutboxMessageStatus.queued,
-			),
-	} as unknown as IOutboxMessageRepository;
-
-	return repository;
-};
-
 /** A queue that refuses every send until `accept()` is called. */
 const refusingQueue = (): { client: RecordingQueue; accept: () => void } => {
 	const client = failingQueue(new Error("SQS unavailable"));
@@ -186,9 +84,9 @@ let attachmentStore: Store;
 const installClient = async (
 	queue: RecordingQueue = recordingQueue(),
 ): Promise<void> => {
-	const outboxMessage = createInMemoryOutboxRepository();
 	const storage = createMockStorageService();
 	attachmentStore = await openStore();
+	const { outboxMessage } = attachmentStore;
 	const outboxAttachmentService = new OutboxAttachmentService({
 		outboxMessageService: outboxMessage,
 		outboxAttachmentService: attachmentStore.outboxAttachment,
