@@ -83,8 +83,8 @@ export const buildSyncMailboxesMessage = (
 
 export const triggerAccountSync = async (
 	input: TriggerAccountSyncInput,
-): Promise<{ eventId: string }> => {
+): Promise<{ eventId: string; requestedAt: number }> => {
 	const message = buildSyncMailboxesMessage(input);
 	await input.queue.send(message);
-	return { eventId: message.body.eventId };
+	return { eventId: message.body.eventId, requestedAt: message.body.timestamp };
 };

@@ -11,7 +11,7 @@ export const triggerSyncFor = async (
 ) => {
 	const account = await client.account.get(accountId);
 	unwrap(ownedAccount(account, accountConfigId, "act"));
-	await triggerAccountSync({
+	const { requestedAt } = await triggerAccountSync({
 		queue: client.queues.sync,
 		accountId: account.accountId,
 		explicitRequest: true,
@@ -19,6 +19,7 @@ export const triggerSyncFor = async (
 	return {
 		triggered: true,
 		message: `Sync triggered for account ${accountId}`,
+		requestedAt,
 	};
 };
 
@@ -36,6 +37,7 @@ export const getSyncStatusFor = async (
 		mailboxCountTotal: account.mailboxCountTotal,
 		mailboxCountSynced: account.mailboxCountSynced,
 		lastSyncAt: account.lastSyncAt,
+		syncRequestedAt: account.syncRequestedAt,
 		mailboxes: mailboxes.map(toMailboxSyncProgress),
 	};
 };

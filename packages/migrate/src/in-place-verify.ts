@@ -30,6 +30,7 @@ export const DROPPED_COLUMNS: ReadonlyMap<string, string> = new Map([
 export const ADDED_COLUMNS: ReadonlyMap<string, string> = new Map([
 	["auth_jwks.alg", "auth 0001"],
 	["auth_jwks.crv", "auth 0001"],
+	["account.sync_requested_at", "app 0006"],
 ]);
 
 /** Columns the migration adds with a value on every row: never NULL. */
