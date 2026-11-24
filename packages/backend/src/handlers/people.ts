@@ -55,9 +55,9 @@ const REFUSALS: Record<PeopleRefusal, [number, string]> = {
 	not_found: [404, "Not found"],
 };
 
-const refusalOf = (code: PeopleRefusal): Refusal => {
+const refusalOf = (code: PeopleRefusal, reason?: string): Refusal => {
 	const [statusCode, message] = REFUSALS[code];
-	return { statusCode, body: { code, message } };
+	return { statusCode, body: { code, message: reason ?? message } };
 };
 
 const headerOf = (context: Context, name: string): string | undefined => {
@@ -90,10 +90,14 @@ const guard = (
 	const directory = ctx.peopleDirectory;
 	const { auth } = ctx.config;
 	if (!directory) {
-		return refusalOf("not_found");
+		return refusalOf("not_found", "People management is not configured");
 	}
 	if (auth.mode === "GatewayAuthorizer") requireOperator(ctx);
-	else if (auth.selfSignUp === "Enabled") return refusalOf("not_found");
+	else if (auth.selfSignUp === "Enabled")
+		return refusalOf(
+			"not_found",
+			"People management is unavailable while self-signup is enabled",
+		);
 	const request = {
 		directory,
 		callerId: ctx.identity.sub,

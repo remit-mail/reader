@@ -500,7 +500,7 @@ describe("the wire body of a self-update refusal", () => {
 		assert.equal(wire.statusCode, 404);
 		assert.deepEqual(JSON.parse(wire.body), {
 			code: "not_found",
-			message: "Not found",
+			message: "Self-update is not configured",
 		});
 	});
 

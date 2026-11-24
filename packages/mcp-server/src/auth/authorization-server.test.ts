@@ -36,6 +36,7 @@ import {
 	silentLog,
 	spamConfigFor,
 } from "@remit/mailbox-service/test-helpers/test-store";
+import { APIError } from "better-auth/api";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
@@ -88,6 +89,7 @@ const app = (request: Request, clientIp: string): Promise<Response> => {
 let mainSessionToken: string;
 let ownerId: string;
 let mainJwt: string;
+let connectedAccessToken: string;
 
 const sharedRows = (): unknown[] => {
 	return [
@@ -487,6 +489,50 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(sharedRows(), shared);
 	});
 
+	it("keeps the provider refusal for an expired token without echoing it", async (t) => {
+		t.mock.timers.enable({
+			apis: ["Date"],
+			now: Date.now() + (BROWSER_TOKEN_TTL_SECONDS + 1) * 1000,
+		});
+		try {
+			const response = await listTools(accessToken);
+			assert.equal(response.status, 401);
+			assert.deepEqual(await response.json(), {
+				error: "invalid_token",
+				error_description: "The access token is invalid or expired",
+				resource: RESOURCE,
+			});
+			assert.match(
+				response.headers.get("www-authenticate") ?? "",
+				/error_description="The access token is invalid or expired"/,
+			);
+		} finally {
+			t.mock.timers.reset();
+		}
+	});
+
+	it("never forwards unknown token verification error text", async (t) => {
+		const description = "Rejected credential: rejected-secret-token";
+		t.mock.method(auth.api, "remitMcpVerifyAccessToken", async () => {
+			throw new APIError("UNAUTHORIZED", {
+				error: "invalid_token",
+				error_description: description,
+			});
+		});
+		try {
+			const unknown = await listTools("rejected-secret-token");
+			assert.equal(unknown.status, 401);
+			assert.ok(!(await unknown.text()).includes("rejected-secret-token"));
+			assert.ok(
+				!unknown.headers
+					.get("www-authenticate")
+					?.includes("rejected-secret-token"),
+			);
+		} finally {
+			t.mock.restoreAll();
+		}
+	});
+
 	it("rotates the refresh token and refuses the spent one", async () => {
 		const rotated = await token({
 			grant_type: "refresh_token",
@@ -679,6 +725,7 @@ describe("the MCP authorization server", () => {
 		const otherClientId = await registerClient();
 		const revoked = await mint(clientId);
 		const spared = await mint(otherClientId);
+		connectedAccessToken = spared.access;
 		assert.equal((await listTools(revoked.access)).status, 200);
 		assert.equal((await listTools(spared.access)).status, 200);
 
@@ -703,6 +750,15 @@ describe("the MCP authorization server", () => {
 
 		const refused = await listTools(revoked.access);
 		assert.equal(refused.status, 401);
+		assert.deepEqual(await refused.clone().json(), {
+			error: "invalid_token",
+			error_description: "The user disconnected this client",
+			resource: RESOURCE,
+		});
+		assert.match(
+			refused.headers.get("www-authenticate") ?? "",
+			/error_description="The user disconnected this client"/,
+		);
 		assert.match(
 			refused.headers.get("www-authenticate") ?? "",
 			/error="invalid_token"/,
@@ -805,6 +861,25 @@ describe("a host that authenticates the browser itself", () => {
 		assert.ok((await appsOf(ownerId)).length > 0);
 		assert.deepEqual(await appsOf("host-user-b"), []);
 		assert.ok((await appsOf(ownerId)).length > 0);
+	});
+
+	it("refuses a real issued token when the host reports its account disabled", async () => {
+		assert.equal((await listTools(connectedAccessToken)).status, 200);
+		const response = await hosted(true).handle(
+			new Request(`${MCP_ORIGIN}/mcp`, {
+				headers: { authorization: `Bearer ${connectedAccessToken}` },
+			}),
+		);
+		assert.equal(response.status, 401);
+		assert.deepEqual(await response.json(), {
+			error: "invalid_token",
+			error_description: "The account is disabled",
+			resource: RESOURCE,
+		});
+		assert.match(
+			response.headers.get("www-authenticate") ?? "",
+			/error_description="The account is disabled"/,
+		);
 	});
 
 	it("refuses a disabled subject and audits the refusal", async () => {

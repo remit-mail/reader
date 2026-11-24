@@ -3,7 +3,12 @@ import { after, before, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
-import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
+import { OutboxMessageStatus } from "@remit/domain-enums";
+import {
+	BodySyncService,
+	OutboxAttachmentService,
+	SyncWarningService,
+} from "@remit/mailbox-service";
 import {
 	eml,
 	FakeImapServer,
@@ -23,6 +28,7 @@ import {
 	MCP_ACCOUNT_SCOPE,
 	MCP_OPERATOR_SCOPE,
 	MCP_READ_SCOPE,
+	MCP_SEND_SCOPE,
 } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
@@ -410,4 +416,98 @@ describe("get_message", () => {
 		assert.equal(result.isError, true);
 		assert.match(result.content[0].text, /not found/i);
 	});
+});
+
+describe("oversized MCP requests", () => {
+	for (const declared of [true, false]) {
+		it(`names the byte limit for a ${declared ? "declared" : "streamed"} oversized body`, async () => {
+			const handler = createMcpHandler(
+				{ userId: USER_ID, scopes: [] },
+				deps,
+				false,
+			);
+			const response = await handler(
+				new Request("https://mcp.remit.test/mcp", {
+					method: "POST",
+					headers: declared ? { "content-length": "7056045" } : {},
+					body: declared ? "{}" : new Uint8Array(7056045),
+				}),
+			);
+			assert.equal(response.status, 413);
+			assert.deepEqual(await response.json(), {
+				error: "payload_too_large",
+				message: "Request body exceeds the maximum of 7056044 bytes",
+			});
+		});
+	}
+});
+
+describe("mint_outbox_attachment upload refusals", () => {
+	const cases = [
+		{
+			name: "names the self-hosted server's reason",
+			body: "size-mismatch",
+			status: 400,
+			expected: "The attachment size does not match its reservation",
+		},
+		{
+			name: "names storage's reason without echoing signed request details",
+			body: "<Error><Code>SignatureDoesNotMatch</Code><Message>Rejected credential: secret</Message><SignatureProvided>secret</SignatureProvided></Error>",
+			status: 403,
+			expected: "The upload URL signature is invalid",
+		},
+		{
+			name: "does not echo unrecognized response text or a reason header",
+			body: '{"message":"Rejected password: secret"}',
+			status: 403,
+			expected: "The storage server refused the upload",
+			headers: new Headers({ "x-remit-upload-reason": "rejected secret" }),
+		},
+	];
+	for (const { name, body, status, expected, headers } of cases) {
+		it(name, async (t) => {
+			const draft = await store.outboxMessage.create({
+				accountId: mine.account.accountId,
+				accountConfigId: mine.account.accountConfigId,
+				fromAddress: "mine@example.com",
+				toAddresses: ["recipient@example.com"],
+				messageIdValue: "<draft@example.com>",
+				status: OutboxMessageStatus.draft,
+			});
+			const client = {
+				...deps.client,
+				outboxAttachment: new OutboxAttachmentService({
+					outboxMessageService: store.outboxMessage,
+					outboxAttachmentService: store.outboxAttachment,
+					storage,
+				}),
+			};
+			t.mock.method(globalThis, "fetch", async (url: string) => {
+				assert.ok(new URL(url).searchParams.has("sig"));
+				return new Response(body, { status, headers });
+			});
+			const handler = createMcpHandler(
+				{ userId: USER_ID, scopes: [MCP_SEND_SCOPE] },
+				{ ...deps, client },
+				false,
+			);
+			const result = (
+				await rpc(handler, "tools/call", {
+					name: "mint_outbox_attachment",
+					arguments: {
+						outboxMessageId: draft.outboxMessageId,
+						filename: "attachment.txt",
+						contentType: "text/plain",
+						contentBase64: "YQ==",
+					},
+				})
+			).result as ToolResult;
+			assert.equal(result.isError, true);
+			assert.equal(
+				result.content[0].text,
+				`Attachment upload failed with status ${status}: ${expected}`,
+			);
+			assert.ok(!JSON.stringify(result).includes("secret"));
+		});
+	}
 });

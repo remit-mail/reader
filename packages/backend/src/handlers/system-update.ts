@@ -45,8 +45,6 @@ const refuse = (statusCode: number, message: string): APIGatewayProxyResult =>
 		body: { code: defaultErrorCode(statusCode), message },
 	}) as unknown as APIGatewayProxyResult;
 
-const notFound = (): APIGatewayProxyResult => refuse(404, "Not found");
-
 /**
  * The self-update seam is off unless a manifest URL is configured (RFC 037 D8),
  * which the hosted deployment leaves unset. Both endpoints answer 404 in that
@@ -56,7 +54,9 @@ const notFound = (): APIGatewayProxyResult => refuse(404, "Not found");
 const guardManifestConfigured = (
 	config: ApiConfig,
 ): APIGatewayProxyResult | null =>
-	config.selfUpdate === "Enabled" ? null : notFound();
+	config.selfUpdate === "Enabled"
+		? null
+		: refuse(404, "Self-update is not configured");
 
 /**
  * Read `state.json` off the control volume. A missing file is an instance that

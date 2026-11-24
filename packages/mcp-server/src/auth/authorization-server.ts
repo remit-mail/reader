@@ -345,7 +345,10 @@ const remitMcpBridge = (
 				},
 				async (ctx) => {
 					if (!signInEnabled) {
-						throw new APIError("UNAUTHORIZED", { error: "invalid_token" });
+						throw new APIError("UNAUTHORIZED", {
+							error: "invalid_token",
+							error_description: "Sign-in is disabled on this server",
+						});
 					}
 					const payload = await getOAuthProviderApi(
 						ctx,
@@ -864,15 +867,39 @@ export const createBetterAuthTokenVerifier = (
 		const payload = await auth.api
 			.remitMcpVerifyAccessToken({ body: { token: bearer } })
 			.catch((error: unknown) => {
-				if (isAPIError(error)) return undefined;
+				if (isAPIError(error)) return error;
 				throw error;
 			});
-		if (!payload) return { ok: false, reason: "invalid_token" };
+		if (isAPIError(payload)) {
+			const description = payload.body?.error_description;
+			const safeReasons = [
+				"The user disconnected this client",
+				"The account is disabled",
+				"Sign-in is disabled on this server",
+			];
+			if (
+				typeof description === "string" &&
+				safeReasons.includes(description)
+			) {
+				return { ok: false, description };
+			}
+			// The provider does not distinguish expired tokens from invalid ones.
+			return {
+				ok: false,
+				description: "The access token is invalid or expired",
+			};
+		}
 		if (!audienceOf(payload.aud).includes(mcpResource(origin))) {
-			return { ok: false, reason: "wrong_audience" };
+			return {
+				ok: false,
+				description: "The access token is for a different resource",
+			};
 		}
 		if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-			return { ok: false, reason: "no_subject" };
+			return {
+				ok: false,
+				description: "The access token has no subject",
+			};
 		}
 		const scopes =
 			typeof payload.scope === "string"
