@@ -38,6 +38,7 @@ it("advances lastSyncAt when mailbox discovery records an error", async (t) => {
 	const account = await world.client.account.get(accountId);
 	assert.equal(account.syncPhase, SyncPhase.error);
 	assert.equal(account.lastError, failure.message);
+	assert.ok(account.lastSyncAt !== undefined);
 	assert.ok(account.lastSyncAt > lastSyncAt);
 });
 
