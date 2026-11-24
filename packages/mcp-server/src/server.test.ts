@@ -411,3 +411,27 @@ describe("get_message", () => {
 		assert.match(result.content[0].text, /not found/i);
 	});
 });
+
+describe("oversized MCP requests", () => {
+	for (const declared of [true, false]) {
+		it(`names the byte limit for a ${declared ? "declared" : "streamed"} oversized body`, async () => {
+			const handler = createMcpHandler(
+				{ userId: USER_ID, scopes: [] },
+				deps,
+				false,
+			);
+			const response = await handler(
+				new Request("https://mcp.remit.test/mcp", {
+					method: "POST",
+					headers: declared ? { "content-length": "7056045" } : {},
+					body: declared ? "{}" : new Uint8Array(7056045),
+				}),
+			);
+			assert.equal(response.status, 413);
+			assert.deepEqual(await response.json(), {
+				error: "payload_too_large",
+				message: "Request body exceeds the maximum of 7056044 bytes",
+			});
+		});
+	}
+});

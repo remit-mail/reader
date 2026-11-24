@@ -36,6 +36,7 @@ import {
 	silentLog,
 	spamConfigFor,
 } from "@remit/mailbox-service/test-helpers/test-store";
+import { APIError } from "better-auth/api";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
@@ -487,6 +488,58 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(sharedRows(), shared);
 	});
 
+	it("names an expired access token without echoing it", async (t) => {
+		t.mock.timers.enable({
+			apis: ["Date"],
+			now: Date.now() + (BROWSER_TOKEN_TTL_SECONDS + 1) * 1000,
+		});
+		try {
+			const response = await listTools(accessToken);
+			assert.equal(response.status, 401);
+			assert.deepEqual(await response.json(), {
+				error: "invalid_token",
+				error_description: "The access token has expired",
+				resource: RESOURCE,
+			});
+			assert.match(
+				response.headers.get("www-authenticate") ?? "",
+				/error_description="The access token has expired"/,
+			);
+		} finally {
+			t.mock.timers.reset();
+		}
+	});
+
+	it("keeps a disabled-account reason and never forwards unknown error text", async (t) => {
+		let description = "The account is disabled";
+		t.mock.method(auth.api, "remitMcpVerifyAccessToken", async () => {
+			throw new APIError("UNAUTHORIZED", {
+				error: "invalid_token",
+				error_description: description,
+			});
+		});
+		try {
+			const disabled = await listTools("rejected-secret-token");
+			assert.equal(disabled.status, 401);
+			assert.deepEqual(await disabled.json(), {
+				error: "invalid_token",
+				error_description: "The account is disabled",
+				resource: RESOURCE,
+			});
+			description = "Rejected credential: rejected-secret-token";
+			const unknown = await listTools("rejected-secret-token");
+			assert.equal(unknown.status, 401);
+			assert.ok(!(await unknown.text()).includes("rejected-secret-token"));
+			assert.ok(
+				!unknown.headers
+					.get("www-authenticate")
+					?.includes("rejected-secret-token"),
+			);
+		} finally {
+			t.mock.restoreAll();
+		}
+	});
+
 	it("rotates the refresh token and refuses the spent one", async () => {
 		const rotated = await token({
 			grant_type: "refresh_token",
@@ -703,6 +756,15 @@ describe("the MCP authorization server", () => {
 
 		const refused = await listTools(revoked.access);
 		assert.equal(refused.status, 401);
+		assert.deepEqual(await refused.clone().json(), {
+			error: "invalid_token",
+			error_description: "The user disconnected this client",
+			resource: RESOURCE,
+		});
+		assert.match(
+			refused.headers.get("www-authenticate") ?? "",
+			/error_description="The user disconnected this client"/,
+		);
 		assert.match(
 			refused.headers.get("www-authenticate") ?? "",
 			/error="invalid_token"/,

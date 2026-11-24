@@ -17,6 +17,7 @@ import {
 } from "@remit/backend/outbox-operations";
 import type { McpDeps } from "./deps.js";
 import { asJson, toolError } from "./tool-result.js";
+import { attachmentUploadFailure } from "./upload-error.js";
 
 export const MCP_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -182,9 +183,7 @@ export const registerMailTools = (
 				body: content,
 			});
 			if (!uploaded.ok) {
-				throw new Error(
-					`Attachment upload failed with status ${uploaded.status}`,
-				);
+				throw new Error(await attachmentUploadFailure(uploaded));
 			}
 			return asJson(minted);
 		},

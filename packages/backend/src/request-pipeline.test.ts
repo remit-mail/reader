@@ -63,9 +63,12 @@ describe("a request the spec refuses before any handler runs", () => {
 		};
 
 		assert.equal(body.code, "invalid_request");
-		assert.equal(body.message, "Invalid request");
+		assert.match(body.message, /^Invalid request: /);
 		assert.ok(body.errors.length > 0);
 		for (const detail of body.errors) {
+			assert.ok(
+				body.message.includes(`${detail.path || "/"}: ${detail.message}`),
+			);
 			assert.deepEqual(Object.keys(detail).sort(), ["message", "path", "rule"]);
 			assert.equal(typeof detail.path, "string");
 			assert.equal(typeof detail.rule, "string");

@@ -30,6 +30,7 @@ import {
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { jwt } from "better-auth/plugins";
+import { createLocalJWKSet, errors as joseErrors, jwtVerify } from "jose";
 import { z } from "zod";
 import {
 	MCP_OPERATOR_SCOPE,
@@ -345,7 +346,10 @@ const remitMcpBridge = (
 				},
 				async (ctx) => {
 					if (!signInEnabled) {
-						throw new APIError("UNAUTHORIZED", { error: "invalid_token" });
+						throw new APIError("UNAUTHORIZED", {
+							error: "invalid_token",
+							error_description: "Sign-in is disabled on this server",
+						});
 					}
 					const payload = await getOAuthProviderApi(
 						ctx,
@@ -864,15 +868,58 @@ export const createBetterAuthTokenVerifier = (
 		const payload = await auth.api
 			.remitMcpVerifyAccessToken({ body: { token: bearer } })
 			.catch((error: unknown) => {
-				if (isAPIError(error)) return undefined;
+				if (isAPIError(error)) return error;
 				throw error;
 			});
-		if (!payload) return { ok: false, reason: "invalid_token" };
+		if (isAPIError(payload)) {
+			const description = payload.body?.error_description;
+			const safeReasons = [
+				"The user disconnected this client",
+				"The account is disabled",
+				"Sign-in is disabled on this server",
+			];
+			if (
+				typeof description === "string" &&
+				safeReasons.includes(description)
+			) {
+				return { ok: false, reason: "invalid_token", description };
+			}
+			// The provider collapses JWT expiry into "Invalid access token".
+			// Verify again only to recover that reason; this never admits a token.
+			try {
+				await jwtVerify(bearer, createLocalJWKSet(await auth.api.getJwks()), {
+					issuer: origin,
+					audience: mcpResource(origin),
+				});
+			} catch (error) {
+				if (error instanceof joseErrors.JWTExpired) {
+					return {
+						ok: false,
+						reason: "invalid_token",
+						description: "The access token has expired",
+					};
+				}
+				if (!(error instanceof joseErrors.JOSEError)) throw error;
+			}
+			return {
+				ok: false,
+				reason: "invalid_token",
+				description: "The access token is invalid",
+			};
+		}
 		if (!audienceOf(payload.aud).includes(mcpResource(origin))) {
-			return { ok: false, reason: "wrong_audience" };
+			return {
+				ok: false,
+				reason: "wrong_audience",
+				description: "The access token is for a different resource",
+			};
 		}
 		if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-			return { ok: false, reason: "no_subject" };
+			return {
+				ok: false,
+				reason: "no_subject",
+				description: "The access token has no subject",
+			};
 		}
 		const scopes =
 			typeof payload.scope === "string"

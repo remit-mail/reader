@@ -150,7 +150,14 @@ export const createMcpHandler =
 	): McpRequestHandler =>
 	async (request) => {
 		const bounded = await boundedRequest(request);
-		if (!bounded) return new Response(null, { status: 413 });
+		if (!bounded)
+			return Response.json(
+				{
+					error: "payload_too_large",
+					message: `Request body exceeds the maximum of ${MCP_REQUEST_MAX_BYTES} bytes`,
+				},
+				{ status: 413 },
+			);
 		const server = buildServer(principal, deps, isOperator);
 		const transport = new WebStandardStreamableHTTPServerTransport({
 			sessionIdGenerator: undefined,

@@ -45,19 +45,30 @@ const RESOURCE_METADATA_PATH = `${PROTECTED_RESOURCE_METADATA_PATH}${MCP_PATH}`;
 export const challenge = (
 	{ origin }: McpResourceConfig,
 	error: McpChallengeError,
+	errorDescription?: string,
 ): Response =>
-	new Response(JSON.stringify({ error, resource: mcpResource(origin) }), {
-		status: 401,
-		headers: {
-			"content-type": "application/json",
-			"www-authenticate": [
-				"Bearer",
-				` resource_metadata="${origin}${RESOURCE_METADATA_PATH}",`,
-				` scope="${MCP_SCOPES.join(" ")}"`,
-				error === "unauthorized" ? "" : `, error="${error}"`,
-			].join(""),
+	new Response(
+		JSON.stringify({
+			error,
+			error_description: errorDescription,
+			resource: mcpResource(origin),
+		}),
+		{
+			status: 401,
+			headers: {
+				"content-type": "application/json",
+				"www-authenticate": [
+					"Bearer",
+					` resource_metadata="${origin}${RESOURCE_METADATA_PATH}",`,
+					` scope="${MCP_SCOPES.join(" ")}"`,
+					error === "unauthorized" ? "" : `, error="${error}"`,
+					errorDescription
+						? `, error_description="${errorDescription.replace(/["\\\r\n]/g, " ")}"`
+						: "",
+				].join(""),
+			},
 		},
-	});
+	);
 
 export const protectedResourceMetadata = ({
 	origin,
@@ -410,7 +421,12 @@ export const createMcpApp = (config: McpAppConfig): McpRequestHandler => {
 		);
 		if (!bearer) return challenge(config, "unauthorized");
 		const verification = await config.verifier.verify(bearer);
-		if (!verification.ok) return challenge(config, "invalid_token");
+		if (!verification.ok)
+			return challenge(
+				config,
+				"invalid_token",
+				verification.description ?? "The access token is invalid",
+			);
 		return createMcpHandler(
 			verification.principal,
 			config.deps,
